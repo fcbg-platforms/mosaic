@@ -1,0 +1,37 @@
+# Build artifacts
+build/
+out/
+cmake-build-*/
+
+# IDE project files
+.vs/
+.vscode/settings.json
+.idea/
+*.user
+*.suo
+CMakeCache.txt
+CMakeFiles/
+
+# Compiled binaries
+*.exe
+*.dll
+*.so
+*.dylib
+*.a
+*.lib
+*.pdb
+
+# vcpkg installed
+vcpkg_installed/
+
+# Qt generated
+*.qm
+moc_*.cpp
+ui_*.h
+qrc_*.cpp
+
+# macOS
+.DS_Store
+
+# Windows
+Thumbs.db
