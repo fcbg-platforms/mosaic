@@ -10,32 +10,59 @@ set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-# Output binaries to a predictable location
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
 set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
 
-# Compiler options module
 include(cmake/CompilerOptions.cmake)
 
-# Optional: vcpkg integration (set VCPKG_ROOT env or pass -DCMAKE_TOOLCHAIN_FILE)
+# Optional: vcpkg integration
 if(DEFINED ENV{VCPKG_ROOT} AND NOT DEFINED CMAKE_TOOLCHAIN_FILE)
     set(CMAKE_TOOLCHAIN_FILE "$ENV{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake" CACHE STRING "")
 endif()
 
-# Find Qt (version pinned to major only; test with Qt 6.x)
-find_package(Qt6 6.4 REQUIRED COMPONENTS Core Gui Widgets Network SerialPort Multimedia)
+find_package(Qt6 6.4 REQUIRED COMPONENTS
+    Core Gui Widgets Network SerialPort Multimedia
+    Quick QuickWidgets
+)
 qt_standard_project_setup()
 
-# Third-party: Pylon (Basler cameras)
+# ── Feature flags ─────────────────────────────────────────────────────────
+option(MOSAIC_ENABLE_CAMERAS       "Build Basler Pylon camera support"         OFF)
+option(MOSAIC_ENABLE_FFMPEG        "Build FFmpeg video encoding"               OFF)
+option(MOSAIC_ENABLE_NVENC         "Build NVIDIA NVENC GPU encoder (implies FFmpeg)" OFF)
+option(MOSAIC_ENABLE_PARALLEL_PORT "Build InpOut32 parallel port trigger"      OFF)
+option(MOSAIC_ENABLE_LSL           "Build Lab Streaming Layer support"         OFF)
+option(MOSAIC_ENABLE_OPENCV        "Build OpenCV calibration"                  OFF)
+
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/cmake")
-find_package(Pylon REQUIRED)
-find_package(FFmpeg REQUIRED COMPONENTS avcodec avformat avutil swscale swresample)
-find_package(OpenCV REQUIRED COMPONENTS core imgproc)
+
+# ── Cameras (Basler Pylon) ─────────────────────────────────────────────────
+if(MOSAIC_ENABLE_CAMERAS)
+    find_package(Pylon REQUIRED)
+endif()
+
+# ── FFmpeg / NVENC ─────────────────────────────────────────────────────────
+if(MOSAIC_ENABLE_NVENC)
+    set(MOSAIC_ENABLE_FFMPEG ON CACHE BOOL "" FORCE)
+endif()
+
+if(MOSAIC_ENABLE_FFMPEG)
+    find_package(FFmpeg REQUIRED COMPONENTS avcodec avformat avutil swscale swresample)
+endif()
+
+# ── OpenCV ─────────────────────────────────────────────────────────────────
+if(MOSAIC_ENABLE_OPENCV)
+    find_package(OpenCV REQUIRED COMPONENTS core imgproc calib3d)
+endif()
+
+# ── Lab Streaming Layer ────────────────────────────────────────────────────
+if(MOSAIC_ENABLE_LSL)
+    find_package(LSL REQUIRED)
+endif()
 
 add_subdirectory(src)
 
-# Tests — only build when explicitly requested
 option(MOSAIC_BUILD_TESTS "Build unit tests" OFF)
 if(MOSAIC_BUILD_TESTS)
     enable_testing()
