@@ -1,4 +1,5 @@
 #pragma once
+#include "analysis/analysis_manager.hpp"
 #include "audio/audio_manager.hpp"
 #include "core/settings.hpp"
 #include "record/record_manager.hpp"
@@ -20,20 +21,18 @@ namespace mosaic {
 //   │  ├─ Triggers         │                                      │
 //   │  └─ Record           │                                      │
 //   └──────────────────────┴──────────────────────────────────────┘
-//
-// The QML view communicates with C++ through a MonitorBridge QObject
-// that will be registered as a QML context property (added later).
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
 public:
-    explicit MainWindow(AppSettings&    settings,
-                        const QString&  username,
-                        TriggerManager* triggerMgr,
-                        AudioManager*   audioMgr,
-                        VideoManager*   videoMgr,
-                        RecordManager*  recordMgr,
-                        QWidget*        parent = nullptr);
+    explicit MainWindow(AppSettings&     settings,
+                        const QString&   username,
+                        TriggerManager*  triggerMgr,
+                        AudioManager*    audioMgr,
+                        VideoManager*    videoMgr,
+                        RecordManager*   recordMgr,
+                        AnalysisManager* analysisMgr,
+                        QWidget*         parent = nullptr);
     ~MainWindow() override;
 
 signals:

@@ -4,7 +4,10 @@
 #include "ui/logger/logger_panel_w.hpp"
 #include "ui/monitor_bridge.hpp"
 #include "ui/record/record_settings_w.hpp"
+#include "ui/session/session_browser_w.hpp"
+#include "ui/trigger/trigger_event_panel_w.hpp"
 #include "ui/trigger/trigger_settings_w.hpp"
+#include "ui/video/performance_monitor_w.hpp"
 #include "ui/video/video_settings_w.hpp"
 #include "utils/logger.hpp"
 #include <QAction>
@@ -25,36 +28,40 @@
 namespace mosaic {
 
 struct MainWindow::Impl {
-    AppSettings&    settings;
-    QString         username;
-    TriggerManager* triggerMgr   = nullptr;
-    AudioManager*   audioMgr     = nullptr;
-    VideoManager*   videoMgr     = nullptr;
-    RecordManager*  recordMgr    = nullptr;
-    MonitorBridge*  bridge       = nullptr;
+    AppSettings&     settings;
+    QString          username;
+    TriggerManager*  triggerMgr   = nullptr;
+    AudioManager*    audioMgr     = nullptr;
+    VideoManager*    videoMgr     = nullptr;
+    RecordManager*   recordMgr    = nullptr;
+    AnalysisManager* analysisMgr  = nullptr;
+    MonitorBridge*   bridge       = nullptr;
 
-    QSplitter*      mainSplitter  = nullptr;  // horizontal: sidebar | right
-    QSplitter*      rightSplitter = nullptr;  // vertical:   monitor / logger
+    QSplitter*      mainSplitter  = nullptr;
+    QSplitter*      rightSplitter = nullptr;
     QTabWidget*     settingsTabs  = nullptr;
     QQuickWidget*   monitorView   = nullptr;
     LoggerPanelW*   loggerPanel   = nullptr;
     QLabel*         statusLabel   = nullptr;
 
     explicit Impl(AppSettings& s, const QString& user, TriggerManager* tm,
-                  AudioManager* am, VideoManager* vm, RecordManager* rm)
+                  AudioManager* am, VideoManager* vm, RecordManager* rm,
+                  AnalysisManager* anlm)
         : settings(s), username(user)
-        , triggerMgr(tm), audioMgr(am), videoMgr(vm), recordMgr(rm) {}
+        , triggerMgr(tm), audioMgr(am), videoMgr(vm), recordMgr(rm)
+        , analysisMgr(anlm) {}
 };
 
-MainWindow::MainWindow(AppSettings&    settings,
-                        const QString&  username,
-                        TriggerManager* triggerMgr,
-                        AudioManager*   audioMgr,
-                        VideoManager*   videoMgr,
-                        RecordManager*  recordMgr,
-                        QWidget*        parent)
+MainWindow::MainWindow(AppSettings&     settings,
+                        const QString&   username,
+                        TriggerManager*  triggerMgr,
+                        AudioManager*    audioMgr,
+                        VideoManager*    videoMgr,
+                        RecordManager*   recordMgr,
+                        AnalysisManager* analysisMgr,
+                        QWidget*         parent)
     : QMainWindow(parent)
-    , d(std::make_unique<Impl>(settings, username, triggerMgr, audioMgr, videoMgr, recordMgr))
+    , d(std::make_unique<Impl>(settings, username, triggerMgr, audioMgr, videoMgr, recordMgr, analysisMgr))
 {
     const QString userLabel = (username == "guest") ? "Guest" : ("@" + username);
     setWindowTitle(QString("MOSAIC — %1").arg(userLabel));
@@ -90,6 +97,14 @@ void MainWindow::build_menu_bar() {
         QDesktopServices::openUrl(QUrl::fromLocalFile(path));
     });
     file->addAction(openAction);
+
+    auto* browseAction = new QAction("&Browse Sessions…", this);
+    browseAction->setShortcut(QKeySequence("Ctrl+B"));
+    connect(browseAction, &QAction::triggered, this, [this] {
+        SessionBrowserW browser(d->settings.record.directory, d->analysisMgr, this);
+        browser.exec();
+    });
+    file->addAction(browseAction);
     file->addSeparator();
 
     auto* switchAction = new QAction(
@@ -170,15 +185,19 @@ void MainWindow::build_central_widget() {
     d->settingsTabs->setDocumentMode(true);
 
     d->settingsTabs->addTab(
-        new VideoSettingsW(d->settings.video),                             "Video");
+        new VideoSettingsW(d->settings.video),                              "Video");
     d->settingsTabs->addTab(
-        new AudioSettingsW(d->settings.audio, d->audioMgr),               "Audio");
+        new AudioSettingsW(d->settings.audio, d->audioMgr),                "Audio");
     d->settingsTabs->addTab(
-        new TriggerSettingsW(d->settings.trigger, d->triggerMgr),    "Triggers");
+        new TriggerSettingsW(d->settings.trigger, d->triggerMgr),      "Triggers");
     d->settingsTabs->addTab(
-        new RecordSettingsW(d->settings.record),                         "Record");
+        new TriggerEventPanelW(d->triggerMgr),                            "Events");
     d->settingsTabs->addTab(
-        new CalibrationW(d->settings.video),                         "Calibrate");
+        new RecordSettingsW(d->settings.record),                           "Record");
+    d->settingsTabs->addTab(
+        new PerformanceMonitorW(d->videoMgr, d->audioMgr, d->analysisMgr),  "Perf");
+    d->settingsTabs->addTab(
+        new CalibrationW(d->settings.video),                           "Calibrate");
 
     d->mainSplitter->addWidget(d->settingsTabs);
 
