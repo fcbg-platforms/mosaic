@@ -1,5 +1,7 @@
 #include "core/application.hpp"
+#include "analysis/analysis_manager.hpp"
 #include "auth/profile_manager.hpp"
+#include "trigger/trigger_types.hpp"
 #include "ui/main_window.hpp"
 #include "utils/logger.hpp"
 #include "utils/timestamp.hpp"
@@ -15,6 +17,7 @@ struct Application::Impl {
     std::unique_ptr<AudioManager>    audioManager;
     std::unique_ptr<VideoManager>    videoManager;
     std::unique_ptr<RecordManager>   recordManager;
+    std::unique_ptr<AnalysisManager> analysisManager;
     std::unique_ptr<MainWindow>      mainWindow;
 };
 
@@ -62,10 +65,34 @@ void Application::initialize(const QString& username) {
         d->settings, d->triggerManager.get(),
         d->audioManager.get(), d->videoManager.get(), d->username, this);
 
+    // Trigger → action binding: let triggers start/stop recording automatically.
+    connect(d->triggerManager.get(), &TriggerManager::action_requested,
+            this, [this](TriggerAction action, const TriggerEvent& /*event*/) {
+        if (action == TriggerAction::StartRecording) {
+            if (!d->recordManager->is_recording()) {
+                [[maybe_unused]] const bool started = d->recordManager->start();
+            }
+        } else if (action == TriggerAction::StopRecording) {
+            if (d->recordManager->is_recording())  { d->recordManager->stop(); }
+        }
+    });
+
+    // Analysis manager — post-recording pose estimation
+    d->analysisManager = std::make_unique<AnalysisManager>(this);
+    connect(d->analysisManager.get(), &AnalysisManager::output_received,
+            this, [](const QString& line) { log_info("[Analysis] " + line); });
+    connect(d->analysisManager.get(), &AnalysisManager::setup_error,
+            this, [](const QString& msg) { log_error("[Analysis] " + msg); });
+    connect(d->recordManager.get(), &RecordManager::recording_stopped,
+            this, [this](const QString& path, int /*durationMs*/) {
+        d->analysisManager->analyze_session(path);
+    });
+
     d->mainWindow = std::make_unique<MainWindow>(
         d->settings, d->username,
         d->triggerManager.get(), d->audioManager.get(),
-        d->videoManager.get(), d->recordManager.get());
+        d->videoManager.get(), d->recordManager.get(),
+        d->analysisManager.get());
     d->mainWindow->show();
 
     log_info("Initialisation complete.");
