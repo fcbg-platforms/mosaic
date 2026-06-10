@@ -1,26 +1,189 @@
-qt_add_executable(mosaic
+qt_add_executable(mosaic MACOSX_BUNDLE
     main.cpp
-    core/application.cpp       core/application.hpp
-    core/settings.cpp          core/settings.hpp
-    video/video_manager.cpp    video/video_manager.hpp
-    video/camera_grabber.cpp   video/camera_grabber.hpp
-    video/video_encoder.cpp    video/video_encoder.hpp
-    audio/audio_manager.cpp    audio/audio_manager.hpp
-    audio/audio_recorder.cpp   audio/audio_recorder.hpp
-    trigger/trigger_manager.cpp trigger/trigger_manager.hpp
-    trigger/trigger.cpp         trigger/trigger.hpp
-    ui/main_window.cpp         ui/main_window.hpp
-    utils/logger.cpp           utils/logger.hpp
-    utils/ring_buffer.hpp
+
+    # ── Authentication / profile management ───────────────────────────────
+    auth/profile.hpp
+    auth/profile_manager.hpp
+    auth/profile_manager.cpp
+    ui/auth/login_dialog.hpp
+    ui/auth/login_dialog.cpp
+    ui/auth/admin_panel_dialog.hpp
+    ui/auth/admin_panel_dialog.cpp
+
+    # ── Analysis manager ──────────────────────────────────────────────────
+    analysis/analysis_manager.hpp
+    analysis/analysis_manager.cpp
+
+    # ── Foundation ────────────────────────────────────────────────────────
+    utils/logger.hpp
+    utils/logger.cpp
     utils/timestamp.hpp
+    utils/ring_buffer.hpp
+
+    # ── Core ──────────────────────────────────────────────────────────────
+    core/settings.hpp
+    core/settings.cpp
+    core/application.hpp
+    core/application.cpp
+
+    # ── UI chrome ─────────────────────────────────────────────────────────
+    ui/style.hpp
+    ui/main_window.hpp
+    ui/main_window.cpp
+
+    # ── Logger panel ──────────────────────────────────────────────────────
+    ui/logger/logger_panel_w.hpp
+    ui/logger/logger_panel_w.cpp
+
+    # ── Video settings panel ──────────────────────────────────────────────
+    ui/video/video_settings_w.hpp
+    ui/video/video_settings_w.cpp
+    ui/video/camera_card_w.hpp
+    ui/video/camera_card_w.cpp
+    ui/video/performance_monitor_w.hpp
+    ui/video/performance_monitor_w.cpp
+
+    # ── Audio settings panel ──────────────────────────────────────────────
+    ui/audio/audio_settings_w.hpp
+    ui/audio/audio_settings_w.cpp
+    ui/audio/audio_waveform_w.hpp
+    ui/audio/audio_waveform_w.cpp
+    ui/audio/microphone_card_w.hpp
+    ui/audio/microphone_card_w.cpp
+
+    # ── Record settings panel ─────────────────────────────────────────────
+    ui/record/record_settings_w.hpp
+    ui/record/record_settings_w.cpp
+
+    # ── Trigger backend ───────────────────────────────────────────────────
+    trigger/trigger_types.hpp
+    trigger/keyboard_trigger.hpp
+    trigger/keyboard_trigger.cpp
+    trigger/serial_trigger.hpp
+    trigger/serial_trigger.cpp
+    trigger/trigger_recorder.hpp
+    trigger/trigger_recorder.cpp
+    trigger/trigger_manager.hpp
+    trigger/trigger_manager.cpp
+    trigger/lsl_outlet.hpp
+    trigger/lsl_outlet.cpp
+    trigger/lsl_inlet.hpp
+    trigger/lsl_inlet.cpp
+    trigger/parallel_port_trigger.hpp
+    trigger/parallel_port_trigger.cpp
+
+    # ── Trigger settings panel ────────────────────────────────────────────
+    ui/trigger/keyboard_card_w.hpp
+    ui/trigger/keyboard_card_w.cpp
+    ui/trigger/serial_card_w.hpp
+    ui/trigger/serial_card_w.cpp
+    ui/trigger/trigger_settings_w.hpp
+    ui/trigger/trigger_settings_w.cpp
+    ui/trigger/trigger_event_panel_w.hpp
+    ui/trigger/trigger_event_panel_w.cpp
+    ui/trigger/parallel_port_card_w.hpp
+    ui/trigger/parallel_port_card_w.cpp
+
+    # ── Audio backend ─────────────────────────────────────────────────────
+    audio/wav_writer.hpp
+    audio/wav_writer.cpp
+    audio/audio_recorder.hpp
+    audio/audio_recorder.cpp
+    audio/audio_manager.hpp
+    audio/audio_manager.cpp
+
+    # ── Video backend ─────────────────────────────────────────────────────
+    video/video_frame.hpp
+    video/frame_timestamp_writer.hpp
+    video/frame_timestamp_writer.cpp
+    video/video_grabber.hpp
+    video/video_grabber.cpp
+    video/video_encoder.hpp
+    video/video_encoder.cpp
+    video/video_manager.hpp
+    video/video_manager.cpp
+
+    # ── Calibration ───────────────────────────────────────────────────────
+    calibration/calibration_manager.hpp
+    calibration/calibration_manager.cpp
+    ui/calibration/calibration_w.hpp
+    ui/calibration/calibration_w.cpp
+
+    # ── Record manager ────────────────────────────────────────────────────
+    record/record_manager.hpp
+    record/record_manager.cpp
+
+    # ── Session browser ────────────────────────────────────────────────────
+    session/session_info.hpp
+    ui/session/session_browser_w.hpp
+    ui/session/session_browser_w.cpp
+
+    # ── QML bridge ────────────────────────────────────────────────────────
+    ui/monitor_bridge.hpp
+    ui/monitor_bridge.cpp
+)
+
+qt_add_resources(mosaic "qml_resources"
+    PREFIX "/"
+    BASE   "${CMAKE_CURRENT_SOURCE_DIR}"
+    FILES
+        qml/MonitorView.qml
+)
+
+set_target_properties(mosaic PROPERTIES
+    MACOSX_BUNDLE_GUI_IDENTIFIER  "lab.csru.mosaic"
+    MACOSX_BUNDLE_BUNDLE_VERSION  ${PROJECT_VERSION}
+    MACOSX_BUNDLE_SHORT_VERSION_STRING "${PROJECT_VERSION_MAJOR}.${PROJECT_VERSION_MINOR}"
 )
 
 target_include_directories(mosaic PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 
 target_link_libraries(mosaic PRIVATE
     mosaic_compiler_options
-    Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Network Qt6::SerialPort Qt6::Multimedia
-    Pylon::Pylon
-    FFmpeg::avcodec FFmpeg::avformat FFmpeg::avutil FFmpeg::swscale FFmpeg::swresample
-    opencv_core opencv_imgproc
+    Qt6::Core
+    Qt6::Gui
+    Qt6::Widgets
+    Qt6::Network
+    Qt6::SerialPort
+    Qt6::Multimedia
+    Qt6::Quick
+    Qt6::QuickWidgets
 )
+
+# ── Optional hardware subsystems ───────────────────────────────────────────
+
+if(MOSAIC_ENABLE_CAMERAS)
+    target_link_libraries(mosaic PRIVATE Pylon::Pylon)
+    target_compile_definitions(mosaic PRIVATE MOSAIC_HAVE_CAMERAS)
+endif()
+
+if(MOSAIC_ENABLE_FFMPEG)
+    target_link_libraries(mosaic PRIVATE
+        FFmpeg::avcodec FFmpeg::avformat FFmpeg::avutil
+        FFmpeg::swscale FFmpeg::swresample)
+    target_compile_definitions(mosaic PRIVATE MOSAIC_HAVE_FFMPEG)
+endif()
+
+if(MOSAIC_ENABLE_NVENC)
+    target_compile_definitions(mosaic PRIVATE MOSAIC_HAVE_NVENC)
+endif()
+
+if(MOSAIC_ENABLE_PARALLEL_PORT)
+    target_compile_definitions(mosaic PRIVATE MOSAIC_HAVE_PARALLEL_PORT)
+endif()
+
+if(MOSAIC_ENABLE_LSL)
+    target_link_libraries(mosaic PRIVATE LSL::lsl)
+    target_compile_definitions(mosaic PRIVATE MOSAIC_HAVE_LSL)
+endif()
+
+if(MOSAIC_ENABLE_OPENCV)
+    target_link_libraries(mosaic PRIVATE
+        opencv_core opencv_imgproc opencv_calib3d)
+    target_compile_definitions(mosaic PRIVATE MOSAIC_HAVE_OPENCV)
+endif()
+
+# macOS: VideoToolbox via FFmpeg (requires FFMPEG to be enabled)
+if(APPLE AND MOSAIC_ENABLE_FFMPEG AND NOT MOSAIC_ENABLE_NVENC)
+    target_compile_definitions(mosaic PRIVATE MOSAIC_HAVE_VIDEOTOOLBOX)
+endif()
