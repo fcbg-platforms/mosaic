@@ -25,6 +25,7 @@
 #include <QMessageBox>
 #include <QQmlContext>
 #include <QQuickWidget>
+#include <QSet>
 #include <QSettings>
 #include <QTimer>
 #include <QSplitter>
@@ -51,6 +52,14 @@ struct MainWindow::Impl {
     LoggerPanelW*   loggerPanel   = nullptr;
     QLabel*         statusLabel   = nullptr;
     PoseWorker*     poseWorker    = nullptr;
+
+    // Coalesces rapid-fire camera_params_changed emissions (e.g. dragging a
+    // slider fires valueChanged on every intermediate tick) into a single
+    // VideoManager::apply_live_params() call per camera, ~150ms after the
+    // user stops changing that camera's controls, instead of one blocking
+    // round-trip of GenICam node writes per tick.
+    QTimer*     liveApplyDebounce       = nullptr;
+    QSet<int>   pendingLiveApplyIndices;
 
     explicit Impl(AppSettings& s, const QString& user, TriggerManager* tm,
                   AudioManager* am, VideoManager* vm, RecordManager* rm,
@@ -282,6 +291,35 @@ void MainWindow::build_central_widget() {
             log_info("[Main] cameras_list_changed: handler done");
         });
         log_info("[Main] cameras_list_changed: timer scheduled, outer handler returning");
+    });
+
+    // A single camera's own parameters changed (exposure/gain/gamma/black
+    // level/white balance/auto-target/digital shift, etc.) — push the
+    // subset that's safe to change live straight to the open camera instead
+    // of waiting for the next full close+reopen cycle. Structural changes
+    // (resolution, pixel format, frame rate, HW trigger) are silently a
+    // no-op here (VideoGrabber::apply_live_params only touches the safe
+    // subset) and still require cameras_list_changed's reopen path.
+    //
+    // Debounced: a slider drag fires this once per intermediate tick, and
+    // each call would otherwise mean a fresh round of GenICam node writes —
+    // coalesce bursts for the same camera into one apply, shortly after the
+    // user stops moving the control.
+    d->liveApplyDebounce = new QTimer(this);
+    d->liveApplyDebounce->setSingleShot(true);
+    d->liveApplyDebounce->setInterval(150);
+    connect(d->liveApplyDebounce, &QTimer::timeout, this, [this] {
+        if (d->videoMgr) {
+            const QSet<int> indices = d->pendingLiveApplyIndices;
+            for (const int index : indices) {
+                d->videoMgr->apply_live_params(index);
+            }
+        }
+        d->pendingLiveApplyIndices.clear();
+    });
+    connect(videoSettingsW, &VideoSettingsW::camera_params_changed, this, [this](int index) {
+        d->pendingLiveApplyIndices.insert(index);
+        d->liveApplyDebounce->start();
     });
 
     // Start real-time pose worker if the Python venv is available.

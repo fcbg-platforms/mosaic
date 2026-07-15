@@ -41,6 +41,17 @@ static QSpinBox* make_spin(int min, int max, int val, int step = 1) {
 static QComboBox* make_combo(const QStringList& items, const QString& current) {
     auto* w = new QComboBox;
     w->addItems(items);
+    // A non-editable QComboBox::setCurrentText() silently does nothing if
+    // `current` isn't one of `items` — the box would show whatever item 0
+    // happens to be while the underlying CameraParameters field still holds
+    // the real (different) value, and the next unrelated edit on this card
+    // would overwrite it with the wrong displayed value. Append it instead
+    // so a stored value from a saved config or a different camera model
+    // (e.g. an older HW-trigger source no longer offered by default) always
+    // stays visible and round-trips correctly.
+    if (!current.isEmpty() && !items.contains(current)) {
+        w->addItem(current);
+    }
     w->setCurrentText(current);
     return w;
 }
@@ -367,12 +378,23 @@ void CameraCardW::build_advanced_tab(QWidget* tab) {
     add_section(form, "Tone & colour");
 
     auto* gammaSpin  = make_dspin(0.1,  4.0,  m_params.gamma,      0.05, 2);
-    auto* blSpin     = make_dspin(0.0,  64.0, m_params.blackLevel,  0.5,  1);
+    auto* blSpin     = make_dspin(0.0,  63.0, m_params.blackLevel,  0.5,  1);
     auto* satSpin    = make_dspin(0.0,  2.0,  m_params.saturation,  0.05, 2);
     auto* contSpin   = make_dspin(0.0,  2.0,  m_params.contrast,    0.05, 2);
     auto* brightSpin = make_dspin(0.0,  1.0,  m_params.brightness,  0.01, 2);
     auto* atbSpin    = make_dspin(0.0,  1.0,  m_params.autoTargetBrightness, 0.01, 2);
     auto* dshSpin    = make_spin (0,    4,    m_params.digitalShift, 1);
+
+    // Saturation/Contrast/Brightness have no GenICam node on every camera
+    // generation Mosaic has been run against (e.g. the ace-classic GigE
+    // cameras used in room 11 have no on-camera ISP for these) — they're
+    // saved with the session but only take effect on hardware that exposes
+    // the matching node.
+    const QString noHwNote = "May not be supported by every camera model — "
+                              "saved regardless, applied only if the camera exposes it.";
+    satSpin->setToolTip(noHwNote);
+    contSpin->setToolTip(noHwNote);
+    brightSpin->setToolTip(noHwNote);
 
     form->addRow("Gamma:",                gammaSpin);
     form->addRow("Black level:",          blSpin);
@@ -421,7 +443,11 @@ void CameraCardW::build_hw_trigger_tab(QWidget* tab) {
     enabledCk->setChecked(m_params.hwTriggerEnabled);
     form->addRow(enabledCk);
 
-    auto* srcCombo = make_combo({"Line1", "Line2", "Line3", "Software"},
+    // Options match the real TriggerSource enum on the Basler ace-classic
+    // GigE cameras this was verified against — Line1 is the opto-isolated
+    // input, Action1 is a GigE Vision scheduled action command, Software
+    // lets the SDK drive the trigger for testing without external wiring.
+    auto* srcCombo = make_combo({"Line1", "Software", "Action1"},
                                 m_params.hwTriggerSource);
     srcCombo->setEnabled(m_params.hwTriggerEnabled);
     form->addRow("Trigger source:", srcCombo);

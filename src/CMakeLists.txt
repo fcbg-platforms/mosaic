@@ -1,4 +1,4 @@
-qt_add_executable(mosaic MACOSX_BUNDLE WIN32_EXECUTABLE
+qt_add_executable(mosaic MACOSX_BUNDLE
     main.cpp
 
     # ── Authentication / profile management ───────────────────────────────
@@ -96,6 +96,7 @@ qt_add_executable(mosaic MACOSX_BUNDLE WIN32_EXECUTABLE
     video/video_frame.hpp
     video/frame_timestamp_writer.hpp
     video/frame_timestamp_writer.cpp
+    video/param_mapping.hpp
     video/video_grabber.hpp
     video/video_grabber.cpp
     video/video_encoder.hpp
@@ -138,6 +139,15 @@ set_target_properties(mosaic PROPERTIES
     MACOSX_BUNDLE_GUI_IDENTIFIER  "lab.csru.mosaic"
     MACOSX_BUNDLE_BUNDLE_VERSION  ${PROJECT_VERSION}
     MACOSX_BUNDLE_SHORT_VERSION_STRING "${PROJECT_VERSION_MAJOR}.${PROJECT_VERSION_MINOR}"
+    # Windows GUI subsystem — suppresses the console window that otherwise
+    # pops up alongside the Qt UI on launch. qt_add_executable() doesn't
+    # accept WIN32_EXECUTABLE as an inline keyword the way plain
+    # add_executable() does (it tries to treat it as a source file), so it
+    # has to be set as a target property instead. No effect on non-Windows
+    # platforms. Logging still reaches mosaic.log regardless (Logger writes
+    # to a file unconditionally; only the QT_NO_DEBUG-gated qDebug() console
+    # mirror is affected, and only in debug builds).
+    WIN32_EXECUTABLE TRUE
 )
 
 target_include_directories(mosaic PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})

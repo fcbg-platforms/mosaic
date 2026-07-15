@@ -11,6 +11,8 @@
 
 namespace mosaic {
 
+class TriggerManager;
+
 // One physically-connected camera found by VideoGrabber::enumerate_devices().
 struct DiscoveredCamera {
     QString serialNumber;
@@ -33,10 +35,14 @@ struct DiscoveredCamera {
 class VideoGrabber : public QThread {
     Q_OBJECT
 public:
-    // frameBuffer must outlive this object.
+    // frameBuffer must outlive this object. triggerMgr, if non-null, must
+    // outlive this object too — used to publish one LSL frame marker per
+    // captured frame (see TriggerManager::publish_frame_marker()); pass
+    // nullptr to skip this (e.g. when LSL support isn't built in).
     explicit VideoGrabber(int                                      cameraIndex,
                           const CameraParameters&                  params,
                           RingBuffer<std::shared_ptr<VideoFrame>>& frameBuffer,
+                          TriggerManager*                          triggerMgr = nullptr,
                           QObject*                                 parent = nullptr);
     ~VideoGrabber() override;
 
@@ -44,6 +50,22 @@ public:
     // Safe to call from the main thread before start().
     [[nodiscard]] bool open();
     void               close();
+
+    // Requests that the subset of parameters safe to change on an
+    // already-open, actively-grabbing camera (exposure, gain, gamma, black
+    // level, white balance, auto-exposure target, digital shift) be
+    // re-applied, without stopping or reopening the device. Reads current
+    // values straight from the CameraParameters reference passed to the
+    // constructor, so the caller just needs to have already mutated it
+    // (e.g. via the settings UI) before calling this. Safe to call from any
+    // thread — the actual node writes happen on the grab thread (shortly
+    // after, between frames) rather than synchronously here, since Pylon's
+    // camera/node-map access isn't documented as safe to use concurrently
+    // with the grab thread's own RetrieveResult() calls. Structural
+    // parameters (resolution, pixel format, frame rate, hardware trigger)
+    // require a full close+reopen and are intentionally not touched here.
+    // No-op if the device isn't open, or in stub builds.
+    void apply_live_params();
 
     // Start / stop the grab loop (QThread::start / requestInterruption + wait).
     void start_grabbing();
@@ -79,6 +101,12 @@ protected:
     void run() override;
 
 private:
+    // Writes exposure/gain/gamma/black-level/white-balance/auto-target/
+    // digital-shift nodes from d->params onto the currently-open camera.
+    // Shared by open() (initial configuration) and apply_live_params()
+    // (re-applying after a UI edit) so the node-writing logic exists once.
+    void apply_image_params();
+
     void run_pylon_loop();
     void run_stub_loop();
 

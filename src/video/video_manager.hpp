@@ -7,6 +7,8 @@
 
 namespace mosaic {
 
+class TriggerManager;
+
 /// @brief Orchestrates one VideoGrabber + VideoEncoder pair per configured camera.
 ///
 /// VideoManager owns the complete video pipeline for a session.  It matches
@@ -39,7 +41,10 @@ namespace mosaic {
 class VideoManager : public QObject {
     Q_OBJECT
 public:
-    explicit VideoManager(QObject* parent = nullptr);
+    // triggerMgr, if non-null, must outlive this object — passed down to
+    // every VideoGrabber opened by open() so each captured frame can be
+    // published as an LSL marker (see TriggerManager::publish_frame_marker()).
+    explicit VideoManager(TriggerManager* triggerMgr = nullptr, QObject* parent = nullptr);
     ~VideoManager() override;
 
     /// @brief Opens camera devices (or stub generators) for all configured cameras.
@@ -79,6 +84,22 @@ public:
     ///
     /// Blocks until all encoder threads have exited (up to 10 s per camera).
     void stop();
+
+    /// @brief Re-applies exposure/gain/gamma/black-level/white-balance/
+    /// auto-target/digital-shift for one camera to already-open hardware,
+    /// without stopping or reopening it.
+    ///
+    /// Call this after the caller has mutated the corresponding
+    /// CameraParameters in place (e.g. via the settings UI). Structural
+    /// parameters (resolution, pixel format, frame rate, hardware trigger)
+    /// still require a full close()+open() to take effect and are not
+    /// touched by this call.
+    ///
+    /// @param configIndex  Position in the *configured* settings.cameras
+    ///                     array (VideoManager::CameraUnit::configIndex),
+    ///                     not the camera's position among successfully
+    ///                     opened units. No-op if no open unit matches.
+    void apply_live_params(int configIndex);
 
     /// @returns @c true while a recording session is active.
     [[nodiscard]] bool    is_recording()          const;

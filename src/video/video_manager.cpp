@@ -1,4 +1,5 @@
 #include "video/video_manager.hpp"
+#include "trigger/trigger_manager.hpp"
 #include "utils/ring_buffer.hpp"
 #include "video/video_encoder.hpp"
 #include "video/video_grabber.hpp"
@@ -34,13 +35,16 @@ struct VideoManager::Impl {
     bool                    previewing{false};
     std::atomic<int>        stoppedCount{0};
     int                     cameraCount{0};
+    TriggerManager*         triggerMgr{nullptr};  // not owned, may be null
 
     std::atomic<int64_t>    totalEncoded{0};
     std::atomic<int64_t>    totalDropped{0};
 };
 
-VideoManager::VideoManager(QObject* parent)
-    : QObject(parent), d(std::make_unique<Impl>()) {}
+VideoManager::VideoManager(TriggerManager* triggerMgr, QObject* parent)
+    : QObject(parent), d(std::make_unique<Impl>()) {
+    d->triggerMgr = triggerMgr;
+}
 
 VideoManager::~VideoManager() { stop(); close(); }
 
@@ -94,7 +98,7 @@ int VideoManager::open(const VideoSettings& settings) {
         auto unit       = CameraUnit{};
         unit.configIndex = i;
         unit.buffer  = std::make_unique<RingBuffer<std::shared_ptr<VideoFrame>>>(k_ring_capacity);
-        unit.grabber = std::make_unique<VideoGrabber>(i, cam, *unit.buffer);
+        unit.grabber = std::make_unique<VideoGrabber>(i, cam, *unit.buffer, d->triggerMgr);
 
         connect(unit.grabber.get(), &VideoGrabber::opened,
                 this,               &VideoManager::camera_opened,   Qt::QueuedConnection);
@@ -262,6 +266,15 @@ void VideoManager::stop() {
     for (auto& unit : d->units) {
         if (unit.grabber) { unit.grabber->wait(5000); }
         if (unit.encoder) { unit.encoder->wait(10000); }
+    }
+}
+
+void VideoManager::apply_live_params(int configIndex) {
+    for (auto& unit : d->units) {
+        if (unit.configIndex == configIndex && unit.grabber) {
+            unit.grabber->apply_live_params();
+            return;
+        }
     }
 }
 

@@ -1,10 +1,13 @@
 #include "video/video_grabber.hpp"
+#include "trigger/trigger_manager.hpp"
+#include "video/param_mapping.hpp"
 #include "utils/logger.hpp"
 #include "utils/timestamp.hpp"
 #include <QThread>
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <cmath>
 
 #if defined(MOSAIC_HAVE_CAMERAS)
 #  define NOMINMAX          // prevent Windows.h min/max macros breaking std::min
@@ -17,6 +20,7 @@ struct VideoGrabber::Impl {
     int                                      cameraIndex;
     const CameraParameters&                  params;
     RingBuffer<std::shared_ptr<VideoFrame>>& frameBuffer;
+    TriggerManager*                          triggerMgr;  // not owned, may be null
 
     std::atomic<bool>    deviceOpen        {false};
     std::atomic<bool>    closeCalled       {false};
@@ -25,6 +29,13 @@ struct VideoGrabber::Impl {
     std::atomic<int64_t> dropCounter  {0};
     std::atomic<double>  currentFps   {0.0};
     std::atomic<int64_t> lastFrameElapsedNs {-1};
+
+    // Set by apply_live_params() (typically called from the GUI thread) and
+    // consumed by the grab thread's own loop. Pylon's CInstantCamera/node
+    // map is not documented as safe for concurrent access from a second
+    // thread while RetrieveResult() is in-flight, so parameter writes are
+    // deferred to — and only ever performed by — the grab thread itself.
+    std::atomic<bool> liveApplyPending {false};
 
     // GevTimestampTickFrequency (Hz), read once in open() and reused by the
     // grab thread to convert each frame's chunk timestamp from device ticks
@@ -40,16 +51,18 @@ struct VideoGrabber::Impl {
 
     explicit Impl(int idx,
                   const CameraParameters& p,
-                  RingBuffer<std::shared_ptr<VideoFrame>>& buf)
-        : cameraIndex(idx), params(p), frameBuffer(buf) {}
+                  RingBuffer<std::shared_ptr<VideoFrame>>& buf,
+                  TriggerManager* tm)
+        : cameraIndex(idx), params(p), frameBuffer(buf), triggerMgr(tm) {}
 };
 
 VideoGrabber::VideoGrabber(int                                      cameraIndex,
                             const CameraParameters&                  params,
                             RingBuffer<std::shared_ptr<VideoFrame>>& frameBuffer,
+                            TriggerManager*                          triggerMgr,
                             QObject*                                 parent)
     : QThread(parent)
-    , d(std::make_unique<Impl>(cameraIndex, params, frameBuffer))
+    , d(std::make_unique<Impl>(cameraIndex, params, frameBuffer, triggerMgr))
 {}
 
 VideoGrabber::~VideoGrabber() { stop_grabbing(); close(); }
@@ -191,37 +204,36 @@ bool VideoGrabber::open() {
             });
         }
 
-        try_set("ExposureAuto", [&]{
-            CEnumParameter(cam, "ExposureAuto")
-                .SetValue(d->params.exposureAuto.toStdString().c_str());
+        // Hardware trigger input (external TTL pulse on a GPIO line drives
+        // frame acquisition instead of the camera free-running at
+        // AcquisitionFrameRate). Off by default — CameraParameters::
+        // hwTriggerEnabled starts false, so this only takes effect if a
+        // user explicitly opts in via the HW Trigger tab. A camera left
+        // triggered with no signal connected simply produces zero frames,
+        // so this must stay opt-in rather than auto-detected.
+        try_set("TriggerSelector", [&]{
+            CEnumParameter(cam, "TriggerSelector").SetValue("FrameStart");
         });
-        if (d->params.exposureAuto == "Off") {
-            // SFNC 2.0: ExposureTime (float, µs)
-            // SFNC 1.x: ExposureTimeAbs (float, µs) — same unit, different name
-            try_set("ExposureTime", [&]{
+        try_set("TriggerMode", [&]{
+            CEnumParameter(cam, "TriggerMode")
+                .SetValue(d->params.hwTriggerEnabled ? "On" : "Off");
+        });
+        if (d->params.hwTriggerEnabled) {
+            try_set("TriggerSource", [&]{
+                CEnumParameter(cam, "TriggerSource")
+                    .SetValue(d->params.hwTriggerSource.toStdString().c_str());
+            });
+            // SFNC 2.0: TriggerDelay (float, µs)
+            // SFNC 1.x: TriggerDelayAbs (float, µs) — same dual-name pattern
+            // as ExposureTime/ExposureTimeAbs (see apply_image_params()).
+            try_set("TriggerDelay", [&]{
                 try {
-                    CFloatParameter(cam, "ExposureTime").SetValue(d->params.exposureTimeUs);
+                    CFloatParameter(cam, "TriggerDelay").SetValue(d->params.hwTriggerDelayUs);
                 } catch (const Pylon::GenericException&) {
-                    CFloatParameter(cam, "ExposureTimeAbs").SetValue(d->params.exposureTimeUs);
+                    CFloatParameter(cam, "TriggerDelayAbs").SetValue(d->params.hwTriggerDelayUs);
                 }
             });
         }
-
-        try_set("GainAuto", [&]{
-            CEnumParameter(cam, "GainAuto")
-                .SetValue(d->params.gainAuto.toStdString().c_str());
-        });
-        if (d->params.gainAuto == "Off") {
-            // SFNC 2.0: Gain (float, dB) — clamp to camera's valid range.
-            // SFNC 1.x: GainRaw (integer, device units) — skip if Gain not present,
-            //           since converting dB→raw requires knowing the camera's scale.
-            try_set("Gain", [&]{
-                auto p = CFloatParameter(cam, "Gain");
-                p.SetValue(std::clamp(d->params.gainDb, p.GetMin(), p.GetMax()));
-            });
-        }
-
-        try_set("Gamma", [&]{ CFloatParameter(cam, "Gamma").SetValue(d->params.gamma); });
 
         // Enable the per-frame hardware timestamp chunk (GevTimestamp) so the
         // grab loop can attach a camera-clock timestamp to each VideoFrame,
@@ -234,9 +246,17 @@ bool VideoGrabber::open() {
             CBooleanParameter(cam, "ChunkEnable").SetValue(true);
         });
 
-        // 1500-byte packets: safe default that works before and after a reboot.
-        // Once the system has been rebooted (to activate the 9014-byte jumbo-
-        // frame NIC setting), raise this to 8192 for ~5× fewer interrupts.
+        // 1500-byte packets: safe default that works regardless of whether
+        // jumbo frames are usable end-to-end. Tried raising this to 8192 on
+        // 2026-07-15 (the NIC advanced properties report "Jumbo Packet:
+        // 9014 Bytes" as configured on all 6 camera NICs) — live-tested
+        // against real hardware and it was a severe regression: packet
+        // error counts exceeded received-packet counts on every camera
+        // (not just one), i.e. the path end-to-end (switch and/or camera)
+        // does not actually support 8192-byte GVSP packets even though the
+        // NIC-side jumbo frame setting suggested it should. Do not raise
+        // this without re-verifying against real hardware first — see
+        // [[pylon-genicam-quirks]] memory for the general lesson.
         try_set("GevSCPSPacketSize", [&]{
             auto p = CIntegerParameter(cam, "GevSCPSPacketSize");
             p.SetValue(std::clamp(static_cast<int64_t>(1500), p.GetMin(), p.GetMax()));
@@ -260,6 +280,11 @@ bool VideoGrabber::open() {
             p.SetValue(std::clamp(delayTicks, p.GetMin(), p.GetMax()));
         });
     }
+
+    // Exposure, gain, gamma, black level, white balance, auto-exposure
+    // target, and digital shift — shared with apply_live_params() so a
+    // later UI edit doesn't require a full reopen to take effect.
+    apply_image_params();
 
     d->deviceOpen.store(true);
 
@@ -298,6 +323,21 @@ bool VideoGrabber::open() {
             log_warning(QString("[Camera %1] GevSCFTD=%2 ticks = %3 ms — camera delays frame transmission")
                             .arg(d->cameraIndex).arg(scftd)
                             .arg(scftd * 1000.0 / freq, 0, 'f', 2));
+        }
+        // The requested AcquisitionFrameRate is not guaranteed to be
+        // achievable — exposure time, ROI, and GigE bandwidth all cap the
+        // real delivered rate, and Pylon accepts an unachievable request
+        // without error (it just silently under-delivers). Surface a real
+        // mismatch here instead of leaving it silent — this is a likely
+        // contributor to cross-camera frame-count differences (see
+        // SyncManifest / docs on synchronization).
+        if (d->params.specifyFps && rfps > 0.0 && rfps < d->params.fps * 0.9) {
+            log_warning(QString("[Camera %1] Requested %2 fps but the camera can only sustain "
+                                "~%3 fps at the current exposure/ROI/bandwidth settings — "
+                                "lower the exposure time or the configured frame rate to match.")
+                            .arg(d->cameraIndex)
+                            .arg(d->params.fps, 0, 'f', 1)
+                            .arg(rfps, 0, 'f', 1));
         }
     }
 
@@ -344,6 +384,125 @@ bool VideoGrabber::open() {
                  .arg(d->params.fps));
     emit opened(d->cameraIndex, d->params.width, d->params.height, d->params.fps);
     return true;
+#endif
+}
+
+// Writes the image-processing subset of CameraParameters (exposure, gain,
+// gamma, black level, white balance, auto-exposure target, digital shift)
+// onto the currently-open camera. Called once from open() and again from
+// apply_live_params() whenever the UI edits one of these fields — this is
+// the single place that subset of node-writes exists.
+void VideoGrabber::apply_image_params() {
+#if defined(MOSAIC_HAVE_CAMERAS)
+    if (!d->camera.IsOpen()) return;
+
+    auto& cam = d->camera.GetNodeMap();
+    using Pylon::CIntegerParameter;
+    using Pylon::CFloatParameter;
+    using Pylon::CEnumParameter;
+    const int idx = d->cameraIndex;
+    auto try_set = [&](const char* name, auto setter) {
+        try { setter(); }
+        catch (const Pylon::GenericException& e) {
+            log_warning(QString("[Camera %1] Skipping '%2': %3")
+                            .arg(idx).arg(name)
+                            .arg(QString::fromLocal8Bit(e.GetDescription())));
+        }
+    };
+
+    try_set("ExposureAuto", [&]{
+        CEnumParameter(cam, "ExposureAuto")
+            .SetValue(d->params.exposureAuto.toStdString().c_str());
+    });
+    if (d->params.exposureAuto == "Off") {
+        // SFNC 2.0: ExposureTime (float, µs)
+        // SFNC 1.x: ExposureTimeAbs (float, µs) — same unit, different name
+        try_set("ExposureTime", [&]{
+            try {
+                CFloatParameter(cam, "ExposureTime").SetValue(d->params.exposureTimeUs);
+            } catch (const Pylon::GenericException&) {
+                CFloatParameter(cam, "ExposureTimeAbs").SetValue(d->params.exposureTimeUs);
+            }
+        });
+    }
+
+    try_set("GainAuto", [&]{
+        CEnumParameter(cam, "GainAuto")
+            .SetValue(d->params.gainAuto.toStdString().c_str());
+    });
+    if (d->params.gainAuto == "Off") {
+        // SFNC 2.0: Gain (float, dB) — clamp to camera's valid range.
+        // SFNC 1.x: GainRaw (integer, device units) — skip if Gain not present,
+        //           since converting dB→raw requires knowing the camera's scale.
+        try_set("Gain", [&]{
+            auto p = CFloatParameter(cam, "Gain");
+            p.SetValue(std::clamp(d->params.gainDb, p.GetMin(), p.GetMax()));
+        });
+    }
+
+    try_set("Gamma", [&]{ CFloatParameter(cam, "Gamma").SetValue(d->params.gamma); });
+
+    // BlackLevel: the SFNC 2.0 float node isn't present on this camera
+    // generation (confirmed against a real acA1920-25gc) — fall back to the
+    // SFNC 1.x BlackLevelRaw integer node (device-specific range, typically
+    // 0-63; UI range matches). Check node *existence* first (GetNode()
+    // returns null) rather than distinguishing "node absent" from "value
+    // out of range" by catching GenericException from SetValue() — the
+    // float node may exist but reject an out-of-range value on some other
+    // camera model, and that's a real error to surface via try_set's own
+    // catch, not something that should silently fall through to a node
+    // that doesn't exist either.
+    try_set("BlackLevel", [&]{
+        if (cam.GetNode("BlackLevel") != nullptr) {
+            CFloatParameter(cam, "BlackLevel").SetValue(d->params.blackLevel);
+        } else {
+            auto p = CIntegerParameter(cam, "BlackLevelRaw");
+            p.SetValue(round_clamp_to_int_range(d->params.blackLevel, p.GetMin(), p.GetMax()));
+        }
+    });
+
+    try_set("BalanceWhiteAuto", [&]{
+        CEnumParameter(cam, "BalanceWhiteAuto")
+            .SetValue(d->params.balanceWhiteAuto.toStdString().c_str());
+    });
+
+    // AutoTargetBrightness: the SFNC 2.0 float node (0.0-1.0) isn't present
+    // on this camera generation — it exposes the same concept as
+    // AutoTargetValue, an integer in device brightness units (confirmed
+    // range ~50-205 on a real unit, but read live rather than hardcoded in
+    // case it varies by model). Check node existence first, same rationale
+    // as BlackLevel above.
+    try_set("AutoTargetBrightness", [&]{
+        if (cam.GetNode("AutoTargetBrightness") != nullptr) {
+            CFloatParameter(cam, "AutoTargetBrightness").SetValue(d->params.autoTargetBrightness);
+        } else {
+            auto p = CIntegerParameter(cam, "AutoTargetValue");
+            p.SetValue(map_normalized_to_int_range(d->params.autoTargetBrightness, p.GetMin(), p.GetMax()));
+        }
+    });
+
+    try_set("DigitalShift", [&]{
+        auto p = CIntegerParameter(cam, "DigitalShift");
+        p.SetValue(std::clamp(static_cast<int64_t>(d->params.digitalShift), p.GetMin(), p.GetMax()));
+    });
+
+    // Saturation, Contrast, Brightness, and TestPattern have no GenICam node
+    // on this ace-classic camera generation at all (confirmed against a real
+    // unit — this hardware has no on-camera ISP for those). They stay
+    // UI-only; testPattern is intentionally UI-only regardless of hardware
+    // generation — it only drives the stub/no-camera preview generator, per
+    // CameraParameters' own doc comment.
+#endif
+}
+
+void VideoGrabber::apply_live_params() {
+#if defined(MOSAIC_HAVE_CAMERAS)
+    if (!d->deviceOpen.load()) return;
+    // Do not touch d->camera's node map from this (caller's) thread — see
+    // the liveApplyPending comment in Impl. The grab thread's own loop
+    // (run_pylon_loop()) picks this up and calls apply_image_params()
+    // itself, so all node-map access stays on one thread.
+    d->liveApplyPending.store(true);
 #endif
 }
 
@@ -446,6 +605,9 @@ void VideoGrabber::run_pylon_loop() {
         int previewSkip     = 0;
 
         while (!isInterruptionRequested()) {
+            if (d->liveApplyPending.exchange(false)) {
+                apply_image_params();
+            }
             if (!d->camera.RetrieveResult(100, result, Pylon::TimeoutHandling_Return)) {
                 continue;
             }
@@ -465,12 +627,9 @@ void VideoGrabber::run_pylon_loop() {
             const int64_t frameId = d->frameCounter.fetch_add(1) + 1;
             const int64_t tsNs    = elapsed_ns();
             const int64_t wallNs  = wall_clock_ns();
-            // NOTE: TriggerManager::publish_frame_marker() exists to publish
-            // one LSL sample per captured frame for external-hardware
-            // alignment, but nothing calls it here — VideoGrabber currently
-            // has no TriggerManager reference. Left unwired (out of scope
-            // for the sync fix); wiring it requires passing a TriggerManager*
-            // down from VideoManager into each grabber.
+            if (d->triggerMgr) {
+                d->triggerMgr->publish_frame_marker(d->cameraIndex, frameId, tsNs);
+            }
             d->lastFrameElapsedNs.store(tsNs);
 
             // Camera-hardware timestamp (GevTimestamp chunk), converted from
@@ -618,6 +777,9 @@ void VideoGrabber::run_stub_loop() {
         frame->data        = pattern;   // copy of pre-built pattern
 
         d->lastFrameElapsedNs.store(frame->elapsedNs);
+        if (d->triggerMgr) {
+            d->triggerMgr->publish_frame_marker(d->cameraIndex, frameId, frame->elapsedNs);
+        }
 
         // Stamp a small white rectangle top-left so frame ordering is visible.
         const int stampH = std::min(20, height);

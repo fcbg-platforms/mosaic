@@ -1,19 +1,26 @@
 find_package(GTest REQUIRED)
-find_package(Qt6 REQUIRED COMPONENTS Core)
+# Network: needed for QPasswordDigestor, used by profile_manager.cpp
+# (PBKDF2 password hashing) — lives in QtNetwork, not QtCore.
+find_package(Qt6 REQUIRED COMPONENTS Core Network)
 
 add_executable(mosaic_tests
     test_ring_buffer.cpp
     test_timestamp.cpp
     test_sync_manifest.cpp
+    test_camera_persistence.cpp
+    test_param_mapping.cpp
     "${CMAKE_SOURCE_DIR}/src/analysis/sync_manifest.cpp"
     "${CMAKE_SOURCE_DIR}/src/utils/logger.cpp"
+    "${CMAKE_SOURCE_DIR}/src/core/settings.cpp"
+    "${CMAKE_SOURCE_DIR}/src/auth/profile_manager.cpp"
     # Add new test files here as subsystems grow.
 )
 
 target_link_libraries(mosaic_tests PRIVATE
     GTest::gtest_main
     mosaic_compiler_options
-    Qt6::Core    # needed for QString / QDateTime used in timestamp.hpp
+    Qt6::Core       # needed for QString / QDateTime used in timestamp.hpp
+    Qt6::Network    # needed for QPasswordDigestor used by profile_manager.cpp
 )
 
 target_include_directories(mosaic_tests PRIVATE

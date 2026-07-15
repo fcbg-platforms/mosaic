@@ -92,7 +92,7 @@ A recording session creates the following files:
    └── 2026-06-04_14-32-05/
        ├── session_meta.json        ← cameras, mics, triggers, recorded_by, start UTC
        ├── video_0.mp4              ── one per camera
-       ├── timestamps_cam0.csv      ── frame_id, elapsed_ns, wall_ns  (per camera)
+       ├── timestamps_cam0.csv      ── frame_id, elapsed_ns, wall_ns, hw_timestamp_ns  (per camera)
        ├── audio_0.wav              ── one per microphone
        └── trigger.csv             ── elapsed_ms, wall_clock, source, label, value
 

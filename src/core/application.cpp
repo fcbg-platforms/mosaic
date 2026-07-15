@@ -55,7 +55,7 @@ void Application::initialize(const QString& username) {
 
     d->triggerManager = std::make_unique<TriggerManager>(d->settings.trigger, this);
     d->audioManager   = std::make_unique<AudioManager>(this);
-    d->videoManager   = std::make_unique<VideoManager>(this);
+    d->videoManager   = std::make_unique<VideoManager>(d->triggerManager.get(), this);
 
     // camera_error relays both grab failures (VideoGrabber::grab_error) and
     // encode failures (VideoEncoder::encoding_error) — without this connection

@@ -24,6 +24,12 @@ signals:
     // Fired only when cameras are added or removed (not on per-camera param changes).
     // Connect this to trigger a VideoManager hardware reload.
     void cameras_list_changed();
+    // Fired whenever one camera's own parameters change (in addition to the
+    // bare settings_changed() above). `index` is the camera's position in
+    // VideoSettings::cameras — connect this to push the edit live to an
+    // already-open camera (VideoManager::apply_live_params) instead of
+    // waiting for the next full reopen.
+    void camera_params_changed(int index);
 
 private:
     void build_encoding_section(QVBoxLayout* parent);

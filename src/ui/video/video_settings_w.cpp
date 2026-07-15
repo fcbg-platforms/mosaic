@@ -280,6 +280,9 @@ void VideoSettingsW::discover_cameras() {
 void VideoSettingsW::make_card(int index) {
     auto* card = new CameraCardW(m_settings.cameras[index], index, this);
     connect(card, &CameraCardW::params_changed,   this, &VideoSettingsW::settings_changed);
+    connect(card, &CameraCardW::params_changed,   this, [this, index]{
+        emit camera_params_changed(index);
+    });
     connect(card, &CameraCardW::remove_requested, this, &VideoSettingsW::remove_camera);
     d->camerasLayout->addWidget(card);
     d->cards.append(card);
