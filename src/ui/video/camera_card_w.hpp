@@ -1,6 +1,7 @@
 #pragma once
 #include "core/settings.hpp"
 #include <QLabel>
+#include <QLineEdit>
 #include <QWidget>
 #include <memory>
 
@@ -39,16 +40,18 @@ private:
     void build_exposure_tab(QWidget* tab);
     void build_gain_tab(QWidget* tab);
     void build_advanced_tab(QWidget* tab);
+    void build_hw_trigger_tab(QWidget* tab);
     void toggle_expanded();
 
     CameraParameters& m_params;
     int  m_index;
     bool m_expanded{true};
 
-    QWidget* m_body{nullptr};
-    QWidget* m_statusDot{nullptr};
-    QWidget* m_expandBtn{nullptr};
-    QLabel*  m_nameLabel{nullptr};  // kept so set_index() can update it
+    QWidget*   m_body{nullptr};
+    QWidget*   m_statusDot{nullptr};
+    QWidget*   m_expandBtn{nullptr};
+    QLabel*    m_nameLabel{nullptr};   // kept so set_index() can update it
+    QLineEdit* m_serialEdit{nullptr};  // kept so refresh() can update it
 };
 
 } // namespace mosaic

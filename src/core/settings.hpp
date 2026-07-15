@@ -93,10 +93,6 @@ struct VideoSettings {
     int     crf      = 23;              // quality for CPU encoder (17=best, 28=worst)
     int     bitrate  = 5000;            // kbit/s (GPU encoder)
 
-    // Frame rate synchronisation across cameras
-    bool    syncFps   = false;
-    int     targetFps = 30;
-
     // Per-camera configurations (one entry per added camera)
     std::vector<CameraParameters> cameras;
 

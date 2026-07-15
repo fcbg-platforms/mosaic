@@ -2,10 +2,12 @@
 #include "utils/logger.hpp"
 #include "utils/timestamp.hpp"
 #include <QThread>
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 
 #if defined(MOSAIC_HAVE_CAMERAS)
+#  define NOMINMAX          // prevent Windows.h min/max macros breaking std::min
 #  include <pylon/PylonIncludes.h>
 #endif
 
@@ -16,13 +18,24 @@ struct VideoGrabber::Impl {
     const CameraParameters&                  params;
     RingBuffer<std::shared_ptr<VideoFrame>>& frameBuffer;
 
-    std::atomic<bool>    deviceOpen   {false};
+    std::atomic<bool>    deviceOpen        {false};
+    std::atomic<bool>    closeCalled       {false};
+    std::atomic<bool>    pylonInitialized  {false};
     std::atomic<int64_t> frameCounter {0};
     std::atomic<int64_t> dropCounter  {0};
     std::atomic<double>  currentFps   {0.0};
+    std::atomic<int64_t> lastFrameElapsedNs {-1};
+
+    // GevTimestampTickFrequency (Hz), read once in open() and reused by the
+    // grab thread to convert each frame's chunk timestamp from device ticks
+    // to nanoseconds. Written only in open() (main thread) before the grab
+    // thread is started, so no synchronization is needed for the read in
+    // run_pylon_loop() — QThread::start() establishes the happens-before edge.
+    int64_t tickFreqHz = 0;
 
 #if defined(MOSAIC_HAVE_CAMERAS)
-    Pylon::CInstantCamera camera;
+    Pylon::CInstantCamera        camera;
+    Pylon::CImageFormatConverter converter;  // converts any pixel format → BGR8
 #endif
 
     explicit Impl(int idx,
@@ -41,6 +54,45 @@ VideoGrabber::VideoGrabber(int                                      cameraIndex,
 
 VideoGrabber::~VideoGrabber() { stop_grabbing(); close(); }
 
+// ── Device discovery ──────────────────────────────────────────────────────
+
+QVector<DiscoveredCamera> VideoGrabber::enumerate_devices() {
+    QVector<DiscoveredCamera> out;
+#if defined(MOSAIC_HAVE_CAMERAS)
+    // Every PylonInitialize() must be matched by a PylonTerminate() — see the
+    // identical discipline (and its rationale: stale device/socket state
+    // corrupting the next open session) in VideoGrabber::open()/close(). This
+    // was previously missing here, permanently leaking one reference for the
+    // life of the process and leaving Pylon's environment never fully torn
+    // down between camera open/close cycles.
+    Pylon::PylonInitialize();
+    try {
+        Pylon::DeviceInfoList_t deviceList;
+        Pylon::CTlFactory::GetInstance().EnumerateDevices(deviceList);
+        out.reserve(static_cast<int>(deviceList.size()));
+        for (const auto& info : deviceList) {
+            DiscoveredCamera cam;
+            cam.serialNumber = QString::fromLocal8Bit(info.GetSerialNumber().c_str());
+            cam.modelName    = QString::fromLocal8Bit(info.GetModelName().c_str());
+            // "IpAddress" is a GigE-transport-specific info property — not
+            // every transport layer (USB3, CameraLink, ...) has one, so this
+            // is a best-effort lookup via the generic property accessor
+            // rather than a GigE-typed device-info subclass.
+            Pylon::String_t ip;
+            if (info.GetPropertyValue("IpAddress", ip)) {
+                cam.ipAddress = QString::fromLocal8Bit(ip.c_str());
+            }
+            out.append(cam);
+        }
+    } catch (const Pylon::GenericException& e) {
+        log_error(QString("[VideoGrabber] enumerate_devices: %1")
+                      .arg(QString::fromLocal8Bit(e.GetDescription())));
+    }
+    Pylon::PylonTerminate();
+#endif
+    return out;
+}
+
 // ── Device management ──────────────────────────────────────────────────────
 
 bool VideoGrabber::open() {
@@ -49,8 +101,10 @@ bool VideoGrabber::open() {
     }
 
 #if defined(MOSAIC_HAVE_CAMERAS)
+    // Phase 1: attach and open the physical device — hard failure if this fails.
     try {
         Pylon::PylonInitialize();
+        d->pylonInitialized.store(true);  // must call PylonTerminate() in close()
 
         if (d->params.serialNumber.isEmpty()) {
             d->camera.Attach(Pylon::CTlFactory::GetInstance().CreateFirstDevice());
@@ -59,64 +113,227 @@ bool VideoGrabber::open() {
             info.SetSerialNumber(d->params.serialNumber.toStdString().c_str());
             d->camera.Attach(Pylon::CTlFactory::GetInstance().CreateDevice(info));
         }
-
         d->camera.Open();
 
+    } catch (const Pylon::GenericException& e) {
+        log_error(QString("[Camera %1] Cannot open device (serial %2): %3")
+                      .arg(d->cameraIndex)
+                      .arg(d->params.serialNumber)
+                      .arg(QString::fromLocal8Bit(e.GetDescription())));
+        return false;
+    }
+
+    // Phase 2: configure camera parameters.  Each param is tried independently
+    // so a bad setting (e.g. gain out of range) logs a warning instead of
+    // killing the entire camera.
+    {
         auto& cam = d->camera.GetNodeMap();
         using Pylon::CIntegerParameter;
         using Pylon::CFloatParameter;
-        using Pylon::CEnumerationParameter;
+        using Pylon::CEnumParameter;
         using Pylon::CBooleanParameter;
 
-        CIntegerParameter(cam, "Width").SetValue(d->params.width);
-        CIntegerParameter(cam, "Height").SetValue(d->params.height);
-        CIntegerParameter(cam, "OffsetX").SetValue(d->params.offsetX);
-        CIntegerParameter(cam, "OffsetY").SetValue(d->params.offsetY);
-        CBooleanParameter(cam, "ReverseX").SetValue(d->params.reverseX);
-        CBooleanParameter(cam, "ReverseY").SetValue(d->params.reverseY);
-        CEnumerationParameter(cam, "PixelFormat").SetValue(
-            d->params.pixelFormat.toStdString().c_str());
+        const int idx = d->cameraIndex;
+        auto try_set = [&](const char* name, auto setter) {
+            try { setter(); }
+            catch (const Pylon::GenericException& e) {
+                log_warning(QString("[Camera %1] Skipping '%2': %3")
+                                .arg(idx).arg(name)
+                                .arg(QString::fromLocal8Bit(e.GetDescription())));
+            }
+        };
+
+        try_set("Width",   [&]{ CIntegerParameter(cam,"Width").SetValue(d->params.width); });
+        try_set("Height",  [&]{ CIntegerParameter(cam,"Height").SetValue(d->params.height); });
+        try_set("OffsetX", [&]{ CIntegerParameter(cam,"OffsetX").SetValue(d->params.offsetX); });
+        try_set("OffsetY", [&]{ CIntegerParameter(cam,"OffsetY").SetValue(d->params.offsetY); });
+        try_set("ReverseX",[&]{ CBooleanParameter(cam,"ReverseX").SetValue(d->params.reverseX); });
+        try_set("ReverseY",[&]{ CBooleanParameter(cam,"ReverseY").SetValue(d->params.reverseY); });
+        // PixelFormat: GigE cameras output raw sensor formats (BayerRG8, YUV…),
+        // not BGR8.  Try the configured value; if it fails try the SFNC 1.x
+        // packed equivalent.  CImageFormatConverter converts whatever the camera
+        // delivers to BGR8packed, so any accepted format is fine.
+        try_set("PixelFormat", [&]{
+            auto pfp = CEnumParameter(cam, "PixelFormat");
+            try {
+                pfp.SetValue(d->params.pixelFormat.toStdString().c_str());
+            } catch (const Pylon::GenericException&) {
+                // SFNC 1.x packed variants
+                static const std::vector<std::string> fallbacks = {
+                    "BGR8Packed", "BayerRG8", "YCbCr422_8"
+                };
+                bool set = false;
+                for (const auto& fb : fallbacks) {
+                    try { pfp.SetValue(fb.c_str()); set = true; break; }
+                    catch (...) {}
+                }
+                if (set) {
+                    log_info(QString("[Camera %1] PixelFormat '%2' not supported; accepted alternative")
+                                 .arg(d->cameraIndex).arg(d->params.pixelFormat));
+                }
+            }
+        });
 
         if (d->params.specifyFps) {
-            CEnumerationParameter(cam, "AcquisitionFrameRateEnable").SetValue("true");
-            CFloatParameter(cam, "AcquisitionFrameRate").SetValue(d->params.fps);
+            // AcquisitionFrameRateEnable is a *boolean* parameter (SFNC 2.0).
+            // Some firmware versions don't have it — the rate is always settable.
+            try_set("AcquisitionFrameRateEnable", [&]{
+                CBooleanParameter(cam, "AcquisitionFrameRateEnable").SetValue(true);
+            });
+            // SFNC 2.0: AcquisitionFrameRate (float)
+            // SFNC 1.x: AcquisitionFrameRateAbs (float) — same unit, different name
+            try_set("AcquisitionFrameRate", [&]{
+                try {
+                    CFloatParameter(cam, "AcquisitionFrameRate").SetValue(d->params.fps);
+                } catch (const Pylon::GenericException&) {
+                    CFloatParameter(cam, "AcquisitionFrameRateAbs").SetValue(d->params.fps);
+                }
+            });
         }
 
-        CEnumerationParameter(cam, "ExposureAuto").SetValue(
-            d->params.exposureAuto.toStdString().c_str());
+        try_set("ExposureAuto", [&]{
+            CEnumParameter(cam, "ExposureAuto")
+                .SetValue(d->params.exposureAuto.toStdString().c_str());
+        });
         if (d->params.exposureAuto == "Off") {
-            CFloatParameter(cam, "ExposureTime").SetValue(d->params.exposureTimeUs);
+            // SFNC 2.0: ExposureTime (float, µs)
+            // SFNC 1.x: ExposureTimeAbs (float, µs) — same unit, different name
+            try_set("ExposureTime", [&]{
+                try {
+                    CFloatParameter(cam, "ExposureTime").SetValue(d->params.exposureTimeUs);
+                } catch (const Pylon::GenericException&) {
+                    CFloatParameter(cam, "ExposureTimeAbs").SetValue(d->params.exposureTimeUs);
+                }
+            });
         }
 
-        CEnumerationParameter(cam, "GainAuto").SetValue(
-            d->params.gainAuto.toStdString().c_str());
+        try_set("GainAuto", [&]{
+            CEnumParameter(cam, "GainAuto")
+                .SetValue(d->params.gainAuto.toStdString().c_str());
+        });
         if (d->params.gainAuto == "Off") {
-            CFloatParameter(cam, "Gain").SetValue(d->params.gainDb);
+            // SFNC 2.0: Gain (float, dB) — clamp to camera's valid range.
+            // SFNC 1.x: GainRaw (integer, device units) — skip if Gain not present,
+            //           since converting dB→raw requires knowing the camera's scale.
+            try_set("Gain", [&]{
+                auto p = CFloatParameter(cam, "Gain");
+                p.SetValue(std::clamp(d->params.gainDb, p.GetMin(), p.GetMax()));
+            });
         }
 
-        CFloatParameter(cam, "Gamma").SetValue(d->params.gamma);
+        try_set("Gamma", [&]{ CFloatParameter(cam, "Gamma").SetValue(d->params.gamma); });
 
-        d->deviceOpen.store(true);
+        // Enable the per-frame hardware timestamp chunk (GevTimestamp) so the
+        // grab loop can attach a camera-clock timestamp to each VideoFrame,
+        // independent of host-side scheduling/network jitter. Non-fatal if
+        // this firmware/SDK doesn't support chunk data — hwTimestampNs then
+        // stays 0 and only the software elapsed_ns/wall_ns stamps are used.
+        try_set("ChunkModeActive", [&]{
+            CBooleanParameter(cam, "ChunkModeActive").SetValue(true);
+            CEnumParameter(cam, "ChunkSelector").SetValue("Timestamp");
+            CBooleanParameter(cam, "ChunkEnable").SetValue(true);
+        });
 
-        const int    w   = static_cast<int>(CIntegerParameter(cam, "Width").GetValue());
-        const int    h   = static_cast<int>(CIntegerParameter(cam, "Height").GetValue());
+        // 1500-byte packets: safe default that works before and after a reboot.
+        // Once the system has been rebooted (to activate the 9014-byte jumbo-
+        // frame NIC setting), raise this to 8192 for ~5× fewer interrupts.
+        try_set("GevSCPSPacketSize", [&]{
+            auto p = CIntegerParameter(cam, "GevSCPSPacketSize");
+            p.SetValue(std::clamp(static_cast<int64_t>(1500), p.GetMin(), p.GetMax()));
+        });
+        // Keep zero inter-packet delay (burst mode). Experiments showed that
+        // any positive SCPD value interacts poorly with the I350 interrupt
+        // coalescing on this machine and worsened loss on some cameras.
+        // Burst (SCPD=0) leaves the full 23ms gap between frames for the NIC
+        // to finish processing, which consistently performs better here.
+        try_set("GevSCPD", [&]{
+            auto p = CIntegerParameter(cam, "GevSCPD");
+            p.SetValue(std::clamp(static_cast<int64_t>(0), p.GetMin(), p.GetMax()));
+        });
+        // Stagger frame transmission across cameras so they don't all burst
+        // onto the same I350-T4 card simultaneously.  Each camera waits
+        // (index × 5 ms) after frame readout before transmitting.
+        // At 125 MHz tick frequency: 5 ms = 625 000 ticks.
+        try_set("GevSCFTD", [&]{
+            auto p = CIntegerParameter(cam, "GevSCFTD");
+            const int64_t delayTicks = static_cast<int64_t>(d->cameraIndex) * 625000LL;
+            p.SetValue(std::clamp(delayTicks, p.GetMin(), p.GetMax()));
+        });
+    }
+
+    d->deviceOpen.store(true);
+
+    // Diagnostic: log actual GigE transport settings (best-effort, non-fatal).
+    {
+        auto& cam2 = d->camera.GetNodeMap();
+        auto safe_i = [&](const char* name) -> int64_t {
+            try { return Pylon::CIntegerParameter(cam2, name).GetValue(); } catch (...) { return -1; }
+        };
+        auto safe_f = [&](const char* name) -> double {
+            try { return Pylon::CFloatParameter(cam2, name).GetValue(); } catch (...) { return -1.0; }
+        };
+        // SFNC 2.0: ResultingFrameRate — SFNC 1.x (e.g. ace-classic GigE
+        // cameras like the acA1920-25gc): ResultingFrameRateAbs. Same
+        // dual-name pattern as AcquisitionFrameRate/ExposureTime above;
+        // without this fallback this always silently returned -1 here.
+        auto safe_f_fallback = [&](const char* primary, const char* fallback) -> double {
+            try { return Pylon::CFloatParameter(cam2, primary).GetValue(); }
+            catch (const Pylon::GenericException&) {
+                try { return Pylon::CFloatParameter(cam2, fallback).GetValue(); }
+                catch (...) { return -1.0; }
+            }
+        };
+        const int64_t scftd = safe_i("GevSCFTD");
+        const int64_t scbwa = safe_i("GevSCBWA");
+        const int64_t pktSz = safe_i("GevSCPSPacketSize");
+        const int64_t scpd  = safe_i("GevSCPD");
+        const int64_t freq  = safe_i("GevTimestampTickFrequency");
+        d->tickFreqHz = freq;
+        const double  rfps  = safe_f_fallback("ResultingFrameRate", "ResultingFrameRateAbs");
+        log_info(QString("[Camera %1] GigE pkt=%2B scpd=%3 scftd=%4 scbwa=%5 resultFPS=%6 tickFreq=%7Hz")
+                     .arg(d->cameraIndex)
+                     .arg(pktSz).arg(scpd).arg(scftd).arg(scbwa)
+                     .arg(rfps).arg(freq));
+        if (scftd > 0 && freq > 0) {
+            log_warning(QString("[Camera %1] GevSCFTD=%2 ticks = %3 ms — camera delays frame transmission")
+                            .arg(d->cameraIndex).arg(scftd)
+                            .arg(scftd * 1000.0 / freq, 0, 'f', 2));
+        }
+    }
+
+    // Read back actual values for the log message.
+    log_info(QString("[Camera %1] reading back dimensions from node map").arg(d->cameraIndex));
+    try {
+        auto& cam = d->camera.GetNodeMap();
+        log_info(QString("[Camera %1] GetNodeMap ok").arg(d->cameraIndex));
+        const int    w   = static_cast<int>(Pylon::CIntegerParameter(cam,"Width").GetValue());
+        log_info(QString("[Camera %1] Width=%2").arg(d->cameraIndex).arg(w));
+        const int    h   = static_cast<int>(Pylon::CIntegerParameter(cam,"Height").GetValue());
         const double fps = d->params.specifyFps
             ? d->params.fps
-            : CFloatParameter(cam, "ResultingFrameRate").GetValue();
-
-        log_info(QString("[Camera %1] Opened: %2×%3 @ %4 fps (serial: %5)")
+            : Pylon::CFloatParameter(cam,"ResultingFrameRate").GetValue();
+        log_info(QString("[Camera %1] Opened: %2\xd7%3 @ %4 fps (serial: %5)")
                      .arg(d->cameraIndex).arg(w).arg(h).arg(fps)
                      .arg(d->params.serialNumber));
-
         emit opened(d->cameraIndex, w, h, fps);
-        return true;
-
     } catch (const Pylon::GenericException& e) {
-        log_error(QString("[Camera %1] Open failed: %2")
-                      .arg(d->cameraIndex)
-                      .arg(QString::fromStdString(e.GetDescription())));
-        return false;
+        log_warning(QString("[Camera %1] Pylon exception reading dimensions: %2")
+                        .arg(d->cameraIndex)
+                        .arg(QString::fromLocal8Bit(e.GetDescription())));
+        log_info(QString("[Camera %1] Opened (serial: %2)")
+                     .arg(d->cameraIndex).arg(d->params.serialNumber));
+        emit opened(d->cameraIndex, d->params.width, d->params.height, d->params.fps);
+    } catch (const std::exception& e) {
+        log_error(QString("[Camera %1] std::exception reading dimensions: %2")
+                      .arg(d->cameraIndex).arg(QString::fromLocal8Bit(e.what())));
+        emit opened(d->cameraIndex, d->params.width, d->params.height, d->params.fps);
+    } catch (...) {
+        log_error(QString("[Camera %1] unknown exception reading dimensions").arg(d->cameraIndex));
+        emit opened(d->cameraIndex, d->params.width, d->params.height, d->params.fps);
     }
+
+    return true;
+
 #else
     // Stub: always succeeds.
     d->deviceOpen.store(true);
@@ -131,15 +348,35 @@ bool VideoGrabber::open() {
 }
 
 void VideoGrabber::close() {
-    if (!d->deviceOpen.load()) { return; }
+    // Guard against the destructor calling close() a second time after
+    // VideoManager::close() already called it explicitly.
+    if (d->closeCalled.exchange(true)) return;
 
+    log_info(QString("[Camera %1] close(): grabbing=%2 open=%3 attached=%4")
+                 .arg(d->cameraIndex)
+#if defined(MOSAIC_HAVE_CAMERAS)
+                 .arg(d->camera.IsGrabbing())
+                 .arg(d->camera.IsOpen())
+                 .arg(d->camera.IsPylonDeviceAttached())
+#else
+                 .arg(false).arg(false).arg(false)
+#endif
+             );
 #if defined(MOSAIC_HAVE_CAMERAS)
     try {
-        if (d->camera.IsOpen()) {
-            d->camera.StopGrabbing();
-            d->camera.Close();
-        }
-    } catch (...) {}
+        if (d->camera.IsGrabbing())             { d->camera.StopGrabbing();  log_info(QString("[Camera %1] StopGrabbing done").arg(d->cameraIndex)); }
+        if (d->camera.IsOpen())                 { d->camera.Close();         log_info(QString("[Camera %1] Close done").arg(d->cameraIndex)); }
+        if (d->camera.IsPylonDeviceAttached())  { d->camera.DestroyDevice(); log_info(QString("[Camera %1] DestroyDevice done").arg(d->cameraIndex)); }
+    } catch (...) { log_error(QString("[Camera %1] close() exception caught").arg(d->cameraIndex)); }
+
+    // Balance the PylonInitialize() call from open().  When the last camera
+    // calls this, the ref count hits 0 and Pylon fully resets its internal
+    // transport-layer state, preventing stale device/socket state from
+    // corrupting the next open session.
+    if (d->pylonInitialized.exchange(false)) {
+        Pylon::PylonTerminate();
+        log_info(QString("[Camera %1] PylonTerminate done").arg(d->cameraIndex));
+    }
 #endif
 
     d->deviceOpen.store(false);
@@ -152,12 +389,19 @@ void VideoGrabber::start_grabbing() {
     if (!d->deviceOpen.load()) { return; }
     d->frameCounter.store(0);
     d->dropCounter.store(0);
+    d->lastFrameElapsedNs.store(-1);
     QThread::start();
 }
 
 void VideoGrabber::stop_grabbing() {
+    if (!isRunning()) return;
     requestInterruption();
-    wait(5000);
+    if (!wait(5000)) {
+        log_warning(QString("[Camera %1] stop_grabbing: thread did not finish in 5 s — forcing terminate")
+                        .arg(d->cameraIndex));
+        terminate();
+        wait();
+    }
 }
 
 // ── Run loop ───────────────────────────────────────────────────────────────
@@ -173,44 +417,122 @@ void VideoGrabber::run() {
 #if defined(MOSAIC_HAVE_CAMERAS)
 void VideoGrabber::run_pylon_loop() {
     try {
+        // Always output BGR8packed so Qt can display any camera pixel format.
+        d->converter.OutputPixelFormat  = Pylon::PixelType_BGR8packed;
+        d->converter.OutputBitAlignment = Pylon::OutputBitAlignment_MsbAligned;
+
+        // More grab buffers reduce incomplete-frame errors when the processing
+        // thread falls behind the camera (e.g. during Bayer demosaicing or
+        // when multiple cameras share a GigE switch).
+        d->camera.MaxNumBuffer = 30;
+
+        // Tune the stream grabber for GigE reliability: allow packet resend
+        // and a larger receive window so the driver can reorder late packets.
+        try {
+            auto& sgn = d->camera.GetStreamGrabberNodeMap();
+            Pylon::CIntegerParameter(sgn, "MaximumNumberResendRequests").SetValue(100);
+            Pylon::CIntegerParameter(sgn, "ReceiveWindowSize").SetValue(64);
+        } catch (...) {}
+
         d->camera.StartGrabbing(Pylon::GrabStrategy_LatestImageOnly,
                                 Pylon::GrabLoop_ProvidedByUser);
 
-        Pylon::CGrabResultPtr result;
-        auto lastFpsTime  = SteadyClock::now();
-        int64_t fpsCount  = 0;
+        Pylon::CGrabResultPtr  result;
+        Pylon::CPylonImage     convertedImage;
+        auto lastFpsTime    = SteadyClock::now();
+        auto lastWarnTime   = SteadyClock::now();
+        int64_t fpsCount    = 0;
+        int64_t warnCount   = 0;
+        int previewSkip     = 0;
 
         while (!isInterruptionRequested()) {
             if (!d->camera.RetrieveResult(100, result, Pylon::TimeoutHandling_Return)) {
                 continue;
             }
             if (!result->GrabSucceeded()) {
-                log_warning(QString("[Camera %1] Grab failed: %2")
-                                .arg(d->cameraIndex)
-                                .arg(QString::fromStdString(result->GetErrorDescription())));
+                ++warnCount;
+                const auto now = SteadyClock::now();
+                if (std::chrono::duration<double>(now - lastWarnTime).count() >= 5.0) {
+                    log_warning(QString("[Camera %1] %2 incomplete frame(s) in last 5 s "
+                                        "(GigE packet loss — check NIC jumbo frames and switch bandwidth)")
+                                    .arg(d->cameraIndex).arg(warnCount));
+                    warnCount    = 0;
+                    lastWarnTime = now;
+                }
                 continue;
             }
 
             const int64_t frameId = d->frameCounter.fetch_add(1) + 1;
             const int64_t tsNs    = elapsed_ns();
             const int64_t wallNs  = wall_clock_ns();
+            // NOTE: TriggerManager::publish_frame_marker() exists to publish
+            // one LSL sample per captured frame for external-hardware
+            // alignment, but nothing calls it here — VideoGrabber currently
+            // has no TriggerManager reference. Left unwired (out of scope
+            // for the sync fix); wiring it requires passing a TriggerManager*
+            // down from VideoManager into each grabber.
+            d->lastFrameElapsedNs.store(tsNs);
 
-            const int w = static_cast<int>(result->GetWidth());
-            const int h = static_cast<int>(result->GetHeight());
+            // Camera-hardware timestamp (GevTimestamp chunk), converted from
+            // device ticks to nanoseconds. Read via the grab result's chunk
+            // data node map — the generic (non-camera-model-typed) accessor,
+            // valid as long as ChunkModeActive was successfully enabled in
+            // open(). Left at 0 if chunk data isn't present on this frame.
+            int64_t hwTsNs = 0;
+            if (d->tickFreqHz > 0) {
+                try {
+                    auto& chunkNodeMap = result->GetChunkDataNodeMap();
+                    const int64_t ticks = Pylon::CIntegerParameter(chunkNodeMap, "ChunkTimestamp").GetValue();
+                    hwTsNs = static_cast<int64_t>(
+                        static_cast<double>(ticks) * (1e9 / static_cast<double>(d->tickFreqHz)));
+                } catch (const Pylon::GenericException&) {
+                    // Chunk data unavailable for this frame — leave hwTsNs at 0.
+                }
+            }
 
-            auto frame       = std::make_shared<VideoFrame>();
-            frame->cameraIndex = d->cameraIndex;
-            frame->frameId     = frameId;
-            frame->elapsedNs   = tsNs;
-            frame->wallClockNs = wallNs;
-            frame->width       = w;
-            frame->height      = h;
-            frame->stride      = w * 3;
-            frame->data.resize(static_cast<size_t>(w * h * 3));
+            // Convert from the camera's native pixel format (BayerRG, YUV, Mono, …)
+            // to BGR8packed so the QImage and VideoFrame always carry BGR data.
+            d->converter.Convert(convertedImage, result);
 
-            std::memcpy(frame->data.data(),
-                        result->GetBuffer(),
-                        frame->data.size());
+            const int    w   = static_cast<int>(convertedImage.GetWidth());
+            const int    h   = static_cast<int>(convertedImage.GetHeight());
+            // Query the converter's actual row stride rather than assuming a
+            // tightly-packed w*3 buffer — if the output ever has row padding
+            // (alignment padding is a real possibility for some pixel/output
+            // format combinations), copying w*3 bytes/row here would read
+            // each row from the wrong offset, producing a diagonally-sheared,
+            // rainbow-striped image (a classic symptom of a stride mismatch).
+            size_t stride = 0;
+            if (!convertedImage.GetStride(stride) || stride == 0) {
+                stride = static_cast<size_t>(w) * 3;
+            }
+            const size_t sz = convertedImage.GetImageSize();
+
+            auto frame           = std::make_shared<VideoFrame>();
+            frame->cameraIndex   = d->cameraIndex;
+            frame->frameId       = frameId;
+            frame->elapsedNs     = tsNs;
+            frame->wallClockNs   = wallNs;
+            frame->hwTimestampNs = hwTsNs;
+            frame->width         = w;
+            frame->height        = h;
+            frame->stride        = static_cast<int>(stride);
+            frame->data.resize(sz);
+            std::memcpy(frame->data.data(), convertedImage.GetBuffer(), sz);
+
+            // Throttled preview at ~half the grab rate for live QML display.
+            // Scale down to 640×360 max — the UI panels are small and a 6 MB
+            // texture upload per camera per frame makes Qt's render thread the
+            // bottleneck.  FastTransformation is ~6× faster than SmoothTransformation
+            // and imperceptible at preview size.
+            if (++previewSkip >= 2) {
+                previewSkip = 0;
+                QImage full(frame->data.data(), w, h, static_cast<int>(stride), QImage::Format_BGR888);
+                const QImage scaled = (w > 640 || h > 360)
+                    ? full.scaled(640, 360, Qt::KeepAspectRatio, Qt::FastTransformation)
+                    : full.copy();
+                emit preview_frame(d->cameraIndex, scaled);
+            }
 
             if (!d->frameBuffer.push(std::move(frame))) {
                 d->dropCounter.fetch_add(1);
@@ -223,7 +545,7 @@ void VideoGrabber::run_pylon_loop() {
             const auto dt  = std::chrono::duration<double>(now - lastFpsTime).count();
             if (dt >= 1.0) {
                 d->currentFps.store(static_cast<double>(fpsCount) / dt);
-                fpsCount   = 0;
+                fpsCount    = 0;
                 lastFpsTime = now;
             }
         }
@@ -232,7 +554,7 @@ void VideoGrabber::run_pylon_loop() {
 
     } catch (const Pylon::GenericException& e) {
         emit grab_error(d->cameraIndex,
-                        QString::fromStdString(e.GetDescription()));
+                        QString::fromLocal8Bit(e.GetDescription()));
     }
 }
 #else
@@ -295,6 +617,8 @@ void VideoGrabber::run_stub_loop() {
         frame->stride      = width * 3;
         frame->data        = pattern;   // copy of pre-built pattern
 
+        d->lastFrameElapsedNs.store(frame->elapsedNs);
+
         // Stamp a small white rectangle top-left so frame ordering is visible.
         const int stampH = std::min(20, height);
         const int stampW = std::min(80, width);
@@ -303,6 +627,12 @@ void VideoGrabber::run_stub_loop() {
                 const std::size_t off = static_cast<std::size_t>((row * width + col) * 3);
                 frame->data[off] = frame->data[off + 1] = frame->data[off + 2] = 255;
             }
+        }
+
+        // Emit a throttled preview (~15 fps) for live QML display.
+        if (frameId % 2 == 0) {
+            QImage preview(frame->data.data(), width, height, width * 3, QImage::Format_BGR888);
+            emit preview_frame(d->cameraIndex, preview.copy());
         }
 
         if (!d->frameBuffer.push(std::move(frame))) {
@@ -326,5 +656,6 @@ bool    VideoGrabber::is_open()        const { return d->deviceOpen.load(); }
 int64_t VideoGrabber::frames_grabbed() const { return d->frameCounter.load(); }
 int64_t VideoGrabber::frames_dropped() const { return d->dropCounter.load(); }
 double  VideoGrabber::current_fps()    const { return d->currentFps.load(); }
+int64_t VideoGrabber::last_frame_elapsed_ns() const { return d->lastFrameElapsedNs.load(); }
 
 } // namespace mosaic

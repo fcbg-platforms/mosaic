@@ -1,0 +1,47 @@
+# Standalone Doxygen config — run from the repo root: doxygen docs/Doxyfile
+# Generates HTML documentation into docs/html/
+
+PROJECT_NAME        = "MOSAIC"
+PROJECT_NUMBER      = "1.0"
+PROJECT_BRIEF       = "Multi-camera Observatory for Social & Activity Interaction Capture"
+
+INPUT               = D:/mosaic/src \
+                      D:/mosaic/README.md
+INPUT_ENCODING      = UTF-8
+RECURSIVE           = YES
+FILE_PATTERNS       = *.hpp *.cpp *.md
+EXCLUDE_PATTERNS    = */ui/* */moc_* *_autogen*
+USE_MDFILE_AS_MAINPAGE = D:/mosaic/README.md
+
+EXTRACT_ALL             = NO
+EXTRACT_PRIVATE         = NO
+EXTRACT_STATIC          = YES
+EXTRACT_LOCAL_CLASSES   = NO
+HIDE_UNDOC_MEMBERS      = YES
+HIDE_UNDOC_CLASSES      = YES
+INTERNAL_DOCS           = NO
+EXCLUDE_SYMBOLS         = *::Impl k_switch_exit_code k_ring_capacity k_accents k_pbkdf2_iterations k_key_bytes k_salt_bytes
+
+OUTPUT_DIRECTORY        = D:/mosaic/docs
+GENERATE_HTML           = YES
+HTML_OUTPUT             = html
+HTML_COLORSTYLE         = DARK
+HTML_EXTRA_STYLESHEET   =
+GENERATE_LATEX          = NO
+GENERATE_XML            = NO
+
+SOURCE_BROWSER          = YES
+INLINE_SOURCES          = NO
+REFERENCED_BY_RELATION  = YES
+REFERENCES_RELATION     = YES
+
+CALL_GRAPH              = NO
+CALLER_GRAPH            = NO
+
+QUIET                   = NO
+WARNINGS                = YES
+WARN_IF_UNDOCUMENTED    = NO
+
+GENERATE_TREEVIEW       = YES
+DISABLE_INDEX           = NO
+FULL_SIDEBAR            = YES

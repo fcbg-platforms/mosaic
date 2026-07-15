@@ -30,12 +30,17 @@ AudioRecorder::AudioRecorder(const MicrophoneParameters& params, QObject* parent
 AudioRecorder::~AudioRecorder() { stop(); }
 
 bool AudioRecorder::start(const QString& filePath) {
+    m_monitorOnly = filePath.isEmpty();
+
     // 1. Open WAV file first — fail early before touching hardware.
-    if (!m_writer.open(filePath, m_params.sampleRate, m_params.channels, 16)) {
-        const QString msg = QString("Cannot create WAV file: %1").arg(filePath);
-        log_error(msg);
-        emit error_occurred(msg);
-        return false;
+    //    In monitor-only mode (empty filePath), skip file creation.
+    if (!m_monitorOnly) {
+        if (!m_writer.open(filePath, m_params.sampleRate, m_params.channels, 16)) {
+            const QString msg = QString("Cannot create WAV file: %1").arg(filePath);
+            log_error(msg);
+            emit error_occurred(msg);
+            return false;
+        }
     }
 
     // 2. Find device and build format.
@@ -74,7 +79,7 @@ bool AudioRecorder::start(const QString& filePath) {
                                 .arg(device.description());
         log_error(msg);
         emit error_occurred(msg);
-        m_writer.close();
+        if (!m_monitorOnly) m_writer.close();
         m_source.reset();
         return false;
     }
@@ -83,7 +88,8 @@ bool AudioRecorder::start(const QString& filePath) {
             this, &AudioRecorder::on_data_ready);
 
     log_info(QString("[AudioRecorder] Started: '%1' → %2")
-                 .arg(device.description(), filePath));
+                 .arg(device.description(),
+                      m_monitorOnly ? "(monitor only)" : filePath));
     return true;
 }
 
@@ -104,7 +110,8 @@ void AudioRecorder::on_data_ready() {
     const QByteArray data = m_ioDevice->readAll();
     if (data.isEmpty()) return;
 
-    m_writer.write(data.constData(), data.size());
+    if (!m_monitorOnly)
+        m_writer.write(data.constData(), data.size());
 
     const float rms = compute_rms(data.constData(), data.size());
     m_level.store(rms, std::memory_order_relaxed);
@@ -127,7 +134,9 @@ float AudioRecorder::compute_rms(const char* data, qint64 bytes) {
 
 // ── Accessors ──────────────────────────────────────────────────────────────
 
-bool   AudioRecorder::is_recording() const { return m_writer.is_open();    }
+bool   AudioRecorder::is_recording() const {
+    return m_monitorOnly ? (m_source != nullptr) : m_writer.is_open();
+}
 float  AudioRecorder::level_rms()    const { return m_level.load(std::memory_order_relaxed); }
 double AudioRecorder::duration_sec() const { return m_writer.duration_sec(); }
 

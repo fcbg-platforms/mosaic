@@ -47,7 +47,7 @@ public:
 
     /// @brief Starts one AudioRecorder per entry in @p microphones.
     ///
-    /// If a previous session is still running it is stopped first.
+    /// Stops any previous monitoring session first.
     /// Recorders that fail to start are logged but do not abort the others.
     ///
     /// @param sessionDir   Absolute path to the session folder.
@@ -57,11 +57,23 @@ public:
                const QString&                        basename,
                const std::vector<MicrophoneParameters>& microphones);
 
-    /// @brief Stops all recorders and flushes WAV headers.
+    /// @brief Starts level-metering recorders without writing any files.
+    ///
+    /// Used to drive the live waveform display outside of a recording session.
+    /// Call start() (the recording version) to replace monitoring with actual recording.
+    void start_monitoring(const std::vector<MicrophoneParameters>& microphones);
+
+    /// @brief Stops monitoring-only recorders.
+    void stop_monitoring();
+
+    /// @brief Stops all recording recorders and flushes WAV headers.
     void stop();
 
-    /// @returns @c true while at least one recorder is active.
+    /// @returns @c true while at least one recording recorder is active.
     [[nodiscard]] bool is_recording()  const;
+
+    /// @returns @c true while monitoring-only recorders are running.
+    [[nodiscard]] bool is_monitoring() const;
 
     /// @returns The number of recorders that were successfully started.
     [[nodiscard]] int  recorder_count() const;

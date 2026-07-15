@@ -4,6 +4,9 @@ find_package(Qt6 REQUIRED COMPONENTS Core)
 add_executable(mosaic_tests
     test_ring_buffer.cpp
     test_timestamp.cpp
+    test_sync_manifest.cpp
+    "${CMAKE_SOURCE_DIR}/src/analysis/sync_manifest.cpp"
+    "${CMAKE_SOURCE_DIR}/src/utils/logger.cpp"
     # Add new test files here as subsystems grow.
 )
 

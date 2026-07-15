@@ -45,6 +45,7 @@ private:
     QIODevice*   m_ioDevice{nullptr};
     WavWriter    m_writer;
     std::atomic<float> m_level{0.0f};
+    bool         m_monitorOnly{false};   // true when filePath is "" (no file writing)
 };
 
 } // namespace mosaic

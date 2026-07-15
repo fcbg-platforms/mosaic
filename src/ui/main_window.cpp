@@ -1,4 +1,5 @@
 #include "ui/main_window.hpp"
+#include "analysis/pose_worker.hpp"
 #include "ui/audio/audio_settings_w.hpp"
 #include "ui/calibration/calibration_w.hpp"
 #include "ui/logger/logger_panel_w.hpp"
@@ -9,17 +10,23 @@
 #include "ui/trigger/trigger_settings_w.hpp"
 #include "ui/video/performance_monitor_w.hpp"
 #include "ui/video/video_settings_w.hpp"
+#include "video/video_feed_provider.hpp"
 #include "utils/logger.hpp"
 #include <QAction>
 #include <QCloseEvent>
 #include <QCoreApplication>
+#include <QDateTime>
 #include <QDesktopServices>
+#include <array>
+#include <memory>
+#include <QFileInfo>
 #include <QLabel>
 #include <QMenuBar>
 #include <QMessageBox>
 #include <QQmlContext>
 #include <QQuickWidget>
 #include <QSettings>
+#include <QTimer>
 #include <QSplitter>
 #include <QStatusBar>
 #include <QTabWidget>
@@ -43,6 +50,7 @@ struct MainWindow::Impl {
     QQuickWidget*   monitorView   = nullptr;
     LoggerPanelW*   loggerPanel   = nullptr;
     QLabel*         statusLabel   = nullptr;
+    PoseWorker*     poseWorker    = nullptr;
 
     explicit Impl(AppSettings& s, const QString& user, TriggerManager* tm,
                   AudioManager* am, VideoManager* vm, RecordManager* rm,
@@ -184,8 +192,8 @@ void MainWindow::build_central_widget() {
     d->settingsTabs->setMaximumWidth(520);
     d->settingsTabs->setDocumentMode(true);
 
-    d->settingsTabs->addTab(
-        new VideoSettingsW(d->settings.video),                              "Video");
+    auto* videoSettingsW = new VideoSettingsW(d->settings.video);
+    d->settingsTabs->addTab(videoSettingsW, "Video");
     d->settingsTabs->addTab(
         new AudioSettingsW(d->settings.audio, d->audioMgr),                "Audio");
     d->settingsTabs->addTab(
@@ -211,12 +219,103 @@ void MainWindow::build_central_widget() {
     d->monitorView->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
 
     d->bridge = new MonitorBridge(d->recordMgr, d->settings.video, this);
+
+    // Register the camera-frame image provider before loading QML.
+    auto* feedProvider = new VideoFeedProvider;    // owned by QML engine
+    d->monitorView->engine()->addImageProvider("videofeed", feedProvider);
+    d->bridge->set_feed_provider(feedProvider);
+
     d->monitorView->rootContext()->setContextProperty("backend", d->bridge);
     d->monitorView->setSource(QUrl("qrc:/qml/MonitorView.qml"));
 
     if (d->monitorView->status() == QQuickWidget::Error) {
         for (const auto& err : d->monitorView->errors()) {
             log_error(QString("QML error: %1").arg(err.toString()));
+        }
+    }
+
+    // Wire preview frames from VideoManager to MonitorBridge → image provider.
+    if (d->videoMgr) {
+        connect(d->videoMgr, &VideoManager::frame_preview,
+                d->bridge, &MonitorBridge::on_frame_preview,
+                Qt::QueuedConnection);
+    }
+
+    // When the camera list changes, fully reload the hardware.
+    //
+    // Sequence:
+    //   1. set_camera_count(0) — QML immediately hides every camera delegate.
+    //      This must happen BEFORE close() so the render thread never tries to
+    //      sync a scenegraph that is removing a live, actively-rendering slot.
+    //   2. close() — stops grabbers, closes Pylon devices, drains queued events.
+    //   3. singleShot(0) — gives the event loop one pass so QML can fully process
+    //      the count-0 change (delegates torn down cleanly) before open() blocks.
+    //   4. open() + set_camera_count(opened) — bring up the new camera set and
+    //      restore the slot count only after hardware is ready.
+    connect(videoSettingsW, &VideoSettingsW::cameras_list_changed, this, [this] {
+        if (!d->videoMgr) return;
+        log_info(QString("[Main] cameras_list_changed: hiding display (%1 → 0 cameras)")
+                     .arg(d->settings.video.cameras.size()));
+        d->bridge->set_camera_count(0);
+        log_info("[Main] cameras_list_changed: closing cameras");
+        d->videoMgr->close();
+        log_info("[Main] cameras_list_changed: close done, deferring open");
+        QTimer::singleShot(0, this, [this] {
+            log_info("[Main] cameras_list_changed: opening cameras");
+            const int opened = d->videoMgr->open(d->settings.video);
+            log_info(QString("[Main] cameras_list_changed: open done (%1 opened)").arg(opened));
+            // Size the monitor for every *configured* slot, not just the
+            // ones that opened successfully. Each VideoGrabber keeps its
+            // original config-array position as its cameraIndex (used for
+            // video_N.mp4/timestamps_camN.csv naming) even when an earlier
+            // camera in the list fails to open — so if the monitor were
+            // sized to the opened count instead, a later camera's real
+            // cameraIndex could fall outside the tile range the QML
+            // Repeater creates, silently hiding its feed behind an
+            // unrelated tile while the failed camera's rightful tile sits
+            // on an uninitialized placeholder.
+            d->bridge->set_camera_count(static_cast<int>(d->settings.video.cameras.size()));
+            if (opened > 0) {
+                d->videoMgr->start_preview();
+                log_info("[Main] cameras_list_changed: preview started");
+            }
+            log_info("[Main] cameras_list_changed: handler done");
+        });
+        log_info("[Main] cameras_list_changed: timer scheduled, outer handler returning");
+    });
+
+    // Start real-time pose worker if the Python venv is available.
+    {
+        const QString exeDir  = QCoreApplication::applicationDirPath();
+        const QString interp  = exeDir + "/python/.venv/Scripts/python.exe";
+        const QString script  = exeDir + "/python/pose/frame_server.py";
+        if (QFileInfo::exists(interp) && QFileInfo::exists(script)) {
+            d->poseWorker = new PoseWorker(this);
+            if (d->poseWorker->start(interp, script)) {
+                connect(d->poseWorker, &PoseWorker::pose_ready,
+                        d->bridge, &MonitorBridge::on_pose_ready,
+                        Qt::QueuedConnection);
+                connect(d->poseWorker, &PoseWorker::gaze_ready,
+                        d->bridge, &MonitorBridge::on_gaze_ready,
+                        Qt::QueuedConnection);
+                if (d->videoMgr) {
+                    // Send all cameras at ≤2 fps each (6 cams × 2 fps = 12 fps
+                    // total — within MediaPipe lite's ~18 fps capacity).
+                    // Per-camera timestamps prevent one fast camera from starving others.
+                    auto ts = std::make_shared<std::array<qint64, 16>>();
+                    ts->fill(0);
+                    connect(d->videoMgr, &VideoManager::frame_preview,
+                            this, [this, ts](int camIdx, QImage frame) {
+                        if (!d->poseWorker || !d->poseWorker->is_running()) return;
+                        if (camIdx < 0 || camIdx >= static_cast<int>(ts->size())) return;
+                        const qint64 nowMs = QDateTime::currentMSecsSinceEpoch();
+                        if (nowMs - (*ts)[camIdx] < 500) return;   // 2 fps per camera
+                        (*ts)[camIdx] = nowMs;
+                        d->poseWorker->submit_frame(camIdx, frame);
+                    }, Qt::QueuedConnection);
+                }
+                log_info("Pose worker started — real-time pose overlay active.");
+            }
         }
     }
 

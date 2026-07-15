@@ -3,7 +3,9 @@
 #include "trigger/lsl_inlet.hpp"
 #include "trigger/lsl_outlet.hpp"
 #include "trigger/parallel_port_trigger.hpp"
+#ifdef MOSAIC_HAVE_SERIAL
 #include "trigger/serial_trigger.hpp"
+#endif
 #include "trigger/trigger_recorder.hpp"
 #include "utils/logger.hpp"
 
@@ -13,7 +15,9 @@ struct TriggerManager::Impl {
     TriggerSettings& settings;
 
     std::vector<std::unique_ptr<KeyboardTrigger>>      keyTriggers;
+#ifdef MOSAIC_HAVE_SERIAL
     std::vector<std::unique_ptr<SerialTrigger>>        serialTriggers;
+#endif
     std::vector<std::unique_ptr<LslInlet>>             lslInlets;
     std::vector<std::unique_ptr<ParallelPortTrigger>>  portTriggers;
     std::unique_ptr<LslOutlet>                         lslOutlet;
@@ -39,11 +43,15 @@ TriggerManager::~TriggerManager() = default;
 void TriggerManager::reload() {
     // ── Tear down existing sources ─────────────────────────────────────────
     for (auto& kt : d->keyTriggers)    { kt->set_active(false); }
+#ifdef MOSAIC_HAVE_SERIAL
     for (auto& st : d->serialTriggers) { st->close(); }
+#endif
     for (auto& pp : d->portTriggers)   { pp->stop(); }
     for (auto& li : d->lslInlets)      { li->disconnect(); }
     d->keyTriggers.clear();
+#ifdef MOSAIC_HAVE_SERIAL
     d->serialTriggers.clear();
+#endif
     d->portTriggers.clear();
     d->lslInlets.clear();
 
@@ -63,6 +71,7 @@ void TriggerManager::reload() {
     }
 
     // ── Serial triggers ────────────────────────────────────────────────────
+#ifdef MOSAIC_HAVE_SERIAL
     for (auto& cfg : d->settings.serialTriggers) {
         if (!cfg.enabled || cfg.portName.isEmpty()) { continue; }
         auto st = std::make_unique<SerialTrigger>(cfg, this);
@@ -78,6 +87,7 @@ void TriggerManager::reload() {
         }
         d->serialTriggers.push_back(std::move(st));
     }
+#endif
 
     // ── LSL inlets ─────────────────────────────────────────────────────────
     for (auto& cfg : d->settings.lslInlets) {
@@ -127,7 +137,11 @@ void TriggerManager::reload() {
     log_info(QString("[TriggerManager] Reloaded: %1 keyboard, %2 serial, %3 LSL inlet(s), "
                      "%4 parallel port(s). LSL outlet: %5.")
                  .arg(d->keyTriggers.size())
+#ifdef MOSAIC_HAVE_SERIAL
                  .arg(d->serialTriggers.size())
+#else
+                 .arg(0)
+#endif
                  .arg(d->lslInlets.size())
                  .arg(d->portTriggers.size())
                  .arg(d->lslOutlet->is_open() ? "on" : "off"));

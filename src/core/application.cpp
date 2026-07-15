@@ -57,8 +57,18 @@ void Application::initialize(const QString& username) {
     d->audioManager   = std::make_unique<AudioManager>(this);
     d->videoManager   = std::make_unique<VideoManager>(this);
 
+    // camera_error relays both grab failures (VideoGrabber::grab_error) and
+    // encode failures (VideoEncoder::encoding_error) — without this connection
+    // those errors are emitted but never surface anywhere, so a recording can
+    // silently produce zero output with no visible cause.
+    connect(d->videoManager.get(), &VideoManager::camera_error,
+            this, [](int cameraIndex, const QString& message) {
+        log_error(QString("[Camera %1] %2").arg(cameraIndex).arg(message));
+    });
+
     if (!d->settings.video.cameras.empty()) {
         d->videoManager->open(d->settings.video);
+        d->videoManager->start_preview();
     }
 
     d->recordManager = std::make_unique<RecordManager>(
@@ -74,6 +84,22 @@ void Application::initialize(const QString& username) {
             }
         } else if (action == TriggerAction::StopRecording) {
             if (d->recordManager->is_recording())  { d->recordManager->stop(); }
+        }
+    });
+
+    // Start audio monitoring immediately so the waveform widget shows live levels.
+    if (!d->settings.audio.microphones.empty()) {
+        d->audioManager->start_monitoring(d->settings.audio.microphones);
+    }
+
+    // Restart monitoring and preview after each recording ends.
+    connect(d->recordManager.get(), &RecordManager::recording_stopped,
+            this, [this](const QString& /*path*/, int /*durationMs*/) {
+        if (!d->settings.audio.microphones.empty()) {
+            d->audioManager->start_monitoring(d->settings.audio.microphones);
+        }
+        if (!d->settings.video.cameras.empty()) {
+            d->videoManager->start_preview();
         }
     });
 

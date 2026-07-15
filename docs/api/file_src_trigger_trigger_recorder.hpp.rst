@@ -1,0 +1,64 @@
+
+.. _file_src_trigger_trigger_recorder.hpp:
+
+File trigger_recorder.hpp
+=========================
+
+|exhale_lsh| :ref:`Parent directory <dir_src_trigger>` (``src/trigger``)
+
+.. |exhale_lsh| unicode:: U+021B0 .. UPWARDS ARROW WITH TIP LEFTWARDS
+
+
+.. contents:: Contents
+   :local:
+   :backlinks: none
+
+Definition (``src/trigger/trigger_recorder.hpp``)
+-------------------------------------------------
+
+
+.. toctree::
+   :maxdepth: 1
+
+   program_listing_file_src_trigger_trigger_recorder.hpp.rst
+
+
+
+
+
+Includes
+--------
+
+
+- ``QString``
+
+- ``memory``
+
+- ``trigger/trigger_types.hpp`` (:ref:`file_src_trigger_trigger_types.hpp`)
+
+
+
+Included By
+-----------
+
+
+- :ref:`file_src_trigger_trigger_manager.cpp`
+
+- :ref:`file_src_trigger_trigger_recorder.cpp`
+
+
+
+
+Namespaces
+----------
+
+
+- :ref:`namespace_mosaic`
+
+
+Classes
+-------
+
+
+- :ref:`exhale_class_classmosaic_1_1_trigger_recorder`
+

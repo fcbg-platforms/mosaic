@@ -1,0 +1,28 @@
+# MOSAIC analysis dependencies
+# Install via: pip install -r requirements.txt
+#
+# For GPU acceleration (NVIDIA only), install the CUDA-enabled torch before
+# running pip install:
+#   pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
+
+# ── Core ──────────────────────────────────────────────────────────────────────
+numpy>=1.24
+opencv-python>=4.8
+
+# ── Human pose estimation ─────────────────────────────────────────────────────
+# YOLOv8-pose: multi-person, 17-keypoint COCO skeleton
+# Downloads ~6 MB model on first run (yolov8n-pose.pt)
+ultralytics>=8.0
+
+# ── Optional: MediaPipe (CPU-only, good fallback) ─────────────────────────────
+# mediapipe>=0.10
+
+# ── Optional: mouse / animal pose ─────────────────────────────────────────────
+# DeepLabCut requires separate conda environment (see docs/analysis.rst)
+# SLEAP: conda install -c sleap -c nvidia sleap
+
+# ── Data / export ─────────────────────────────────────────────────────────────
+pandas>=2.0
+scipy>=1.11
+h5py>=3.9          # HDF5 output compatible with SLEAP / DLC format
+matplotlib>=3.7    # heatmaps, trajectory plots, velocity histograms

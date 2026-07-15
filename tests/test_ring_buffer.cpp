@@ -50,11 +50,11 @@ TEST(RingBuffer, AvailableTracking) {
     RingBuffer<int> buf(8);
     EXPECT_EQ(buf.available_read(),  0U);
     EXPECT_EQ(buf.available_write(), 8U);
-    buf.push(1);
+    (void)buf.push(1);
     EXPECT_EQ(buf.available_read(),  1U);
     EXPECT_EQ(buf.available_write(), 7U);
     int out{};
-    buf.pop(out);
+    (void)buf.pop(out);
     EXPECT_EQ(buf.available_read(),  0U);
     EXPECT_EQ(buf.available_write(), 8U);
 }
@@ -98,7 +98,7 @@ TEST(RingBuffer, ConcurrentSpsc) {
 
 TEST(RingBuffer, ResetClearsPrevious) {
     RingBuffer<int> buf(4);
-    buf.push(99);
+    (void)buf.push(99);
     buf.reset(8);
     EXPECT_TRUE(buf.empty());
     EXPECT_EQ(buf.capacity(), 8U);

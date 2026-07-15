@@ -136,8 +136,6 @@ QJsonObject VideoSettings::to_json() const {
         {"preset",     preset},
         {"crf",        crf},
         {"bitrate",    bitrate},
-        {"sync_fps",   syncFps},
-        {"target_fps", targetFps},
         {"cameras",    cams},
     };
 }
@@ -148,8 +146,8 @@ std::optional<VideoSettings> VideoSettings::from_json(const QJsonObject& o) {
     if (o.contains("preset"))     s.preset     = o["preset"].toString(s.preset);
     if (o.contains("crf"))        s.crf        = o["crf"].toInt(s.crf);
     if (o.contains("bitrate"))    s.bitrate    = o["bitrate"].toInt(s.bitrate);
-    if (o.contains("sync_fps"))   s.syncFps    = o["sync_fps"].toBool(s.syncFps);
-    if (o.contains("target_fps")) s.targetFps  = o["target_fps"].toInt(s.targetFps);
+    // Legacy "sync_fps"/"target_fps" keys from older settings.json files are
+    // silently ignored — the feature was never wired into acquisition.
     if (o.contains("cameras")) {
         for (const auto& v : o["cameras"].toArray()) {
             if (auto c = CameraParameters::from_json(v.toObject()))

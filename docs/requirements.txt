@@ -1,0 +1,21 @@
+# Python dependencies for the MOSAIC documentation pipeline.
+# Install with:  pip install -r docs/requirements.txt
+
+# Sphinx itself
+sphinx>=7.2
+
+# Theme — used by NumPy, SciPy, pandas, matplotlib; dark/light toggle, icon links
+pydata-sphinx-theme>=0.15
+
+# Breathe: bridges Doxygen XML → Sphinx directives
+breathe>=4.35
+
+# Exhale: auto-generates RST API tree from Breathe content
+exhale>=0.3.7
+
+# MyST-Parser: lets Sphinx read Markdown files (README.md, CHANGELOG.md)
+myst-parser>=2.0
+
+# Nice extras
+sphinx-copybutton>=0.5    # adds copy button to every code block
+sphinx-design>=0.5        # grid/card/tab directives for the landing page

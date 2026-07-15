@@ -1,10 +1,111 @@
-PROJECT_NAME     = "MOSAIC"
-PROJECT_NUMBER   = @PROJECT_VERSION@
-PROJECT_BRIEF    = "Multi-camera Observatory for Social & Activity Interaction Capture"
-OUTPUT_DIRECTORY = @CMAKE_CURRENT_BINARY_DIR@/docs
-INPUT            = @CMAKE_SOURCE_DIR@/src
-RECURSIVE        = YES
-EXTRACT_ALL      = NO
-GENERATE_HTML    = YES
-GENERATE_LATEX   = NO
+# Doxygen configuration — processed by CMake (variables in @...@ are substituted).
+# To run standalone without CMake:
+#   doxygen docs/Doxyfile.in   (variables left un-substituted are harmless defaults)
+
+#---------------------------------------------------------------------------
+# Project identity
+#---------------------------------------------------------------------------
+PROJECT_NAME        = "MOSAIC"
+PROJECT_NUMBER      = @PROJECT_VERSION@
+PROJECT_BRIEF       = "Multi-camera Observatory for Social & Activity Interaction Capture"
+PROJECT_LOGO        =
+
+#---------------------------------------------------------------------------
+# Input
+#---------------------------------------------------------------------------
+INPUT               = @CMAKE_SOURCE_DIR@/src \
+                      @CMAKE_SOURCE_DIR@/README.md
+INPUT_ENCODING      = UTF-8
+RECURSIVE           = YES
+FILE_PATTERNS       = *.hpp *.cpp *.md
+EXCLUDE_PATTERNS    = */ui/* */moc_* *_autogen*
 USE_MDFILE_AS_MAINPAGE = @CMAKE_SOURCE_DIR@/README.md
+
+#---------------------------------------------------------------------------
+# What to extract
+#---------------------------------------------------------------------------
+EXTRACT_ALL             = NO   # document only what has Doxygen comments
+EXTRACT_PRIVATE         = NO   # internal Impl structs stay hidden
+EXTRACT_STATIC          = YES
+EXTRACT_LOCAL_CLASSES   = NO   # skip anonymous helper classes in .cpp files
+HIDE_UNDOC_MEMBERS      = YES
+HIDE_UNDOC_CLASSES      = YES
+INTERNAL_DOCS           = NO
+ENABLED_SECTIONS        =
+
+# Exclude private Pimpl structs — they are implementation details and would
+# just create duplicate-declaration warnings in Breathe.
+EXCLUDE_SYMBOLS         = *::Impl k_switch_exit_code k_ring_capacity k_accents k_pbkdf2_iterations k_key_bytes k_salt_bytes
+
+#---------------------------------------------------------------------------
+# Output
+#---------------------------------------------------------------------------
+OUTPUT_DIRECTORY        = @CMAKE_CURRENT_BINARY_DIR@/doxygen
+GENERATE_HTML           = YES
+GENERATE_LATEX          = NO
+GENERATE_XML            = YES   # required by Breathe for Sphinx integration
+XML_OUTPUT              = xml
+XML_PROGRAMLISTING      = YES
+
+#---------------------------------------------------------------------------
+# HTML output appearance
+#---------------------------------------------------------------------------
+HTML_OUTPUT             = html
+HTML_TIMESTAMP          = NO
+HTML_DYNAMIC_SECTIONS   = YES
+GENERATE_TREEVIEW       = YES
+FULL_SIDEBAR            = YES
+HTML_COLORSTYLE         = DARK
+TOC_INCLUDE_HEADINGS    = 4
+
+#---------------------------------------------------------------------------
+# Preprocessor — list compile-time flags so all code paths are documented
+#---------------------------------------------------------------------------
+ENABLE_PREPROCESSING    = YES
+MACRO_EXPANSION         = YES
+EXPAND_ONLY_PREDEF      = YES
+PREDEFINED              = MOSAIC_HAVE_CAMERAS \
+                          MOSAIC_HAVE_FFMPEG \
+                          MOSAIC_HAVE_NVENC \
+                          MOSAIC_HAVE_VIDEOTOOLBOX \
+                          MOSAIC_HAVE_LSL \
+                          MOSAIC_HAVE_OPENCV \
+                          MOSAIC_HAVE_PARALLEL_PORT \
+                          Q_OBJECT= \
+                          Q_SIGNALS=public \
+                          Q_SLOTS= \
+                          Q_INVOKABLE=
+
+#---------------------------------------------------------------------------
+# Source browsing
+#---------------------------------------------------------------------------
+SOURCE_BROWSER          = YES
+INLINE_SOURCES          = NO
+STRIP_CODE_COMMENTS     = NO
+REFERENCED_BY_RELATION  = YES
+REFERENCES_RELATION     = YES
+
+#---------------------------------------------------------------------------
+# Diagrams (requires Graphviz dot)
+#---------------------------------------------------------------------------
+HAVE_DOT                = YES
+DOT_NUM_THREADS         = 4
+CLASS_DIAGRAMS          = YES
+CLASS_GRAPH             = YES
+COLLABORATION_GRAPH     = YES
+INCLUDE_GRAPH           = YES
+INCLUDED_BY_GRAPH       = YES
+CALL_GRAPH              = NO   # too noisy for Qt signals
+CALLER_GRAPH            = NO
+DOT_IMAGE_FORMAT        = svg
+INTERACTIVE_SVG         = YES
+DOT_TRANSPARENT         = YES
+
+#---------------------------------------------------------------------------
+# Warnings
+#---------------------------------------------------------------------------
+WARNINGS                = YES
+WARN_IF_UNDOCUMENTED    = YES
+WARN_IF_DOC_ERROR       = YES
+WARN_NO_PARAMDOC        = YES
+WARN_FORMAT             = "$file:$line: $text"

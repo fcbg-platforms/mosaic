@@ -1,0 +1,69 @@
+
+.. _file_src_auth_profile_manager.cpp:
+
+File profile_manager.cpp
+========================
+
+|exhale_lsh| :ref:`Parent directory <dir_src_auth>` (``src/auth``)
+
+.. |exhale_lsh| unicode:: U+021B0 .. UPWARDS ARROW WITH TIP LEFTWARDS
+
+
+.. contents:: Contents
+   :local:
+   :backlinks: none
+
+Definition (``src/auth/profile_manager.cpp``)
+---------------------------------------------
+
+
+.. toctree::
+   :maxdepth: 1
+
+   program_listing_file_src_auth_profile_manager.cpp.rst
+
+
+
+
+
+Includes
+--------
+
+
+- ``QCryptographicHash``
+
+- ``QDateTime``
+
+- ``QDir``
+
+- ``QFile``
+
+- ``QJsonArray``
+
+- ``QJsonDocument``
+
+- ``QJsonObject``
+
+- ``QPasswordDigestor``
+
+- ``QRandomGenerator``
+
+- ``QRegularExpression``
+
+- ``QStandardPaths``
+
+- ``auth/profile_manager.hpp`` (:ref:`file_src_auth_profile_manager.hpp`)
+
+- ``utils/logger.hpp`` (:ref:`file_src_utils_logger.hpp`)
+
+
+
+
+
+
+Namespaces
+----------
+
+
+- :ref:`namespace_mosaic`
+

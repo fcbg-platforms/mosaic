@@ -1,6 +1,7 @@
 #pragma once
 #include "core/settings.hpp"
 #include "video/video_frame.hpp"
+#include <QImage>
 #include <QObject>
 #include <memory>
 
@@ -54,6 +55,13 @@ public:
     /// Calls stop() first if a recording is active.
     void close();
 
+    /// @brief Starts the grab loop for all cameras without creating encoders.
+    ///
+    /// Call this after open() to see live preview frames in the QML monitor
+    /// before any recording session begins.  Safe to call if grabbers are
+    /// already running (no-op for those cameras).
+    void start_preview();
+
     /// @brief Starts grabbing and encoding for all open cameras.
     ///
     /// Output files:
@@ -86,12 +94,13 @@ public:
 
     /// @brief Per-camera real-time performance snapshot.
     struct CameraStats {
-        double  fps             = 0.0;  ///< Measured grab rate (frames/s).
-        int64_t framesGrabbed   = 0;    ///< Total frames grabbed since start().
-        int64_t framesEncoded   = 0;    ///< Total frames encoded since start().
-        int64_t framesDropped   = 0;    ///< Frames lost to ring-buffer overflow.
-        int     ringFillPct     = 0;    ///< Ring buffer fill level, 0–100.
-        bool    grabberRunning  = false;
+        double  fps               = 0.0;  ///< Measured grab rate (frames/s).
+        int64_t framesGrabbed     = 0;    ///< Total frames grabbed since start().
+        int64_t framesEncoded     = 0;    ///< Total frames encoded since start().
+        int64_t framesDropped     = 0;    ///< Frames lost to ring-buffer overflow.
+        int     ringFillPct       = 0;    ///< Ring buffer fill level, 0–100.
+        bool    grabberRunning    = false;
+        int64_t lastFrameElapsedNs = -1;  ///< elapsed_ns() of the most recent frame, -1 if none yet.
     };
 
     /// @brief Returns a performance snapshot for one camera.
@@ -116,6 +125,9 @@ signals:
 
     /// Emitted when all encoders have finished (files closed and flushed).
     void recording_stopped();
+
+    /// Throttled (~15 fps) BGR preview for live QML display.
+    void frame_preview(int cameraIndex, QImage frame);
 
 private slots:
     void on_encoder_stopped(int cameraIndex, int64_t frames);

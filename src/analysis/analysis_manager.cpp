@@ -189,7 +189,7 @@ QString AnalysisManager::find_python() const {
     if (!venv.isEmpty()) { return venv; }
 
     // Fall back to system Python
-    for (const QString& name : {"python3", "python"}) {
+    for (const QString name : {"python3", "python"}) {
         QProcess probe;
         probe.start(name, {"--version"});
         if (probe.waitForFinished(2000) && probe.exitCode() == 0) {

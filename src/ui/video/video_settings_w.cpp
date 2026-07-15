@@ -1,6 +1,7 @@
 #include "ui/video/video_settings_w.hpp"
 #include "ui/video/camera_card_w.hpp"
-#include <QCheckBox>
+#include "video/video_grabber.hpp"
+#include <algorithm>
 #include <QComboBox>
 #include <QDoubleSpinBox>
 #include <QFrame>
@@ -20,12 +21,11 @@ struct VideoSettingsW::Impl {
     QComboBox*     codecCombo    = nullptr;
     QStackedWidget* qualityStack = nullptr;  // index 0 = GPU bitrate, 1 = CPU CRF
     QComboBox*     presetCombo   = nullptr;
-    QSpinBox*      targetFpsSpin = nullptr;
-    QCheckBox*     syncCk        = nullptr;
 
     // Camera list
     QVBoxLayout*   camerasLayout = nullptr;
     QVector<CameraCardW*> cards;
+    QLabel*        discoverStatusLbl = nullptr;
 };
 
 // ── Constructor ────────────────────────────────────────────────────────────
@@ -170,8 +170,8 @@ void VideoSettingsW::build_encoding_section(QVBoxLayout* parent) {
                     QString("p%1").arg(i));
             d->qualityStack->setCurrentIndex(0);  // bitrate panel
         } else {
-            for (const QString& p : {"ultrafast","superfast","veryfast","faster",
-                                     "fast","medium","slow","slower","veryslow"})
+            for (const QString p : {"ultrafast","superfast","veryfast","faster",
+                                    "fast","medium","slow","slower","veryslow"})
                 d->presetCombo->addItem(p, p);
             d->qualityStack->setCurrentIndex(1);  // CRF panel
         }
@@ -188,39 +188,6 @@ void VideoSettingsW::build_encoding_section(QVBoxLayout* parent) {
         m_settings.preset = v; emit settings_changed();
     });
 
-    // ── FPS synchronisation ──────────────────────────────────────────────
-    auto* line = new QFrame; line->setFrameShape(QFrame::HLine);
-    form->addWidget(line);
-
-    auto* syncRow = new QHBoxLayout;
-    d->syncCk = new QCheckBox("Synchronise camera frame rates");
-    d->syncCk->setChecked(m_settings.syncFps);
-    syncRow->addWidget(d->syncCk);
-    form->addLayout(syncRow);
-
-    auto* fpsRow = new QHBoxLayout;
-    auto* fpsLbl = new QLabel("Target FPS:");
-    fpsLbl->setFixedWidth(90);
-    fpsLbl->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
-    d->targetFpsSpin = new QSpinBox;
-    d->targetFpsSpin->setRange(1, 200);
-    d->targetFpsSpin->setValue(m_settings.targetFps);
-    d->targetFpsSpin->setSuffix("  fps");
-    d->targetFpsSpin->setEnabled(m_settings.syncFps);
-    fpsRow->addWidget(fpsLbl);
-    fpsRow->addWidget(d->targetFpsSpin);
-    fpsRow->addStretch();
-    form->addLayout(fpsRow);
-
-    connect(d->syncCk, &QCheckBox::toggled, this, [this](bool v){
-        m_settings.syncFps = v;
-        d->targetFpsSpin->setEnabled(v);
-        emit settings_changed();
-    });
-    connect(d->targetFpsSpin, qOverload<int>(&QSpinBox::valueChanged), this, [this](int v){
-        m_settings.targetFps = v; emit settings_changed();
-    });
-
     parent->addWidget(box);
 }
 
@@ -235,6 +202,13 @@ void VideoSettingsW::build_cameras_section(QVBoxLayout* parent) {
     headerRow->addWidget(titleLbl);
     headerRow->addStretch();
 
+    auto* discoverBtn = new QPushButton("Discover cameras");
+    discoverBtn->setFixedHeight(26);
+    discoverBtn->setToolTip("Scan for physically-connected Basler cameras and add a card "
+                            "for each one found, with its serial number already filled in.");
+    connect(discoverBtn, &QPushButton::clicked, this, &VideoSettingsW::discover_cameras);
+    headerRow->addWidget(discoverBtn);
+
     auto* addBtn = new QPushButton("+ Add camera");
     addBtn->setFixedHeight(26);
     connect(addBtn, &QPushButton::clicked, this, [this]{
@@ -244,6 +218,12 @@ void VideoSettingsW::build_cameras_section(QVBoxLayout* parent) {
 
     parent->addLayout(headerRow);
 
+    d->discoverStatusLbl = new QLabel;
+    d->discoverStatusLbl->setProperty("role", "muted");
+    d->discoverStatusLbl->setWordWrap(true);
+    d->discoverStatusLbl->hide();
+    parent->addWidget(d->discoverStatusLbl);
+
     // ── Camera cards list ─────────────────────────────────────────────────
     auto* cardsWidget = new QWidget;
     d->camerasLayout  = new QVBoxLayout(cardsWidget);
@@ -251,6 +231,50 @@ void VideoSettingsW::build_cameras_section(QVBoxLayout* parent) {
     d->camerasLayout->setSpacing(6);
 
     parent->addWidget(cardsWidget);
+}
+
+void VideoSettingsW::discover_cameras() {
+    const QVector<DiscoveredCamera> found = VideoGrabber::enumerate_devices();
+
+    // Add every new camera first and emit settings_changed()/cameras_list_changed()
+    // only once at the end, instead of calling add_camera() per device (which
+    // each emit cameras_list_changed() on their own). MainWindow reacts to that
+    // signal by closing and reopening every configured camera against real
+    // hardware — doing that once per discovered device would mean N redundant,
+    // increasingly-large close/reopen cycles all queued and run back-to-back on
+    // the GUI thread for one click, easily adding up to a many-seconds freeze
+    // with several real cameras.
+    int added = 0;
+    for (const auto& cam : found) {
+        if (cam.serialNumber.isEmpty()) { continue; }
+        const bool alreadyPresent = std::any_of(
+            m_settings.cameras.cbegin(), m_settings.cameras.cend(),
+            [&](const CameraParameters& existing) {
+                return existing.serialNumber == cam.serialNumber;
+            });
+        if (alreadyPresent) { continue; }
+
+        CameraParameters params;
+        params.serialNumber = cam.serialNumber;
+        if (!cam.modelName.isEmpty()) { params.friendlyName = cam.modelName; }
+        m_settings.cameras.push_back(std::move(params));
+        make_card(static_cast<int>(m_settings.cameras.size()) - 1);
+        ++added;
+    }
+
+    if (added > 0) {
+        emit settings_changed();
+        emit cameras_list_changed();
+    }
+
+    if (d->discoverStatusLbl) {
+        d->discoverStatusLbl->setText(found.isEmpty()
+            ? "No cameras found — check network cabling/power, or that this build was "
+              "compiled with camera support."
+            : QString("Found %1 camera(s); added %2 new card(s) (%3 already configured).")
+                  .arg(found.size()).arg(added).arg(found.size() - added));
+        d->discoverStatusLbl->show();
+    }
 }
 
 void VideoSettingsW::make_card(int index) {
@@ -265,22 +289,36 @@ void VideoSettingsW::add_camera(CameraParameters params) {
     m_settings.cameras.push_back(std::move(params));
     make_card(static_cast<int>(m_settings.cameras.size()) - 1);
     emit settings_changed();
+    emit cameras_list_changed();
 }
 
 void VideoSettingsW::remove_camera(int index) {
     if (index < 0 || index >= d->cards.size()) return;
 
-    auto* card = d->cards[index];
-    d->camerasLayout->removeWidget(card);
-    card->deleteLater();
-    d->cards.remove(index);
+    // The card at `index` emitted remove_requested, which called us via a
+    // DirectConnection — it is still on the call stack.  Deleting it now would
+    // destroy the object mid-signal-emission and crash.  Use deleteLater() so
+    // Qt defers the destruction until after the call stack unwinds.
+    d->camerasLayout->removeWidget(d->cards[index]);
+    d->cards[index]->deleteLater();
+
+    // Cards AFTER `index` are not on the call stack, but their CameraParameters&
+    // refs become stale after the vector erase below.  Delete them immediately
+    // so no queued paint/update event can dereference the dangling refs.
+    for (int i = d->cards.size() - 1; i > index; --i) {
+        d->camerasLayout->removeWidget(d->cards[i]);
+        delete d->cards[i];
+    }
+    d->cards.resize(index);
+
     m_settings.cameras.erase(m_settings.cameras.begin() + index);
 
-    // Renumber remaining cards so they always show their actual position.
-    for (int i = index; i < d->cards.size(); ++i)
-        d->cards[i]->set_index(i);
+    // Recreate cards for every camera that follows the removed slot.
+    for (int i = index; i < static_cast<int>(m_settings.cameras.size()); ++i)
+        make_card(i);
 
     emit settings_changed();
+    emit cameras_list_changed();
 }
 
 } // namespace mosaic

@@ -5,11 +5,46 @@
 #include "ui/style.hpp"
 #include <QApplication>
 
+#ifdef _WIN32
+#include <windows.h>
+#include <dbghelp.h>
+#pragma comment(lib, "dbghelp.lib")
+
+static LONG WINAPI mosaic_exception_filter(EXCEPTION_POINTERS* ep)
+{
+    // Write mosaic_crash.dmp next to the executable so the developer can open
+    // it in Visual Studio or WinDbg to get the full thread call stacks.
+    HANDLE file = ::CreateFileA("mosaic_crash.dmp",
+                                GENERIC_WRITE, 0, nullptr,
+                                CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (file != INVALID_HANDLE_VALUE) {
+        MINIDUMP_EXCEPTION_INFORMATION info{};
+        info.ThreadId          = ::GetCurrentThreadId();
+        info.ExceptionPointers = ep;
+        info.ClientPointers    = FALSE;
+        ::MiniDumpWriteDump(::GetCurrentProcess(),
+                            ::GetCurrentProcessId(),
+                            file,
+                            static_cast<MINIDUMP_TYPE>(
+                                MiniDumpWithThreadInfo |
+                                MiniDumpWithProcessThreadData |
+                                MiniDumpWithUnloadedModules),
+                            &info, nullptr, nullptr);
+        ::CloseHandle(file);
+    }
+    return EXCEPTION_CONTINUE_SEARCH;   // let the default handler terminate
+}
+#endif
+
 // Exit code returned by MainWindow when the user picks "Switch profile".
 static constexpr int k_switch_exit_code = 42;
 
 int main(int argc, char* argv[])
 {
+#ifdef _WIN32
+    ::SetUnhandledExceptionFilter(mosaic_exception_filter);
+#endif
+
     QApplication app(argc, argv);
     app.setApplicationName("MOSAIC");
     app.setApplicationVersion("0.1.0");

@@ -5,7 +5,10 @@
   "dependencies": [
     "gtest",
     "opencv4",
-    "ffmpeg"
+    {
+      "name": "ffmpeg",
+      "features": ["x264"]
+    }
   ],
   "features": {
     "lsl": {

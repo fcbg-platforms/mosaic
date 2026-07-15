@@ -22,10 +22,18 @@ if(DEFINED ENV{VCPKG_ROOT} AND NOT DEFINED CMAKE_TOOLCHAIN_FILE)
 endif()
 
 find_package(Qt6 6.4 REQUIRED COMPONENTS
-    Core Gui Widgets Network SerialPort Multimedia
+    Core Gui Widgets Network Multimedia
     Quick QuickWidgets
 )
+find_package(Qt6 OPTIONAL_COMPONENTS SerialPort)
 qt_standard_project_setup()
+
+option(MOSAIC_ENABLE_SERIAL "Build serial port trigger support" ON)
+if(MOSAIC_ENABLE_SERIAL AND TARGET Qt6::SerialPort)
+    set(MOSAIC_HAVE_SERIAL ON)
+else()
+    set(MOSAIC_HAVE_SERIAL OFF)
+endif()
 
 # ── Feature flags ─────────────────────────────────────────────────────────
 option(MOSAIC_ENABLE_CAMERAS       "Build Basler Pylon camera support"         OFF)
@@ -35,7 +43,7 @@ option(MOSAIC_ENABLE_PARALLEL_PORT "Build InpOut32 parallel port trigger"      O
 option(MOSAIC_ENABLE_LSL           "Build Lab Streaming Layer support"         OFF)
 option(MOSAIC_ENABLE_OPENCV        "Build OpenCV calibration"                  OFF)
 
-list(APPEND CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/cmake")
+list(INSERT CMAKE_MODULE_PATH 0 "${CMAKE_SOURCE_DIR}/cmake")
 
 # ── Cameras (Basler Pylon) ─────────────────────────────────────────────────
 if(MOSAIC_ENABLE_CAMERAS)
@@ -64,6 +72,10 @@ endif()
 add_subdirectory(src)
 
 option(MOSAIC_BUILD_TESTS "Build unit tests" OFF)
+option(MOSAIC_BUILD_DOCS  "Build Doxygen + Sphinx documentation" OFF)
+if(MOSAIC_BUILD_DOCS)
+    include(cmake/BuildDocs.cmake)
+endif()
 if(MOSAIC_BUILD_TESTS)
     enable_testing()
     add_subdirectory(tests)

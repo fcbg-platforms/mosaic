@@ -6,6 +6,7 @@
 #include <QFrame>
 #include <QHBoxLayout>
 #include <QLabel>
+#include <QLineEdit>
 #include <QPropertyAnimation>
 #include <QPushButton>
 #include <QSpinBox>
@@ -133,12 +134,32 @@ void CameraCardW::build_header() {
                                " color: #c8c8e0; background: transparent;");
     lay->addWidget(m_nameLabel);
 
-    // Serial number (muted)
-    if (!m_params.serialNumber.isEmpty()) {
-        auto* snLabel = new QLabel("SN: " + m_params.serialNumber);
-        snLabel->setProperty("role", "muted");
-        lay->addWidget(snLabel);
-    }
+    // Serial number — editable. This is the only thing that ties a card's
+    // configuration to a specific physical camera: VideoGrabber::open()
+    // attaches by serial number, and falls back to "first device found" if
+    // left empty, which is unsafe with more than one camera on the system
+    // (every empty-serial grabber could attach to the same physical unit).
+    auto* snEdit = new QLineEdit(m_params.serialNumber);
+    snEdit->setObjectName("serialEdit");
+    snEdit->setPlaceholderText("Serial number (required)");
+    snEdit->setToolTip("Camera serial number — identifies which physical camera "
+                       "this configuration applies to. Read it off the camera's "
+                       "label or via Pylon IP Configurator's device list.");
+    snEdit->setFixedWidth(120);
+    snEdit->setStyleSheet(R"(
+        QLineEdit#serialEdit {
+            background: transparent; border: none; border-bottom: 1px solid transparent;
+            color: #7070a0; font-size: 11px; padding: 1px 2px;
+        }
+        QLineEdit#serialEdit:hover  { border-bottom: 1px solid #333366; }
+        QLineEdit#serialEdit:focus  { color: #c8c8e0; border-bottom: 1px solid #4444aa; }
+    )");
+    m_serialEdit = snEdit;
+    lay->addWidget(snEdit);
+    connect(snEdit, &QLineEdit::editingFinished, this, [this]{
+        m_params.serialNumber = m_serialEdit->text().trimmed();
+        emit params_changed();
+    });
 
     lay->addStretch();
 
@@ -181,11 +202,13 @@ void CameraCardW::build_body() {
     auto* expTab  = new QWidget; build_exposure_tab(expTab);
     auto* gainTab = new QWidget; build_gain_tab(gainTab);
     auto* advTab  = new QWidget; build_advanced_tab(advTab);
+    auto* hwTrigTab = new QWidget; build_hw_trigger_tab(hwTrigTab);
 
-    tabs->addTab(imgTab,  "Image");
-    tabs->addTab(expTab,  "Exposure");
-    tabs->addTab(gainTab, "Gain");
-    tabs->addTab(advTab,  "Advanced");
+    tabs->addTab(imgTab,    "Image");
+    tabs->addTab(expTab,    "Exposure");
+    tabs->addTab(gainTab,   "Gain");
+    tabs->addTab(advTab,    "Advanced");
+    tabs->addTab(hwTrigTab, "HW Trigger");
 
     lay->addWidget(tabs);
 }
@@ -341,23 +364,99 @@ void CameraCardW::build_advanced_tab(QWidget* tab) {
     form->setSpacing(6);
     form->setContentsMargins(8, 8, 8, 8);
 
-    add_section(form, "Image processing");
+    add_section(form, "Tone & colour");
 
-    auto* gammaSpin = make_dspin(0.1, 4.0,  m_params.gamma,      0.05, 2);
-    auto* blSpin    = make_dspin(0.0, 64.0, m_params.blackLevel,  0.5,  1);
-    form->addRow("Gamma:",       gammaSpin);
-    form->addRow("Black level:", blSpin);
+    auto* gammaSpin  = make_dspin(0.1,  4.0,  m_params.gamma,      0.05, 2);
+    auto* blSpin     = make_dspin(0.0,  64.0, m_params.blackLevel,  0.5,  1);
+    auto* satSpin    = make_dspin(0.0,  2.0,  m_params.saturation,  0.05, 2);
+    auto* contSpin   = make_dspin(0.0,  2.0,  m_params.contrast,    0.05, 2);
+    auto* brightSpin = make_dspin(0.0,  1.0,  m_params.brightness,  0.01, 2);
+    auto* atbSpin    = make_dspin(0.0,  1.0,  m_params.autoTargetBrightness, 0.01, 2);
+    auto* dshSpin    = make_spin (0,    4,    m_params.digitalShift, 1);
+
+    form->addRow("Gamma:",                gammaSpin);
+    form->addRow("Black level:",          blSpin);
+    form->addRow("Saturation:",           satSpin);
+    form->addRow("Contrast:",             contSpin);
+    form->addRow("Brightness:",           brightSpin);
+    form->addRow("Auto target bright.:",  atbSpin);
+    form->addRow("Digital shift (bits):", with_unit(dshSpin, "bit"));
 
     add_separator(form);
     add_section(form, "White balance");
 
     static const QStringList kAutoModes{"Off", "Once", "Continuous"};
     auto* bwCombo = make_combo(kAutoModes, m_params.balanceWhiteAuto);
-    form->addRow("Auto:", bwCombo);
+    form->addRow("Auto mode:", bwCombo);
 
-    connect(gammaSpin, qOverload<double>(&QDoubleSpinBox::valueChanged), this, [this](double v){ m_params.gamma            = v; emit params_changed(); });
-    connect(blSpin,    qOverload<double>(&QDoubleSpinBox::valueChanged), this, [this](double v){ m_params.blackLevel       = v; emit params_changed(); });
-    connect(bwCombo,   &QComboBox::currentTextChanged, this, [this](const QString& v){ m_params.balanceWhiteAuto = v; emit params_changed(); });
+    add_separator(form);
+    add_section(form, "Test pattern (simulation)");
+
+    auto* patCombo = make_combo({"Off","ColorBars","Horizontal","Vertical"},
+                                m_params.testPattern);
+    form->addRow("Pattern:", patCombo);
+
+    connect(gammaSpin,  qOverload<double>(&QDoubleSpinBox::valueChanged), this, [this](double val){ m_params.gamma            = val; emit params_changed(); });
+    connect(blSpin,     qOverload<double>(&QDoubleSpinBox::valueChanged), this, [this](double val){ m_params.blackLevel       = val; emit params_changed(); });
+    connect(satSpin,    qOverload<double>(&QDoubleSpinBox::valueChanged), this, [this](double val){ m_params.saturation       = val; emit params_changed(); });
+    connect(contSpin,   qOverload<double>(&QDoubleSpinBox::valueChanged), this, [this](double val){ m_params.contrast         = val; emit params_changed(); });
+    connect(brightSpin, qOverload<double>(&QDoubleSpinBox::valueChanged), this, [this](double val){ m_params.brightness       = val; emit params_changed(); });
+    connect(atbSpin,    qOverload<double>(&QDoubleSpinBox::valueChanged), this, [this](double val){ m_params.autoTargetBrightness = val; emit params_changed(); });
+    connect(dshSpin,    qOverload<int>   (&QSpinBox::valueChanged),       this, [this](int    val){ m_params.digitalShift     = val; emit params_changed(); });
+    connect(bwCombo,    &QComboBox::currentTextChanged, this, [this](const QString& val){ m_params.balanceWhiteAuto = val; emit params_changed(); });
+    connect(patCombo,   &QComboBox::currentTextChanged, this, [this](const QString& val){ m_params.testPattern      = val; emit params_changed(); });
+}
+
+// ── HW Trigger tab ─────────────────────────────────────────────────────────
+
+void CameraCardW::build_hw_trigger_tab(QWidget* tab) {
+    auto* form = new QFormLayout(tab);
+    form->setLabelAlignment(Qt::AlignRight | Qt::AlignVCenter);
+    form->setSpacing(8);
+    form->setContentsMargins(8, 8, 8, 8);
+
+    add_section(form, "Hardware trigger input");
+
+    auto* enabledCk = new QCheckBox("Enable hardware trigger");
+    enabledCk->setChecked(m_params.hwTriggerEnabled);
+    form->addRow(enabledCk);
+
+    auto* srcCombo = make_combo({"Line1", "Line2", "Line3", "Software"},
+                                m_params.hwTriggerSource);
+    srcCombo->setEnabled(m_params.hwTriggerEnabled);
+    form->addRow("Trigger source:", srcCombo);
+
+    auto* delaySpin = make_dspin(0.0, 1'000'000.0, m_params.hwTriggerDelayUs, 10.0, 1);
+    delaySpin->setEnabled(m_params.hwTriggerEnabled);
+    form->addRow("Trigger delay:", with_unit(delaySpin, "µs"));
+
+    add_separator(form);
+    auto* hint = new QLabel(
+        "Hardware trigger mode allows an external TTL pulse (e.g. from a "
+        "stimulus controller, parallel port, or another camera) to trigger "
+        "each frame acquisition for precise synchronisation.\n\n"
+        "Line1 is the standard Basler opto-isolated input.  "
+        "Software mode lets the SDK drive the trigger for testing.");
+    hint->setWordWrap(true);
+    hint->setProperty("role", "muted");
+    form->addRow(hint);
+
+    auto update_states = [srcCombo, delaySpin](bool enabled) {
+        srcCombo->setEnabled(enabled);
+        delaySpin->setEnabled(enabled);
+    };
+
+    connect(enabledCk, &QCheckBox::toggled, this, [this, update_states](bool val){
+        m_params.hwTriggerEnabled = val;
+        update_states(val);
+        emit params_changed();
+    });
+    connect(srcCombo, &QComboBox::currentTextChanged, this, [this](const QString& val){
+        m_params.hwTriggerSource = val; emit params_changed();
+    });
+    connect(delaySpin, qOverload<double>(&QDoubleSpinBox::valueChanged), this, [this](double val){
+        m_params.hwTriggerDelayUs = val; emit params_changed();
+    });
 }
 
 // ── Collapse / expand ──────────────────────────────────────────────────────
@@ -403,7 +502,10 @@ void CameraCardW::set_connected(bool connected) {
 }
 
 void CameraCardW::refresh() {
-    // TODO: walk all child controls and reload from m_params.
+    if (m_serialEdit) {
+        m_serialEdit->setText(m_params.serialNumber);
+    }
+    // TODO: walk remaining child controls and reload from m_params.
     // For now the caller can simply recreate the card.
 }
 

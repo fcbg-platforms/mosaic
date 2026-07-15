@@ -1,4 +1,4 @@
-qt_add_executable(mosaic MACOSX_BUNDLE
+qt_add_executable(mosaic MACOSX_BUNDLE WIN32_EXECUTABLE
     main.cpp
 
     # ── Authentication / profile management ───────────────────────────────
@@ -13,6 +13,10 @@ qt_add_executable(mosaic MACOSX_BUNDLE
     # ── Analysis manager ──────────────────────────────────────────────────
     analysis/analysis_manager.hpp
     analysis/analysis_manager.cpp
+    analysis/pose_worker.hpp
+    analysis/pose_worker.cpp
+    analysis/sync_manifest.hpp
+    analysis/sync_manifest.cpp
 
     # ── Foundation ────────────────────────────────────────────────────────
     utils/logger.hpp
@@ -59,8 +63,6 @@ qt_add_executable(mosaic MACOSX_BUNDLE
     trigger/trigger_types.hpp
     trigger/keyboard_trigger.hpp
     trigger/keyboard_trigger.cpp
-    trigger/serial_trigger.hpp
-    trigger/serial_trigger.cpp
     trigger/trigger_recorder.hpp
     trigger/trigger_recorder.cpp
     trigger/trigger_manager.hpp
@@ -75,8 +77,6 @@ qt_add_executable(mosaic MACOSX_BUNDLE
     # ── Trigger settings panel ────────────────────────────────────────────
     ui/trigger/keyboard_card_w.hpp
     ui/trigger/keyboard_card_w.cpp
-    ui/trigger/serial_card_w.hpp
-    ui/trigger/serial_card_w.cpp
     ui/trigger/trigger_settings_w.hpp
     ui/trigger/trigger_settings_w.cpp
     ui/trigger/trigger_event_panel_w.hpp
@@ -102,6 +102,8 @@ qt_add_executable(mosaic MACOSX_BUNDLE
     video/video_encoder.cpp
     video/video_manager.hpp
     video/video_manager.cpp
+    video/video_feed_provider.hpp
+    video/video_feed_provider.cpp
 
     # ── Calibration ───────────────────────────────────────────────────────
     calibration/calibration_manager.hpp
@@ -113,10 +115,12 @@ qt_add_executable(mosaic MACOSX_BUNDLE
     record/record_manager.hpp
     record/record_manager.cpp
 
-    # ── Session browser ────────────────────────────────────────────────────
+    # ── Session browser & player ──────────────────────────────────────────
     session/session_info.hpp
     ui/session/session_browser_w.hpp
     ui/session/session_browser_w.cpp
+    ui/session/session_player_w.hpp
+    ui/session/session_player_w.cpp
 
     # ── QML bridge ────────────────────────────────────────────────────────
     ui/monitor_bridge.hpp
@@ -144,13 +148,23 @@ target_link_libraries(mosaic PRIVATE
     Qt6::Gui
     Qt6::Widgets
     Qt6::Network
-    Qt6::SerialPort
     Qt6::Multimedia
     Qt6::Quick
     Qt6::QuickWidgets
 )
 
 # ── Optional hardware subsystems ───────────────────────────────────────────
+
+if(MOSAIC_HAVE_SERIAL)
+    target_sources(mosaic PRIVATE
+        trigger/serial_trigger.hpp
+        trigger/serial_trigger.cpp
+        ui/trigger/serial_card_w.hpp
+        ui/trigger/serial_card_w.cpp
+    )
+    target_link_libraries(mosaic PRIVATE Qt6::SerialPort)
+    target_compile_definitions(mosaic PRIVATE MOSAIC_HAVE_SERIAL)
+endif()
 
 if(MOSAIC_ENABLE_CAMERAS)
     target_link_libraries(mosaic PRIVATE Pylon::Pylon)

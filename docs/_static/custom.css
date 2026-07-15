@@ -1,0 +1,144 @@
+/* MOSAIC documentation — custom overrides for pydata-sphinx-theme. */
+
+/* ── Brand colours (applied to both light and dark modes) ─────────────────── */
+:root {
+    --pst-color-primary:         #5577ee;
+    --pst-color-primary-shadow:  #3355cc;
+    --pst-color-link:            #5577ee;
+    --pst-color-link-hover:      #7799ff;
+    --pst-color-secondary:       #33bb88;
+    --pst-font-size-base:        0.95rem;
+}
+
+html[data-theme="dark"] {
+    --pst-color-primary:         #7a9cff;
+    --pst-color-primary-shadow:  #5577ee;
+    --pst-color-link:            #7a9cff;
+    --pst-color-link-hover:      #99bbff;
+    --pst-color-secondary:       #44cc88;
+    --pst-color-background:      #09091a;
+    --pst-color-on-background:   #c8c8e0;
+    --pst-color-surface:         #0f0f28;
+    --pst-color-on-surface:      #a0a0c8;
+    --pst-color-border:          #22224a;
+}
+
+/* ── Navbar ────────────────────────────────────────────────────────────────── */
+html[data-theme="dark"] .bd-header {
+    background: #0b0b1e;
+    border-bottom: 1px solid #1e1e3a;
+}
+
+/* ── Sidebar ───────────────────────────────────────────────────────────────── */
+html[data-theme="dark"] .bd-sidebar-primary {
+    background: #0c0c20;
+    border-right: 1px solid #1a1a36;
+}
+
+/* Top-level nav items bold */
+.bd-sidebar-primary .nav-link.reference {
+    font-weight: 600;
+}
+
+/* ── Code blocks ───────────────────────────────────────────────────────────── */
+html[data-theme="dark"] .highlight {
+    background: #0c0c22 !important;
+    border: 1px solid #222244;
+    border-radius: 6px;
+}
+
+/* ── C++ API signatures ─────────────────────────────────────────────────────── */
+html[data-theme="dark"] dl.cpp > dt,
+html[data-theme="dark"] dl.cpp dt {
+    background: #0f0f28;
+    border-left: 3px solid #5566dd;
+    padding: 6px 10px;
+    border-radius: 0 4px 4px 0;
+    font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+    font-size: 0.87em;
+    color: #c8c8f0;
+}
+
+html[data-theme="light"] dl.cpp > dt,
+html[data-theme="light"] dl.cpp dt {
+    background: #f4f6ff;
+    border-left: 3px solid #4a6cf7;
+    padding: 6px 10px;
+    border-radius: 0 4px 4px 0;
+    font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+    font-size: 0.87em;
+}
+
+/* ── Admonitions ───────────────────────────────────────────────────────────── */
+html[data-theme="dark"] .admonition.note {
+    border-left: 4px solid #5566dd;
+    background: #0d0d28;
+}
+html[data-theme="dark"] .admonition.warning {
+    border-left: 4px solid #dd8833;
+    background: #1a1008;
+}
+html[data-theme="dark"] .admonition.tip {
+    border-left: 4px solid #33bb88;
+    background: #081a12;
+}
+html[data-theme="dark"] .admonition.important {
+    border-left: 4px solid #cc4488;
+    background: #1a0810;
+}
+
+/* ── sphinx-design cards ───────────────────────────────────────────────────── */
+html[data-theme="dark"] .sd-card {
+    background: #0f0f26;
+    border: 1px solid #1e1e44;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.5);
+    transition: border-color 0.2s, box-shadow 0.2s;
+}
+html[data-theme="dark"] .sd-card:hover {
+    border-color: #5577ee;
+    box-shadow: 0 4px 16px rgba(85,119,238,0.25);
+}
+html[data-theme="dark"] .sd-card-header {
+    background: #111130;
+    border-bottom: 1px solid #1e1e44;
+    font-weight: 600;
+}
+html[data-theme="dark"] .sd-card-body {
+    color: #8888aa;
+    font-size: 0.9rem;
+}
+
+html[data-theme="light"] .sd-card {
+    border: 1px solid #d0d8ff;
+    box-shadow: 0 2px 6px rgba(74,108,247,0.08);
+    transition: border-color 0.2s, box-shadow 0.2s;
+}
+html[data-theme="light"] .sd-card:hover {
+    border-color: #4a6cf7;
+    box-shadow: 0 4px 14px rgba(74,108,247,0.18);
+}
+
+/* ── Tables ────────────────────────────────────────────────────────────────── */
+html[data-theme="dark"] table.docutils {
+    border-collapse: collapse;
+}
+html[data-theme="dark"] table.docutils th {
+    background: #111130;
+    color: #8888cc;
+    border: 1px solid #222244;
+    padding: 6px 12px;
+}
+html[data-theme="dark"] table.docutils td {
+    border: 1px solid #1a1a38;
+    padding: 5px 12px;
+}
+html[data-theme="dark"] table.docutils tr:nth-child(even) td {
+    background: #0f0f26;
+}
+
+/* ── Footer ────────────────────────────────────────────────────────────────── */
+html[data-theme="dark"] .bd-footer {
+    background: #0b0b1e;
+    border-top: 1px solid #1a1a36;
+    color: #44445a;
+}

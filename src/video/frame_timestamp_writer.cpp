@@ -33,17 +33,17 @@ bool FrameTimestampWriter::start(const QString& path) {
     }
 
     d->stream.setDevice(&d->file);
-    d->stream << "frame_id,elapsed_ns,wall_ns\n";
+    d->stream << "frame_id,elapsed_ns,wall_ns,hw_timestamp_ns\n";
     d->stream.flush();
     d->count.store(0, std::memory_order_relaxed);
     d->open = true;
     return true;
 }
 
-void FrameTimestampWriter::write(int64_t frameId, int64_t elapsedNs, int64_t wallNs) {
+void FrameTimestampWriter::write(int64_t frameId, int64_t elapsedNs, int64_t wallNs, int64_t hwTimestampNs) {
     QMutexLocker lock(&d->mutex);
     if (!d->open) return;
-    d->stream << frameId << ',' << elapsedNs << ',' << wallNs << '\n';
+    d->stream << frameId << ',' << elapsedNs << ',' << wallNs << ',' << hwTimestampNs << '\n';
     d->count.fetch_add(1, std::memory_order_relaxed);
 }
 

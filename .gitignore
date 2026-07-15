@@ -35,3 +35,21 @@ qrc_*.cpp
 
 # Windows
 Thumbs.db
+
+# Python
+.venv/
+python/.venv/
+__pycache__/
+*.pyc
+
+# Logs
+*.log
+
+# Recorded session data (not source)
+recordings/
+
+# Claude Code local tool config (machine-specific)
+.claude/
+
+# Generated documentation output (rebuild via MOSAIC_BUILD_DOCS)
+docs/html/

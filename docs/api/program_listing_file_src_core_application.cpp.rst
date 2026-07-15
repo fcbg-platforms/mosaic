@@ -1,0 +1,111 @@
+
+.. _program_listing_file_src_core_application.cpp:
+
+Program Listing for File application.cpp
+========================================
+
+|exhale_lsh| :ref:`Return to documentation for file <file_src_core_application.cpp>` (``src/core/application.cpp``)
+
+.. |exhale_lsh| unicode:: U+021B0 .. UPWARDS ARROW WITH TIP LEFTWARDS
+
+.. code-block:: cpp
+
+   #include "core/application.hpp"
+   #include "auth/profile_manager.hpp"
+   #include "ui/main_window.hpp"
+   #include "utils/logger.hpp"
+   #include "utils/timestamp.hpp"
+   #include <QCoreApplication>
+   #include <QDir>
+   
+   namespace mosaic {
+   
+   struct Application::Impl {
+       QString                          username;
+       AppSettings                      settings;
+       std::unique_ptr<TriggerManager>  triggerManager;
+       std::unique_ptr<AudioManager>    audioManager;
+       std::unique_ptr<VideoManager>    videoManager;
+       std::unique_ptr<RecordManager>   recordManager;
+       std::unique_ptr<MainWindow>      mainWindow;
+   };
+   
+   Application::Application(QObject* parent)
+       : QObject(parent), d(std::make_unique<Impl>()) {}
+   
+   Application::~Application() = default;
+   
+   void Application::initialize(const QString& username) {
+       d->username = username.isEmpty() ? "guest" : username;
+   
+       // Open log file in the profile directory (or default location for guest).
+       const QString settingsPath = (d->username == "guest")
+           ? AppSettings::default_path()
+           : ProfileManager::settings_path(d->username);
+   
+       const QString logPath = (d->username == "guest")
+           ? QFileInfo(settingsPath).dir().absoluteFilePath("mosaic.log")
+           : ProfileManager::log_path(d->username);
+   
+       QDir().mkpath(QFileInfo(logPath).absolutePath());
+       Logger::instance().open_log_file(logPath);
+   
+       log_info(QString("MOSAIC v%1 — user: @%2 — elapsed: %3 ms")
+                    .arg(QCoreApplication::applicationVersion())
+                    .arg(d->username)
+                    .arg(elapsed_ms()));
+   
+       if (auto loaded = AppSettings::load(settingsPath)) {
+           d->settings = std::move(*loaded);
+       }
+   
+       connect(QCoreApplication::instance(), &QCoreApplication::aboutToQuit,
+               this, &Application::shutdown);
+   
+       d->triggerManager = std::make_unique<TriggerManager>(d->settings.trigger, this);
+       d->audioManager   = std::make_unique<AudioManager>(this);
+       d->videoManager   = std::make_unique<VideoManager>(this);
+   
+       if (!d->settings.video.cameras.empty()) {
+           d->videoManager->open(d->settings.video);
+       }
+   
+       d->recordManager = std::make_unique<RecordManager>(
+           d->settings, d->triggerManager.get(),
+           d->audioManager.get(), d->videoManager.get(), d->username, this);
+   
+       d->mainWindow = std::make_unique<MainWindow>(
+           d->settings, d->username,
+           d->triggerManager.get(), d->audioManager.get(),
+           d->videoManager.get(), d->recordManager.get());
+       d->mainWindow->show();
+   
+       log_info("Initialisation complete.");
+       emit initialized();
+   }
+   
+   void Application::shutdown() {
+       log_info("Shutting down…");
+   
+       const QString settingsPath = (d->username == "guest")
+           ? AppSettings::default_path()
+           : ProfileManager::settings_path(d->username);
+   
+       if (!d->settings.save(settingsPath)) {
+           log_error("Failed to save settings on shutdown.");
+       }
+   
+       if (d->mainWindow) { d->mainWindow->close(); }
+       Logger::instance().close_log_file();
+       emit shutdown_complete();
+   }
+   
+   AppSettings&       Application::settings()       { return d->settings; }
+   const AppSettings& Application::settings() const { return d->settings; }
+   QString            Application::active_username()  const { return d->username; }
+   TriggerManager*    Application::trigger_manager()  const { return d->triggerManager.get(); }
+   AudioManager*      Application::audio_manager()    const { return d->audioManager.get();   }
+   VideoManager*      Application::video_manager()    const { return d->videoManager.get();   }
+   RecordManager*     Application::record_manager()   const { return d->recordManager.get();  }
+   
+   } // namespace mosaic
