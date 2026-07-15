@@ -59,20 +59,20 @@ SyncManifest SyncManifest::generate(const QString& sessionPath, double masterFps
     m.masterFps_ = masterFps;
     m.stepNs_    = static_cast<int64_t>(1e9 / masterFps + 0.5);
 
-    const QDir dir(sessionPath);
+    const QDir videoDir(sessionPath + "/video");
 
     // Load per-camera timestamp files (cam0, cam1, … until first miss).
     const int kMaxCams = 16;
     QVector<QVector<FrameTs>> camTs;
     for (int i = 0; i < kMaxCams; ++i) {
-        auto ts = read_timestamps(dir.filePath(
+        auto ts = read_timestamps(videoDir.filePath(
             QString("timestamps_cam%1.csv").arg(i)));
         if (ts.isEmpty()) { break; }
         camTs.append(std::move(ts));
     }
 
     if (camTs.isEmpty()) {
-        log_warning(QString("[SyncManifest] No timestamp files in %1").arg(sessionPath));
+        log_warning(QString("[SyncManifest] No timestamp files in %1").arg(videoDir.path()));
         return m;
     }
 
@@ -160,7 +160,7 @@ SyncManifest SyncManifest::generate(const QString& sessionPath, double masterFps
 
         CameraSync cs;
         cs.index          = c;
-        cs.videoFile      = QString("video_%1.mp4").arg(c);
+        cs.videoFile      = QString("video/video_%1.mp4").arg(c);
         cs.framesCaptured = nf;
         cs.firstWallNs    = frames.front().wallNs;
         cs.lastWallNs     = frames.back().wallNs;

@@ -749,10 +749,12 @@ void SessionBrowserW::populate_detail() {
         }
     }
 
-    // Files
+    // Files — SessionInfo stores video/audio/analysis entries as paths
+    // relative to the session dir (e.g. "video/video_0.mp4") so callers can
+    // join them onto info->path directly; display only the bare filename.
     QStringList fileLines;
-    for (const auto& fn : info->videoFiles) { fileLines << ("  🎬  " + fn); }
-    for (const auto& fn : info->audioFiles) { fileLines << ("  🔊  " + fn); }
+    for (const auto& fn : info->videoFiles) { fileLines << ("  🎬  " + QFileInfo(fn).fileName()); }
+    for (const auto& fn : info->audioFiles) { fileLines << ("  🔊  " + QFileInfo(fn).fileName()); }
     fileLines << ("  📁  " + info->path);
     d->filesLbl->setText(fileLines.join("\n"));
 
@@ -764,7 +766,7 @@ void SessionBrowserW::populate_detail() {
         for (const auto& fn : info->analysisFiles) {
             const QFileInfo fi(info->path + "/" + fn);
             alines << QString("  ✓  %1  (%2 KB)")
-                .arg(fn)
+                .arg(fi.fileName())
                 .arg(fi.size() / 1024);
         }
         d->analysisFilesLbl->setText(alines.join("\n"));
@@ -984,10 +986,15 @@ void SessionBrowserW::launch_analysis(const QString& exe, const QStringList& arg
         // Refresh analysis files list
         if (auto* info = d->current()) {
             *info = SessionInfo::load(info->path);
-            d->analysisFilesLbl->setText(
-                info->analysisFiles.isEmpty()
-                    ? "No analysis results yet."
-                    : info->analysisFiles.join("  "));
+            if (info->analysisFiles.isEmpty()) {
+                d->analysisFilesLbl->setText("No analysis results yet.");
+            } else {
+                QStringList bareNames;
+                for (const auto& fn : info->analysisFiles) {
+                    bareNames << QFileInfo(fn).fileName();
+                }
+                d->analysisFilesLbl->setText(bareNames.join("  "));
+            }
         }
         // Refresh the session row badge
         rebuild_session_list();

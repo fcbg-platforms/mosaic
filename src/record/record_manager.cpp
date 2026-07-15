@@ -155,19 +155,37 @@ bool RecordManager::start() {
         d->triggerMgr->start_recording(path);
     }
 
-    // 4. Audio recording.
+    // 4. Audio recording — written under sessionPath/audio/, not the session
+    // root, so a session folder separates media by kind. A failure to create
+    // that subfolder must not silently record zero audio while still
+    // reporting a successful start — skip audio and surface the error
+    // instead, same severity as the session-folder failure above.
     if (d->settings.record.enableAudio && d->audioMgr &&
         !d->settings.audio.microphones.empty()) {
-        d->audioMgr->start(d->sessionPath,
-                            d->settings.record.audioBasename,
-                            d->settings.audio.microphones);
+        const QString audioDir = d->sessionPath + "/audio";
+        if (!QDir().mkpath(audioDir)) {
+            const QString msg = QString("Cannot create audio folder: %1").arg(audioDir);
+            log_error(msg);
+            emit error_occurred(msg);
+        } else {
+            d->audioMgr->start(audioDir,
+                                d->settings.record.audioBasename,
+                                d->settings.audio.microphones);
+        }
     }
 
-    // 5. Video recording.
+    // 5. Video recording — written under sessionPath/video/, same rationale.
     if (d->settings.record.enableVideo && d->videoMgr) {
-        d->videoMgr->start(d->sessionPath,
-                            d->settings.record.videoBasename,
-                            d->settings.video);
+        const QString videoDir = d->sessionPath + "/video";
+        if (!QDir().mkpath(videoDir)) {
+            const QString msg = QString("Cannot create video folder: %1").arg(videoDir);
+            log_error(msg);
+            emit error_occurred(msg);
+        } else {
+            d->videoMgr->start(videoDir,
+                                d->settings.record.videoBasename,
+                                d->settings.video);
+        }
     } else if (d->settings.record.enableVideo) {
         for (int i = 0; i < static_cast<int>(d->settings.video.cameras.size()); ++i) {
             log_info(QString("[RecordManager] Video backend not available for camera %1").arg(i));

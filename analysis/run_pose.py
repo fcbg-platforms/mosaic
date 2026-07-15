@@ -63,12 +63,12 @@ def parse_args() -> argparse.Namespace:
 
 def process_session(session_dir: Path, estimator: HumanPoseEstimator,
                     skip: int = 1, out_format: str = "json") -> None:
-    videos = sorted(session_dir.glob("*.mp4"))
+    videos = sorted((session_dir / "video").glob("*.mp4"))
     if not videos:
-        print(f"[run_pose] No .mp4 files found in {session_dir}", file=sys.stderr)
+        print(f"[run_pose] No .mp4 files found in {session_dir / 'video'}", file=sys.stderr)
         sys.exit(1)
 
-    print(f"[run_pose] Found {len(videos)} video(s) in {session_dir}", flush=True)
+    print(f"[run_pose] Found {len(videos)} video(s) in {session_dir / 'video'}", flush=True)
     for video_path in videos:
         process_video(video_path, estimator, skip=skip, out_format=out_format)
 

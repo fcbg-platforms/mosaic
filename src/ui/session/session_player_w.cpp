@@ -515,7 +515,7 @@ void SessionPlayerW::setup_players()
 
     for (int i = 0; i < nCams; ++i) {
         auto& u = d->units[i];
-        const QString videoPath = d->session.path + "/" + QString("video_%1.mp4").arg(i);
+        const QString videoPath = d->session.path + "/video/" + QString("video_%1.mp4").arg(i);
 
         if (!QFileInfo::exists(videoPath)) {
             u.hasVideo = false;
@@ -547,7 +547,10 @@ void SessionPlayerW::setup_players()
     }
 
     // ── Audio player ───────────────────────────────────────────────────────
-    const QString audioPath = d->session.path + "/audio.wav";
+    // Only picks up a single-mic session (AudioManager only omits the "_N"
+    // suffix when exactly one microphone is configured) — pre-existing gap,
+    // not introduced by the video/audio subfolder move.
+    const QString audioPath = d->session.path + "/audio/audio.wav";
     if (QFileInfo::exists(audioPath)) {
         d->audioPlayer = new QMediaPlayer(this);
         d->audioOutput = new QAudioOutput(this);

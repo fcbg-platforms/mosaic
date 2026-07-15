@@ -91,10 +91,13 @@ A recording session creates the following files:
    recordings/
    └── 2026-06-04_14-32-05/
        ├── session_meta.json        ← cameras, mics, triggers, recorded_by, start UTC
-       ├── video_0.mp4              ── one per camera
-       ├── timestamps_cam0.csv      ── frame_id, elapsed_ns, wall_ns, hw_timestamp_ns  (per camera)
-       ├── audio_0.wav              ── one per microphone
-       └── trigger.csv             ── elapsed_ms, wall_clock, source, label, value
+       ├── trigger.csv              ── elapsed_ms, wall_clock, source, label, value
+       ├── sync_manifest.json       ── written after recording stops
+       ├── audio/
+       │   └── audio_0.wav          ── one per microphone
+       └── video/
+           ├── video_0.mp4          ── one per camera
+           └── timestamps_cam0.csv  ── frame_id, elapsed_ns, wall_ns, hw_timestamp_ns  (per camera)
 
 Settings persistence
 --------------------

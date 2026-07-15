@@ -196,13 +196,14 @@ def process_session(args: argparse.Namespace) -> None:
         print(f"[motion] Session directory not found: {session_dir}", file=sys.stderr)
         sys.exit(1)
 
+    video_dir = session_dir / "video"
     video_files = sorted(
-        list(session_dir.glob("*.mp4"))
-        + list(session_dir.glob("*.mkv"))
-        + list(session_dir.glob("*.avi"))
+        list(video_dir.glob("*.mp4"))
+        + list(video_dir.glob("*.mkv"))
+        + list(video_dir.glob("*.avi"))
     )
     if not video_files:
-        print("[motion] No video files found in session directory.", file=sys.stderr)
+        print(f"[motion] No video files found in {video_dir}.", file=sys.stderr)
         sys.exit(1)
 
     tracker = CentroidTracker(
@@ -222,7 +223,7 @@ def process_session(args: argparse.Namespace) -> None:
         # Look for matching timestamps CSV (timestamps_cam0.csv for video_0.mp4)
         stem = vid.stem  # e.g. "video_0"
         idx  = stem.split("_")[-1] if "_" in stem else "0"
-        ts_csv = session_dir / f"timestamps_cam{idx}.csv"
+        ts_csv = video_dir / f"timestamps_cam{idx}.csv"
         timestamps = load_timestamps(str(ts_csv) if ts_csv.exists() else None)
 
         rows, trajectories, velocities, frame_size = process_video(

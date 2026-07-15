@@ -34,9 +34,30 @@ What happens during ``start()``
    ``<record.directory>/<timestamp>/`` (e.g. ``recordings/2026-06-04_14-32-05/``).
 2. **``session_meta.json``** is written immediately (see :ref:`session metadata`).
 3. **Trigger CSV** is opened: ``trigger.csv``.
-4. **Audio recorders** are started: one ``WAV`` file per configured microphone.
-5. **Video grabbers and encoders** are started: one ``MP4`` + one ``timestamps_camN.csv`` per camera.
+4. **Audio recorders** are started: one ``WAV`` file per configured microphone, under
+   ``<session>/audio/``.
+5. **Video grabbers and encoders** are started: one ``MP4`` + one ``timestamps_camN.csv`` per
+   camera, under ``<session>/video/``.
 6. The **elapsed timer** fires every 100 ms, updating the HH:MM:SS display.
+
+Session folder layout:
+
+.. code-block:: text
+
+   2026-06-04_14-32-05/
+   ├── session_meta.json
+   ├── trigger.csv
+   ├── sync_manifest.json         # written after recording stops
+   ├── audio/
+   │   └── audio_0.wav
+   └── video/
+       ├── video_0.mp4
+       ├── timestamps_cam0.csv
+       └── video_0.pose.json      # written alongside its video by run_pose.py, if run
+
+Media is split into ``audio/`` and ``video/`` subfolders so a session directory listing isn't
+dominated by per-camera files; everything session-level (metadata, trigger log, sync manifest,
+annotations) stays at the session root.
 
 .. _session metadata:
 
@@ -80,7 +101,8 @@ succeeds later.  Fields:
 Timestamp files
 ---------------
 
-Each camera produces a ``timestamps_camN.csv`` alongside its ``video_N.mp4``:
+Each camera produces a ``timestamps_camN.csv`` alongside its ``video_N.mp4``, both under
+``<session>/video/``:
 
 .. code-block:: text
 
@@ -206,7 +228,7 @@ A minimal alignment example:
    meta    = json.loads((session / "session_meta.json").read_text())
 
    # Video frame timestamps
-   frames  = pd.read_csv(session / "timestamps_cam0.csv")
+   frames  = pd.read_csv(session / "video" / "timestamps_cam0.csv")
 
    # Trigger events
    triggers = pd.read_csv(session / "trigger.csv")

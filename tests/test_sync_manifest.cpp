@@ -48,8 +48,10 @@ TEST(SyncManifest, AlignmentIgnoresWallClockJump) {
         cam1.append({i, elapsedNs, wallBase + elapsedNs + jump});
     }
 
-    write_timestamps_csv(QDir(dir.path()).filePath("timestamps_cam0.csv"), cam0);
-    write_timestamps_csv(QDir(dir.path()).filePath("timestamps_cam1.csv"), cam1);
+    ASSERT_TRUE(QDir().mkpath(dir.path() + "/video"));
+    const QDir videoDir(dir.path() + "/video");
+    write_timestamps_csv(videoDir.filePath("timestamps_cam0.csv"), cam0);
+    write_timestamps_csv(videoDir.filePath("timestamps_cam1.csv"), cam1);
 
     const SyncManifest m = SyncManifest::generate(dir.path(), /*masterFps=*/25.0);
 
@@ -91,8 +93,10 @@ TEST(SyncManifest, DetectsGenuineElapsedNsOffset) {
         cam1.append({i, e0 + offset, e0 + offset});
     }
 
-    write_timestamps_csv(QDir(dir.path()).filePath("timestamps_cam0.csv"), cam0);
-    write_timestamps_csv(QDir(dir.path()).filePath("timestamps_cam1.csv"), cam1);
+    ASSERT_TRUE(QDir().mkpath(dir.path() + "/video"));
+    const QDir videoDir(dir.path() + "/video");
+    write_timestamps_csv(videoDir.filePath("timestamps_cam0.csv"), cam0);
+    write_timestamps_csv(videoDir.filePath("timestamps_cam1.csv"), cam1);
 
     const SyncManifest m = SyncManifest::generate(dir.path(), /*masterFps=*/25.0);
     ASSERT_TRUE(m.is_valid());
