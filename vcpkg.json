@@ -2,12 +2,13 @@
   "$schema": "https://raw.githubusercontent.com/microsoft/vcpkg/master/scripts/vcpkg.schema.json",
   "name": "mosaic",
   "version": "0.1.0",
+  "builtin-baseline": "f87344cac03158cbf1467264565f1fd36b382a24",
   "dependencies": [
     "gtest",
     "opencv4",
     {
       "name": "ffmpeg",
-      "features": ["x264"]
+      "features": ["x264", "nvcodec"]
     }
   ],
   "features": {
