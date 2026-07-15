@@ -46,7 +46,7 @@ struct CameraParameters {
     bool    reverseY        = false;
     QString pixelFormat     = "BGR8";
     bool    specifyFps      = true;
-    double  fps             = 30.0;
+    double  fps             = 25.0;  // acA1920-25gc's max sustained rate
 
     // Exposure
     QString exposureAuto        = "Off";    // "Off" | "Once" | "Continuous"

@@ -1,0 +1,18 @@
+# Shared lint/format config for python/, analysis/, docs/.
+# These are independent uv projects (see each dir's pyproject.toml + uv.lock),
+# not a uv workspace, but they share one lint standard.
+target-version = "py310"
+line-length = 100
+extend-exclude = [
+    "python/.venv",
+    "analysis/.venv",
+    "docs/.venv",
+    "docs/_build",
+    "docs/html",
+]
+
+[lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[format]
+quote-style = "double"

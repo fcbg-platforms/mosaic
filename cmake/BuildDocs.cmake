@@ -43,7 +43,7 @@ else()
     )
     if(NOT _sphinx_result EQUAL 0)
         message(STATUS
-            "[docs] sphinx not installed — run 'pip install -r docs/requirements.txt'.")
+            "[docs] sphinx not installed — run 'cd docs && uv sync' then activate docs/.venv.")
     else()
         set(_sphinx_html "${CMAKE_CURRENT_BINARY_DIR}/docs/sphinx/html")
 

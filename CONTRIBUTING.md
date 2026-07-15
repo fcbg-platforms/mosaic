@@ -20,13 +20,16 @@
       cannot exercise camera, encoding, or LSL hardware paths. Changes touching those areas need
       a manual note in the PR description describing how they were verified locally
       (e.g. "tested live against 6 physical cameras in room 11").
-- [ ] Python changes (`python/`, `analysis/`, `docs/`) pass `ruff check` / `ruff format`.
+- [ ] Python changes (`python/`, `analysis/`, `docs/`) pass `ruff check` / `ruff format` (shared
+      config at repo-root `ruff.toml`; each directory is its own uv project — see README's
+      [Python environments](README.md#python-environments)). Installing the
+      `.pre-commit-config.yaml` hooks runs this automatically.
 - [ ] No unrelated file churn — check `git status`/`git diff` before staging.
 
 ## Code style
 
 - C++: follow `.clang-format`/`.clang-tidy` already configured in the repo.
-- Python: `ruff` (see `pyproject.toml` once the Python workspace consolidation lands).
+- Python: `ruff`, config at repo-root `ruff.toml`, shared across `python/`, `analysis/`, `docs/`.
 
 ## Reporting issues / proposing features
 

@@ -1,0 +1,35 @@
+[project]
+name = "mosaic-analysis"
+version = "0.1.0"
+description = "Post-recording batch pose/motion analysis for MOSAIC sessions (YOLOv8-pose)"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy>=1.24",
+    "opencv-python>=4.8",
+    "ultralytics>=8.0",
+    "pandas>=2.0",
+    "scipy>=1.11",
+    "h5py>=3.9",
+    "matplotlib>=3.7",
+]
+
+[tool.uv]
+dev-dependencies = [
+    "pytest>=7.0",
+]
+
+# GPU acceleration (NVIDIA only): ultralytics pulls in torch/torchvision, which
+# resolve to CPU-only wheels from PyPI by default. A manual `uv pip install
+# torch --index-url ...` does NOT survive the next `uv sync` — it reconciles
+# the environment back to the CPU wheels pinned in uv.lock. To make CUDA
+# wheels stick, uncomment and adjust the CUDA version below (see
+# https://docs.astral.sh/uv/guides/integration/pytorch/):
+#
+# [[tool.uv.index]]
+# name = "pytorch-cu121"
+# url = "https://download.pytorch.org/whl/cu121"
+# explicit = true
+#
+# [tool.uv.sources]
+# torch = [{ index = "pytorch-cu121", marker = "sys_platform == 'win32' or sys_platform == 'linux'" }]
+# torchvision = [{ index = "pytorch-cu121", marker = "sys_platform == 'win32' or sys_platform == 'linux'" }]

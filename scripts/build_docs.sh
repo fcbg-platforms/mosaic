@@ -6,7 +6,8 @@
 #
 # Prerequisites:
 #   doxygen    (brew install doxygen)
-#   pip install -r docs/requirements.txt
+#   cd docs && uv sync   (then run this script with docs/.venv activated,
+#                         or invoke it via `uv run --project docs`)
 
 set -euo pipefail
 

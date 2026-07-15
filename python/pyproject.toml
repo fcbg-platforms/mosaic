@@ -1,7 +1,7 @@
 [project]
-name = "mosaic-analysis"
+name = "mosaic-pose"
 version = "0.1.0"
-description = "Real-time pose estimation and post-processing for MOSAIC recordings"
+description = "Real-time pose/gaze estimation worker used live during MOSAIC recording"
 requires-python = ">=3.10"
 dependencies = [
     "mediapipe>=0.10.14",

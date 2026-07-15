@@ -87,12 +87,37 @@ ctest --output-on-failure
 | `MOSAIC_ENABLE_PARALLEL_PORT` | OFF | Windows + `InpOut32.dll` next to the exe |
 | `MOSAIC_ENABLE_SERIAL` | ON | Qt SerialPort (auto-detected) |
 | `MOSAIC_BUILD_TESTS` | OFF | GTest (vcpkg) |
-| `MOSAIC_BUILD_DOCS` | OFF | Doxygen + Sphinx (`pip install -r docs/requirements.txt`) |
+| `MOSAIC_BUILD_DOCS` | OFF | Doxygen + Sphinx (see [Python environments](#python-environments)) |
 
 CI (`.github/workflows/ci.yml`) builds and tests the hardware-free configuration only — Pylon is
 a licensed vendor SDK not fetchable via vcpkg, and no camera/LSL hardware exists on hosted
 runners. Camera/FFmpeg/LSL-touching changes need manual verification against real hardware; note
 how you tested in the PR description.
+
+### Python environments
+
+`python/`, `analysis/`, and `docs/` are three independent [uv](https://docs.astral.sh/uv/)
+projects (own `pyproject.toml`/`uv.lock`/`.venv` each) — not a shared workspace, since they have
+genuinely conflicting dependencies (e.g. `python/` needs a light, headless OpenCV for the
+real-time capture path; `analysis/` needs the full OpenCV build plus torch/ultralytics for batch
+pose analysis). Install only what you need:
+
+```bash
+cd python && uv sync      # real-time pose/gaze worker (spawned automatically by the app)
+cd analysis && uv sync    # post-recording batch pose/motion analysis (YOLOv8-pose)
+cd docs && uv sync        # Sphinx documentation build
+```
+
+Lint/format with `ruff` (config shared at repo-root `ruff.toml`; ruff isn't a dependency of any
+of the three projects, so use `uvx` — an isolated, ad-hoc tool run — not `uv run`) from the repo
+root:
+
+```bash
+uvx ruff check --config ruff.toml .
+uvx ruff format --config ruff.toml .
+```
+
+or install the `.pre-commit-config.yaml` hooks (`pre-commit install`) to run it automatically.
 
 ## Project structure
 
