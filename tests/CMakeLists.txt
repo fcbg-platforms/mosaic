@@ -9,7 +9,9 @@ add_executable(mosaic_tests
     test_sync_manifest.cpp
     test_camera_persistence.cpp
     test_param_mapping.cpp
+    test_pose_analysis_result.cpp
     "${CMAKE_SOURCE_DIR}/src/analysis/sync_manifest.cpp"
+    "${CMAKE_SOURCE_DIR}/src/analysis/pose_analysis_result.cpp"
     "${CMAKE_SOURCE_DIR}/src/utils/logger.cpp"
     "${CMAKE_SOURCE_DIR}/src/core/settings.cpp"
     "${CMAKE_SOURCE_DIR}/src/auth/profile_manager.cpp"

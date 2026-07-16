@@ -23,7 +23,7 @@ endif()
 
 find_package(Qt6 6.4 REQUIRED COMPONENTS
     Core Gui Widgets Network Multimedia
-    Quick QuickWidgets
+    Quick QuickWidgets Charts
 )
 find_package(Qt6 OPTIONAL_COMPONENTS SerialPort)
 qt_standard_project_setup()

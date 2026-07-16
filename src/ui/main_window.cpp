@@ -1,5 +1,6 @@
 #include "ui/main_window.hpp"
 #include "analysis/pose_worker.hpp"
+#include "ui/analysis/analysis_tab_w.hpp"
 #include "ui/audio/audio_settings_w.hpp"
 #include "ui/calibration/calibration_w.hpp"
 #include "ui/logger/logger_panel_w.hpp"
@@ -30,6 +31,7 @@
 #include <QTimer>
 #include <QSplitter>
 #include <QStatusBar>
+#include <QTabBar>
 #include <QTabWidget>
 #include <QVBoxLayout>
 
@@ -45,6 +47,7 @@ struct MainWindow::Impl {
     AnalysisManager* analysisMgr  = nullptr;
     MonitorBridge*   bridge       = nullptr;
 
+    QTabWidget*     topTabs       = nullptr;
     QSplitter*      mainSplitter  = nullptr;
     QSplitter*      rightSplitter = nullptr;
     QTabWidget*     settingsTabs  = nullptr;
@@ -52,6 +55,7 @@ struct MainWindow::Impl {
     LoggerPanelW*   loggerPanel   = nullptr;
     QLabel*         statusLabel   = nullptr;
     PoseWorker*     poseWorker    = nullptr;
+    AnalysisTabW*   analysisTab   = nullptr;
 
     // Coalesces rapid-fire camera_params_changed emissions (e.g. dragging a
     // slider fires valueChanged on every intermediate tick) into a single
@@ -150,7 +154,10 @@ void MainWindow::build_menu_bar() {
     auto* view = menuBar()->addMenu("&View");
     view->addAction("Reset layout", this, [this] {
         d->mainSplitter->setSizes({360, width() - 360});
-        d->rightSplitter->setSizes({height() - 200, 200});
+        // mainSplitter now lives inside topTabs' "Live" tab page, so its
+        // available height is the window height minus the tab bar itself.
+        const int tabBarH = d->topTabs ? d->topTabs->tabBar()->height() : 0;
+        d->rightSplitter->setSizes({height() - tabBarH - 200, 200});
     });
     view->addSeparator();
 
@@ -190,10 +197,16 @@ void MainWindow::build_menu_bar() {
 // ── Central widget ─────────────────────────────────────────────────────────
 
 void MainWindow::build_central_widget() {
+    // Top-level split between the live acquisition view and the post-hoc
+    // Analysis tab — the only top-level QTabWidget; `settingsTabs` below is
+    // a separate, narrower sidebar nested inside the "Live" tab's content.
+    d->topTabs = new QTabWidget(this);
+    d->topTabs->setDocumentMode(true);
+    setCentralWidget(d->topTabs);
+
     // Outer horizontal split: settings sidebar | right pane
-    d->mainSplitter = new QSplitter(Qt::Horizontal, this);
+    d->mainSplitter = new QSplitter(Qt::Horizontal);
     d->mainSplitter->setHandleWidth(2);
-    setCentralWidget(d->mainSplitter);
 
     // ── Left: settings tabs ───────────────────────────────────────────────
     d->settingsTabs = new QTabWidget;
@@ -373,6 +386,11 @@ void MainWindow::build_central_widget() {
     d->mainSplitter->setStretchFactor(0, 0);
     d->mainSplitter->setStretchFactor(1, 1);
     d->mainSplitter->setSizes({380, 1300});
+
+    d->topTabs->addTab(d->mainSplitter, "Live");
+
+    d->analysisTab = new AnalysisTabW(d->settings, d->analysisMgr);
+    d->topTabs->addTab(d->analysisTab, "Analysis");
 }
 
 // ── Status bar ─────────────────────────────────────────────────────────────

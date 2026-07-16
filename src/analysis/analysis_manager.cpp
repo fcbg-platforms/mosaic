@@ -8,6 +8,22 @@
 
 namespace mosaic {
 
+namespace {
+
+// A queued (or in-flight) analysis job. Snapshotting model/frameSkip at
+// analyze_session() call time — rather than re-reading Impl::model/frameSkip
+// at dequeue time — means a later set_model() call (e.g. a different UI
+// surface sharing this AnalysisManager, or the same combo box changing
+// before a queued job starts) can't silently change what an already-queued
+// job runs with.
+struct Job {
+    QString sessionPath;
+    QString model;
+    int     frameSkip;
+};
+
+} // namespace
+
 struct AnalysisManager::Impl {
     bool     autoAnalyze  = false;
     QString  pythonPath;                   // empty = auto-detect
@@ -16,7 +32,7 @@ struct AnalysisManager::Impl {
 
     QString       currentSession;
     QProcess*     process = nullptr;
-    QQueue<QString> queue;                 // sessions waiting to be processed
+    QQueue<Job>   queue;                   // jobs waiting to be processed
 };
 
 AnalysisManager::AnalysisManager(QObject* parent)
@@ -36,15 +52,14 @@ bool AnalysisManager::is_running()                    const { return d->process 
 // ── Public operations ──────────────────────────────────────────────────────
 
 void AnalysisManager::analyze_session(const QString& sessionPath) {
-    if (!d->autoAnalyze) { return; }
-
+    const Job job{sessionPath, d->model, d->frameSkip};
     if (is_running()) {
-        d->queue.enqueue(sessionPath);
+        d->queue.enqueue(job);
         log_info(QString("[AnalysisManager] Queued session: %1").arg(sessionPath));
         return;
     }
 
-    launch(sessionPath);
+    launch(job.sessionPath, job.model, job.frameSkip);
 }
 
 void AnalysisManager::stop() {
@@ -59,7 +74,7 @@ void AnalysisManager::stop() {
 
 // ── Launch ─────────────────────────────────────────────────────────────────
 
-void AnalysisManager::launch(const QString& sessionPath) {
+void AnalysisManager::launch(const QString& sessionPath, const QString& model, int frameSkip) {
     const QString python = d->pythonPath.isEmpty() ? find_python() : d->pythonPath;
     if (python.isEmpty()) {
         const QString msg =
@@ -93,8 +108,8 @@ void AnalysisManager::launch(const QString& sessionPath) {
     const QStringList args = {
         script,
         "--session",    sessionPath,
-        "--model",      d->model,
-        "--skip",       QString::number(d->frameSkip),
+        "--model",      model,
+        "--skip",       QString::number(frameSkip),
         "--out-format", "json",
     };
 
@@ -153,9 +168,11 @@ void AnalysisManager::on_process_finished(int exitCode, int exitStatus) {
         d->process = nullptr;
     }
 
-    // Process any queued sessions
+    // Process any queued sessions, each with the model/frameSkip that was
+    // active when it was queued (not whatever is current now).
     if (!d->queue.isEmpty()) {
-        launch(d->queue.dequeue());
+        const Job job = d->queue.dequeue();
+        launch(job.sessionPath, job.model, job.frameSkip);
     }
 }
 

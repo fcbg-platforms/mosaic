@@ -33,7 +33,7 @@ import cv2
 import numpy as np
 
 from pose.human_pose import HumanPoseEstimator
-from pose.keypoints import COCO_KEYPOINTS, PoseResult
+from pose.keypoints import COCO_KEYPOINTS, COCO_SKELETON, PoseResult
 
 # ── CLI ───────────────────────────────────────────────────────────────────────
 
@@ -130,6 +130,7 @@ def _write_results(video_path: Path, results: list[dict], out_format: str) -> No
         out_path.write_text(json.dumps({
             "source_video": video_path.name,
             "keypoint_names": COCO_KEYPOINTS,
+            "skeleton_edges": COCO_SKELETON,
             "frames": results,
         }, indent=2))
         print(f"[run_pose] Keypoints → {out_path}", flush=True)

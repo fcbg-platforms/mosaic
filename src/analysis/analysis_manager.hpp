@@ -7,9 +7,10 @@ namespace mosaic {
 
 /// @brief Manages the Python analysis subprocess for post-recording pose estimation.
 ///
-/// When @ref auto_analyze is enabled and a recording session ends,
-/// AnalysisManager launches the analysis/run_pose.py script in a
-/// background QProcess, streaming its output to @ref output_received().
+/// analyze_session() always runs when called directly (e.g. a UI "Run" button).
+/// @ref auto_analyze is a plain flag callers can check to decide whether to also
+/// trigger analysis automatically when a recording session ends — AnalysisManager
+/// itself does not gate on it.
 ///
 /// The Python script is found relative to the application's executable directory
 /// (for installed builds) or the project root (during development).
@@ -21,7 +22,9 @@ namespace mosaic {
 ///     log_info("[Analysis] " + line);
 /// });
 /// connect(recordMgr, &RecordManager::recording_stopped, &mgr,
-///         [&](const QString& path, int) { mgr.analyze_session(path); });
+///         [&](const QString& path, int) {
+///             if (mgr.auto_analyze()) { mgr.analyze_session(path); }
+///         });
 /// mgr.set_auto_analyze(true);
 /// @endcode
 ///
@@ -72,7 +75,9 @@ public:
 
     /// @brief Analyse all .mp4 files in @p sessionPath asynchronously.
     ///
-    /// If auto_analyze() is @c false, this method is a no-op.
+    /// Always runs when called directly (e.g. from a UI "Run" action).
+    /// @ref auto_analyze() only gates whether the caller triggers this
+    /// automatically after a recording stops — it is not checked here.
     /// If a previous analysis is still running, this queues the new session.
     ///
     /// @param sessionPath  Absolute path to the recorded session directory.
@@ -103,7 +108,7 @@ private:
     [[nodiscard]] QString find_python()     const;
     [[nodiscard]] QString find_script()     const;
     [[nodiscard]] QString find_venv_python() const;
-    void launch(const QString& sessionPath);
+    void launch(const QString& sessionPath, const QString& model, int frameSkip);
 
     struct Impl;
     std::unique_ptr<Impl> d;

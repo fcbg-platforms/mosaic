@@ -1,4 +1,5 @@
 #include "ui/video/performance_monitor_w.hpp"
+#include "analysis/pose_models.hpp"
 #include <algorithm>
 #include <limits>
 #include <QCheckBox>
@@ -246,10 +247,9 @@ void PerformanceMonitorW::build_ui() {
         topRow->addWidget(modelLbl);
 
         d->modelCombo = new QComboBox;
-        d->modelCombo->addItem("YOLOv8n-pose  (fastest, CPU OK)",  "yolov8n-pose.pt");
-        d->modelCombo->addItem("YOLOv8s-pose  (balanced)",         "yolov8s-pose.pt");
-        d->modelCombo->addItem("YOLOv8m-pose  (accurate, GPU)",    "yolov8m-pose.pt");
-        d->modelCombo->addItem("YOLOv8l-pose  (best, GPU req.)",   "yolov8l-pose.pt");
+        for (const auto& [label, value] : pose_model_options()) {
+            d->modelCombo->addItem(label, value);
+        }
         d->modelCombo->setCurrentIndex(0);
         d->modelCombo->setFixedHeight(28);
         connect(d->modelCombo, &QComboBox::currentIndexChanged, this,

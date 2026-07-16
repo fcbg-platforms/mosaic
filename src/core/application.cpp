@@ -111,7 +111,9 @@ void Application::initialize(const QString& username) {
             this, [](const QString& msg) { log_error("[Analysis] " + msg); });
     connect(d->recordManager.get(), &RecordManager::recording_stopped,
             this, [this](const QString& path, int /*durationMs*/) {
-        d->analysisManager->analyze_session(path);
+        if (d->analysisManager->auto_analyze()) {
+            d->analysisManager->analyze_session(path);
+        }
     });
 
     d->mainWindow = std::make_unique<MainWindow>(

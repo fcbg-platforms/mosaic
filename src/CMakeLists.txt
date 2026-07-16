@@ -15,6 +15,9 @@ qt_add_executable(mosaic MACOSX_BUNDLE
     analysis/analysis_manager.cpp
     analysis/pose_worker.hpp
     analysis/pose_worker.cpp
+    analysis/pose_models.hpp
+    analysis/pose_analysis_result.hpp
+    analysis/pose_analysis_result.cpp
     analysis/sync_manifest.hpp
     analysis/sync_manifest.cpp
 
@@ -123,6 +126,12 @@ qt_add_executable(mosaic MACOSX_BUNDLE
     ui/session/session_player_w.hpp
     ui/session/session_player_w.cpp
 
+    # ── Analysis tab ─────────────────────────────────────────────────────
+    ui/analysis/pose_overlay_player_w.hpp
+    ui/analysis/pose_overlay_player_w.cpp
+    ui/analysis/analysis_tab_w.hpp
+    ui/analysis/analysis_tab_w.cpp
+
     # ── QML bridge ────────────────────────────────────────────────────────
     ui/monitor_bridge.hpp
     ui/monitor_bridge.cpp
@@ -161,6 +170,7 @@ target_link_libraries(mosaic PRIVATE
     Qt6::Multimedia
     Qt6::Quick
     Qt6::QuickWidgets
+    Qt6::Charts
 )
 
 # ── Optional hardware subsystems ───────────────────────────────────────────
