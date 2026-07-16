@@ -6,6 +6,7 @@
 #include <QChart>
 #include <QChartView>
 #include <QComboBox>
+#include <QDesktopServices>
 #include <QFileInfo>
 #include <QGroupBox>
 #include <QHBoxLayout>
@@ -17,7 +18,9 @@
 #include <QPushButton>
 #include <QSpinBox>
 #include <QSplitter>
+#include <QStackedWidget>
 #include <QTextEdit>
+#include <QUrl>
 #include <QValueAxis>
 #include <QVBoxLayout>
 #include <algorithm>
@@ -158,16 +161,24 @@ struct AnalysisTabW::Impl {
 
     QListWidget* sessionList = nullptr;
     QComboBox*   pluginCombo = nullptr;
-    QComboBox*   modelCombo  = nullptr;
-    QSpinBox*    skipSpin    = nullptr;
+
+    // Plugin-specific run controls, swapped via controlsStack on plugin change.
+    QStackedWidget* controlsStack = nullptr;
+    QComboBox*   modelCombo   = nullptr;   // pose
+    QSpinBox*    skipSpin     = nullptr;   // pose
+    QComboBox*   backendCombo = nullptr;   // face_mask
+    QComboBox*   styleCombo   = nullptr;   // face_mask
+    QSpinBox*    faceSkipSpin = nullptr;   // face_mask
+
     QPushButton* runBtn      = nullptr;
     QLabel*      statusLbl   = nullptr;
     QTextEdit*   logView     = nullptr;
 
-    QComboBox*          cameraCombo  = nullptr;
-    QComboBox*          keypointCombo= nullptr;
-    PoseOverlayPlayerW*  player      = nullptr;
-    MetricsChartW*       chart       = nullptr;
+    QComboBox*          cameraCombo   = nullptr;
+    QComboBox*          keypointCombo = nullptr;   // pose only
+    PoseOverlayPlayerW*  player       = nullptr;   // shared: plain playback for face_mask
+    MetricsChartW*       chart        = nullptr;   // pose only
+    QPushButton*         openFolderBtn= nullptr;   // face_mask only
 
     QList<SessionInfo>  sessions;
     QString              currentSessionPath;
@@ -181,6 +192,12 @@ struct AnalysisTabW::Impl {
     // analysis_started() carried. Track whether that's this tab's selected
     // session so status text/log don't flip for a run started elsewhere.
     bool jobIsMine = false;
+
+    // Which plugin run_analysis() launched, captured at launch time. If the
+    // user flips pluginCombo to something else before the job finishes,
+    // analysis_finished() skips the "Done."/"Failed" status text — it would
+    // otherwise be shown against the now-selected (different) plugin's view.
+    QString jobPlugin;
 
     Impl(AppSettings& s, AnalysisManager* mgr) : settings(s), analysisMgr(mgr) {}
 
@@ -223,9 +240,15 @@ AnalysisTabW::AnalysisTabW(AppSettings& settings, AnalysisManager* analysisMgr, 
             [this](const QString& path, bool success) {
         d->runBtn->setEnabled(true);
         if (!d->jobIsMine) { return; }
-        d->statusLbl->setText(success ? "Done." : "Failed — see log.");
-        d->statusLbl->setStyleSheet(success
-            ? "color:#44cc66; font-size:11px;" : "color:#cc4444; font-size:11px;");
+        // Only touch the status text if the user hasn't switched plugins
+        // since starting this job — otherwise "Done."/"Failed" would land
+        // on the now-different plugin's view. rebuild_session_list() still
+        // runs regardless, so switching back later picks up the result.
+        if (d->pluginCombo->currentData().toString() == d->jobPlugin) {
+            d->statusLbl->setText(success ? "Done." : "Failed — see log.");
+            d->statusLbl->setStyleSheet(success
+                ? "color:#44cc66; font-size:11px;" : "color:#cc4444; font-size:11px;");
+        }
         if (success && path == d->currentSessionPath) {
             rebuild_session_list();
         }
@@ -268,21 +291,69 @@ void AnalysisTabW::build_ui() {
     auto* controlsRow = new QHBoxLayout;
     d->pluginCombo = new QComboBox;
     d->pluginCombo->addItem("Pose (YOLOv8)", "pose");
+    d->pluginCombo->addItem("Face Masking (anonymize)", "face_mask");
     controlsRow->addWidget(new QLabel("Plugin:"));
     controlsRow->addWidget(d->pluginCombo);
+    connect(d->pluginCombo, &QComboBox::currentIndexChanged, this, &AnalysisTabW::select_plugin);
+
+    d->controlsStack = new QStackedWidget;
+
+    // ── Pose controls page ──────────────────────────────────────────────
+    auto* posePage = new QWidget;
+    auto* poseLay  = new QHBoxLayout(posePage);
+    poseLay->setContentsMargins(0, 0, 0, 0);
 
     d->modelCombo = new QComboBox;
     for (const auto& [label, value] : pose_model_options()) {
         d->modelCombo->addItem(label, value);
     }
-    controlsRow->addWidget(new QLabel("Model:"));
-    controlsRow->addWidget(d->modelCombo, 1);
+    poseLay->addWidget(new QLabel("Model:"));
+    poseLay->addWidget(d->modelCombo, 1);
 
     d->skipSpin = new QSpinBox;
     d->skipSpin->setRange(1, 30);
     d->skipSpin->setValue(1);
     d->skipSpin->setPrefix("skip ");
-    controlsRow->addWidget(d->skipSpin);
+    poseLay->addWidget(d->skipSpin);
+    d->controlsStack->addWidget(posePage);
+
+    // ── Face-mask controls page ─────────────────────────────────────────
+    auto* faceMaskPage = new QWidget;
+    auto* faceMaskLay  = new QHBoxLayout(faceMaskPage);
+    faceMaskLay->setContentsMargins(0, 0, 0, 0);
+
+    d->backendCombo = new QComboBox;
+    d->backendCombo->addItem("MediaPipe", "mediapipe");
+    d->backendCombo->setItemData(0,
+        "Best recall, multiple faces. Downloads its model on first use.", Qt::ToolTipRole);
+    d->backendCombo->addItem("YOLOv8-face", "yolov8");
+    d->backendCombo->setItemData(1,
+        "Community-maintained checkpoint — not officially hosted by Ultralytics.",
+        Qt::ToolTipRole);
+    d->backendCombo->addItem("OpenCV DNN", "opencv");
+    d->backendCombo->setItemData(2,
+        "No extra ML framework, but weaker recall on extreme head angles.", Qt::ToolTipRole);
+    faceMaskLay->addWidget(new QLabel("Backend:"));
+    faceMaskLay->addWidget(d->backendCombo, 1);
+
+    d->styleCombo = new QComboBox;
+    d->styleCombo->addItem("Blur", "blur");
+    d->styleCombo->addItem("Solid box", "box");
+    faceMaskLay->addWidget(new QLabel("Style:"));
+    faceMaskLay->addWidget(d->styleCombo);
+
+    d->faceSkipSpin = new QSpinBox;
+    d->faceSkipSpin->setRange(1, 10);
+    d->faceSkipSpin->setValue(1);
+    d->faceSkipSpin->setPrefix("skip ");
+    d->faceSkipSpin->setToolTip(
+        "Detects faces every Nth frame and reuses the last detected boxes in between. "
+        "Keep at 1 unless you accept the risk of fast head motion going unmasked on the "
+        "skipped frames in between.");
+    faceMaskLay->addWidget(d->faceSkipSpin);
+    d->controlsStack->addWidget(faceMaskPage);
+
+    controlsRow->addWidget(d->controlsStack, 1);
 
     d->runBtn = new QPushButton("▶  Run");
     connect(d->runBtn, &QPushButton::clicked, this, &AnalysisTabW::run_analysis);
@@ -317,6 +388,13 @@ void AnalysisTabW::build_ui() {
         d->chart->set_data(d->currentResult, idx);
         d->chart->set_playhead_ms(d->player->position_ms());
     });
+
+    d->openFolderBtn = new QPushButton("Open output folder");
+    d->openFolderBtn->setVisible(false);
+    d->openFolderBtn->setEnabled(false);
+    connect(d->openFolderBtn, &QPushButton::clicked, this, &AnalysisTabW::open_output_folder);
+    resultsRow->addWidget(d->openFolderBtn);
+
     rightLay->addLayout(resultsRow);
 
     auto* resultsSplitter = new QSplitter(Qt::Horizontal);
@@ -392,6 +470,18 @@ void AnalysisTabW::select_camera(int index) {
     reload_current_camera_result();
 }
 
+void AnalysisTabW::select_plugin(int index) {
+    if (index < 0) { return; }
+    d->controlsStack->setCurrentIndex(index);
+
+    const bool isPose = is_pose_plugin();
+    d->keypointCombo->setVisible(isPose);
+    d->chart->setVisible(isPose);
+    d->openFolderBtn->setVisible(!isPose);
+
+    reload_current_camera_result();
+}
+
 // ── Analysis lifecycle ───────────────────────────────────────────────────
 
 QString AnalysisTabW::pose_json_path_for(const QString& videoRelPath) const {
@@ -399,6 +489,14 @@ QString AnalysisTabW::pose_json_path_for(const QString& videoRelPath) const {
     const int dot = base.lastIndexOf('.');
     if (dot >= 0) { base.truncate(dot); }
     return base + ".pose.json";
+}
+
+QString AnalysisTabW::anonymized_video_path_for(const QString& videoRelPath) const {
+    return "anonymized/" + QFileInfo(videoRelPath).fileName();
+}
+
+bool AnalysisTabW::is_pose_plugin() const {
+    return d->pluginCombo->currentData().toString() == "pose";
 }
 
 void AnalysisTabW::reload_current_camera_result() {
@@ -412,25 +510,52 @@ void AnalysisTabW::reload_current_camera_result() {
 
     const QString videoRel = d->cameraCombo->currentData().toString();
     const QString videoAbs = info->path + "/" + videoRel;
-    d->player->set_video(videoAbs);
 
-    const QString poseAbs = info->path + "/" + pose_json_path_for(videoRel);
-    d->currentResult = QFileInfo::exists(poseAbs)
-        ? PoseAnalysisResult::load(poseAbs) : PoseAnalysisResult();
-    d->player->set_pose_result(d->currentResult);
+    if (is_pose_plugin()) {
+        d->player->set_video(videoAbs);
 
-    d->keypointCombo->blockSignals(true);
-    d->keypointCombo->clear();
-    for (const auto& name : d->currentResult.keypoint_names()) {
-        d->keypointCombo->addItem(name);
+        const QString poseAbs = info->path + "/" + pose_json_path_for(videoRel);
+        d->currentResult = QFileInfo::exists(poseAbs)
+            ? PoseAnalysisResult::load(poseAbs) : PoseAnalysisResult();
+        d->player->set_pose_result(d->currentResult);
+
+        d->keypointCombo->blockSignals(true);
+        d->keypointCombo->clear();
+        for (const auto& name : d->currentResult.keypoint_names()) {
+            d->keypointCombo->addItem(name);
+        }
+        d->keypointCombo->blockSignals(false);
+
+        d->chart->set_data(d->currentResult, d->keypointCombo->currentIndex());
+        d->chart->set_playhead_ms(d->player->position_ms());
+
+        // Only overwrite statusLbl for the "nothing to show yet" case — a
+        // valid result leaves whatever's already there alone, so a "Done."
+        // set by the analysis_finished handler right before this runs (via
+        // rebuild_session_list()) isn't immediately clobbered back to a
+        // generic "Ready." in the same call stack.
+        if (!d->currentResult.is_valid()) {
+            d->statusLbl->setText("No analysis yet for this camera — click Run.");
+            d->statusLbl->setStyleSheet("color:#6060a0; font-size:11px;");
+        }
+        return;
     }
-    d->keypointCombo->blockSignals(false);
 
-    d->chart->set_data(d->currentResult, d->keypointCombo->currentIndex());
-    d->chart->set_playhead_ms(d->player->position_ms());
+    // Face-mask plugin: no keypoint/chart data, just plain video playback —
+    // the anonymized output if it exists yet, otherwise the original as a
+    // preview so the user can confirm they picked the right camera/session.
+    d->currentResult = PoseAnalysisResult();
+    const QString anonAbs = info->path + "/" + anonymized_video_path_for(videoRel);
+    const bool hasOutput = QFileInfo::exists(anonAbs);
+    d->player->set_video(hasOutput ? anonAbs : videoAbs);
+    d->player->set_pose_result(d->currentResult);
+    d->openFolderBtn->setEnabled(hasOutput);
 
-    if (!d->currentResult.is_valid()) {
-        d->statusLbl->setText("No analysis yet for this camera — click Run.");
+    if (hasOutput) {
+        d->statusLbl->setText("Showing anonymized output.");
+        d->statusLbl->setStyleSheet("color:#44cc66; font-size:11px;");
+    } else {
+        d->statusLbl->setText("Not yet anonymized (showing original) — click Run.");
         d->statusLbl->setStyleSheet("color:#6060a0; font-size:11px;");
     }
 }
@@ -438,9 +563,23 @@ void AnalysisTabW::reload_current_camera_result() {
 void AnalysisTabW::run_analysis() {
     if (d->currentSessionPath.isEmpty()) { return; }
 
-    d->analysisMgr->set_model(d->modelCombo->currentData().toString());
-    d->analysisMgr->set_frame_skip(d->skipSpin->value());
-    d->analysisMgr->analyze_session(d->currentSessionPath);
+    d->jobPlugin = d->pluginCombo->currentData().toString();
+    if (is_pose_plugin()) {
+        d->analysisMgr->set_model(d->modelCombo->currentData().toString());
+        d->analysisMgr->set_frame_skip(d->skipSpin->value());
+        d->analysisMgr->analyze_session(d->currentSessionPath);
+    } else {
+        d->analysisMgr->run_face_mask(d->currentSessionPath,
+            d->backendCombo->currentData().toString(),
+            d->styleCombo->currentData().toString(),
+            d->faceSkipSpin->value());
+    }
+}
+
+void AnalysisTabW::open_output_folder() {
+    const auto* info = d->current_session();
+    if (!info) { return; }
+    QDesktopServices::openUrl(QUrl::fromLocalFile(info->path + "/anonymized"));
 }
 
 } // namespace mosaic
