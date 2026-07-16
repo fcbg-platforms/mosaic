@@ -265,7 +265,10 @@ void PerformanceMonitorW::build_ui() {
         auto* hintLbl = new QLabel(
             "When enabled: after each recording stops, MOSAIC automatically "
             "runs YOLOv8 pose estimation on the saved .mp4 files and writes "
-            ".pose.json keypoint files alongside them.");
+            ".pose.json keypoint files alongside them. The status and log "
+            "below also reflect any other Analysis Manager job — e.g. a "
+            "Face Masking run started from the Analysis tab — since only "
+            "one job runs at a time.");
         hintLbl->setWordWrap(true);
         hintLbl->setStyleSheet("color: #444466; font-size: 10px;");
         anaLay->addWidget(hintLbl);

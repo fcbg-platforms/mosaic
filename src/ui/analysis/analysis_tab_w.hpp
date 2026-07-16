@@ -7,18 +7,18 @@
 namespace mosaic {
 
 // Top-level "Analysis" tab: pick a recorded session, run a post-hoc analysis
-// plugin with a chosen model, and review the result in-app — a synchronised
-// video+skeleton-overlay player alongside a per-keypoint metrics plot. The
-// plot can show raw Position (x/y) or, entirely computed client-side from
-// the already-loaded result (no extra Python run needed — see
+// plugin, and review the result in-app.
+//
+// Two plugins today, selected via a combo box: Pose (YOLOv8) — a synchronised
+// video+skeleton-overlay player alongside a per-keypoint metrics plot — and
+// Face Masking — plain playback of an anonymized output video written to a
+// sibling "anonymized/" folder, never touching the original recording.
+// AnalysisManager (analysis/analysis_manager.hpp) runs either plugin's script
+// through the same shared subprocess queue. For Pose, the metrics plot can
+// show raw Position (x/y) or, entirely computed client-side from the
+// already-loaded result (no extra Python run needed — see
 // analysis/pose_kinematics.hpp), derived Speed/Acceleration with optional
 // smoothing and an optional manual px-to-mm scale.
-//
-// Scoped to the Pose (YOLOv8) plugin today; the plugin selector is a combo
-// box rather than hardcoded UI so a second plugin doesn't need a UI
-// redesign here — but AnalysisManager itself (analysis/analysis_manager.hpp)
-// is still hardcoded to run_pose.py's argument shape, so adding a real
-// second plugin also means extending AnalysisManager, not just this combo.
 class AnalysisTabW : public QWidget {
     Q_OBJECT
 public:
@@ -32,11 +32,15 @@ private:
     void rebuild_session_list();
     void select_session(const QString& path);
     void select_camera(int index);
+    void select_plugin(int index);
     void run_analysis();
     void reload_current_camera_result();
     void update_kinematics_chart();
     void export_kinematics_csv();
+    void open_output_folder();
+    [[nodiscard]] bool is_pose_plugin() const;
     [[nodiscard]] QString pose_json_path_for(const QString& videoRelPath) const;
+    [[nodiscard]] QString anonymized_video_path_for(const QString& videoRelPath) const;
 
     struct Impl;
     std::unique_ptr<Impl> d;

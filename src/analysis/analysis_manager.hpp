@@ -1,16 +1,20 @@
 #pragma once
 #include <QObject>
 #include <QString>
+#include <QStringList>
 #include <memory>
 
 namespace mosaic {
 
-/// @brief Manages the Python analysis subprocess for post-recording pose estimation.
+/// @brief Manages the Python analysis subprocess(es) for post-recording plugins
+/// (pose estimation, face masking).
 ///
-/// analyze_session() always runs when called directly (e.g. a UI "Run" button).
-/// @ref auto_analyze is a plain flag callers can check to decide whether to also
-/// trigger analysis automatically when a recording session ends — AnalysisManager
-/// itself does not gate on it.
+/// analyze_session() / run_face_mask() always run when called directly (e.g. a
+/// UI "Run" button). @ref auto_analyze is a plain flag callers can check to
+/// decide whether to also trigger analysis automatically when a recording
+/// session ends — AnalysisManager itself does not gate on it. Only one script
+/// runs at a time regardless of which plugin queued it; a second call while
+/// one is running queues behind it.
 ///
 /// The Python script is found relative to the application's executable directory
 /// (for installed builds) or the project root (during development).
@@ -83,6 +87,24 @@ public:
     /// @param sessionPath  Absolute path to the recorded session directory.
     void analyze_session(const QString& sessionPath);
 
+    /// @brief Anonymize (blur/box) faces in all .mp4 files in @p sessionPath,
+    /// writing output into a sibling "anonymized/" folder — originals are
+    /// never modified.
+    ///
+    /// Always runs when called directly, exactly like analyze_session(). If a
+    /// previous analysis is still running, this queues the new job.
+    ///
+    /// @param sessionPath  Absolute path to the recorded session directory.
+    /// @param backend      "mediapipe" (default), "yolov8", or "opencv".
+    /// @param style        "blur" (default) or "box".
+    /// @param frameSkip    Run the detector every Nth frame, reusing the last
+    ///                     detected boxes on skipped frames. Defaults to 1
+    ///                     (every frame) at the call site — raising this
+    ///                     risks a skipped frame's fast head motion going
+    ///                     unmasked.
+    void run_face_mask(const QString& sessionPath, const QString& backend,
+                        const QString& style, int frameSkip);
+
     /// @brief Stop the currently running analysis process immediately.
     void stop();
 
@@ -106,9 +128,12 @@ private slots:
 
 private:
     [[nodiscard]] QString find_python()     const;
-    [[nodiscard]] QString find_script()     const;
+    [[nodiscard]] QString find_script(const QString& scriptRelPath) const;
     [[nodiscard]] QString find_venv_python() const;
-    void launch(const QString& sessionPath, const QString& model, int frameSkip);
+    void enqueue_or_launch(const QString& sessionPath, const QString& scriptRelPath,
+                            const QStringList& args);
+    void launch(const QString& sessionPath, const QString& scriptRelPath,
+                const QStringList& args);
 
     struct Impl;
     std::unique_ptr<Impl> d;
