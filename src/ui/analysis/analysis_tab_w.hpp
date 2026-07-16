@@ -8,7 +8,11 @@ namespace mosaic {
 
 // Top-level "Analysis" tab: pick a recorded session, run a post-hoc analysis
 // plugin with a chosen model, and review the result in-app — a synchronised
-// video+skeleton-overlay player alongside a per-keypoint metrics plot.
+// video+skeleton-overlay player alongside a per-keypoint metrics plot. The
+// plot can show raw Position (x/y) or, entirely computed client-side from
+// the already-loaded result (no extra Python run needed — see
+// analysis/pose_kinematics.hpp), derived Speed/Acceleration with optional
+// smoothing and an optional manual px-to-mm scale.
 //
 // Scoped to the Pose (YOLOv8) plugin today; the plugin selector is a combo
 // box rather than hardcoded UI so a second plugin doesn't need a UI
@@ -30,6 +34,8 @@ private:
     void select_camera(int index);
     void run_analysis();
     void reload_current_camera_result();
+    void update_kinematics_chart();
+    void export_kinematics_csv();
     [[nodiscard]] QString pose_json_path_for(const QString& videoRelPath) const;
 
     struct Impl;

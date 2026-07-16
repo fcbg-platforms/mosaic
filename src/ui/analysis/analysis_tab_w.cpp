@@ -1,11 +1,15 @@
 #include "ui/analysis/analysis_tab_w.hpp"
 #include "analysis/pose_analysis_result.hpp"
+#include "analysis/pose_kinematics.hpp"
 #include "analysis/pose_models.hpp"
 #include "session/session_info.hpp"
 #include "ui/analysis/pose_overlay_player_w.hpp"
 #include <QChart>
 #include <QChartView>
 #include <QComboBox>
+#include <QDoubleSpinBox>
+#include <QFile>
+#include <QFileDialog>
 #include <QFileInfo>
 #include <QGroupBox>
 #include <QHBoxLayout>
@@ -18,9 +22,11 @@
 #include <QSpinBox>
 #include <QSplitter>
 #include <QTextEdit>
+#include <QTextStream>
 #include <QValueAxis>
 #include <QVBoxLayout>
 #include <algorithm>
+#include <cmath>
 #include <functional>
 #include <limits>
 
@@ -52,11 +58,18 @@ public:
         xSeries_->setPen(QPen(QColor("#44aaff"), 2));
         ySeries_ = new QLineSeries();
         ySeries_->setPen(QPen(QColor("#ffaa44"), 2));
+        // Single-metric series (Speed/Acceleration) — kept separate from
+        // xSeries_/ySeries_ rather than repurposing one of them, so Position
+        // mode's two-line plot and single-metric mode's one-line plot never
+        // fight over which series is "the x-position line".
+        valueSeries_ = new QLineSeries();
+        valueSeries_->setPen(QPen(QColor("#44aaff"), 2));
         playheadSeries_ = new QLineSeries();
         playheadSeries_->setPen(QPen(QColor("#ff4466"), 1, Qt::DashLine));
 
         chart->addSeries(xSeries_);
         chart->addSeries(ySeries_);
+        chart->addSeries(valueSeries_);
         chart->addSeries(playheadSeries_);
 
         axisX_ = new QValueAxis();
@@ -76,7 +89,7 @@ public:
 
         chart->addAxis(axisX_, Qt::AlignBottom);
         chart->addAxis(axisY_, Qt::AlignLeft);
-        for (auto* series : {xSeries_, ySeries_, playheadSeries_}) {
+        for (auto* series : {xSeries_, ySeries_, valueSeries_, playheadSeries_}) {
             series->attachAxis(axisX_);
             series->attachAxis(axisY_);
         }
@@ -87,11 +100,11 @@ public:
     // subjectIndex picks which detected subject to plot when a frame has
     // more than one (0 = first/primary subject — the common case).
     void set_data(const PoseAnalysisResult& result, int keypointIndex, int subjectIndex = 0) {
-        xSeries_->clear();
-        ySeries_->clear();
-        playheadSeries_->clear();
+        clear_all_series();
+        axisY_->setTitleText("px");
 
         if (!result.is_valid() || result.frames().isEmpty() || keypointIndex < 0) {
+            apply_ranges(false, 0.0, 0.0, 0.0);
             return;
         }
 
@@ -115,11 +128,35 @@ public:
             maxY = std::max({maxY, kp.x(), kp.y()});
         }
 
-        axisX_->setRange(0, std::max(maxT, 1.0));
-        if (minY <= maxY) {
-            const double pad = std::max((maxY - minY) * 0.1, 5.0);
-            axisY_->setRange(minY - pad, maxY + pad);
+        apply_ranges(minY <= maxY, minY, maxY, maxT);
+    }
+
+    // Single-metric mode (Speed/Acceleration): points are (ms-since-start,
+    // value), pre-filtered by the caller to drop NaN entries (a NaN plotted
+    // point would otherwise break QLineSeries' range calculation). Clears
+    // xSeries_/ySeries_ so Position mode's two-line plot doesn't linger
+    // underneath.
+    void set_single_series(const QVector<QPointF>& points, const QString& yAxisLabel) {
+        clear_all_series();
+        axisY_->setTitleText(yAxisLabel);
+
+        if (points.isEmpty()) {
+            apply_ranges(false, 0.0, 0.0, 0.0);
+            return;
         }
+
+        double minY = std::numeric_limits<double>::max();
+        double maxY = std::numeric_limits<double>::lowest();
+        double maxT = 0.0;
+
+        for (const auto& p : points) {
+            valueSeries_->append(p);
+            maxT = std::max(maxT, p.x());
+            minY = std::min(minY, p.y());
+            maxY = std::max(maxY, p.y());
+        }
+
+        apply_ranges(true, minY, maxY, maxT);
     }
 
     void set_playhead_ms(int64_t ms) {
@@ -142,8 +179,36 @@ protected:
     }
 
 private:
+    void clear_all_series() {
+        xSeries_->clear();
+        ySeries_->clear();
+        valueSeries_->clear();
+        playheadSeries_->clear();
+    }
+
+    // Shared by set_data()/set_single_series() so both modes' axis-range
+    // policy (10%-padded, 5px minimum pad) can't drift apart. hasRange ==
+    // false resets to a small fixed default instead of leaving whatever
+    // range a previously-displayed mode left behind — a stale wide range
+    // under a freshly-changed axis label (e.g. switching to Speed for a
+    // keypoint with no valid samples) would otherwise show old numbers next
+    // to a new, unrelated unit.
+    void apply_ranges(bool hasRange, double minY, double maxY, double maxT) {
+        if (!hasRange) {
+            axisX_->setRange(0, 1000);
+            axisY_->setRange(0, 1);
+            return;
+        }
+        axisX_->setRange(0, std::max(maxT, 1.0));
+        if (minY <= maxY) {
+            const double pad = std::max((maxY - minY) * 0.1, 5.0);
+            axisY_->setRange(minY - pad, maxY + pad);
+        }
+    }
+
     QLineSeries* xSeries_        = nullptr;
     QLineSeries* ySeries_        = nullptr;
+    QLineSeries* valueSeries_    = nullptr;
     QLineSeries* playheadSeries_ = nullptr;
     QValueAxis*  axisX_          = nullptr;
     QValueAxis*  axisY_          = nullptr;
@@ -169,6 +234,15 @@ struct AnalysisTabW::Impl {
     PoseOverlayPlayerW*  player      = nullptr;
     MetricsChartW*       chart       = nullptr;
 
+    // Kinematics view controls — reshape how the already-loaded
+    // currentResult is displayed, not what gets launched (unlike runBox's
+    // model/skip controls), so they live in their own row.
+    QComboBox*      metricCombo         = nullptr;  // Position / Speed / Acceleration
+    QSpinBox*        smoothingSpin       = nullptr;
+    QDoubleSpinBox*  scaleSpin           = nullptr;  // mm/px, 1.0 = raw pixels
+    QLabel*          kinematicsStatsLbl  = nullptr;
+    QPushButton*     exportKinematicsBtn = nullptr;
+
     QList<SessionInfo>  sessions;
     QString              currentSessionPath;
     PoseAnalysisResult    currentResult;
@@ -189,6 +263,13 @@ struct AnalysisTabW::Impl {
             if (s.path == currentSessionPath) { return &s; }
         }
         return nullptr;
+    }
+
+    // Shared by update_kinematics_chart() and export_kinematics_csv() — both
+    // need the same "ms since first frame" origin, and both must guard the
+    // same empty-frames edge case identically.
+    [[nodiscard]] int64_t first_timestamp_ns() const {
+        return currentResult.frames().isEmpty() ? 0 : currentResult.frames().first().timestampNs;
     }
 };
 
@@ -313,11 +394,70 @@ void AnalysisTabW::build_ui() {
     d->keypointCombo = new QComboBox;
     resultsRow->addWidget(new QLabel("Keypoint:"));
     resultsRow->addWidget(d->keypointCombo, 1);
-    connect(d->keypointCombo, &QComboBox::currentIndexChanged, this, [this](int idx) {
-        d->chart->set_data(d->currentResult, idx);
-        d->chart->set_playhead_ms(d->player->position_ms());
-    });
+    connect(d->keypointCombo, &QComboBox::currentIndexChanged, this,
+            &AnalysisTabW::update_kinematics_chart);
     rightLay->addLayout(resultsRow);
+
+    // ── Kinematics view controls: reshape how the current keypoint's data
+    //    is plotted (Position/Speed/Acceleration), not what gets launched.
+    auto* kinematicsRow = new QHBoxLayout;
+    d->metricCombo = new QComboBox;
+    d->metricCombo->addItem("Position", "position");
+    d->metricCombo->addItem("Speed", "speed");
+    d->metricCombo->addItem("Acceleration", "accel");
+    kinematicsRow->addWidget(new QLabel("Metric:"));
+    kinematicsRow->addWidget(d->metricCombo);
+    connect(d->metricCombo, &QComboBox::currentIndexChanged, this,
+            &AnalysisTabW::update_kinematics_chart);
+
+    d->smoothingSpin = new QSpinBox;
+    d->smoothingSpin->setRange(1, 15);
+    d->smoothingSpin->setSingleStep(2);
+    d->smoothingSpin->setValue(1);
+    d->smoothingSpin->setPrefix("smooth ");
+    d->smoothingSpin->setToolTip(
+        "Centered moving-average window (odd values) applied before deriving "
+        "Speed/Acceleration. 1 = no smoothing. Raw acceleration from "
+        "frame-to-frame pose jitter is often noisy — increase (e.g. 5) to "
+        "reduce that noise. Has no effect on the Position view.");
+    kinematicsRow->addWidget(d->smoothingSpin);
+    connect(d->smoothingSpin, &QSpinBox::valueChanged, this,
+            &AnalysisTabW::update_kinematics_chart);
+
+    d->scaleSpin = new QDoubleSpinBox;
+    d->scaleSpin->setRange(0.01, 100.0);
+    d->scaleSpin->setDecimals(4);
+    d->scaleSpin->setValue(1.0);
+    d->scaleSpin->setSuffix(" mm/px");
+    d->scaleSpin->setToolTip(
+        "Optional manual pixel-to-real-world scale, matching the Motion "
+        "plugin's mm_per_px convention (there's no calibration data linked "
+        "to Pose output). Leave at 1.0 for pixel units. Only affects the "
+        "Speed/Acceleration view and stats — Position always displays raw "
+        "pixels, and Export CSV always writes raw pixels regardless of this.");
+    kinematicsRow->addWidget(d->scaleSpin);
+    connect(d->scaleSpin, &QDoubleSpinBox::valueChanged, this,
+            &AnalysisTabW::update_kinematics_chart);
+
+    d->kinematicsStatsLbl = new QLabel;
+    d->kinematicsStatsLbl->setStyleSheet("color:#7070a0; font-size:11px;");
+    d->kinematicsStatsLbl->setToolTip(
+        "Subject identity is not tracked across frames — kinematics assume "
+        "subject 0 is a single continuous animal (safe for single-subject "
+        "sessions only).");
+    kinematicsRow->addWidget(d->kinematicsStatsLbl, 1);
+
+    d->exportKinematicsBtn = new QPushButton("Export CSV");
+    d->exportKinematicsBtn->setToolTip(
+        "Exports timestamp/position/speed/acceleration for the current "
+        "keypoint in raw pixel units, ignoring the Scale spinbox above — "
+        "includes the subject-identity and smoothing caveats as a comment "
+        "header in the file.");
+    connect(d->exportKinematicsBtn, &QPushButton::clicked, this,
+            &AnalysisTabW::export_kinematics_csv);
+    kinematicsRow->addWidget(d->exportKinematicsBtn);
+
+    rightLay->addLayout(kinematicsRow);
 
     auto* resultsSplitter = new QSplitter(Qt::Horizontal);
     d->player = new PoseOverlayPlayerW;
@@ -372,6 +512,22 @@ void AnalysisTabW::select_session(const QString& path) {
     d->currentSessionPath = path;
     const auto* info = d->current_session();
 
+    // A new session starts back at the default kinematics view rather than
+    // carrying over whatever Speed/Acceleration/smoothing/scale selection
+    // was last used — those are meant to help compare cameras *within* one
+    // session, not persist across unrelated sessions. Blocked so this
+    // doesn't trigger 3 redundant chart redraws before select_camera()'s
+    // final one below.
+    d->metricCombo->blockSignals(true);
+    d->metricCombo->setCurrentIndex(0);
+    d->metricCombo->blockSignals(false);
+    d->smoothingSpin->blockSignals(true);
+    d->smoothingSpin->setValue(1);
+    d->smoothingSpin->blockSignals(false);
+    d->scaleSpin->blockSignals(true);
+    d->scaleSpin->setValue(1.0);
+    d->scaleSpin->blockSignals(false);
+
     d->cameraCombo->blockSignals(true);
     d->cameraCombo->clear();
     if (info) {
@@ -407,6 +563,12 @@ void AnalysisTabW::reload_current_camera_result() {
         d->currentResult = PoseAnalysisResult();
         d->player->set_pose_result(d->currentResult);
         d->keypointCombo->clear();
+        // Explicit call rather than relying on QComboBox::clear() above
+        // reentrantly firing currentIndexChanged(-1) into
+        // update_kinematics_chart() — that happens to reset the chart/stats
+        // today, but only as an accidental side effect of not being wrapped
+        // in blockSignals() the way the populated-combo case below is.
+        update_kinematics_chart();
         return;
     }
 
@@ -426,12 +588,102 @@ void AnalysisTabW::reload_current_camera_result() {
     }
     d->keypointCombo->blockSignals(false);
 
-    d->chart->set_data(d->currentResult, d->keypointCombo->currentIndex());
-    d->chart->set_playhead_ms(d->player->position_ms());
+    update_kinematics_chart();
 
     if (!d->currentResult.is_valid()) {
         d->statusLbl->setText("No analysis yet for this camera — click Run.");
         d->statusLbl->setStyleSheet("color:#6060a0; font-size:11px;");
+    }
+}
+
+// ── Kinematics view ──────────────────────────────────────────────────────
+
+void AnalysisTabW::update_kinematics_chart() {
+    const int keypointIndex = d->keypointCombo->currentIndex();
+    const QString metric = d->metricCombo->currentData().toString();
+
+    if (metric == "position" || keypointIndex < 0) {
+        d->chart->set_data(d->currentResult, keypointIndex);
+        d->kinematicsStatsLbl->clear();
+        d->chart->set_playhead_ms(d->player->position_ms());
+        return;
+    }
+
+    const bool isSpeed = metric == "speed";
+    const auto series = compute_kinematics(d->currentResult, keypointIndex,
+                                            /*subjectIndex=*/0, d->smoothingSpin->value());
+    const double scale = d->scaleSpin->value();  // mm/px, 1.0 = raw pixels
+    const bool   isMm  = scale != 1.0;
+    const QString unit = isSpeed ? (isMm ? "mm/s" : "px/s") : (isMm ? "mm/s²" : "px/s²");
+
+    QVector<QPointF> points;
+    points.reserve(series.samples.size());
+    const int64_t t0 = d->first_timestamp_ns();
+    for (const auto& sample : series.samples) {
+        const double value = isSpeed ? sample.speedPxPerS : sample.accelPxPerS2;
+        if (std::isnan(value)) { continue; }
+        const double tMs = (sample.timestampNs - t0) / 1e6;
+        points.append(QPointF(tMs, value * scale));
+    }
+
+    d->chart->set_single_series(points, unit);
+    d->chart->set_playhead_ms(d->player->position_ms());
+
+    if (std::isnan(series.stats.avgSpeedPxPerS)) {
+        d->kinematicsStatsLbl->setText("Not enough data for stats (need ≥2 valid samples).");
+    } else {
+        d->kinematicsStatsLbl->setText(QString(
+            "Distance: %1  ·  Avg speed: %2 %3  ·  Max speed: %4 %3")
+            .arg(series.stats.totalDistancePx * scale, 0, 'f', 1)
+            .arg(series.stats.avgSpeedPxPerS * scale, 0, 'f', 1)
+            .arg(isMm ? "mm/s" : "px/s")
+            .arg(series.stats.maxSpeedPxPerS * scale, 0, 'f', 1));
+    }
+}
+
+void AnalysisTabW::export_kinematics_csv() {
+    const auto* info = d->current_session();
+    const int keypointIndex = d->keypointCombo->currentIndex();
+    if (!info || keypointIndex < 0 || !d->currentResult.is_valid()) { return; }
+
+    const QString keypointName = d->keypointCombo->currentText();
+    const QString cameraLabel  = d->cameraCombo->currentText();
+    const QString suggested = info->path + "/" + cameraLabel + "_" + keypointName
+        + "_kinematics.csv";
+
+    const QString dst = QFileDialog::getSaveFileName(
+        this, "Export Kinematics", suggested, "CSV files (*.csv)");
+    if (dst.isEmpty()) { return; }
+
+    QFile f(dst);
+    if (!f.open(QIODevice::WriteOnly | QIODevice::Text)) { return; }
+
+    // Always raw pixel units, regardless of the display-layer mm/px scale —
+    // unambiguous for anyone reading the file without knowing what scale
+    // was selected in the UI at export time.
+    const int smoothingWindow = d->smoothingSpin->value();
+    const auto series = compute_kinematics(d->currentResult, keypointIndex,
+                                            /*subjectIndex=*/0, smoothingWindow);
+    QTextStream ts(&f);
+    // Both caveats below matter to anyone reading this file without having
+    // seen the app: subject identity isn't tracked frame-to-frame by the
+    // Pose detector (a stat like max speed can be corrupted by an identity
+    // swap in a multi-subject session), and x_px/y_px are post-smoothing,
+    // not the raw detector output.
+    ts << "# subject_index=0 - identity is not tracked across frames by the "
+          "Pose detector; treat as one continuous animal only for "
+          "single-subject sessions\n";
+    ts << "# smoothing_window=" << smoothingWindow
+       << " (x_px/y_px below are post-smoothing positions)\n";
+    ts << "timestamp_ms,x_px,y_px,speed_px_s,accel_px_s2\n";
+    const int64_t t0 = d->first_timestamp_ns();
+    for (const auto& sample : series.samples) {
+        ts << (sample.timestampNs - t0) / 1e6 << ","
+           << sample.position.x() << "," << sample.position.y() << ","
+           << (std::isnan(sample.speedPxPerS)  ? QString() : QString::number(sample.speedPxPerS))
+           << ","
+           << (std::isnan(sample.accelPxPerS2) ? QString() : QString::number(sample.accelPxPerS2))
+           << "\n";
     }
 }
 
