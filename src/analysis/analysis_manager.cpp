@@ -10,16 +10,16 @@ namespace mosaic {
 
 namespace {
 
-// A queued (or in-flight) analysis job. Snapshotting model/frameSkip at
-// analyze_session() call time — rather than re-reading Impl::model/frameSkip
-// at dequeue time — means a later set_model() call (e.g. a different UI
-// surface sharing this AnalysisManager, or the same combo box changing
-// before a queued job starts) can't silently change what an already-queued
-// job runs with.
+// A queued (or in-flight) analysis job — the full script + args are
+// snapshotted at analyze_session()/run_face_mask() call time rather than
+// rebuilt from Impl state at dequeue time, so a later set_model() call (e.g.
+// a different UI surface sharing this AnalysisManager, or the same combo box
+// changing before a queued job starts) can't silently change what an
+// already-queued job runs with.
 struct Job {
-    QString sessionPath;
-    QString model;
-    int     frameSkip;
+    QString     sessionPath;
+    QString     scriptRelPath;
+    QStringList args;
 };
 
 } // namespace
@@ -52,14 +52,37 @@ bool AnalysisManager::is_running()                    const { return d->process 
 // ── Public operations ──────────────────────────────────────────────────────
 
 void AnalysisManager::analyze_session(const QString& sessionPath) {
-    const Job job{sessionPath, d->model, d->frameSkip};
+    const QStringList args = {
+        "--session",    sessionPath,
+        "--model",      d->model,
+        "--skip",       QString::number(d->frameSkip),
+        "--out-format", "json",
+    };
+    enqueue_or_launch(sessionPath, "analysis/run_pose.py", args);
+}
+
+void AnalysisManager::run_face_mask(const QString& sessionPath, const QString& backend,
+                                     const QString& style, int frameSkip) {
+    const QStringList args = {
+        "--session", sessionPath,
+        "--backend", backend,
+        "--style",   style,
+        "--skip",    QString::number(qMax(1, frameSkip)),
+    };
+    enqueue_or_launch(sessionPath, "analysis/run_face_mask.py", args);
+}
+
+void AnalysisManager::enqueue_or_launch(const QString& sessionPath, const QString& scriptRelPath,
+                                         const QStringList& args) {
+    const Job job{sessionPath, scriptRelPath, args};
     if (is_running()) {
         d->queue.enqueue(job);
-        log_info(QString("[AnalysisManager] Queued session: %1").arg(sessionPath));
+        log_info(QString("[AnalysisManager] Queued session: %1 (%2)")
+                     .arg(sessionPath, scriptRelPath));
         return;
     }
 
-    launch(job.sessionPath, job.model, job.frameSkip);
+    launch(job.sessionPath, job.scriptRelPath, job.args);
 }
 
 void AnalysisManager::stop() {
@@ -74,7 +97,8 @@ void AnalysisManager::stop() {
 
 // ── Launch ─────────────────────────────────────────────────────────────────
 
-void AnalysisManager::launch(const QString& sessionPath, const QString& model, int frameSkip) {
+void AnalysisManager::launch(const QString& sessionPath, const QString& scriptRelPath,
+                              const QStringList& args) {
     const QString python = d->pythonPath.isEmpty() ? find_python() : d->pythonPath;
     if (python.isEmpty()) {
         const QString msg =
@@ -85,9 +109,9 @@ void AnalysisManager::launch(const QString& sessionPath, const QString& model, i
         return;
     }
 
-    const QString script = find_script();
+    const QString script = find_script(scriptRelPath);
     if (script.isEmpty()) {
-        const QString msg = "analysis/run_pose.py not found. "
+        const QString msg = scriptRelPath + " not found. "
             "Make sure the analysis/ directory is present next to the application.";
         log_error("[AnalysisManager] " + msg);
         emit setup_error(msg);
@@ -105,18 +129,12 @@ void AnalysisManager::launch(const QString& sessionPath, const QString& model, i
     connect(d->process, qOverload<int, QProcess::ExitStatus>(&QProcess::finished),
             this, &AnalysisManager::on_process_finished);
 
-    const QStringList args = {
-        script,
-        "--session",    sessionPath,
-        "--model",      model,
-        "--skip",       QString::number(frameSkip),
-        "--out-format", "json",
-    };
+    const QStringList fullArgs = QStringList{script} + args;
 
     log_info(QString("[AnalysisManager] Starting: %1 %2")
-                 .arg(python, args.join(' ')));
+                 .arg(python, fullArgs.join(' ')));
 
-    d->process->start(python, args);
+    d->process->start(python, fullArgs);
 
     if (!d->process->waitForStarted(5000)) {
         log_error("[AnalysisManager] Failed to start Python process: "
@@ -168,11 +186,11 @@ void AnalysisManager::on_process_finished(int exitCode, int exitStatus) {
         d->process = nullptr;
     }
 
-    // Process any queued sessions, each with the model/frameSkip that was
-    // active when it was queued (not whatever is current now).
+    // Process any queued jobs, each with the script/args that were built at
+    // enqueue time (not whatever is current now).
     if (!d->queue.isEmpty()) {
         const Job job = d->queue.dequeue();
-        launch(job.sessionPath, job.model, job.frameSkip);
+        launch(job.sessionPath, job.scriptRelPath, job.args);
     }
 }
 
@@ -216,7 +234,7 @@ QString AnalysisManager::find_python() const {
     return {};
 }
 
-QString AnalysisManager::find_script() const {
+QString AnalysisManager::find_script(const QString& scriptRelPath) const {
     const QStringList bases = {
         QCoreApplication::applicationDirPath(),
         QCoreApplication::applicationDirPath() + "/../../../..",
@@ -224,7 +242,7 @@ QString AnalysisManager::find_script() const {
     };
 
     for (const QString& base : bases) {
-        const QString candidate = QDir(base).filePath("analysis/run_pose.py");
+        const QString candidate = QDir(base).filePath(scriptRelPath);
         if (QFileInfo::exists(candidate)) {
             return candidate;
         }

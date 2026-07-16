@@ -42,6 +42,9 @@ python/.venv/
 __pycache__/
 *.pyc
 
+# Auto-downloaded face-detection model weights (analysis/facemask backends)
+analysis/facemask/models/
+
 # Logs
 *.log
 
