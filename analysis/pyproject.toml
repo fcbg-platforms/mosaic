@@ -12,6 +12,8 @@ dependencies = [
     "scipy>=1.11",
     "h5py>=3.9",
     "matplotlib>=3.7",
+    "faster-whisper>=1.0",
+    "pyannote.audio>=3.1",
 ]
 
 [tool.uv]
@@ -19,12 +21,16 @@ dev-dependencies = [
     "pytest>=7.0",
 ]
 
-# GPU acceleration (NVIDIA only): ultralytics pulls in torch/torchvision, which
-# resolve to CPU-only wheels from PyPI by default. A manual `uv pip install
-# torch --index-url ...` does NOT survive the next `uv sync` — it reconciles
-# the environment back to the CPU wheels pinned in uv.lock. To make CUDA
-# wheels stick, uncomment and adjust the CUDA version below (see
-# https://docs.astral.sh/uv/guides/integration/pytorch/):
+# GPU acceleration (NVIDIA only): ultralytics, faster-whisper (via ctranslate2),
+# and pyannote.audio (via torch/torchaudio) all pull in CPU-only wheels from
+# PyPI by default. A manual `uv pip install torch --index-url ...` does NOT
+# survive the next `uv sync` — it reconciles the environment back to the CPU
+# wheels pinned in uv.lock. To make CUDA wheels stick for the torch-based
+# packages (ultralytics, pyannote.audio), uncomment and adjust the CUDA
+# version below (see https://docs.astral.sh/uv/guides/integration/pytorch/).
+# faster-whisper's ctranslate2 backend detects CUDA independently of torch —
+# see https://opennmt.net/CTranslate2/installation.html for its own GPU
+# requirements (CUDA 12.x + cuDNN 9):
 #
 # [[tool.uv.index]]
 # name = "pytorch-cu121"

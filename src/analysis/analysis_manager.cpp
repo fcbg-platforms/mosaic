@@ -4,6 +4,7 @@
 #include <QDir>
 #include <QFileInfo>
 #include <QProcess>
+#include <QProcessEnvironment>
 #include <QQueue>
 
 namespace mosaic {
@@ -16,10 +17,16 @@ namespace {
 // a different UI surface sharing this AnalysisManager, or the same combo box
 // changing before a queued job starts) can't silently change what an
 // already-queued job runs with.
+//
+// env carries secrets that must NOT go through `args` (which launch() logs
+// verbatim via log_info) or appear in the process's command line (visible to
+// other processes via a system process list) — currently only the pyannote
+// Hugging Face token (run_diarization()), passed as HF_TOKEN.
 struct Job {
-    QString     sessionPath;
-    QString     scriptRelPath;
-    QStringList args;
+    QString              sessionPath;
+    QString              scriptRelPath;
+    QStringList          args;
+    QProcessEnvironment  env;   // additive on top of the parent process's environment
 };
 
 } // namespace
@@ -58,7 +65,7 @@ void AnalysisManager::analyze_session(const QString& sessionPath) {
         "--skip",       QString::number(d->frameSkip),
         "--out-format", "json",
     };
-    enqueue_or_launch(sessionPath, "analysis/run_pose.py", args);
+    enqueue_or_launch(sessionPath, "analysis/run_pose.py", args, {});
 }
 
 void AnalysisManager::run_face_mask(const QString& sessionPath, const QString& backend,
@@ -69,12 +76,31 @@ void AnalysisManager::run_face_mask(const QString& sessionPath, const QString& b
         "--style",   style,
         "--skip",    QString::number(qMax(1, frameSkip)),
     };
-    enqueue_or_launch(sessionPath, "analysis/run_face_mask.py", args);
+    enqueue_or_launch(sessionPath, "analysis/run_face_mask.py", args, {});
+}
+
+void AnalysisManager::run_diarization(const QString& sessionPath, const QString& modelSize,
+                                       const QString& language, const QString& hfToken,
+                                       int minSpeakers, int maxSpeakers, bool skipDiarization) {
+    QStringList args = {"--session", sessionPath, "--model", modelSize};
+    if (!language.isEmpty()) { args << "--language" << language; }
+    if (minSpeakers > 0)     { args << "--min-speakers" << QString::number(minSpeakers); }
+    if (maxSpeakers > 0)     { args << "--max-speakers" << QString::number(maxSpeakers); }
+    if (skipDiarization)     { args << "--skip-diarization"; }
+
+    // hfToken travels via the subprocess's environment (HF_TOKEN, already
+    // read by run_diarize.py as an env-var fallback), never as a CLI arg or
+    // in `args` — args gets logged verbatim by launch()'s "Starting: ..."
+    // line, which would otherwise leak the token into mosaic.log.
+    QProcessEnvironment env;
+    if (!hfToken.isEmpty()) { env.insert("HF_TOKEN", hfToken); }
+
+    enqueue_or_launch(sessionPath, "analysis/run_diarize.py", args, env);
 }
 
 void AnalysisManager::enqueue_or_launch(const QString& sessionPath, const QString& scriptRelPath,
-                                         const QStringList& args) {
-    const Job job{sessionPath, scriptRelPath, args};
+                                         const QStringList& args, const QProcessEnvironment& env) {
+    const Job job{sessionPath, scriptRelPath, args, env};
     if (is_running()) {
         d->queue.enqueue(job);
         log_info(QString("[AnalysisManager] Queued session: %1 (%2)")
@@ -82,7 +108,7 @@ void AnalysisManager::enqueue_or_launch(const QString& sessionPath, const QStrin
         return;
     }
 
-    launch(job.sessionPath, job.scriptRelPath, job.args);
+    launch(job.sessionPath, job.scriptRelPath, job.args, job.env);
 }
 
 void AnalysisManager::stop() {
@@ -98,7 +124,7 @@ void AnalysisManager::stop() {
 // ── Launch ─────────────────────────────────────────────────────────────────
 
 void AnalysisManager::launch(const QString& sessionPath, const QString& scriptRelPath,
-                              const QStringList& args) {
+                              const QStringList& args, const QProcessEnvironment& env) {
     const QString python = d->pythonPath.isEmpty() ? find_python() : d->pythonPath;
     if (python.isEmpty()) {
         const QString msg =
@@ -121,6 +147,19 @@ void AnalysisManager::launch(const QString& sessionPath, const QString& scriptRe
     d->currentSession = sessionPath;
     d->process = new QProcess(this);
     d->process->setProcessChannelMode(QProcess::SeparateChannels);
+
+    // env is additive (e.g. HF_TOKEN for run_diarize.py) on top of the full
+    // parent environment — QProcess::setProcessEnvironment() REPLACES the
+    // child's entire environment if called, so starting from
+    // systemEnvironment() rather than the (possibly empty) `env` itself is
+    // required to keep PATH and everything else the interpreter needs.
+    if (!env.isEmpty()) {
+        QProcessEnvironment fullEnv = QProcessEnvironment::systemEnvironment();
+        for (const QString& key : env.keys()) {
+            fullEnv.insert(key, env.value(key));
+        }
+        d->process->setProcessEnvironment(fullEnv);
+    }
 
     connect(d->process, &QProcess::readyReadStandardOutput,
             this, &AnalysisManager::on_stdout_ready);
@@ -190,7 +229,7 @@ void AnalysisManager::on_process_finished(int exitCode, int exitStatus) {
     // enqueue time (not whatever is current now).
     if (!d->queue.isEmpty()) {
         const Job job = d->queue.dequeue();
-        launch(job.sessionPath, job.scriptRelPath, job.args);
+        launch(job.sessionPath, job.scriptRelPath, job.args, job.env);
     }
 }
 

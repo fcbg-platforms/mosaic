@@ -368,6 +368,18 @@ std::optional<RecordSettings> RecordSettings::from_json(const QJsonObject& o) {
     return s;
 }
 
+QJsonObject AnalysisSettings::to_json() const {
+    return {
+        {"hf_token", hfToken},
+    };
+}
+
+std::optional<AnalysisSettings> AnalysisSettings::from_json(const QJsonObject& o) {
+    AnalysisSettings s;
+    if (o.contains("hf_token")) s.hfToken = o["hf_token"].toString(s.hfToken);
+    return s;
+}
+
 // ── AppSettings ────────────────────────────────────────────────────────────
 
 bool AppSettings::save(const QString& path) const {
@@ -377,6 +389,7 @@ bool AppSettings::save(const QString& path) const {
         {"audio",          audio.to_json()},
         {"trigger",        trigger.to_json()},
         {"record",         record.to_json()},
+        {"analysis",       analysis.to_json()},
     };
 
     if (!QDir().mkpath(QFileInfo(path).absolutePath())) {
@@ -419,6 +432,8 @@ std::optional<AppSettings> AppSettings::load(const QString& path) {
         s.trigger = TriggerSettings::from_json(root["trigger"].toObject()).value_or(s.trigger);
     if (root.contains("record"))
         s.record  = RecordSettings::from_json(root["record"].toObject()).value_or(s.record);
+    if (root.contains("analysis"))
+        s.analysis = AnalysisSettings::from_json(root["analysis"].toObject()).value_or(s.analysis);
 
     log_info(QString("Settings loaded ← %1").arg(path));
     return s;

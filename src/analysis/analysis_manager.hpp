@@ -1,5 +1,6 @@
 #pragma once
 #include <QObject>
+#include <QProcessEnvironment>
 #include <QString>
 #include <QStringList>
 #include <memory>
@@ -7,10 +8,11 @@
 namespace mosaic {
 
 /// @brief Manages the Python analysis subprocess(es) for post-recording plugins
-/// (pose estimation, face masking).
+/// (pose estimation, face masking, speaker diarization/transcription).
 ///
-/// analyze_session() / run_face_mask() always run when called directly (e.g. a
-/// UI "Run" button). @ref auto_analyze is a plain flag callers can check to
+/// analyze_session() / run_face_mask() / run_diarization() always run when
+/// called directly (e.g. a UI "Run" button). @ref auto_analyze is a plain flag
+/// callers can check to
 /// decide whether to also trigger analysis automatically when a recording
 /// session ends — AnalysisManager itself does not gate on it. Only one script
 /// runs at a time regardless of which plugin queued it; a second call while
@@ -105,6 +107,26 @@ public:
     void run_face_mask(const QString& sessionPath, const QString& backend,
                         const QString& style, int frameSkip);
 
+    /// @brief Transcribe (and, when possible, diarize) all .wav files in
+    /// @p sessionPath, writing a "<name>.transcript.json" sidecar next to
+    /// each one — originals are never modified.
+    ///
+    /// Always runs when called directly, exactly like analyze_session(). If a
+    /// previous analysis is still running, this queues the new job.
+    ///
+    /// @param sessionPath    Absolute path to the recorded session directory.
+    /// @param modelSize      faster-whisper model size, e.g. "small" (default).
+    /// @param language       Force a language code (e.g. "en"), or empty to auto-detect.
+    /// @param hfToken        Hugging Face access token for the gated pyannote
+    ///                       diarization models, or empty to skip diarization
+    ///                       (transcript-only output).
+    /// @param minSpeakers    Optional pyannote hint, 0 = unset.
+    /// @param maxSpeakers    Optional pyannote hint, 0 = unset.
+    /// @param skipDiarization  Force transcript-only even if hfToken is set.
+    void run_diarization(const QString& sessionPath, const QString& modelSize,
+                          const QString& language, const QString& hfToken,
+                          int minSpeakers, int maxSpeakers, bool skipDiarization);
+
     /// @brief Stop the currently running analysis process immediately.
     void stop();
 
@@ -131,9 +153,9 @@ private:
     [[nodiscard]] QString find_script(const QString& scriptRelPath) const;
     [[nodiscard]] QString find_venv_python() const;
     void enqueue_or_launch(const QString& sessionPath, const QString& scriptRelPath,
-                            const QStringList& args);
+                            const QStringList& args, const QProcessEnvironment& env);
     void launch(const QString& sessionPath, const QString& scriptRelPath,
-                const QStringList& args);
+                const QStringList& args, const QProcessEnvironment& env);
 
     struct Impl;
     std::unique_ptr<Impl> d;

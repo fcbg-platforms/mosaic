@@ -45,6 +45,10 @@ __pycache__/
 # Auto-downloaded face-detection model weights (analysis/facemask backends)
 analysis/facemask/models/
 
+# Auto-downloaded whisper/pyannote model weights (analysis/run_diarize.py,
+# redirected here from the global ~/.cache/huggingface via HF_HOME)
+analysis/diarize/models/
+
 # Logs
 *.log
 
