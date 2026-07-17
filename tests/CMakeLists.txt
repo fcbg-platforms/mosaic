@@ -11,9 +11,11 @@ add_executable(mosaic_tests
     test_param_mapping.cpp
     test_pose_analysis_result.cpp
     test_pose_kinematics.cpp
+    test_transcript_result.cpp
     "${CMAKE_SOURCE_DIR}/src/analysis/sync_manifest.cpp"
     "${CMAKE_SOURCE_DIR}/src/analysis/pose_analysis_result.cpp"
     "${CMAKE_SOURCE_DIR}/src/analysis/pose_kinematics.cpp"
+    "${CMAKE_SOURCE_DIR}/src/analysis/transcript_result.cpp"
     "${CMAKE_SOURCE_DIR}/src/utils/logger.cpp"
     "${CMAKE_SOURCE_DIR}/src/core/settings.cpp"
     "${CMAKE_SOURCE_DIR}/src/auth/profile_manager.cpp"

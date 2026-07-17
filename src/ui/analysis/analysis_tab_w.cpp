@@ -2,8 +2,11 @@
 #include "analysis/pose_analysis_result.hpp"
 #include "analysis/pose_kinematics.hpp"
 #include "analysis/pose_models.hpp"
+#include "analysis/transcript_result.hpp"
 #include "session/session_info.hpp"
 #include "ui/analysis/pose_overlay_player_w.hpp"
+#include <QAbstractItemView>
+#include <QCheckBox>
 #include <QChart>
 #include <QChartView>
 #include <QComboBox>
@@ -14,8 +17,10 @@
 #include <QFileInfo>
 #include <QGroupBox>
 #include <QHBoxLayout>
+#include <QHeaderView>
 #include <QLabel>
 #include <QLegend>
+#include <QLineEdit>
 #include <QLineSeries>
 #include <QListWidget>
 #include <QMouseEvent>
@@ -23,6 +28,7 @@
 #include <QSpinBox>
 #include <QSplitter>
 #include <QStackedWidget>
+#include <QTableWidget>
 #include <QTextEdit>
 #include <QTextStream>
 #include <QUrl>
@@ -34,6 +40,29 @@
 #include <limits>
 
 namespace mosaic {
+
+namespace {
+
+// Shared by export_kinematics_csv()/export_transcript_csv() (and, in spirit,
+// SessionBrowserW::export_annot_csv()) — the QFileDialog/QFile/QTextStream
+// save-as skeleton is otherwise duplicated verbatim at every CSV export site
+// in the app. Returns false (no file written) if the user cancels the
+// dialog or the chosen path can't be opened for writing.
+bool export_csv(QWidget* parent, const QString& dialogTitle, const QString& suggestedPath,
+                 const std::function<void(QTextStream&)>& writeBody) {
+    const QString dst = QFileDialog::getSaveFileName(
+        parent, dialogTitle, suggestedPath, "CSV files (*.csv)");
+    if (dst.isEmpty()) { return false; }
+
+    QFile f(dst);
+    if (!f.open(QIODevice::WriteOnly | QIODevice::Text)) { return false; }
+
+    QTextStream ts(&f);
+    writeBody(ts);
+    return true;
+}
+
+} // namespace
 
 // ── MetricsChartW — one keypoint's x/y position over time, with a playhead
 //    kept in sync with video playback and click-to-seek ────────────────────
@@ -234,16 +263,32 @@ struct AnalysisTabW::Impl {
     QComboBox*   backendCombo = nullptr;   // face_mask
     QComboBox*   styleCombo   = nullptr;   // face_mask
     QSpinBox*    faceSkipSpin = nullptr;   // face_mask
+    QComboBox*   whisperModelCombo    = nullptr;   // diarize
+    QComboBox*   languageCombo        = nullptr;   // diarize
+    QLineEdit*   hfTokenEdit          = nullptr;   // diarize
+    QSpinBox*    minSpeakersSpin      = nullptr;   // diarize
+    QSpinBox*    maxSpeakersSpin      = nullptr;   // diarize
+    QCheckBox*   skipDiarizationCheck = nullptr;   // diarize
 
     QPushButton* runBtn      = nullptr;
     QLabel*      statusLbl   = nullptr;
     QTextEdit*   logView     = nullptr;
 
-    QComboBox*          cameraCombo   = nullptr;
+    // Source-picker rows: sourceRowW (Camera/Keypoint, pose+face_mask) and
+    // micRowW (Mic, diarize) are mutually exclusive — select_plugin() shows
+    // exactly one, mirroring how kinematicsRowW is toggled.
+    QWidget*             sourceRowW    = nullptr;
+    QComboBox*          cameraCombo   = nullptr;   // pose + face_mask
     QComboBox*          keypointCombo = nullptr;   // pose only
-    PoseOverlayPlayerW*  player       = nullptr;   // shared: plain playback for face_mask
+    PoseOverlayPlayerW*  player       = nullptr;   // shared: video (pose/face_mask) or audio (diarize)
     MetricsChartW*       chart        = nullptr;   // pose only
     QPushButton*         openFolderBtn= nullptr;   // face_mask only
+
+    QWidget*     micRowW            = nullptr;   // diarize only
+    QComboBox*   micCombo           = nullptr;   // diarize only
+    QLabel*      transcriptStatsLbl = nullptr;   // diarize only
+    QPushButton* exportTranscriptBtn= nullptr;   // diarize only
+    QTableWidget* transcriptTable   = nullptr;   // diarize only
 
     // Kinematics view controls — reshape how the already-loaded
     // currentResult is displayed, not what gets launched (unlike runBox's
@@ -258,7 +303,8 @@ struct AnalysisTabW::Impl {
 
     QList<SessionInfo>  sessions;
     QString              currentSessionPath;
-    PoseAnalysisResult    currentResult;
+    PoseAnalysisResult    currentResult;       // pose only
+    TranscriptResult      currentTranscript;   // diarize only
 
     // AnalysisManager is a single shared instance (also used by
     // SessionBrowserW's "Run Pose" button and PerformanceMonitorW's
@@ -375,6 +421,7 @@ void AnalysisTabW::build_ui() {
     d->pluginCombo = new QComboBox;
     d->pluginCombo->addItem("Pose (YOLOv8)", "pose");
     d->pluginCombo->addItem("Face Masking (anonymize)", "face_mask");
+    d->pluginCombo->addItem("Speaker Diarization", "diarize");
     controlsRow->addWidget(new QLabel("Plugin:"));
     controlsRow->addWidget(d->pluginCombo);
     connect(d->pluginCombo, &QComboBox::currentIndexChanged, this, &AnalysisTabW::select_plugin);
@@ -436,6 +483,75 @@ void AnalysisTabW::build_ui() {
     faceMaskLay->addWidget(d->faceSkipSpin);
     d->controlsStack->addWidget(faceMaskPage);
 
+    // ── Diarization controls page ───────────────────────────────────────
+    auto* diarizePage = new QWidget;
+    auto* diarizeLay  = new QHBoxLayout(diarizePage);
+    diarizeLay->setContentsMargins(0, 0, 0, 0);
+
+    d->whisperModelCombo = new QComboBox;
+    d->whisperModelCombo->addItem("tiny",     "tiny");
+    d->whisperModelCombo->addItem("base",     "base");
+    d->whisperModelCombo->addItem("small",    "small");
+    d->whisperModelCombo->addItem("medium",   "medium");
+    d->whisperModelCombo->addItem("large-v3", "large-v3");
+    d->whisperModelCombo->setCurrentIndex(2);   // small — good speed/accuracy default
+    d->whisperModelCombo->setToolTip(
+        "faster-whisper model size. Larger models are more accurate but slower "
+        "and download more on first use.");
+    diarizeLay->addWidget(new QLabel("Model:"));
+    diarizeLay->addWidget(d->whisperModelCombo);
+
+    d->languageCombo = new QComboBox;
+    d->languageCombo->addItem("Auto-detect", "");
+    d->languageCombo->addItem("English",     "en");
+    d->languageCombo->addItem("French",      "fr");
+    d->languageCombo->addItem("German",      "de");
+    d->languageCombo->addItem("Spanish",     "es");
+    d->languageCombo->addItem("Italian",     "it");
+    d->languageCombo->addItem("Portuguese",  "pt");
+    d->languageCombo->addItem("Dutch",       "nl");
+    d->languageCombo->addItem("Chinese",     "zh");
+    d->languageCombo->addItem("Japanese",    "ja");
+    diarizeLay->addWidget(new QLabel("Language:"));
+    diarizeLay->addWidget(d->languageCombo);
+
+    d->hfTokenEdit = new QLineEdit;
+    d->hfTokenEdit->setEchoMode(QLineEdit::Password);
+    d->hfTokenEdit->setPlaceholderText("Hugging Face token (optional — enables speaker labels)");
+    d->hfTokenEdit->setText(d->settings.analysis.hfToken);
+    d->hfTokenEdit->setToolTip(
+        "Required only for speaker diarization (transcription always works without "
+        "it). Create a free account at huggingface.co, accept the terms of use for "
+        "pyannote/speaker-diarization-3.1 and pyannote/segmentation-3.0, then "
+        "generate a token at huggingface.co/settings/tokens. Saved to this profile's "
+        "settings so you don't need to re-enter it next time.");
+    connect(d->hfTokenEdit, &QLineEdit::textChanged, this, [this](const QString& text) {
+        d->settings.analysis.hfToken = text;
+    });
+    diarizeLay->addWidget(d->hfTokenEdit, 1);
+
+    d->minSpeakersSpin = new QSpinBox;
+    d->minSpeakersSpin->setRange(0, 20);
+    d->minSpeakersSpin->setPrefix("min ");
+    d->minSpeakersSpin->setSpecialValueText("min auto");
+    d->minSpeakersSpin->setToolTip("Optional hint for pyannote's speaker count (0 = no hint).");
+    diarizeLay->addWidget(d->minSpeakersSpin);
+
+    d->maxSpeakersSpin = new QSpinBox;
+    d->maxSpeakersSpin->setRange(0, 20);
+    d->maxSpeakersSpin->setPrefix("max ");
+    d->maxSpeakersSpin->setSpecialValueText("max auto");
+    d->maxSpeakersSpin->setToolTip("Optional hint for pyannote's speaker count (0 = no hint).");
+    diarizeLay->addWidget(d->maxSpeakersSpin);
+
+    d->skipDiarizationCheck = new QCheckBox("Transcript only");
+    d->skipDiarizationCheck->setToolTip(
+        "Skip speaker diarization even if a token is set above — faster, and no "
+        "network/model-download requirement.");
+    diarizeLay->addWidget(d->skipDiarizationCheck);
+
+    d->controlsStack->addWidget(diarizePage);
+
     controlsRow->addWidget(d->controlsStack, 1);
 
     d->runBtn = new QPushButton("▶  Run");
@@ -458,7 +574,11 @@ void AnalysisTabW::build_ui() {
     rightLay->addWidget(runBox);
 
     // ── Results: camera/keypoint pickers + player + chart ──────────────
-    auto* resultsRow = new QHBoxLayout;
+    // sourceRowW/micRowW are mutually exclusive containers (see
+    // Impl::sourceRowW doc comment) so select_plugin() can show exactly one.
+    d->sourceRowW = new QWidget;
+    auto* resultsRow = new QHBoxLayout(d->sourceRowW);
+    resultsRow->setContentsMargins(0, 0, 0, 0);
     d->cameraCombo = new QComboBox;
     resultsRow->addWidget(new QLabel("Camera:"));
     resultsRow->addWidget(d->cameraCombo);
@@ -476,7 +596,29 @@ void AnalysisTabW::build_ui() {
     connect(d->openFolderBtn, &QPushButton::clicked, this, &AnalysisTabW::open_output_folder);
     resultsRow->addWidget(d->openFolderBtn);
 
-    rightLay->addLayout(resultsRow);
+    rightLay->addWidget(d->sourceRowW);
+
+    d->micRowW = new QWidget;
+    auto* micRow = new QHBoxLayout(d->micRowW);
+    micRow->setContentsMargins(0, 0, 0, 0);
+    d->micCombo = new QComboBox;
+    micRow->addWidget(new QLabel("Mic:"));
+    micRow->addWidget(d->micCombo);
+    connect(d->micCombo, &QComboBox::currentIndexChanged, this, &AnalysisTabW::select_camera);
+
+    d->transcriptStatsLbl = new QLabel;
+    d->transcriptStatsLbl->setStyleSheet("color:#7070a0; font-size:11px;");
+    micRow->addWidget(d->transcriptStatsLbl, 1);
+
+    d->exportTranscriptBtn = new QPushButton("Export CSV");
+    d->exportTranscriptBtn->setToolTip(
+        "Exports timestamp/speaker/text for every segment as CSV.");
+    connect(d->exportTranscriptBtn, &QPushButton::clicked, this,
+            &AnalysisTabW::export_transcript_csv);
+    micRow->addWidget(d->exportTranscriptBtn);
+
+    d->micRowW->setVisible(false);   // shown only for the diarize plugin
+    rightLay->addWidget(d->micRowW);
 
     // ── Kinematics view controls: reshape how the current keypoint's data
     //    is plotted (Position/Speed/Acceleration), not what gets launched.
@@ -544,18 +686,35 @@ void AnalysisTabW::build_ui() {
     rightLay->addWidget(d->kinematicsRowW);
 
     auto* resultsSplitter = new QSplitter(Qt::Horizontal);
-    d->player = new PoseOverlayPlayerW;
-    resultsSplitter->addWidget(d->player);
+    d->player = new PoseOverlayPlayerW;   // reused for audio-only playback in diarize mode too —
+    resultsSplitter->addWidget(d->player); // set_video() just calls QMediaPlayer::setSource(),
+                                            // which plays a .wav fine with no video frames arriving.
 
     d->chart = new MetricsChartW;
     resultsSplitter->addWidget(d->chart);
+
+    d->transcriptTable = new QTableWidget(0, 4);
+    d->transcriptTable->setHorizontalHeaderLabels({"Start", "End", "Speaker", "Text"});
+    d->transcriptTable->horizontalHeader()->setStretchLastSection(true);
+    d->transcriptTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    d->transcriptTable->setSelectionBehavior(QAbstractItemView::SelectRows);
+    d->transcriptTable->setSelectionMode(QAbstractItemView::SingleSelection);
+    d->transcriptTable->setVisible(false);   // shown only for the diarize plugin
+    connect(d->transcriptTable, &QTableWidget::cellClicked, this, [this](int row, int) {
+        auto* item = d->transcriptTable->item(row, 0);
+        if (item) { d->player->seek(item->data(Qt::UserRole).toLongLong()); }
+    });
+    resultsSplitter->addWidget(d->transcriptTable);
+
     resultsSplitter->setStretchFactor(0, 1);
     resultsSplitter->setStretchFactor(1, 1);
+    resultsSplitter->setStretchFactor(2, 1);
     rightLay->addWidget(resultsSplitter, 1);
 
     d->chart->set_seek_callback([this](int64_t ms) { d->player->seek(ms); });
     connect(d->player, &PoseOverlayPlayerW::position_changed, this, [this](int64_t ms) {
         d->chart->set_playhead_ms(ms);
+        highlight_active_transcript_row(ms);
     });
 
     splitter->addWidget(rightPanel);
@@ -621,6 +780,15 @@ void AnalysisTabW::select_session(const QString& path) {
     }
     d->cameraCombo->blockSignals(false);
 
+    d->micCombo->blockSignals(true);
+    d->micCombo->clear();
+    if (info) {
+        for (int i = 0; i < info->audioFiles.size(); ++i) {
+            d->micCombo->addItem(QString("Mic %1").arg(i), info->audioFiles[i]);
+        }
+    }
+    d->micCombo->blockSignals(false);
+
     d->statusLbl->setText(info ? "Ready." : "Session not found.");
     d->statusLbl->setStyleSheet("color:#6060a0; font-size:11px;");
 
@@ -636,11 +804,15 @@ void AnalysisTabW::select_plugin(int index) {
     if (index < 0) { return; }
     d->controlsStack->setCurrentIndex(index);
 
-    const bool isPose = is_pose_plugin();
+    const bool isPose    = is_pose_plugin();
+    const bool isDiarize = is_diarize_plugin();
     d->keypointCombo->setVisible(isPose);
     d->chart->setVisible(isPose);
     d->kinematicsRowW->setVisible(isPose);
-    d->openFolderBtn->setVisible(!isPose);
+    d->openFolderBtn->setVisible(!isPose && !isDiarize);
+    d->sourceRowW->setVisible(!isDiarize);
+    d->micRowW->setVisible(isDiarize);
+    d->transcriptTable->setVisible(isDiarize);
 
     reload_current_camera_result();
 }
@@ -658,14 +830,59 @@ QString AnalysisTabW::anonymized_video_path_for(const QString& videoRelPath) con
     return "anonymized/" + QFileInfo(videoRelPath).fileName();
 }
 
+QString AnalysisTabW::transcript_json_path_for(const QString& audioRelPath) const {
+    QString base = audioRelPath;
+    const int dot = base.lastIndexOf('.');
+    if (dot >= 0) { base.truncate(dot); }
+    return base + ".transcript.json";
+}
+
 bool AnalysisTabW::is_pose_plugin() const {
     return d->pluginCombo->currentData().toString() == "pose";
 }
 
+bool AnalysisTabW::is_diarize_plugin() const {
+    return d->pluginCombo->currentData().toString() == "diarize";
+}
+
 void AnalysisTabW::reload_current_camera_result() {
     const auto* info = d->current_session();
+
+    if (is_diarize_plugin()) {
+        d->currentResult     = PoseAnalysisResult();
+        d->currentTranscript = TranscriptResult();
+
+        if (!info || d->micCombo->currentIndex() < 0) {
+            d->player->set_video(QString());   // stop/clear any previously-loaded audio
+            d->player->set_pose_result(d->currentResult);
+            update_transcript_table();
+            return;
+        }
+
+        const QString audioRel = d->micCombo->currentData().toString();
+        const QString audioAbs = info->path + "/" + audioRel;
+        d->player->set_video(audioAbs);
+        d->player->set_pose_result(d->currentResult);
+
+        const QString transcriptAbs = info->path + "/" + transcript_json_path_for(audioRel);
+        d->currentTranscript = QFileInfo::exists(transcriptAbs)
+            ? TranscriptResult::load(transcriptAbs) : TranscriptResult();
+        update_transcript_table();
+
+        if (!d->currentTranscript.is_valid()) {
+            d->statusLbl->setText("No transcript yet for this mic — click Run.");
+            d->statusLbl->setStyleSheet("color:#6060a0; font-size:11px;");
+        } else if (!d->currentTranscript.has_diarization()) {
+            d->statusLbl->setText(
+                "Transcript loaded (no speaker labels — diarization was skipped or unavailable).");
+            d->statusLbl->setStyleSheet("color:#6060a0; font-size:11px;");
+        }
+        return;
+    }
+
     if (!info || d->cameraCombo->currentIndex() < 0) {
         d->currentResult = PoseAnalysisResult();
+        d->player->set_video(QString());   // stop/clear any previously-loaded video
         d->player->set_pose_result(d->currentResult);
         d->keypointCombo->clear();
         // Explicit call rather than relying on QComboBox::clear() above
@@ -783,55 +1000,164 @@ void AnalysisTabW::export_kinematics_csv() {
     const QString suggested = info->path + "/" + cameraLabel + "_" + keypointName
         + "_kinematics.csv";
 
-    const QString dst = QFileDialog::getSaveFileName(
-        this, "Export Kinematics", suggested, "CSV files (*.csv)");
-    if (dst.isEmpty()) { return; }
-
-    QFile f(dst);
-    if (!f.open(QIODevice::WriteOnly | QIODevice::Text)) { return; }
-
     // Always raw pixel units, regardless of the display-layer mm/px scale —
     // unambiguous for anyone reading the file without knowing what scale
     // was selected in the UI at export time.
     const int smoothingWindow = d->smoothingSpin->value();
     const auto series = compute_kinematics(d->currentResult, keypointIndex,
                                             /*subjectIndex=*/0, smoothingWindow);
-    QTextStream ts(&f);
-    // Both caveats below matter to anyone reading this file without having
-    // seen the app: subject identity isn't tracked frame-to-frame by the
-    // Pose detector (a stat like max speed can be corrupted by an identity
-    // swap in a multi-subject session), and x_px/y_px are post-smoothing,
-    // not the raw detector output.
-    ts << "# subject_index=0 - identity is not tracked across frames by the "
-          "Pose detector; treat as one continuous animal only for "
-          "single-subject sessions\n";
-    ts << "# smoothing_window=" << smoothingWindow
-       << " (x_px/y_px below are post-smoothing positions)\n";
-    ts << "timestamp_ms,x_px,y_px,speed_px_s,accel_px_s2\n";
     const int64_t t0 = d->first_timestamp_ns();
-    for (const auto& sample : series.samples) {
-        ts << (sample.timestampNs - t0) / 1e6 << ","
-           << sample.position.x() << "," << sample.position.y() << ","
-           << (std::isnan(sample.speedPxPerS)  ? QString() : QString::number(sample.speedPxPerS))
-           << ","
-           << (std::isnan(sample.accelPxPerS2) ? QString() : QString::number(sample.accelPxPerS2))
-           << "\n";
+
+    export_csv(this, "Export Kinematics", suggested, [&](QTextStream& ts) {
+        // Both caveats below matter to anyone reading this file without
+        // having seen the app: subject identity isn't tracked frame-to-frame
+        // by the Pose detector (a stat like max speed can be corrupted by an
+        // identity swap in a multi-subject session), and x_px/y_px are
+        // post-smoothing, not the raw detector output.
+        ts << "# subject_index=0 - identity is not tracked across frames by the "
+              "Pose detector; treat as one continuous animal only for "
+              "single-subject sessions\n";
+        ts << "# smoothing_window=" << smoothingWindow
+           << " (x_px/y_px below are post-smoothing positions)\n";
+        ts << "timestamp_ms,x_px,y_px,speed_px_s,accel_px_s2\n";
+        for (const auto& sample : series.samples) {
+            ts << (sample.timestampNs - t0) / 1e6 << ","
+               << sample.position.x() << "," << sample.position.y() << ","
+               << (std::isnan(sample.speedPxPerS)
+                       ? QString() : QString::number(sample.speedPxPerS))
+               << ","
+               << (std::isnan(sample.accelPxPerS2)
+                       ? QString() : QString::number(sample.accelPxPerS2))
+               << "\n";
+        }
+    });
+}
+
+// ── Diarization view ─────────────────────────────────────────────────────
+
+void AnalysisTabW::update_transcript_table() {
+    const auto& segments = d->currentTranscript.segments();
+
+    d->transcriptTable->setRowCount(segments.size());
+    for (int i = 0; i < segments.size(); ++i) {
+        const auto& seg = segments[i];
+
+        auto* startItem = new QTableWidgetItem(QString::number(seg.startMs / 1000.0, 'f', 1));
+        startItem->setData(Qt::UserRole, static_cast<qlonglong>(seg.startMs));
+        startItem->setFlags(startItem->flags() & ~Qt::ItemIsEditable);
+        d->transcriptTable->setItem(i, 0, startItem);
+
+        auto* endItem = new QTableWidgetItem(QString::number(seg.endMs / 1000.0, 'f', 1));
+        endItem->setFlags(endItem->flags() & ~Qt::ItemIsEditable);
+        d->transcriptTable->setItem(i, 1, endItem);
+
+        auto* speakerItem = new QTableWidgetItem(seg.speaker.isEmpty() ? QString("—") : seg.speaker);
+        speakerItem->setFlags(speakerItem->flags() & ~Qt::ItemIsEditable);
+        d->transcriptTable->setItem(i, 2, speakerItem);
+
+        auto* textItem = new QTableWidgetItem(seg.text);
+        textItem->setFlags(textItem->flags() & ~Qt::ItemIsEditable);
+        d->transcriptTable->setItem(i, 3, textItem);
     }
+
+    if (!d->currentTranscript.is_valid()) {
+        d->transcriptStatsLbl->clear();
+        return;
+    }
+
+    QStringList speakers;
+    for (const auto& seg : segments) {
+        if (!seg.speaker.isEmpty() && !speakers.contains(seg.speaker)) {
+            speakers << seg.speaker;
+        }
+    }
+    const QString suffix = d->currentTranscript.has_diarization()
+        ? QString("%1 speaker(s) detected").arg(speakers.size())
+        : QString("diarization skipped — transcript only");
+    d->transcriptStatsLbl->setText(QString("%1 segment(s)  ·  %2").arg(segments.size()).arg(suffix));
+}
+
+void AnalysisTabW::highlight_active_transcript_row(int64_t ms) {
+    if (!is_diarize_plugin()) { return; }
+
+    const auto& segments = d->currentTranscript.segments();
+    const auto* seg = d->currentTranscript.segment_at(ms);
+    if (!seg) { return; }
+
+    // segment_at() returns a pointer into this exact vector, and
+    // update_transcript_table() populates rows 1:1 in the same order, so the
+    // row index is just the pointer's offset — no need to scan the table.
+    const int row = static_cast<int>(seg - segments.constData());
+    if (row < 0 || row >= d->transcriptTable->rowCount()) { return; }
+
+    if (d->transcriptTable->currentRow() != row) {
+        d->transcriptTable->selectRow(row);
+        if (auto* item = d->transcriptTable->item(row, 0)) {
+            d->transcriptTable->scrollToItem(item, QAbstractItemView::PositionAtCenter);
+        }
+    }
+}
+
+void AnalysisTabW::export_transcript_csv() {
+    const auto* info = d->current_session();
+    if (!info || !d->currentTranscript.is_valid()) { return; }
+
+    const QString micLabel = d->micCombo->currentText();
+    const QString suggested = info->path + "/" + micLabel + "_transcript.csv";
+
+    export_csv(this, "Export Transcript", suggested, [&](QTextStream& ts) {
+        if (!d->currentTranscript.has_diarization()) {
+            ts << "# diarization=skipped - the speaker column is blank for every row\n";
+        }
+        ts << "start_s,end_s,speaker,text\n";
+        for (const auto& seg : d->currentTranscript.segments()) {
+            QString text = seg.text;
+            text.replace('"', "\"\"");   // minimal CSV escaping — text may contain commas
+            ts << (seg.startMs / 1000.0) << "," << (seg.endMs / 1000.0) << ","
+               << seg.speaker << ",\"" << text << "\"\n";
+        }
+    });
 }
 
 void AnalysisTabW::run_analysis() {
     if (d->currentSessionPath.isEmpty()) { return; }
 
-    d->jobPlugin = d->pluginCombo->currentData().toString();
-    if (is_pose_plugin()) {
+    const QString plugin = d->pluginCombo->currentData().toString();
+
+    if (plugin == "diarize") {
+        const int minSpeakers = d->minSpeakersSpin->value();
+        const int maxSpeakers = d->maxSpeakersSpin->value();
+        if (minSpeakers > 0 && maxSpeakers > 0 && minSpeakers > maxSpeakers) {
+            d->statusLbl->setText("Error: Min speakers can't exceed Max speakers.");
+            d->statusLbl->setStyleSheet("color:#cc4444; font-size:11px;");
+            return;
+        }
+    }
+
+    d->jobPlugin = plugin;
+    if (plugin == "pose") {
         d->analysisMgr->set_model(d->modelCombo->currentData().toString());
         d->analysisMgr->set_frame_skip(d->skipSpin->value());
         d->analysisMgr->analyze_session(d->currentSessionPath);
-    } else {
+    } else if (plugin == "diarize") {
+        d->analysisMgr->run_diarization(d->currentSessionPath,
+            d->whisperModelCombo->currentData().toString(),
+            d->languageCombo->currentData().toString(),
+            d->settings.analysis.hfToken,
+            d->minSpeakersSpin->value(),
+            d->maxSpeakersSpin->value(),
+            d->skipDiarizationCheck->isChecked());
+    } else if (plugin == "face_mask") {
         d->analysisMgr->run_face_mask(d->currentSessionPath,
             d->backendCombo->currentData().toString(),
             d->styleCombo->currentData().toString(),
             d->faceSkipSpin->value());
+    } else {
+        // Defensive: pluginCombo only ever offers the three ids above, but a
+        // silent fallthrough here would otherwise launch face-masking with
+        // whatever plugin's controls happen to be on screen.
+        d->statusLbl->setText("Error: unknown plugin selected.");
+        d->statusLbl->setStyleSheet("color:#cc4444; font-size:11px;");
     }
 }
 

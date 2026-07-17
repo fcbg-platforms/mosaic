@@ -129,6 +129,9 @@ protected:
         if (m_info.hasMotionAnalysis) {
             drawBadge("MOTION", QColor("#0a0a2a"), QColor("#4488ff"));
         }
+        if (m_info.hasTranscript) {
+            drawBadge("TRANSCRIPT", QColor("#2a0a2a"), QColor("#cc44cc"));
+        }
         if (!m_info.annotations.isEmpty()) {
             drawBadge(QString("%1 notes").arg(m_info.annotations.size()),
                       QColor("#1a100a"), QColor("#cc8844"));

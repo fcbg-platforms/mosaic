@@ -222,14 +222,28 @@ struct RecordSettings {
     [[nodiscard]] static std::optional<RecordSettings> from_json(const QJsonObject&);
 };
 
+struct AnalysisSettings {
+    // Hugging Face access token for the gated pyannote speaker-diarization
+    // models (Analysis tab's Speaker Diarization plugin). Persisted here
+    // (rather than kept transient/re-entered per session) so the user
+    // doesn't have to re-paste it every run — the tradeoff being that it's
+    // stored in plaintext in this profile's settings.json, same as every
+    // other field in AppSettings.
+    QString hfToken;
+
+    [[nodiscard]] QJsonObject                     to_json()   const;
+    [[nodiscard]] static std::optional<AnalysisSettings> from_json(const QJsonObject&);
+};
+
 // ── Application aggregate ──────────────────────────────────────────────────
 struct AppSettings {
     static constexpr int k_schema_version = 1;
 
-    VideoSettings   video;
-    AudioSettings   audio;
-    TriggerSettings trigger;
-    RecordSettings  record;
+    VideoSettings    video;
+    AudioSettings    audio;
+    TriggerSettings  trigger;
+    RecordSettings   record;
+    AnalysisSettings analysis;
 
     // Persist to / restore from a JSON file.
     // save() returns false only on I/O error (not on validation issues).
