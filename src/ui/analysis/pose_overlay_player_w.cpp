@@ -82,8 +82,7 @@ protected:
                     b >= subject.keypoints.size()) {
                     continue;
                 }
-                if (subject.visibilities.value(a, 1.0) < 0.1 ||
-                    subject.visibilities.value(b, 1.0) < 0.1) {
+                if (!is_keypoint_visible(subject, a) || !is_keypoint_visible(subject, b)) {
                     continue;
                 }
                 painter.drawLine(to_widget(subject.keypoints[a]),
@@ -93,7 +92,7 @@ protected:
             painter.setPen(Qt::NoPen);
             painter.setBrush(QColor(0, 220, 255));
             for (int i = 0; i < subject.keypoints.size(); ++i) {
-                if (subject.visibilities.value(i, 1.0) < 0.1) { continue; }
+                if (!is_keypoint_visible(subject, i)) { continue; }
                 painter.drawEllipse(to_widget(subject.keypoints[i]), 3, 3);
             }
         }

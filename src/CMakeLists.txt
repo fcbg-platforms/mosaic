@@ -18,6 +18,8 @@ qt_add_executable(mosaic MACOSX_BUNDLE
     analysis/pose_models.hpp
     analysis/pose_analysis_result.hpp
     analysis/pose_analysis_result.cpp
+    analysis/pose_kinematics.hpp
+    analysis/pose_kinematics.cpp
     analysis/sync_manifest.hpp
     analysis/sync_manifest.cpp
 

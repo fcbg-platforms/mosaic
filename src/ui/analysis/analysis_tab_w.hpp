@@ -14,7 +14,11 @@ namespace mosaic {
 // Face Masking — plain playback of an anonymized output video written to a
 // sibling "anonymized/" folder, never touching the original recording.
 // AnalysisManager (analysis/analysis_manager.hpp) runs either plugin's script
-// through the same shared subprocess queue.
+// through the same shared subprocess queue. For Pose, the metrics plot can
+// show raw Position (x/y) or, entirely computed client-side from the
+// already-loaded result (no extra Python run needed — see
+// analysis/pose_kinematics.hpp), derived Speed/Acceleration with optional
+// smoothing and an optional manual px-to-mm scale.
 class AnalysisTabW : public QWidget {
     Q_OBJECT
 public:
@@ -31,6 +35,8 @@ private:
     void select_plugin(int index);
     void run_analysis();
     void reload_current_camera_result();
+    void update_kinematics_chart();
+    void export_kinematics_csv();
     void open_output_folder();
     [[nodiscard]] bool is_pose_plugin() const;
     [[nodiscard]] QString pose_json_path_for(const QString& videoRelPath) const;

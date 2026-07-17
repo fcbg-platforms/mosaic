@@ -19,6 +19,20 @@ struct PoseSubject {
     QRectF            bbox;           // bbox_xyxy
 };
 
+// Shared visibility threshold for "trust this keypoint" decisions — used
+// both to decide whether to draw a keypoint (SkeletonOverlayW::paintEvent,
+// src/ui/analysis/pose_overlay_player_w.cpp) and whether to include it in
+// derived kinematics (pose_kinematics.cpp). Kept in one place so the two
+// can't silently drift to different thresholds. A missing visibilities
+// entry (index >= visibilities.size()) defaults to "visible" — matches
+// keypoints[] always being written 1:1 with visibilities[] by run_pose.py,
+// so this only matters for a malformed/truncated file, where treating an
+// unknown entry as visible is the same permissive default this codebase
+// already used before this helper existed.
+inline bool is_keypoint_visible(const PoseSubject& subject, int keypointIndex) {
+    return subject.visibilities.value(keypointIndex, 1.0) >= 0.1;
+}
+
 // One analysed frame. Mirrors run_pose.py's per-frame JSON object.
 struct PoseFrame {
     int                 frameIndex  = 0;
