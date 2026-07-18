@@ -49,6 +49,12 @@ analysis/facemask/models/
 # redirected here from the global ~/.cache/huggingface via HF_HOME)
 analysis/diarize/models/
 
+# Auto-downloaded MediaPipe FaceLandmarker + FER+ ONNX model weights
+# (analysis/expression backend) — each plugin owns its own model cache
+# rather than reaching into a sibling plugin folder (facemask/models/
+# already has an identical face_landmarker.task; re-downloaded here too)
+analysis/expression/models/
+
 # Logs
 *.log
 

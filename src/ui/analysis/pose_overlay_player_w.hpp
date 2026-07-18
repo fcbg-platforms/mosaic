@@ -1,12 +1,15 @@
 #pragma once
+#include "analysis/expression_result.hpp"
 #include "analysis/pose_analysis_result.hpp"
 #include <QWidget>
 #include <memory>
 
 namespace mosaic {
 
-// Single-camera video playback with a pose-keypoint/skeleton overlay drawn
-// in sync with the current playback position.
+// Single-camera video playback with a pose-keypoint/skeleton overlay OR a
+// facial-expression bbox+label overlay drawn in sync with the current
+// playback position (the two are mutually exclusive — see
+// set_pose_result()/set_expression_result()).
 //
 // Not a reuse of SessionPlayerW's CameraSlotW: that class is coupled to
 // multi-camera master-clock sync, which doesn't apply to this single-video,
@@ -26,12 +29,21 @@ public:
     ~PoseOverlayPlayerW() override;
 
     // Loads a video file for playback. The overlay is blank until
-    // set_pose_result() is also called.
+    // set_pose_result() or set_expression_result() is also called.
     void set_video(const QString& videoPath);
 
-    // Sets the pose data drawn as an overlay. Pass a default-constructed
-    // (is_valid() == false) result to clear the overlay.
+    // Sets the pose data drawn as a skeleton overlay. Pass a
+    // default-constructed (is_valid() == false) result to clear the
+    // overlay. Mutually exclusive with set_expression_result() — setting
+    // one clears the other, so the shared overlay can never draw a stale
+    // skeleton and a stale bbox at once even if a caller forgets to clear
+    // the other explicitly on a plugin switch.
     void set_pose_result(const PoseAnalysisResult& result);
+
+    // Sets the expression data drawn as a bbox+label overlay. Pass a
+    // default-constructed (is_valid() == false) result to clear the
+    // overlay. Mutually exclusive with set_pose_result() (see above).
+    void set_expression_result(const ExpressionResult& result);
 
     [[nodiscard]] int64_t position_ms() const;
     [[nodiscard]] int64_t duration_ms() const;

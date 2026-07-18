@@ -14,6 +14,7 @@ dependencies = [
     "matplotlib>=3.7",
     "faster-whisper>=1.0",
     "pyannote.audio>=3.1",
+    "onnxruntime>=1.17",
 ]
 
 [tool.uv]
@@ -21,6 +22,11 @@ dev-dependencies = [
     "pytest>=7.0",
 ]
 
+# onnxruntime (FER+ facial-expression backend) is deliberately the plain CPU
+# package, not onnxruntime-gpu — the emotion-ferplus model is a tiny 64x64
+# grayscale-input CNN, fast enough on CPU that a GPU variant isn't worth the
+# extra CUDA-wheel complexity already noted below for the torch-based deps.
+#
 # GPU acceleration (NVIDIA only): ultralytics, faster-whisper (via ctranslate2),
 # and pyannote.audio (via torch/torchaudio) all pull in CPU-only wheels from
 # PyPI by default. A manual `uv pip install torch --index-url ...` does NOT

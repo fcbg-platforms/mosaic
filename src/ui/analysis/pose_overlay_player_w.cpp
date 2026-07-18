@@ -1,4 +1,5 @@
 #include "ui/analysis/pose_overlay_player_w.hpp"
+#include <QFontMetrics>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QMediaMetaData>
@@ -12,6 +13,7 @@
 #include <QVideoFrame>
 #include <QVideoSink>
 #include <cmath>
+#include <functional>
 
 namespace mosaic {
 
@@ -40,6 +42,17 @@ public:
     void set_frame(const PoseFrame* frame, QVector<QPair<int, int>> skeletonEdges) {
         frame_          = frame;
         skeletonEdges_  = std::move(skeletonEdges);
+        exprFrame_      = nullptr;   // mutually exclusive with expression mode
+        update();
+    }
+
+    // Facial-expression draw mode — mutually exclusive with set_frame()
+    // above (see PoseOverlayPlayerW::set_pose_result()/
+    // set_expression_result() for why both setters clear each other).
+    void set_expression_frame(const ExpressionFrame* frame) {
+        exprFrame_     = frame;
+        frame_         = nullptr;
+        skeletonEdges_.clear();
         update();
     }
 
@@ -49,14 +62,15 @@ public:
     // keypoints scaled/offset against the PREVIOUS video's size until that
     // video's first QVideoSink frame arrives to refresh it.
     void clear() {
-        frame_     = nullptr;
+        frame_      = nullptr;
+        exprFrame_  = nullptr;
         nativeSize_ = QSize();
         update();
     }
 
 protected:
     void paintEvent(QPaintEvent*) override {
-        if (!frame_ || nativeSize_.isEmpty() || width() <= 0 || height() <= 0) {
+        if (nativeSize_.isEmpty() || width() <= 0 || height() <= 0) {
             return;
         }
 
@@ -74,6 +88,14 @@ protected:
 
         QPainter painter(this);
         painter.setRenderHint(QPainter::Antialiasing);
+
+        if (exprFrame_) {
+            paint_expression(painter, to_widget);
+            return;
+        }
+        if (!frame_) {
+            return;
+        }
 
         for (const auto& subject : frame_->subjects) {
             painter.setPen(QPen(QColor(255, 210, 0), 2));
@@ -99,9 +121,39 @@ protected:
     }
 
 private:
+    // Draws a bbox + "<expression> (<score>%)" label per detected face.
+    // Split out from paintEvent() purely to keep that function readable —
+    // not reused elsewhere.
+    void paint_expression(QPainter& painter, const std::function<QPointF(QPointF)>& to_widget) {
+        // painter.font() is constant across every subject in one paintEvent
+        // call, so QFontMetrics only needs building once here, not per
+        // subject inside the loop below.
+        const QFontMetrics fm(painter.font());
+
+        for (const auto& subject : exprFrame_->subjects) {
+            const QRectF box(to_widget(subject.bbox.topLeft()),
+                              to_widget(subject.bbox.bottomRight()));
+            painter.setPen(QPen(QColor(255, 120, 60), 2));
+            painter.setBrush(Qt::NoBrush);
+            painter.drawRect(box);
+
+            const QString label = QString("%1 (%2%)")
+                .arg(subject.dominantExpression)
+                .arg(qRound(subject.dominantScore * 100));
+            const QRectF labelBg(box.left(), box.top() - fm.height() - 4,
+                                  fm.horizontalAdvance(label) + 8, fm.height() + 4);
+            painter.setPen(Qt::NoPen);
+            painter.setBrush(QColor(0, 0, 0, 160));
+            painter.drawRect(labelBg);
+            painter.setPen(QColor(255, 210, 160));
+            painter.drawText(labelBg, Qt::AlignCenter, label);
+        }
+    }
+
     QSize                    nativeSize_;
     const PoseFrame*         frame_ = nullptr;
     QVector<QPair<int, int>> skeletonEdges_;
+    const ExpressionFrame*   exprFrame_ = nullptr;
 };
 
 // ── PoseOverlayPlayerW::Impl ────────────────────────────────────────────
@@ -117,6 +169,7 @@ struct PoseOverlayPlayerW::Impl {
     QLabel*            timeLbl  = nullptr;
 
     PoseAnalysisResult poseResult;
+    ExpressionResult   expressionResult;
     QSize              nativeSize;
     double             fps        = 25.0;
     bool               scrubbing  = false;
@@ -200,10 +253,16 @@ PoseOverlayPlayerW::PoseOverlayPlayerW(QWidget* parent)
         if (!d->scrubbing) { d->scrubber->setValue(static_cast<int>(pos)); }
         d->timeLbl->setText(format_ms(pos) + " / " + format_ms(d->player->duration()));
 
-        const PoseFrame* frame = d->poseResult.is_valid()
-            ? d->poseResult.nearest_frame(d->frame_estimate(pos))
-            : nullptr;
-        d->overlay->set_frame(frame, d->poseResult.skeleton_edges());
+        if (d->expressionResult.is_valid()) {
+            const ExpressionFrame* frame =
+                d->expressionResult.nearest_frame(d->frame_estimate(pos));
+            d->overlay->set_expression_frame(frame);
+        } else {
+            const PoseFrame* frame = d->poseResult.is_valid()
+                ? d->poseResult.nearest_frame(d->frame_estimate(pos))
+                : nullptr;
+            d->overlay->set_frame(frame, d->poseResult.skeleton_edges());
+        }
 
         emit position_changed(pos);
     });
@@ -236,11 +295,21 @@ void PoseOverlayPlayerW::set_video(const QString& videoPath) {
 }
 
 void PoseOverlayPlayerW::set_pose_result(const PoseAnalysisResult& result) {
+    d->expressionResult = ExpressionResult();   // mutually exclusive, see header doc
     d->poseResult = result;
     const PoseFrame* frame = d->poseResult.is_valid()
         ? d->poseResult.nearest_frame(d->frame_estimate(d->player->position()))
         : nullptr;
     d->overlay->set_frame(frame, d->poseResult.skeleton_edges());
+}
+
+void PoseOverlayPlayerW::set_expression_result(const ExpressionResult& result) {
+    d->poseResult = PoseAnalysisResult();   // mutually exclusive, see header doc
+    d->expressionResult = result;
+    const ExpressionFrame* frame = d->expressionResult.is_valid()
+        ? d->expressionResult.nearest_frame(d->frame_estimate(d->player->position()))
+        : nullptr;
+    d->overlay->set_expression_frame(frame);
 }
 
 int64_t PoseOverlayPlayerW::position_ms() const { return d->player->position(); }

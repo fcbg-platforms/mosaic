@@ -82,6 +82,7 @@ struct SessionInfo {
     bool      hasPoseAnalysis   = false;
     bool      hasMotionAnalysis = false;
     bool      hasTranscript     = false;
+    bool      hasExpression     = false;
     QStringList videoFiles;
     QStringList audioFiles;
     QStringList analysisFiles;
@@ -130,11 +131,12 @@ struct SessionInfo {
                 } else if (fi.fileName().contains("pose") || fi.fileName().contains("motion") ||
                            fi.fileName().contains("keypoint") || fi.fileName().contains("heatmap") ||
                            fi.fileName().contains("trajectory") || fi.fileName().contains("velocity") ||
-                           fi.fileName().contains("transcript")) {
+                           fi.fileName().contains("transcript") || fi.fileName().contains("expression")) {
                     info.analysisFiles << fn;
                     if (fi.fileName().contains("pose"))       { info.hasPoseAnalysis   = true; }
                     if (fi.fileName().contains("motion"))     { info.hasMotionAnalysis = true; }
                     if (fi.fileName().contains("transcript")) { info.hasTranscript     = true; }
+                    if (fi.fileName().contains("expression")) { info.hasExpression     = true; }
                 }
             }
         };

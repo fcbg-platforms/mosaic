@@ -1,4 +1,5 @@
 #include "ui/analysis/analysis_tab_w.hpp"
+#include "analysis/expression_result.hpp"
 #include "analysis/pose_analysis_result.hpp"
 #include "analysis/pose_kinematics.hpp"
 #include "analysis/pose_models.hpp"
@@ -23,6 +24,7 @@
 #include <QLineEdit>
 #include <QLineSeries>
 #include <QListWidget>
+#include <QMap>
 #include <QMouseEvent>
 #include <QPushButton>
 #include <QSpinBox>
@@ -60,6 +62,17 @@ bool export_csv(QWidget* parent, const QString& dialogTitle, const QString& sugg
     QTextStream ts(&f);
     writeBody(ts);
     return true;
+}
+
+// Shared by pose_json_path_for()/transcript_json_path_for()/
+// expression_json_path_for() — all three sidecar conventions are "truncate
+// at the last dot, append a fixed suffix"; a 3rd near-identical copy was
+// the point to stop repeating it.
+QString sidecar_path_for(const QString& relPath, const QString& suffix) {
+    QString base = relPath;
+    const int dot = base.lastIndexOf('.');
+    if (dot >= 0) { base.truncate(dot); }
+    return base + suffix;
 }
 
 } // namespace
@@ -269,6 +282,10 @@ struct AnalysisTabW::Impl {
     QSpinBox*    minSpeakersSpin      = nullptr;   // diarize
     QSpinBox*    maxSpeakersSpin      = nullptr;   // diarize
     QCheckBox*   skipDiarizationCheck = nullptr;   // diarize
+    QComboBox*      expressionBackendCombo = nullptr;   // expression
+    QSpinBox*        maxFacesSpin          = nullptr;   // expression
+    QDoubleSpinBox*  minConfidenceSpin     = nullptr;   // expression
+    QSpinBox*        exprSkipSpin          = nullptr;   // expression
 
     QPushButton* runBtn      = nullptr;
     QLabel*      statusLbl   = nullptr;
@@ -278,10 +295,12 @@ struct AnalysisTabW::Impl {
     // micRowW (Mic, diarize) are mutually exclusive — select_plugin() shows
     // exactly one, mirroring how kinematicsRowW is toggled.
     QWidget*             sourceRowW    = nullptr;
-    QComboBox*          cameraCombo   = nullptr;   // pose + face_mask
+    QComboBox*          cameraCombo   = nullptr;   // pose + face_mask + expression
     QComboBox*          keypointCombo = nullptr;   // pose only
-    PoseOverlayPlayerW*  player       = nullptr;   // shared: video (pose/face_mask) or audio (diarize)
-    MetricsChartW*       chart        = nullptr;   // pose only
+    QComboBox*          blendshapeCombo = nullptr; // expression only
+    PoseOverlayPlayerW*  player       = nullptr;   // shared: video (pose/face_mask/expression),
+                                                    // or audio (diarize)
+    MetricsChartW*       chart        = nullptr;   // pose + expression
     QPushButton*         openFolderBtn= nullptr;   // face_mask only
 
     QWidget*     micRowW            = nullptr;   // diarize only
@@ -289,6 +308,12 @@ struct AnalysisTabW::Impl {
     QLabel*      transcriptStatsLbl = nullptr;   // diarize only
     QPushButton* exportTranscriptBtn= nullptr;   // diarize only
     QTableWidget* transcriptTable   = nullptr;   // diarize only
+
+    // Expression view controls — mirrors kinematicsRowW's own-container
+    // pattern so select_plugin() can hide the whole row with one call.
+    QWidget*     expressionRowW      = nullptr;   // expression only
+    QLabel*      expressionStatsLbl  = nullptr;   // expression only
+    QPushButton* exportExpressionBtn = nullptr;   // expression only
 
     // Kinematics view controls — reshape how the already-loaded
     // currentResult is displayed, not what gets launched (unlike runBox's
@@ -303,8 +328,9 @@ struct AnalysisTabW::Impl {
 
     QList<SessionInfo>  sessions;
     QString              currentSessionPath;
-    PoseAnalysisResult    currentResult;       // pose only
-    TranscriptResult      currentTranscript;   // diarize only
+    PoseAnalysisResult    currentResult;             // pose only
+    TranscriptResult      currentTranscript;         // diarize only
+    ExpressionResult      currentExpressionResult;   // expression only
 
     // AnalysisManager is a single shared instance (also used by
     // SessionBrowserW's "Run Pose" button and PerformanceMonitorW's
@@ -422,6 +448,7 @@ void AnalysisTabW::build_ui() {
     d->pluginCombo->addItem("Pose (YOLOv8)", "pose");
     d->pluginCombo->addItem("Face Masking (anonymize)", "face_mask");
     d->pluginCombo->addItem("Speaker Diarization", "diarize");
+    d->pluginCombo->addItem("Facial Expression", "expression");
     controlsRow->addWidget(new QLabel("Plugin:"));
     controlsRow->addWidget(d->pluginCombo);
     connect(d->pluginCombo, &QComboBox::currentIndexChanged, this, &AnalysisTabW::select_plugin);
@@ -552,6 +579,43 @@ void AnalysisTabW::build_ui() {
 
     d->controlsStack->addWidget(diarizePage);
 
+    // ── Facial Expression controls page ─────────────────────────────────
+    auto* expressionPage = new QWidget;
+    auto* expressionLay  = new QHBoxLayout(expressionPage);
+    expressionLay->setContentsMargins(0, 0, 0, 0);
+
+    d->expressionBackendCombo = new QComboBox;
+    d->expressionBackendCombo->addItem("Heuristic (blendshapes)", "heuristic");
+    d->expressionBackendCombo->setItemData(0,
+        "Transparent, fast rule-based classifier over MediaPipe's blendshape scores — "
+        "zero extra download, not a validated classifier.", Qt::ToolTipRole);
+    d->expressionBackendCombo->addItem("FER+ (pretrained CNN)", "ferplus");
+    d->expressionBackendCombo->setItemData(1,
+        "Microsoft's FER+ ONNX model (MIT-licensed) — more validated, adds a 'Contempt' "
+        "category, downloads an extra ~34MB model on first use.", Qt::ToolTipRole);
+    expressionLay->addWidget(new QLabel("Backend:"));
+    expressionLay->addWidget(d->expressionBackendCombo);
+
+    d->maxFacesSpin = new QSpinBox;
+    d->maxFacesSpin->setRange(1, 10);
+    d->maxFacesSpin->setValue(5);
+    d->maxFacesSpin->setPrefix("max faces ");
+    expressionLay->addWidget(d->maxFacesSpin);
+
+    d->minConfidenceSpin = new QDoubleSpinBox;
+    d->minConfidenceSpin->setRange(0.1, 1.0);
+    d->minConfidenceSpin->setSingleStep(0.05);
+    d->minConfidenceSpin->setValue(0.5);
+    d->minConfidenceSpin->setPrefix("min conf ");
+    expressionLay->addWidget(d->minConfidenceSpin);
+
+    d->exprSkipSpin = new QSpinBox;
+    d->exprSkipSpin->setRange(1, 30);
+    d->exprSkipSpin->setValue(1);
+    d->exprSkipSpin->setPrefix("skip ");
+    expressionLay->addWidget(d->exprSkipSpin);
+    d->controlsStack->addWidget(expressionPage);
+
     controlsRow->addWidget(d->controlsStack, 1);
 
     d->runBtn = new QPushButton("▶  Run");
@@ -589,6 +653,12 @@ void AnalysisTabW::build_ui() {
     resultsRow->addWidget(d->keypointCombo, 1);
     connect(d->keypointCombo, &QComboBox::currentIndexChanged, this,
             &AnalysisTabW::update_kinematics_chart);
+
+    d->blendshapeCombo = new QComboBox;
+    resultsRow->addWidget(new QLabel("Blendshape:"));
+    resultsRow->addWidget(d->blendshapeCombo, 1);
+    connect(d->blendshapeCombo, &QComboBox::currentIndexChanged, this,
+            &AnalysisTabW::update_expression_view);
 
     d->openFolderBtn = new QPushButton("Open output folder");
     d->openFolderBtn->setVisible(false);
@@ -685,10 +755,39 @@ void AnalysisTabW::build_ui() {
 
     rightLay->addWidget(d->kinematicsRowW);
 
+    // ── Expression view controls: %-per-category breakdown + CSV export.
+    //    Expression only — own container so select_plugin() can hide the
+    //    whole row with one call, mirroring kinematicsRowW.
+    d->expressionRowW = new QWidget;
+    auto* expressionRow = new QHBoxLayout(d->expressionRowW);
+    expressionRow->setContentsMargins(0, 0, 0, 0);
+
+    d->expressionStatsLbl = new QLabel;
+    d->expressionStatsLbl->setStyleSheet("color:#7070a0; font-size:11px;");
+    d->expressionStatsLbl->setToolTip(
+        "Subject identity is not tracked across frames — treat subject 0 as one "
+        "continuous face only for single-face sessions. Percentages are of analyzed "
+        "frames, not wall-clock time (--skip means frames aren't evenly time-spaced).");
+    expressionRow->addWidget(d->expressionStatsLbl, 1);
+
+    d->exportExpressionBtn = new QPushButton("Export CSV");
+    d->exportExpressionBtn->setToolTip(
+        "Exports timestamp/bbox/dominant-expression/blendshape-scores for every "
+        "detected face as CSV.");
+    connect(d->exportExpressionBtn, &QPushButton::clicked, this,
+            &AnalysisTabW::export_expression_csv);
+    expressionRow->addWidget(d->exportExpressionBtn);
+
+    rightLay->addWidget(d->expressionRowW);
+
     auto* resultsSplitter = new QSplitter(Qt::Horizontal);
     d->player = new PoseOverlayPlayerW;   // reused for audio-only playback in diarize mode too —
     resultsSplitter->addWidget(d->player); // set_video() just calls QMediaPlayer::setSource(),
-                                            // which plays a .wav fine with no video frames arriving.
+                                            // which plays a .wav fine with no video frames
+                                            // arriving. Also reused for expression mode's
+                                            // bbox+label overlay via set_expression_result()
+                                            // (mutually exclusive with set_pose_result() — see
+                                            // pose_overlay_player_w.hpp).
 
     d->chart = new MetricsChartW;
     resultsSplitter->addWidget(d->chart);
@@ -804,12 +903,16 @@ void AnalysisTabW::select_plugin(int index) {
     if (index < 0) { return; }
     d->controlsStack->setCurrentIndex(index);
 
-    const bool isPose    = is_pose_plugin();
-    const bool isDiarize = is_diarize_plugin();
+    const bool isPose       = is_pose_plugin();
+    const bool isDiarize    = is_diarize_plugin();
+    const bool isExpression = is_expression_plugin();
+    const bool isFaceMask   = is_face_mask_plugin();
     d->keypointCombo->setVisible(isPose);
-    d->chart->setVisible(isPose);
+    d->blendshapeCombo->setVisible(isExpression);
+    d->chart->setVisible(isPose || isExpression);
     d->kinematicsRowW->setVisible(isPose);
-    d->openFolderBtn->setVisible(!isPose && !isDiarize);
+    d->expressionRowW->setVisible(isExpression);
+    d->openFolderBtn->setVisible(isFaceMask);
     d->sourceRowW->setVisible(!isDiarize);
     d->micRowW->setVisible(isDiarize);
     d->transcriptTable->setVisible(isDiarize);
@@ -820,10 +923,7 @@ void AnalysisTabW::select_plugin(int index) {
 // ── Analysis lifecycle ───────────────────────────────────────────────────
 
 QString AnalysisTabW::pose_json_path_for(const QString& videoRelPath) const {
-    QString base = videoRelPath;
-    const int dot = base.lastIndexOf('.');
-    if (dot >= 0) { base.truncate(dot); }
-    return base + ".pose.json";
+    return sidecar_path_for(videoRelPath, ".pose.json");
 }
 
 QString AnalysisTabW::anonymized_video_path_for(const QString& videoRelPath) const {
@@ -831,10 +931,11 @@ QString AnalysisTabW::anonymized_video_path_for(const QString& videoRelPath) con
 }
 
 QString AnalysisTabW::transcript_json_path_for(const QString& audioRelPath) const {
-    QString base = audioRelPath;
-    const int dot = base.lastIndexOf('.');
-    if (dot >= 0) { base.truncate(dot); }
-    return base + ".transcript.json";
+    return sidecar_path_for(audioRelPath, ".transcript.json");
+}
+
+QString AnalysisTabW::expression_json_path_for(const QString& videoRelPath) const {
+    return sidecar_path_for(videoRelPath, ".expression.json");
 }
 
 bool AnalysisTabW::is_pose_plugin() const {
@@ -845,12 +946,21 @@ bool AnalysisTabW::is_diarize_plugin() const {
     return d->pluginCombo->currentData().toString() == "diarize";
 }
 
+bool AnalysisTabW::is_expression_plugin() const {
+    return d->pluginCombo->currentData().toString() == "expression";
+}
+
+bool AnalysisTabW::is_face_mask_plugin() const {
+    return d->pluginCombo->currentData().toString() == "face_mask";
+}
+
 void AnalysisTabW::reload_current_camera_result() {
     const auto* info = d->current_session();
 
     if (is_diarize_plugin()) {
-        d->currentResult     = PoseAnalysisResult();
-        d->currentTranscript = TranscriptResult();
+        d->currentResult           = PoseAnalysisResult();
+        d->currentExpressionResult = ExpressionResult();
+        d->currentTranscript       = TranscriptResult();
 
         if (!info || d->micCombo->currentIndex() < 0) {
             d->player->set_video(QString());   // stop/clear any previously-loaded audio
@@ -881,16 +991,20 @@ void AnalysisTabW::reload_current_camera_result() {
     }
 
     if (!info || d->cameraCombo->currentIndex() < 0) {
-        d->currentResult = PoseAnalysisResult();
+        d->currentResult           = PoseAnalysisResult();
+        d->currentExpressionResult = ExpressionResult();
         d->player->set_video(QString());   // stop/clear any previously-loaded video
         d->player->set_pose_result(d->currentResult);
         d->keypointCombo->clear();
-        // Explicit call rather than relying on QComboBox::clear() above
+        d->blendshapeCombo->clear();
+        // Explicit calls rather than relying on QComboBox::clear() above
         // reentrantly firing currentIndexChanged(-1) into
-        // update_kinematics_chart() — that happens to reset the chart/stats
-        // today, but only as an accidental side effect of not being wrapped
-        // in blockSignals() the way the populated-combo case below is.
+        // update_kinematics_chart()/update_expression_view() — that happens
+        // to reset the chart/stats today, but only as an accidental side
+        // effect of not being wrapped in blockSignals() the way the
+        // populated-combo case below is.
         update_kinematics_chart();
+        update_expression_view();
         return;
     }
 
@@ -898,6 +1012,7 @@ void AnalysisTabW::reload_current_camera_result() {
     const QString videoAbs = info->path + "/" + videoRel;
 
     if (is_pose_plugin()) {
+        d->currentExpressionResult = ExpressionResult();
         d->player->set_video(videoAbs);
 
         const QString poseAbs = info->path + "/" + pose_json_path_for(videoRel);
@@ -926,23 +1041,66 @@ void AnalysisTabW::reload_current_camera_result() {
         return;
     }
 
-    // Face-mask plugin: no keypoint/chart data, just plain video playback —
-    // the anonymized output if it exists yet, otherwise the original as a
-    // preview so the user can confirm they picked the right camera/session.
-    d->currentResult = PoseAnalysisResult();
-    const QString anonAbs = info->path + "/" + anonymized_video_path_for(videoRel);
-    const bool hasOutput = QFileInfo::exists(anonAbs);
-    d->player->set_video(hasOutput ? anonAbs : videoAbs);
-    d->player->set_pose_result(d->currentResult);
-    d->openFolderBtn->setEnabled(hasOutput);
+    if (is_expression_plugin()) {
+        d->currentResult = PoseAnalysisResult();
+        d->player->set_video(videoAbs);
 
-    if (hasOutput) {
-        d->statusLbl->setText("Showing anonymized output.");
-        d->statusLbl->setStyleSheet("color:#44cc66; font-size:11px;");
-    } else {
-        d->statusLbl->setText("Not yet anonymized (showing original) — click Run.");
-        d->statusLbl->setStyleSheet("color:#6060a0; font-size:11px;");
+        const QString exprAbs = info->path + "/" + expression_json_path_for(videoRel);
+        d->currentExpressionResult = QFileInfo::exists(exprAbs)
+            ? ExpressionResult::load(exprAbs) : ExpressionResult();
+        d->player->set_expression_result(d->currentExpressionResult);
+
+        d->blendshapeCombo->blockSignals(true);
+        d->blendshapeCombo->clear();
+        for (const auto& name : d->currentExpressionResult.blendshape_names()) {
+            d->blendshapeCombo->addItem(name);
+        }
+        d->blendshapeCombo->blockSignals(false);
+
+        update_expression_view();
+
+        // frames().isEmpty() alongside is_valid() matches the pose branch's
+        // guard above — a malformed/partial result file could parse with
+        // is_valid()==true but zero frames (see ExpressionResult::load()),
+        // and this message should fire for that case too, not just a
+        // missing file.
+        const auto& exprResult = d->currentExpressionResult;
+        if (!exprResult.is_valid() || exprResult.frames().isEmpty()) {
+            d->statusLbl->setText("No analysis yet for this camera — click Run.");
+            d->statusLbl->setStyleSheet("color:#6060a0; font-size:11px;");
+        }
+        return;
     }
+
+    if (is_face_mask_plugin()) {
+        // No keypoint/chart data, just plain video playback — the
+        // anonymized output if it exists yet, otherwise the original as a
+        // preview so the user can confirm they picked the right
+        // camera/session.
+        d->currentResult           = PoseAnalysisResult();
+        d->currentExpressionResult = ExpressionResult();
+        const QString anonAbs = info->path + "/" + anonymized_video_path_for(videoRel);
+        const bool hasOutput = QFileInfo::exists(anonAbs);
+        d->player->set_video(hasOutput ? anonAbs : videoAbs);
+        d->player->set_pose_result(d->currentResult);
+        d->openFolderBtn->setEnabled(hasOutput);
+
+        if (hasOutput) {
+            d->statusLbl->setText("Showing anonymized output.");
+            d->statusLbl->setStyleSheet("color:#44cc66; font-size:11px;");
+        } else {
+            d->statusLbl->setText("Not yet anonymized (showing original) — click Run.");
+            d->statusLbl->setStyleSheet("color:#6060a0; font-size:11px;");
+        }
+        return;
+    }
+
+    // Defensive: pluginCombo only ever offers the ids handled above, but an
+    // unconditional fallthrough here would otherwise silently show
+    // face-mask's view for any future unmatched plugin id — the same
+    // "leftover = face_mask" gap run_analysis() was fixed to avoid.
+    d->statusLbl->setText("Error: unknown plugin selected.");
+    d->statusLbl->setStyleSheet("color:#cc4444; font-size:11px;");
 }
 
 // ── Kinematics view ──────────────────────────────────────────────────────
@@ -1119,6 +1277,89 @@ void AnalysisTabW::export_transcript_csv() {
     });
 }
 
+// ── Expression view ──────────────────────────────────────────────────────
+
+void AnalysisTabW::update_expression_view() {
+    if (!d->currentExpressionResult.is_valid()) {
+        d->chart->set_single_series({}, "score");
+        d->expressionStatsLbl->clear();
+        d->chart->set_playhead_ms(d->player->position_ms());
+        return;
+    }
+
+    // The %-per-category stats below don't depend on which blendshape is
+    // selected — only the chart series does — so an empty/unselected
+    // blendshapeCombo (e.g. a result with no blendshape_names) still gets a
+    // populated stats label, just an empty chart.
+    const int blendshapeIndex = d->blendshapeCombo->currentIndex();
+
+    QVector<QPointF> points;
+    const auto& frames = d->currentExpressionResult.frames();
+    const int64_t t0 = frames.isEmpty() ? 0 : frames.first().timestampNs;
+
+    // %-of-analyzed-frames per dominant_expression, using subject 0 only —
+    // same "no cross-frame identity tracking" caveat as PoseSubject, see
+    // expressionStatsLbl's tooltip.
+    QMap<QString, int> categoryCounts;
+    int totalWithSubject = 0;
+
+    for (const auto& frame : frames) {
+        if (frame.subjects.isEmpty()) { continue; }
+        const auto& subject = frame.subjects.first();
+        if (blendshapeIndex >= 0 && blendshapeIndex < subject.blendshapeScores.size()) {
+            const double tMs = (frame.timestampNs - t0) / 1e6;
+            points.append(QPointF(tMs, subject.blendshapeScores[blendshapeIndex]));
+        }
+        categoryCounts[subject.dominantExpression]++;
+        ++totalWithSubject;
+    }
+
+    d->chart->set_single_series(points, "score (0-1)");
+    d->chart->set_playhead_ms(d->player->position_ms());
+
+    if (totalWithSubject == 0) {
+        d->expressionStatsLbl->setText("No detected faces in this result.");
+        return;
+    }
+    QStringList parts;
+    for (auto it = categoryCounts.constBegin(); it != categoryCounts.constEnd(); ++it) {
+        parts << QString("%1 %2%").arg(it.key())
+                     .arg(100.0 * it.value() / totalWithSubject, 0, 'f', 0);
+    }
+    d->expressionStatsLbl->setText(parts.join("  ·  "));
+}
+
+void AnalysisTabW::export_expression_csv() {
+    const auto* info = d->current_session();
+    if (!info || !d->currentExpressionResult.is_valid()) { return; }
+
+    const QString cameraLabel = d->cameraCombo->currentText();
+    const QString suggested = info->path + "/" + cameraLabel + "_expression.csv";
+    const auto& names = d->currentExpressionResult.blendshape_names();
+    const auto& frames = d->currentExpressionResult.frames();
+    const int64_t t0 = frames.isEmpty() ? 0 : frames.first().timestampNs;
+
+    export_csv(this, "Export Expression", suggested, [&](QTextStream& ts) {
+        ts << "# subject_id is not tracked across frames — treat as one "
+              "continuous face only for single-face sessions\n";
+        ts << "timestamp_ms,subject_id,confidence,bbox_x1,bbox_y1,bbox_x2,bbox_y2,"
+              "dominant_expression,dominant_score";
+        for (const auto& n : names) { ts << "," << n; }
+        ts << "\n";
+        for (const auto& frame : frames) {
+            const int64_t tMs = (frame.timestampNs - t0) / 1000000;
+            for (const auto& s : frame.subjects) {
+                ts << tMs << "," << s.subjectId << "," << s.confidence << ","
+                   << s.bbox.left() << "," << s.bbox.top() << ","
+                   << s.bbox.right() << "," << s.bbox.bottom() << ","
+                   << s.dominantExpression << "," << s.dominantScore;
+                for (double v : s.blendshapeScores) { ts << "," << v; }
+                ts << "\n";
+            }
+        }
+    });
+}
+
 void AnalysisTabW::run_analysis() {
     if (d->currentSessionPath.isEmpty()) { return; }
 
@@ -1152,9 +1393,15 @@ void AnalysisTabW::run_analysis() {
             d->backendCombo->currentData().toString(),
             d->styleCombo->currentData().toString(),
             d->faceSkipSpin->value());
+    } else if (plugin == "expression") {
+        d->analysisMgr->run_expression_analysis(d->currentSessionPath,
+            d->expressionBackendCombo->currentData().toString(),
+            d->maxFacesSpin->value(),
+            d->minConfidenceSpin->value(),
+            d->exprSkipSpin->value());
     } else {
-        // Defensive: pluginCombo only ever offers the three ids above, but a
-        // silent fallthrough here would otherwise launch face-masking with
+        // Defensive: pluginCombo only ever offers the ids handled above, but
+        // a silent fallthrough here would otherwise launch face-masking with
         // whatever plugin's controls happen to be on screen.
         d->statusLbl->setText("Error: unknown plugin selected.");
         d->statusLbl->setStyleSheet("color:#cc4444; font-size:11px;");
