@@ -1,4 +1,5 @@
 #include "analysis/analysis_manager.hpp"
+#include "analysis/sync_manifest.hpp"
 #include "utils/logger.hpp"
 #include <QCoreApplication>
 #include <QDir>
@@ -109,6 +110,22 @@ void AnalysisManager::run_expression_analysis(const QString& sessionPath, const 
     };
     // No secrets involved, unlike run_diarization()'s hfToken.
     enqueue_or_launch(sessionPath, "analysis/run_expression.py", args, {});
+}
+
+void AnalysisManager::run_gaze_fusion(const QString& sessionPath, int minCameras,
+                                       double minConfidence, int frameSkip) {
+    if (!QFileInfo::exists(sessionPath + "/sync_manifest.json")) {
+        SyncManifest::generate(sessionPath).save(sessionPath);
+    }
+
+    const QStringList args = {
+        "--session",        sessionPath,
+        "--min-cameras",    QString::number(qMax(1, minCameras)),
+        "--min-confidence", QString::number(minConfidence),
+        "--skip",           QString::number(qMax(1, frameSkip)),
+    };
+    // No secrets involved, unlike run_diarization()'s hfToken.
+    enqueue_or_launch(sessionPath, "analysis/run_gaze_fusion.py", args, {});
 }
 
 void AnalysisManager::enqueue_or_launch(const QString& sessionPath, const QString& scriptRelPath,

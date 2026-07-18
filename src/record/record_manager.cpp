@@ -54,9 +54,7 @@ void RecordManager::write_session_meta() const {
     QJsonArray cameras;
     for (int i = 0; i < static_cast<int>(d->settings.video.cameras.size()); ++i) {
         const auto& cam = d->settings.video.cameras[static_cast<size_t>(i)];
-        QJsonObject calObj;
-        calObj["calibrated"] = cam.calibration.calibrated;
-        calObj["rms_error"]  = cam.calibration.rmsError;
+        const QJsonObject calObj = cam.calibration.to_json();
         cameras.append(QJsonObject{
             {"index",        i},
             {"serial",       cam.serialNumber},
@@ -104,6 +102,7 @@ void RecordManager::write_session_meta() const {
         {"session_folder",        d->sessionPath},
         {"cameras",               cameras},
         {"microphones",           mics},
+        {"room",                  d->settings.room.to_json()},
         {"trigger_sources",       QJsonObject{
             {"keyboard",          keys},
             {"lsl_inlets",        lslInlets},

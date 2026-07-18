@@ -26,6 +26,8 @@ qt_add_executable(mosaic MACOSX_BUNDLE
     analysis/expression_result.cpp
     analysis/sync_manifest.hpp
     analysis/sync_manifest.cpp
+    analysis/gaze_fusion_result.hpp
+    analysis/gaze_fusion_result.cpp
 
     # ── Foundation ────────────────────────────────────────────────────────
     utils/logger.hpp
@@ -118,8 +120,14 @@ qt_add_executable(mosaic MACOSX_BUNDLE
     # ── Calibration ───────────────────────────────────────────────────────
     calibration/calibration_manager.hpp
     calibration/calibration_manager.cpp
+    calibration/room_frame_solver.hpp
+    calibration/room_frame_solver.cpp
+    calibration/room_calibration_manager.hpp
+    calibration/room_calibration_manager.cpp
     ui/calibration/calibration_w.hpp
     ui/calibration/calibration_w.cpp
+    ui/calibration/room_calibration_w.hpp
+    ui/calibration/room_calibration_w.cpp
 
     # ── Record manager ────────────────────────────────────────────────────
     record/record_manager.hpp
@@ -137,6 +145,8 @@ qt_add_executable(mosaic MACOSX_BUNDLE
     ui/analysis/pose_overlay_player_w.cpp
     ui/analysis/analysis_tab_w.hpp
     ui/analysis/analysis_tab_w.cpp
+    ui/analysis/gaze_room_view_w.hpp
+    ui/analysis/gaze_room_view_w.cpp
 
     # ── QML bridge ────────────────────────────────────────────────────────
     ui/monitor_bridge.hpp
@@ -219,7 +229,7 @@ endif()
 
 if(MOSAIC_ENABLE_OPENCV)
     target_link_libraries(mosaic PRIVATE
-        opencv_core opencv_imgproc opencv_calib3d)
+        opencv_core opencv_imgproc opencv_calib3d opencv_objdetect)
     target_compile_definitions(mosaic PRIVATE MOSAIC_HAVE_OPENCV)
 endif()
 

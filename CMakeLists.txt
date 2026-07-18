@@ -61,7 +61,7 @@ endif()
 
 # ── OpenCV ─────────────────────────────────────────────────────────────────
 if(MOSAIC_ENABLE_OPENCV)
-    find_package(OpenCV REQUIRED COMPONENTS core imgproc calib3d)
+    find_package(OpenCV REQUIRED COMPONENTS core imgproc calib3d objdetect)
 endif()
 
 # ── Lab Streaming Layer ────────────────────────────────────────────────────

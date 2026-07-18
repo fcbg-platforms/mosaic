@@ -55,6 +55,11 @@ analysis/diarize/models/
 # already has an identical face_landmarker.task; re-downloaded here too)
 analysis/expression/models/
 
+# Auto-downloaded MediaPipe FaceLandmarker weights (analysis/gaze backend,
+# used by the Multi-Camera Gaze Fusion plugin) — same per-plugin-owns-its-
+# cache convention as the entries above.
+analysis/gaze/models/
+
 # Logs
 *.log
 

@@ -101,6 +101,12 @@ public:
     ///                     opened units. No-op if no open unit matches.
     void apply_live_params(int configIndex);
 
+    /// @brief Requests one full-resolution frame from the given camera for
+    /// room (extrinsic) calibration — see VideoGrabber::request_calibration_frame().
+    /// Delivered asynchronously via calibration_frame_ready(); no-op if no
+    /// open unit matches configIndex.
+    void request_calibration_frame(int configIndex);
+
     /// @returns @c true while a recording session is active.
     [[nodiscard]] bool    is_recording()          const;
 
@@ -149,6 +155,9 @@ signals:
 
     /// Throttled (~15 fps) BGR preview for live QML display.
     void frame_preview(int cameraIndex, QImage frame);
+
+    /// Full-resolution frame delivered in response to request_calibration_frame().
+    void calibration_frame_ready(int cameraIndex, QImage frame);
 
 private slots:
     void on_encoder_stopped(int cameraIndex, int64_t frames);

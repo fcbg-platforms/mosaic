@@ -26,6 +26,11 @@ struct CalibrationData {
     // 4×4 homogeneous RT relative to camera 0 (row-major).
     // Camera 0 always has identity here.
     std::array<double, 16> extrinsicRt  = {1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1};
+    // Populated by RoomCalibrationManager (multi-camera room/extrinsic
+    // calibration) — distinct from `calibrated`, which only ever means
+    // "intrinsics done". extrinsicRt stays at its default identity while
+    // this is false.
+    bool extrinsicCalibrated = false;
 
     [[nodiscard]] QJsonObject to_json() const;
     [[nodiscard]] static std::optional<CalibrationData> from_json(const QJsonObject&);
@@ -235,6 +240,21 @@ struct AnalysisSettings {
     [[nodiscard]] static std::optional<AnalysisSettings> from_json(const QJsonObject&);
 };
 
+// ── Room (multi-camera extrinsic calibration) settings ─────────────────────
+// The room's shared reference plane, defined once via RoomCalibrationW's
+// "Use last shot as plane" action (the ChArUco board is laid flat on the
+// target surface for one shot). Consumed by analysis/run_gaze_fusion.py via
+// the "room" section RecordManager writes into session_meta.json — a plane
+// isn't camera-specific, so it lives here rather than inside CalibrationData.
+struct RoomSettings {
+    std::array<double, 3> planePoint  = {0, 0, 0};
+    std::array<double, 3> planeNormal = {0, 0, 1};
+    bool                  planeDefined = false;
+
+    [[nodiscard]] QJsonObject                 to_json()   const;
+    [[nodiscard]] static std::optional<RoomSettings> from_json(const QJsonObject&);
+};
+
 // ── Application aggregate ──────────────────────────────────────────────────
 struct AppSettings {
     static constexpr int k_schema_version = 1;
@@ -244,6 +264,7 @@ struct AppSettings {
     TriggerSettings  trigger;
     RecordSettings   record;
     AnalysisSettings analysis;
+    RoomSettings     room;
 
     // Persist to / restore from a JSON file.
     // save() returns false only on I/O error (not on validation issues).

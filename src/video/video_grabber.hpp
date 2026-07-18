@@ -71,6 +71,15 @@ public:
     void start_grabbing();
     void stop_grabbing();
 
+    // One-shot latch: the NEXT frame this grabber captures after this call
+    // is emitted via calibration_frame_ready() at full resolution, in
+    // addition to (not instead of) the normal ring-buffer push and the
+    // downscaled preview_frame() signal. Used by room calibration, which
+    // needs real, undownscaled pixels for accurate ChArUco corner detection
+    // — preview_frame() is deliberately capped to 640×360 for the live
+    // monitor and is not suitable for that. Safe to call from any thread.
+    void request_calibration_frame();
+
     [[nodiscard]] bool    is_open()          const;
     [[nodiscard]] int64_t frames_grabbed()   const;
     [[nodiscard]] int64_t frames_dropped()   const; // dropped due to full ring buffer
@@ -96,6 +105,12 @@ signals:
     void grab_error(int cameraIndex, QString message);
     // Throttled preview at ~15 fps — used for live QML display only.
     void preview_frame(int cameraIndex, QImage frame);
+    // Emitted once, at full resolution (unlike preview_frame(), which is
+    // capped to 640×360), in response to a preceding
+    // request_calibration_frame() call. QImage (not VideoFrame) to match
+    // preview_frame()'s existing, already-proven-safe cross-thread payload
+    // convention rather than introducing a new custom-struct Qt meta-type.
+    void calibration_frame_ready(int cameraIndex, QImage frame);
 
 protected:
     void run() override;

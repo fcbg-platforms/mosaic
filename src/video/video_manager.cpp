@@ -111,6 +111,8 @@ int VideoManager::open(const VideoSettings& settings) {
 
         connect(unit.grabber.get(), &VideoGrabber::preview_frame,
                 this,               &VideoManager::frame_preview,   Qt::QueuedConnection);
+        connect(unit.grabber.get(), &VideoGrabber::calibration_frame_ready,
+                this,               &VideoManager::calibration_frame_ready, Qt::QueuedConnection);
 
         connect(unit.grabber.get(), &VideoGrabber::frame_dropped, this,
                 [this](int /*cam*/, int64_t /*id*/) {
@@ -273,6 +275,15 @@ void VideoManager::apply_live_params(int configIndex) {
     for (auto& unit : d->units) {
         if (unit.configIndex == configIndex && unit.grabber) {
             unit.grabber->apply_live_params();
+            return;
+        }
+    }
+}
+
+void VideoManager::request_calibration_frame(int configIndex) {
+    for (auto& unit : d->units) {
+        if (unit.configIndex == configIndex && unit.grabber) {
+            unit.grabber->request_calibration_frame();
             return;
         }
     }

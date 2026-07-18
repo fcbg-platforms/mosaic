@@ -7,30 +7,40 @@
 
 namespace mosaic {
 
-// Settings tab for camera checkerboard calibration.
-//
-// Layout:
-//   ┌─ Board configuration ──────────────────────┐
-//   │  Cols [9]  Rows [6]  Square size [25.0] mm │
-//   └────────────────────────────────────────────┘
-//   ┌─ Capture ──────────────────────────────────┐
-//   │  Camera [combo]  [▶ Capture frame]          │
-//   │  Views accepted: 0       [Clear]            │
-//   └────────────────────────────────────────────┘
-//   ┌─ Preview ──────────────────────────────────┐
-//   │  (last captured frame with corner overlay)  │
-//   └────────────────────────────────────────────┘
-//   ┌─ Result ───────────────────────────────────┐
-//   │  [▶ Calibrate]  RMS: —                     │
-//   │  fx: —  fy: —  cx: —  cy: —               │
-//   │  [Save to settings]                        │
-//   └────────────────────────────────────────────┘
+class VideoManager;
 
+// Settings tab for camera calibration — an inner QTabWidget with two pages:
+//
+//   "Intrinsics" — single-camera checkerboard calibration (unchanged from
+//   before this class hosted a 2nd page):
+//     ┌─ Board configuration ──────────────────────┐
+//     │  Cols [9]  Rows [6]  Square size [25.0] mm │
+//     └────────────────────────────────────────────┘
+//     ┌─ Capture ──────────────────────────────────┐
+//     │  Camera [combo]  [▶ Capture frame]          │
+//     │  Views accepted: 0       [Clear]            │
+//     └────────────────────────────────────────────┘
+//     ┌─ Preview ──────────────────────────────────┐
+//     │  (last captured frame with corner overlay)  │
+//     └────────────────────────────────────────────┘
+//     ┌─ Result ───────────────────────────────────┐
+//     │  [▶ Calibrate]  RMS: —                     │
+//     │  fx: —  fy: —  cx: —  cy: —               │
+//     │  [Save to settings]                        │
+//     └────────────────────────────────────────────┘
+//
+//   "Room (Extrinsics)" — RoomCalibrationW, multi-camera simultaneous
+//   ChArUco capture; see room_calibration_w.hpp.
 class CalibrationW : public QWidget {
     Q_OBJECT
 public:
     // videoSettings is used to know how many cameras are configured.
-    explicit CalibrationW(VideoSettings& videoSettings, QWidget* parent = nullptr);
+    // roomSettings/videoMgr are forwarded to the Room (Extrinsics) page —
+    // that page needs live multi-camera frames (videoMgr) and somewhere to
+    // persist the room's reference plane (roomSettings), neither of which
+    // the existing single-camera Intrinsics flow required.
+    explicit CalibrationW(VideoSettings& videoSettings, RoomSettings& roomSettings,
+                           VideoManager* videoMgr, QWidget* parent = nullptr);
     ~CalibrationW() override;
 
 signals:

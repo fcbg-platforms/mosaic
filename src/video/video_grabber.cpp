@@ -37,6 +37,11 @@ struct VideoGrabber::Impl {
     // deferred to — and only ever performed by — the grab thread itself.
     std::atomic<bool> liveApplyPending {false};
 
+    // Same deferred-to-grab-thread pattern as liveApplyPending, but for a
+    // one-shot full-resolution frame request (see
+    // VideoGrabber::request_calibration_frame()).
+    std::atomic<bool> calibrationFramePending {false};
+
     // GevTimestampTickFrequency (Hz), read once in open() and reused by the
     // grab thread to convert each frame's chunk timestamp from device ticks
     // to nanoseconds. Written only in open() (main thread) before the grab
@@ -506,6 +511,10 @@ void VideoGrabber::apply_live_params() {
 #endif
 }
 
+void VideoGrabber::request_calibration_frame() {
+    d->calibrationFramePending.store(true);
+}
+
 void VideoGrabber::close() {
     // Guard against the destructor calling close() a second time after
     // VideoManager::close() already called it explicitly.
@@ -679,6 +688,16 @@ void VideoGrabber::run_pylon_loop() {
             frame->data.resize(sz);
             std::memcpy(frame->data.data(), convertedImage.GetBuffer(), sz);
 
+            // One-shot full-resolution capture for room calibration — see
+            // request_calibration_frame(). Checked before the throttled/
+            // downscaled preview below so a pending request is served on the
+            // very next frame regardless of the preview's own skip counter.
+            if (d->calibrationFramePending.exchange(false)) {
+                const QImage full(frame->data.data(), w, h, static_cast<int>(stride),
+                                   QImage::Format_BGR888);
+                emit calibration_frame_ready(d->cameraIndex, full.copy());
+            }
+
             // Throttled preview at ~half the grab rate for live QML display.
             // Scale down to 640×360 max — the UI panels are small and a 6 MB
             // texture upload per camera per frame makes Qt's render thread the
@@ -789,6 +808,14 @@ void VideoGrabber::run_stub_loop() {
                 const std::size_t off = static_cast<std::size_t>((row * width + col) * 3);
                 frame->data[off] = frame->data[off + 1] = frame->data[off + 2] = 255;
             }
+        }
+
+        // One-shot full-resolution capture for room calibration (stub
+        // build — see request_calibration_frame() and its Pylon-loop
+        // counterpart above).
+        if (d->calibrationFramePending.exchange(false)) {
+            const QImage full(frame->data.data(), width, height, width * 3, QImage::Format_BGR888);
+            emit calibration_frame_ready(d->cameraIndex, full.copy());
         }
 
         // Emit a throttled preview (~15 fps) for live QML display.
