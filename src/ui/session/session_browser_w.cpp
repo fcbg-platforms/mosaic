@@ -132,6 +132,9 @@ protected:
         if (m_info.hasTranscript) {
             drawBadge("TRANSCRIPT", QColor("#2a0a2a"), QColor("#cc44cc"));
         }
+        if (m_info.hasExpression) {
+            drawBadge("EXPRESSION", QColor("#2a1a0a"), QColor("#e8a044"));
+        }
         if (!m_info.annotations.isEmpty()) {
             drawBadge(QString("%1 notes").arg(m_info.annotations.size()),
                       QColor("#1a100a"), QColor("#cc8844"));

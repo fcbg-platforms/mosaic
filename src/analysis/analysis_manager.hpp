@@ -8,10 +8,12 @@
 namespace mosaic {
 
 /// @brief Manages the Python analysis subprocess(es) for post-recording plugins
-/// (pose estimation, face masking, speaker diarization/transcription).
+/// (pose estimation, face masking, speaker diarization/transcription, facial
+/// expression).
 ///
-/// analyze_session() / run_face_mask() / run_diarization() always run when
-/// called directly (e.g. a UI "Run" button). @ref auto_analyze is a plain flag
+/// analyze_session() / run_face_mask() / run_diarization() /
+/// run_expression_analysis() always run when called directly (e.g. a UI "Run"
+/// button). @ref auto_analyze is a plain flag
 /// callers can check to
 /// decide whether to also trigger analysis automatically when a recording
 /// session ends — AnalysisManager itself does not gate on it. Only one script
@@ -126,6 +128,23 @@ public:
     void run_diarization(const QString& sessionPath, const QString& modelSize,
                           const QString& language, const QString& hfToken,
                           int minSpeakers, int maxSpeakers, bool skipDiarization);
+
+    /// @brief Detect faces and classify a dominant basic-emotion label per
+    /// face in all .mp4 files in @p sessionPath, writing a
+    /// "<name>.expression.json" sidecar next to each one — originals are
+    /// never modified.
+    ///
+    /// Always runs when called directly, exactly like analyze_session(). If a
+    /// previous analysis is still running, this queues the new job.
+    ///
+    /// @param sessionPath     Absolute path to the recorded session directory.
+    /// @param backend         "heuristic" (default, rule-based blendshapes)
+    ///                        or "ferplus" (pretrained FER+ ONNX model).
+    /// @param maxFaces        Maximum simultaneous faces to detect per frame.
+    /// @param minConfidence   Face detection/presence confidence threshold (0-1).
+    /// @param frameSkip       Process every Nth frame (1 = every frame).
+    void run_expression_analysis(const QString& sessionPath, const QString& backend,
+                                  int maxFaces, double minConfidence, int frameSkip);
 
     /// @brief Stop the currently running analysis process immediately.
     void stop();

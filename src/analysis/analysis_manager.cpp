@@ -98,6 +98,19 @@ void AnalysisManager::run_diarization(const QString& sessionPath, const QString&
     enqueue_or_launch(sessionPath, "analysis/run_diarize.py", args, env);
 }
 
+void AnalysisManager::run_expression_analysis(const QString& sessionPath, const QString& backend,
+                                               int maxFaces, double minConfidence, int frameSkip) {
+    const QStringList args = {
+        "--session",        sessionPath,
+        "--backend",        backend,
+        "--max-faces",      QString::number(qMax(1, maxFaces)),
+        "--min-confidence", QString::number(minConfidence),
+        "--skip",           QString::number(qMax(1, frameSkip)),
+    };
+    // No secrets involved, unlike run_diarization()'s hfToken.
+    enqueue_or_launch(sessionPath, "analysis/run_expression.py", args, {});
+}
+
 void AnalysisManager::enqueue_or_launch(const QString& sessionPath, const QString& scriptRelPath,
                                          const QStringList& args, const QProcessEnvironment& env) {
     const Job job{sessionPath, scriptRelPath, args, env};
