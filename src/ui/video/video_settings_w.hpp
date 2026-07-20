@@ -19,6 +19,19 @@ public:
     explicit VideoSettingsW(VideoSettings& settings, QWidget* parent = nullptr);
     ~VideoSettingsW() override;
 
+    // Enables/disables the "Discover cameras" button. Used by MainWindow to
+    // keep it disabled whenever a camera session (preview or recording) is
+    // active — VideoGrabber::enumerate_devices() and a live
+    // ActionCommandTicker both touch Pylon's CTlFactory, and the SDK
+    // documents no thread-safety guarantee for concurrent use, so this
+    // closes off the one UI path that could race it.
+    void set_discover_enabled(bool enabled);
+
+    // Passthrough to the matching card's CameraCardW::set_action_command_capability()
+    // — cameraIndex is the camera's position in VideoSettings::cameras (same
+    // convention as camera_params_changed's index). No-op if out of range.
+    void set_action_command_capability(int cameraIndex, bool supported);
+
 signals:
     void settings_changed();
     // Fired only when cameras are added or removed (not on per-camera param changes).

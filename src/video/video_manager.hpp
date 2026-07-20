@@ -101,8 +101,21 @@ public:
     ///                     opened units. No-op if no open unit matches.
     void apply_live_params(int configIndex);
 
+    /// @brief Requests one full-resolution frame from the given camera for
+    /// room (extrinsic) calibration — see VideoGrabber::request_calibration_frame().
+    /// Delivered asynchronously via calibration_frame_ready(); no-op if no
+    /// open unit matches configIndex.
+    void request_calibration_frame(int configIndex);
+
     /// @returns @c true while a recording session is active.
     [[nodiscard]] bool    is_recording()          const;
+
+    /// @returns @c true while a live preview session is active (started via
+    /// start_preview(), not yet stopped by start()/close()). Used to guard
+    /// actions that would race with a running ActionCommandTicker, which
+    /// touches Pylon's CTlFactory from a background thread for as long as
+    /// either preview or recording keeps it alive.
+    [[nodiscard]] bool    is_previewing()         const;
 
     /// @returns The number of cameras that were successfully opened.
     [[nodiscard]] int     camera_count()           const;
@@ -150,10 +163,35 @@ signals:
     /// Throttled (~15 fps) BGR preview for live QML display.
     void frame_preview(int cameraIndex, QImage frame);
 
+    /// Full-resolution frame delivered in response to request_calibration_frame().
+    void calibration_frame_ready(int cameraIndex, QImage frame);
+
+    /// Passthrough of VideoGrabber::action_command_capability() — reports
+    /// whether a camera's firmware supports GigE Vision Action Command
+    /// triggering, once probed at open() time. Only fires for cameras that
+    /// actually requested Action1 triggering (hwTriggerEnabled &&
+    /// hwTriggerSource == "Action1").
+    void action_command_capability(int cameraIndex, bool supported);
+
 private slots:
     void on_encoder_stopped(int cameraIndex, int64_t frames);
 
 private:
+    // Arms every unit's grabber (start_grabbing()) first, then, for every
+    // Action1-ready unit, starts a background ActionCommandTicker that
+    // fires one GigE Vision IssueActionCommand() per frame, continuously,
+    // for as long as the ticker runs — shared by start_preview() and
+    // start(), since a camera configured for Action1 hangs identically
+    // (produces zero frames) in either mode until action commands start
+    // arriving. See gige_action_command.hpp.
+    void arm_and_fire_action_commands();
+
+    // Stops and destroys the current ActionCommandTicker, if any. Called
+    // from every path that stops grabbers (stop(), close(), and start()'s
+    // preview-teardown step) so the ticker never outlives the cameras it's
+    // firing at. No-op if no ticker is running.
+    void stop_action_ticker();
+
     struct Impl;
     std::unique_ptr<Impl> d;
 };

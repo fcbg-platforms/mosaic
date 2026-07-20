@@ -4,6 +4,7 @@
 #include <QLineEdit>
 #include <QWidget>
 #include <memory>
+#include <optional>
 
 namespace mosaic {
 
@@ -29,6 +30,12 @@ public:
     // Reload all controls from the current state of m_params.
     void refresh();
 
+    // Updates the live "Action-command supported" readout in the HW Trigger
+    // tab. std::nullopt = not yet probed this session (camera not opened, or
+    // opened without Action1 selected — see
+    // VideoGrabber::action_command_capability()).
+    void set_action_command_capability(std::optional<bool> supported);
+
 signals:
     void params_changed();
     void remove_requested(int index);
@@ -52,6 +59,7 @@ private:
     QWidget*   m_expandBtn{nullptr};
     QLabel*    m_nameLabel{nullptr};   // kept so set_index() can update it
     QLineEdit* m_serialEdit{nullptr};  // kept so refresh() can update it
+    QLabel*    m_actionCapabilityLbl{nullptr}; // kept so set_action_command_capability() can update it
 };
 
 } // namespace mosaic

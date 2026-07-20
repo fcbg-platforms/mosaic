@@ -48,6 +48,7 @@ list(INSERT CMAKE_MODULE_PATH 0 "${CMAKE_SOURCE_DIR}/cmake")
 # ── Cameras (Basler Pylon) ─────────────────────────────────────────────────
 if(MOSAIC_ENABLE_CAMERAS)
     find_package(Pylon REQUIRED)
+    add_subdirectory(tools)
 endif()
 
 # ── FFmpeg / NVENC ─────────────────────────────────────────────────────────
@@ -61,7 +62,7 @@ endif()
 
 # ── OpenCV ─────────────────────────────────────────────────────────────────
 if(MOSAIC_ENABLE_OPENCV)
-    find_package(OpenCV REQUIRED COMPONENTS core imgproc calib3d)
+    find_package(OpenCV REQUIRED COMPONENTS core imgproc calib3d objdetect)
 endif()
 
 # ── Lab Streaming Layer ────────────────────────────────────────────────────
