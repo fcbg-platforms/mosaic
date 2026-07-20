@@ -4,7 +4,7 @@
 Program Listing for File timestamp.hpp
 ======================================
 
-|exhale_lsh| :ref:`Return to documentation for file <file_src_utils_timestamp.hpp>` (``src/utils/timestamp.hpp``)
+|exhale_lsh| :ref:`Return to documentation for file <file_src_utils_timestamp.hpp>` (``src\utils\timestamp.hpp``)
 
 .. |exhale_lsh| unicode:: U+021B0 .. UPWARDS ARROW WITH TIP LEFTWARDS
 

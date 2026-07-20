@@ -4,7 +4,7 @@
 File timestamp.hpp
 ==================
 
-|exhale_lsh| :ref:`Parent directory <dir_src_utils>` (``src/utils``)
+|exhale_lsh| :ref:`Parent directory <dir_src_utils>` (``src\utils``)
 
 .. |exhale_lsh| unicode:: U+021B0 .. UPWARDS ARROW WITH TIP LEFTWARDS
 
@@ -13,7 +13,7 @@ File timestamp.hpp
    :local:
    :backlinks: none
 
-Definition (``src/utils/timestamp.hpp``)
+Definition (``src\utils\timestamp.hpp``)
 ----------------------------------------
 
 
@@ -53,6 +53,8 @@ Included By
 - :ref:`file_src_trigger_lsl_inlet.cpp`
 
 - :ref:`file_src_trigger_parallel_port_trigger.cpp`
+
+- :ref:`file_src_trigger_serial_trigger.cpp`
 
 - :ref:`file_src_trigger_trigger_recorder.cpp`
 

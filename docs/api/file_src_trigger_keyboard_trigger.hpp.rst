@@ -4,7 +4,7 @@
 File keyboard_trigger.hpp
 =========================
 
-|exhale_lsh| :ref:`Parent directory <dir_src_trigger>` (``src/trigger``)
+|exhale_lsh| :ref:`Parent directory <dir_src_trigger>` (``src\trigger``)
 
 .. |exhale_lsh| unicode:: U+021B0 .. UPWARDS ARROW WITH TIP LEFTWARDS
 
@@ -13,7 +13,7 @@ File keyboard_trigger.hpp
    :local:
    :backlinks: none
 
-Definition (``src/trigger/keyboard_trigger.hpp``)
+Definition (``src\trigger\keyboard_trigger.hpp``)
 -------------------------------------------------
 
 
@@ -34,9 +34,9 @@ Includes
 
 - ``QObject``
 
-- ``core/settings.hpp`` (:ref:`file_src_core_settings.hpp`)
+- ``core/settings.hpp``
 
-- ``trigger/trigger_types.hpp`` (:ref:`file_src_trigger_trigger_types.hpp`)
+- ``trigger/trigger_types.hpp``
 
 
 

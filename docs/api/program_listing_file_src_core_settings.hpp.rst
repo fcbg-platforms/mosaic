@@ -4,13 +4,14 @@
 Program Listing for File settings.hpp
 =====================================
 
-|exhale_lsh| :ref:`Return to documentation for file <file_src_core_settings.hpp>` (``src/core/settings.hpp``)
+|exhale_lsh| :ref:`Return to documentation for file <file_src_core_settings.hpp>` (``src\core\settings.hpp``)
 
 .. |exhale_lsh| unicode:: U+021B0 .. UPWARDS ARROW WITH TIP LEFTWARDS
 
 .. code-block:: cpp
 
    #pragma once
+   #include "trigger/trigger_types.hpp"
    #include <QJsonArray>
    #include <QJsonObject>
    #include <QString>
@@ -37,6 +38,11 @@ Program Listing for File settings.hpp
        // 4×4 homogeneous RT relative to camera 0 (row-major).
        // Camera 0 always has identity here.
        std::array<double, 16> extrinsicRt  = {1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1};
+       // Populated by RoomCalibrationManager (multi-camera room/extrinsic
+       // calibration) — distinct from `calibrated`, which only ever means
+       // "intrinsics done". extrinsicRt stays at its default identity while
+       // this is false.
+       bool extrinsicCalibrated = false;
    
        [[nodiscard]] QJsonObject to_json() const;
        [[nodiscard]] static std::optional<CalibrationData> from_json(const QJsonObject&);
@@ -57,7 +63,7 @@ Program Listing for File settings.hpp
        bool    reverseY        = false;
        QString pixelFormat     = "BGR8";
        bool    specifyFps      = true;
-       double  fps             = 30.0;
+       double  fps             = 25.0;  // acA1920-25gc's max sustained rate
    
        // Exposure
        QString exposureAuto        = "Off";    // "Off" | "Once" | "Continuous"
@@ -75,6 +81,19 @@ Program Listing for File settings.hpp
        double  gamma            = 1.0;
        double  blackLevel       = 0.0;
        QString balanceWhiteAuto = "Off";       // "Off" | "Once" | "Continuous"
+       double  saturation       = 1.0;         // 0.0–2.0
+       double  contrast         = 1.0;         // 0.0–2.0
+       double  brightness       = 0.5;         // 0.0–1.0
+       double  autoTargetBrightness = 0.5;     // 0.0–1.0
+       int     digitalShift     = 0;           // 0–4 bits (12→8 or 16→8 conversions)
+   
+       // Hardware trigger input (e.g. TTL pulse on Basler Line1)
+       bool    hwTriggerEnabled = false;
+       QString hwTriggerSource  = "Line1";     // "Line1" | "Line2" | "Line3" | "Software"
+       double  hwTriggerDelayUs = 0.0;         // microseconds
+   
+       // Test pattern — shown in monitor when no real camera is connected
+       QString testPattern      = "Off";       // "Off" | "ColorBars" | "Horizontal" | "Vertical"
    
        // Calibration (filled by CalibrationManager after a checkerboard run)
        CalibrationData calibration;
@@ -90,10 +109,6 @@ Program Listing for File settings.hpp
        QString preset   = "p4";            // GPU: p1-p7  |  CPU: fast, medium, slow
        int     crf      = 23;              // quality for CPU encoder (17=best, 28=worst)
        int     bitrate  = 5000;            // kbit/s (GPU encoder)
-   
-       // Frame rate synchronisation across cameras
-       bool    syncFps   = false;
-       int     targetFps = 30;
    
        // Per-camera configurations (one entry per added camera)
        std::vector<CameraParameters> cameras;
@@ -128,22 +143,47 @@ Program Listing for File settings.hpp
    
    // ── Per-keyboard-trigger configuration ────────────────────────────────────
    struct KeyTriggerConfig {
-       QString name    = "Trigger";
-       QString keySeq  = "";           // e.g. "F1", "Ctrl+Space" — empty = unbound
-       bool    enabled = true;
+       QString       name    = "Trigger";
+       QString       keySeq  = "";            // e.g. "F1", "Ctrl+Space" — empty = unbound
+       bool          enabled = true;
+       TriggerAction action  = TriggerAction::Log;
    
        [[nodiscard]] QJsonObject to_json() const;
        [[nodiscard]] static std::optional<KeyTriggerConfig> from_json(const QJsonObject&);
+   };
+   
+   // ── Serial port trigger configuration ─────────────────────────────────────
+   // Receives trigger events via RS-232/USB-serial.  Uses Qt6::SerialPort.
+   // A trigger fires when an incoming byte satisfies the match rule.
+   struct SerialTriggerConfig {
+       QString       name       = "Serial Trigger";
+       QString       portName   = "";         // "COM3", "/dev/ttyUSB0" — empty = disabled
+       int           baudRate   = 9600;
+       int           dataBits   = 8;
+       QString       parity     = "None";     // "None" | "Even" | "Odd"
+       double        stopBits   = 1.0;        // 1.0 | 1.5 | 2.0
+       // matchMode controls what incoming bytes trigger an event:
+       //   "AnyByte" — any received byte fires the trigger
+       //   "NonZero" — only non-zero bytes fire
+       //   "Exact"   — only bytes matching matchValue (hex: "0xFF") fire
+       QString       matchMode  = "AnyByte";
+       QString       matchValue = "";
+       bool          enabled    = false;
+       TriggerAction action     = TriggerAction::Log;
+   
+       [[nodiscard]] QJsonObject to_json() const;
+       [[nodiscard]] static std::optional<SerialTriggerConfig> from_json(const QJsonObject&);
    };
    
    // ── Parallel port trigger configuration ───────────────────────────────────
    // One entry per LPT port (typically just one: LPT1 at 0x378).
    // Implemented on Windows via InpOut32; a stub is used elsewhere.
    struct ParallelPortConfig {
-       QString portAddress = "0x378"; // data register hex address (LPT1 = 0x378)
-       int     pollRateMs  = 1;       // polling interval in milliseconds
-       bool    enabled     = false;
-       bool    invertLogic = false;   // true = active-low (common in TTL circuits)
+       QString       portAddress = "0x378";   // data register hex address (LPT1 = 0x378)
+       int           pollRateMs  = 1;         // polling interval in milliseconds
+       bool          enabled     = false;
+       bool          invertLogic = false;     // true = active-low (common in TTL circuits)
+       TriggerAction action      = TriggerAction::Log;
    
        [[nodiscard]] QJsonObject to_json() const;
        [[nodiscard]] static std::optional<ParallelPortConfig> from_json(const QJsonObject&);
@@ -151,10 +191,11 @@ Program Listing for File settings.hpp
    
    // ── Per-LSL-inlet configuration ────────────────────────────────────────────
    struct LslInletConfig {
-       QString name       = "LSL Inlet";
-       QString streamName = "Markers";
-       QString streamType = "Markers";
-       bool    enabled    = true;
+       QString       name       = "LSL Inlet";
+       QString       streamName = "Markers";
+       QString       streamType = "Markers";
+       bool          enabled    = true;
+       TriggerAction action     = TriggerAction::Log;
    
        [[nodiscard]] QJsonObject to_json() const;
        [[nodiscard]] static std::optional<LslInletConfig> from_json(const QJsonObject&);
@@ -171,6 +212,7 @@ Program Listing for File settings.hpp
        double  lslOutletRate    = 30.0;  // nominal sample rate published to LSL
    
        std::vector<KeyTriggerConfig>      keyboardTriggers;
+       std::vector<SerialTriggerConfig>   serialTriggers;
        std::vector<LslInletConfig>        lslInlets;
        std::vector<ParallelPortConfig>    parallelPorts;
    
@@ -197,14 +239,44 @@ Program Listing for File settings.hpp
        [[nodiscard]] static std::optional<RecordSettings> from_json(const QJsonObject&);
    };
    
+   struct AnalysisSettings {
+       // Hugging Face access token for the gated pyannote speaker-diarization
+       // models (Analysis tab's Speaker Diarization plugin). Persisted here
+       // (rather than kept transient/re-entered per session) so the user
+       // doesn't have to re-paste it every run — the tradeoff being that it's
+       // stored in plaintext in this profile's settings.json, same as every
+       // other field in AppSettings.
+       QString hfToken;
+   
+       [[nodiscard]] QJsonObject                     to_json()   const;
+       [[nodiscard]] static std::optional<AnalysisSettings> from_json(const QJsonObject&);
+   };
+   
+   // ── Room (multi-camera extrinsic calibration) settings ─────────────────────
+   // The room's shared reference plane, defined once via RoomCalibrationW's
+   // "Use last shot as plane" action (the ChArUco board is laid flat on the
+   // target surface for one shot). Consumed by analysis/run_gaze_fusion.py via
+   // the "room" section RecordManager writes into session_meta.json — a plane
+   // isn't camera-specific, so it lives here rather than inside CalibrationData.
+   struct RoomSettings {
+       std::array<double, 3> planePoint  = {0, 0, 0};
+       std::array<double, 3> planeNormal = {0, 0, 1};
+       bool                  planeDefined = false;
+   
+       [[nodiscard]] QJsonObject                 to_json()   const;
+       [[nodiscard]] static std::optional<RoomSettings> from_json(const QJsonObject&);
+   };
+   
    // ── Application aggregate ──────────────────────────────────────────────────
    struct AppSettings {
        static constexpr int k_schema_version = 1;
    
-       VideoSettings   video;
-       AudioSettings   audio;
-       TriggerSettings trigger;
-       RecordSettings  record;
+       VideoSettings    video;
+       AudioSettings    audio;
+       TriggerSettings  trigger;
+       RecordSettings   record;
+       AnalysisSettings analysis;
+       RoomSettings     room;
    
        // Persist to / restore from a JSON file.
        // save() returns false only on I/O error (not on validation issues).

@@ -4,7 +4,7 @@
 File lsl_inlet.hpp
 ==================
 
-|exhale_lsh| :ref:`Parent directory <dir_src_trigger>` (``src/trigger``)
+|exhale_lsh| :ref:`Parent directory <dir_src_trigger>` (``src\trigger``)
 
 .. |exhale_lsh| unicode:: U+021B0 .. UPWARDS ARROW WITH TIP LEFTWARDS
 
@@ -13,7 +13,7 @@ File lsl_inlet.hpp
    :local:
    :backlinks: none
 
-Definition (``src/trigger/lsl_inlet.hpp``)
+Definition (``src\trigger\lsl_inlet.hpp``)
 ------------------------------------------
 
 
@@ -32,11 +32,11 @@ Includes
 
 - ``QObject``
 
-- ``core/settings.hpp`` (:ref:`file_src_core_settings.hpp`)
+- ``core/settings.hpp``
 
 - ``memory``
 
-- ``trigger/trigger_types.hpp`` (:ref:`file_src_trigger_trigger_types.hpp`)
+- ``trigger/trigger_types.hpp``
 
 
 

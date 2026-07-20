@@ -46,3 +46,41 @@ jobs:
       - name: Run tests
         shell: pwsh
         run: ctest --test-dir build -C Release --output-on-failure
+
+  docs:
+    runs-on: ubuntu-latest
+
+    # Bypasses CMake entirely: CMakeLists.txt calls find_package(Qt6 ...)
+    # unconditionally, before MOSAIC_BUILD_DOCS is even read, so a
+    # CMake-driven docs build would still need the full Qt6+vcpkg toolchain.
+    # Standalone Doxygen + sphinx-build needs none of that.
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Doxygen and Graphviz
+        run: sudo apt-get update && sudo apt-get install -y doxygen graphviz
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+
+      - name: Install docs dependencies
+        working-directory: docs
+        run: uv sync
+
+      - name: Render Doxyfile.in and run Doxygen
+        run: |
+          sed \
+            -e "s|@PROJECT_VERSION@|0.0.0-ci|g" \
+            -e "s|@CMAKE_SOURCE_DIR@|${{ github.workspace }}|g" \
+            -e "s|@CMAKE_CURRENT_BINARY_DIR@|${{ github.workspace }}/build-docs|g" \
+            docs/Doxyfile.in > build-docs.Doxyfile
+          mkdir -p build-docs
+          doxygen build-docs.Doxyfile
+
+      - name: Build Sphinx docs
+        working-directory: docs
+        env:
+          DOXYGEN_XML: ${{ github.workspace }}/build-docs/doxygen/xml
+        # --keep-going: start permissive to baseline pre-existing warnings
+        # before tightening to a hard -W once confirmed clean.
+        run: uv run sphinx-build -b html --keep-going . _build/html

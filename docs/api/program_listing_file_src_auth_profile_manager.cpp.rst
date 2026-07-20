@@ -4,7 +4,7 @@
 Program Listing for File profile_manager.cpp
 ============================================
 
-|exhale_lsh| :ref:`Return to documentation for file <file_src_auth_profile_manager.cpp>` (``src/auth/profile_manager.cpp``)
+|exhale_lsh| :ref:`Return to documentation for file <file_src_auth_profile_manager.cpp>` (``src\auth\profile_manager.cpp``)
 
 .. |exhale_lsh| unicode:: U+021B0 .. UPWARDS ARROW WITH TIP LEFTWARDS
 
@@ -100,6 +100,9 @@ Program Listing for File profile_manager.cpp
            prof.passwordHash = obj["password_hash"].toString();
            prof.lastLogin    = QDateTime::fromString(obj["last_login"].toString(), Qt::ISODate);
            prof.created      = QDateTime::fromString(obj["created"].toString(),    Qt::ISODate);
+           prof.role         = (obj["role"].toString() == "admin")
+                                   ? Profile::Role::Admin : Profile::Role::User;
+           prof.institution  = obj["institution"].toString();
            d->profiles.push_back(std::move(prof));
        }
    
@@ -122,6 +125,8 @@ Program Listing for File profile_manager.cpp
                {"password_hash", prof.passwordHash},
                {"last_login",    prof.lastLogin.toString(Qt::ISODate)},
                {"created",       prof.created.toString(Qt::ISODate)},
+               {"role",          prof.role == Profile::Role::Admin ? "admin" : "user"},
+               {"institution",   prof.institution},
            });
        }
    
@@ -176,10 +181,18 @@ Program Listing for File profile_manager.cpp
    
    // ── Registration ───────────────────────────────────────────────────────────
    
+   bool ProfileManager::has_admin() const {
+       for (const auto& prof : d->profiles) {
+           if (prof.is_admin()) { return true; }
+       }
+       return false;
+   }
+   
    ProfileManager::RegisterResult
-   ProfileManager::register_profile(const QString& username,
-                                     const QString& displayName,
-                                     const QString& password) {
+   ProfileManager::register_profile(const QString&  username,
+                                     const QString&  displayName,
+                                     const QString&  password,
+                                     Profile::Role   role) {
        // Validate username: 3–32 lowercase alphanumeric + underscore.
        static const QRegularExpression re("^[a-z0-9_]{3,32}$");
        if (!re.match(username).hasMatch()) {
@@ -209,6 +222,7 @@ Program Listing for File profile_manager.cpp
        prof.passwordHash = password.isEmpty() ? QString{} : hash_password(password, salt);
        prof.created      = QDateTime::currentDateTimeUtc();
        prof.lastLogin    = prof.created;
+       prof.role         = role;
    
        // Create the profile directory.
        QDir().mkpath(profile_dir(username));
@@ -257,6 +271,52 @@ Program Listing for File profile_manager.cpp
            if (prof.username == username) {
                prof.displayName = newDisplay;
                prof.initials    = generate_initials(newDisplay);
+               [[maybe_unused]] const bool saved = save();
+               emit profiles_changed();
+               return true;
+           }
+       }
+       return false;
+   }
+   
+   bool ProfileManager::change_password(const QString& username, const QString& newPassword) {
+       for (auto& prof : d->profiles) {
+           if (prof.username == username) {
+               if (newPassword.isEmpty()) {
+                   prof.salt         = QString{};
+                   prof.passwordHash = QString{};
+               } else {
+                   QByteArray salt(k_salt_bytes, '\0');
+                   QRandomGenerator::global()->fillRange(
+                       reinterpret_cast<quint32*>(salt.data()),
+                       static_cast<qsizetype>(k_salt_bytes / sizeof(quint32)));
+                   prof.salt         = QString::fromLatin1(salt.toHex());
+                   prof.passwordHash = hash_password(newPassword, salt);
+               }
+               [[maybe_unused]] const bool saved = save();
+               emit profiles_changed();
+               return true;
+           }
+       }
+       return false;
+   }
+   
+   bool ProfileManager::set_role(const QString& username, Profile::Role role) {
+       for (auto& prof : d->profiles) {
+           if (prof.username == username) {
+               prof.role = role;
+               [[maybe_unused]] const bool saved = save();
+               emit profiles_changed();
+               return true;
+           }
+       }
+       return false;
+   }
+   
+   bool ProfileManager::set_institution(const QString& username, const QString& institution) {
+       for (auto& prof : d->profiles) {
+           if (prof.username == username) {
+               prof.institution = institution;
                [[maybe_unused]] const bool saved = save();
                emit profiles_changed();
                return true;

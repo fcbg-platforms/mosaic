@@ -4,7 +4,7 @@
 Program Listing for File parallel_port_trigger.cpp
 ==================================================
 
-|exhale_lsh| :ref:`Return to documentation for file <file_src_trigger_parallel_port_trigger.cpp>` (``src/trigger/parallel_port_trigger.cpp``)
+|exhale_lsh| :ref:`Return to documentation for file <file_src_trigger_parallel_port_trigger.cpp>` (``src\trigger\parallel_port_trigger.cpp``)
 
 .. |exhale_lsh| unicode:: U+021B0 .. UPWARDS ARROW WITH TIP LEFTWARDS
 

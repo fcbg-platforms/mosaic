@@ -4,7 +4,7 @@
 Program Listing for File lsl_outlet.hpp
 =======================================
 
-|exhale_lsh| :ref:`Return to documentation for file <file_src_trigger_lsl_outlet.hpp>` (``src/trigger/lsl_outlet.hpp``)
+|exhale_lsh| :ref:`Return to documentation for file <file_src_trigger_lsl_outlet.hpp>` (``src\trigger\lsl_outlet.hpp``)
 
 .. |exhale_lsh| unicode:: U+021B0 .. UPWARDS ARROW WITH TIP LEFTWARDS
 

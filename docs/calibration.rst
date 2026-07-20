@@ -81,7 +81,22 @@ What is stored
      - Distortion coefficients ``[k1, k2, p1, p2, k3]``.
    * - ``extrinsicRt[16]``
      - 4 × 4 homogeneous RT relative to camera 0 (identity for cam 0).
-       Populated by stereo calibration (planned feature).
+       Populated by the **Room (Extrinsics)** tab — see below.
+   * - ``extrinsicCalibrated``
+     - ``true`` after a successful room/extrinsic calibration run for this
+       camera. Distinct from ``calibrated``, which only ever means
+       "intrinsics done".
+
+Room (extrinsic) calibration
+-------------------------------
+
+A second tab, **Room (Extrinsics)**, solves every camera's position and
+orientation relative to one shared room origin — needed to combine
+per-camera 3D signals (e.g. gaze rays, see :doc:`math/gaze_fusion`) across
+cameras. It works by capturing simultaneous ChArUco-board shots seen by
+multiple cameras at once, rather than one camera at a time. See
+:doc:`user_guide`'s calibration workflow for the step-by-step UI walkthrough,
+and :doc:`math/room_calibration` for the underlying pose-graph math.
 
 Using calibration data in Python
 ---------------------------------

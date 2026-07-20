@@ -4,7 +4,7 @@
 Program Listing for File video_manager.hpp
 ==========================================
 
-|exhale_lsh| :ref:`Return to documentation for file <file_src_video_video_manager.hpp>` (``src/video/video_manager.hpp``)
+|exhale_lsh| :ref:`Return to documentation for file <file_src_video_video_manager.hpp>` (``src\video\video_manager.hpp``)
 
 .. |exhale_lsh| unicode:: U+021B0 .. UPWARDS ARROW WITH TIP LEFTWARDS
 
@@ -13,10 +13,13 @@ Program Listing for File video_manager.hpp
    #pragma once
    #include "core/settings.hpp"
    #include "video/video_frame.hpp"
+   #include <QImage>
    #include <QObject>
    #include <memory>
    
    namespace mosaic {
+   
+   class TriggerManager;
    
    /// @brief Orchestrates one VideoGrabber + VideoEncoder pair per configured camera.
    ///
@@ -50,7 +53,10 @@ Program Listing for File video_manager.hpp
    class VideoManager : public QObject {
        Q_OBJECT
    public:
-       explicit VideoManager(QObject* parent = nullptr);
+       // triggerMgr, if non-null, must outlive this object — passed down to
+       // every VideoGrabber opened by open() so each captured frame can be
+       // published as an LSL marker (see TriggerManager::publish_frame_marker()).
+       explicit VideoManager(TriggerManager* triggerMgr = nullptr, QObject* parent = nullptr);
        ~VideoManager() override;
    
        /// @brief Opens camera devices (or stub generators) for all configured cameras.
@@ -65,6 +71,13 @@ Program Listing for File video_manager.hpp
        ///
        /// Calls stop() first if a recording is active.
        void close();
+   
+       /// @brief Starts the grab loop for all cameras without creating encoders.
+       ///
+       /// Call this after open() to see live preview frames in the QML monitor
+       /// before any recording session begins.  Safe to call if grabbers are
+       /// already running (no-op for those cameras).
+       void start_preview();
    
        /// @brief Starts grabbing and encoding for all open cameras.
        ///
@@ -84,6 +97,28 @@ Program Listing for File video_manager.hpp
        /// Blocks until all encoder threads have exited (up to 10 s per camera).
        void stop();
    
+       /// @brief Re-applies exposure/gain/gamma/black-level/white-balance/
+       /// auto-target/digital-shift for one camera to already-open hardware,
+       /// without stopping or reopening it.
+       ///
+       /// Call this after the caller has mutated the corresponding
+       /// CameraParameters in place (e.g. via the settings UI). Structural
+       /// parameters (resolution, pixel format, frame rate, hardware trigger)
+       /// still require a full close()+open() to take effect and are not
+       /// touched by this call.
+       ///
+       /// @param configIndex  Position in the *configured* settings.cameras
+       ///                     array (VideoManager::CameraUnit::configIndex),
+       ///                     not the camera's position among successfully
+       ///                     opened units. No-op if no open unit matches.
+       void apply_live_params(int configIndex);
+   
+       /// @brief Requests one full-resolution frame from the given camera for
+       /// room (extrinsic) calibration — see VideoGrabber::request_calibration_frame().
+       /// Delivered asynchronously via calibration_frame_ready(); no-op if no
+       /// open unit matches configIndex.
+       void request_calibration_frame(int configIndex);
+   
        /// @returns @c true while a recording session is active.
        [[nodiscard]] bool    is_recording()          const;
    
@@ -95,6 +130,22 @@ Program Listing for File video_manager.hpp
    
        /// @returns Total frames dropped (ring buffer overflow) since last start().
        [[nodiscard]] int64_t total_frames_dropped()   const;
+   
+       /// @brief Per-camera real-time performance snapshot.
+       struct CameraStats {
+           double  fps               = 0.0;  ///< Measured grab rate (frames/s).
+           int64_t framesGrabbed     = 0;    ///< Total frames grabbed since start().
+           int64_t framesEncoded     = 0;    ///< Total frames encoded since start().
+           int64_t framesDropped     = 0;    ///< Frames lost to ring-buffer overflow.
+           int     ringFillPct       = 0;    ///< Ring buffer fill level, 0–100.
+           bool    grabberRunning    = false;
+           int64_t lastFrameElapsedNs = -1;  ///< elapsed_ns() of the most recent frame, -1 if none yet.
+       };
+   
+       /// @brief Returns a performance snapshot for one camera.
+       ///
+       /// @param index  Zero-based camera index.  Returns a zeroed struct if out of range.
+       [[nodiscard]] CameraStats camera_stats(int index) const;
    
    signals:
        /// Emitted on the main thread when a camera device is successfully opened.
@@ -113,6 +164,12 @@ Program Listing for File video_manager.hpp
    
        /// Emitted when all encoders have finished (files closed and flushed).
        void recording_stopped();
+   
+       /// Throttled (~15 fps) BGR preview for live QML display.
+       void frame_preview(int cameraIndex, QImage frame);
+   
+       /// Full-resolution frame delivered in response to request_calibration_frame().
+       void calibration_frame_ready(int cameraIndex, QImage frame);
    
    private slots:
        void on_encoder_stopped(int cameraIndex, int64_t frames);

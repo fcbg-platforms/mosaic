@@ -4,7 +4,7 @@
 File parallel_port_trigger.cpp
 ==============================
 
-|exhale_lsh| :ref:`Parent directory <dir_src_trigger>` (``src/trigger``)
+|exhale_lsh| :ref:`Parent directory <dir_src_trigger>` (``src\trigger``)
 
 .. |exhale_lsh| unicode:: U+021B0 .. UPWARDS ARROW WITH TIP LEFTWARDS
 
@@ -13,7 +13,7 @@ File parallel_port_trigger.cpp
    :local:
    :backlinks: none
 
-Definition (``src/trigger/parallel_port_trigger.cpp``)
+Definition (``src\trigger\parallel_port_trigger.cpp``)
 ------------------------------------------------------
 
 
@@ -36,11 +36,11 @@ Includes
 
 - ``atomic``
 
-- ``trigger/parallel_port_trigger.hpp`` (:ref:`file_src_trigger_parallel_port_trigger.hpp`)
+- ``trigger/parallel_port_trigger.hpp``
 
-- ``utils/logger.hpp`` (:ref:`file_src_utils_logger.hpp`)
+- ``utils/logger.hpp``
 
-- ``utils/timestamp.hpp`` (:ref:`file_src_utils_timestamp.hpp`)
+- ``utils/timestamp.hpp``
 
 
 

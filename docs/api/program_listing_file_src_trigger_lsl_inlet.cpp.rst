@@ -4,7 +4,7 @@
 Program Listing for File lsl_inlet.cpp
 ======================================
 
-|exhale_lsh| :ref:`Return to documentation for file <file_src_trigger_lsl_inlet.cpp>` (``src/trigger/lsl_inlet.cpp``)
+|exhale_lsh| :ref:`Return to documentation for file <file_src_trigger_lsl_inlet.cpp>` (``src\trigger\lsl_inlet.cpp``)
 
 .. |exhale_lsh| unicode:: U+021B0 .. UPWARDS ARROW WITH TIP LEFTWARDS
 

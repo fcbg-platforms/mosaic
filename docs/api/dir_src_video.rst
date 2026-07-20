@@ -10,7 +10,7 @@ Directory video
 .. |exhale_lsh| unicode:: U+021B0 .. UPWARDS ARROW WITH TIP LEFTWARDS
 
 
-*Directory path:* ``src/video``
+*Directory path:* ``src\video``
 
 
 Files
@@ -18,8 +18,11 @@ Files
 
 - :ref:`file_src_video_frame_timestamp_writer.cpp`
 - :ref:`file_src_video_frame_timestamp_writer.hpp`
+- :ref:`file_src_video_param_mapping.hpp`
 - :ref:`file_src_video_video_encoder.cpp`
 - :ref:`file_src_video_video_encoder.hpp`
+- :ref:`file_src_video_video_feed_provider.cpp`
+- :ref:`file_src_video_video_feed_provider.hpp`
 - :ref:`file_src_video_video_frame.hpp`
 - :ref:`file_src_video_video_grabber.cpp`
 - :ref:`file_src_video_video_grabber.hpp`

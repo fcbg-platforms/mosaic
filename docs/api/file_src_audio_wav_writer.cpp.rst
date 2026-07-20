@@ -4,7 +4,7 @@
 File wav_writer.cpp
 ===================
 
-|exhale_lsh| :ref:`Parent directory <dir_src_audio>` (``src/audio``)
+|exhale_lsh| :ref:`Parent directory <dir_src_audio>` (``src\audio``)
 
 .. |exhale_lsh| unicode:: U+021B0 .. UPWARDS ARROW WITH TIP LEFTWARDS
 
@@ -13,7 +13,7 @@ File wav_writer.cpp
    :local:
    :backlinks: none
 
-Definition (``src/audio/wav_writer.cpp``)
+Definition (``src\audio\wav_writer.cpp``)
 -----------------------------------------
 
 
@@ -36,11 +36,11 @@ Includes
 
 - ``QMutexLocker``
 
-- ``audio/wav_writer.hpp`` (:ref:`file_src_audio_wav_writer.hpp`)
+- ``audio/wav_writer.hpp``
 
 - ``cstdint``
 
-- ``utils/logger.hpp`` (:ref:`file_src_utils_logger.hpp`)
+- ``utils/logger.hpp``
 
 
 

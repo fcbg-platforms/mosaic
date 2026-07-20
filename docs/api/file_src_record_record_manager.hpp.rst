@@ -4,7 +4,7 @@
 File record_manager.hpp
 =======================
 
-|exhale_lsh| :ref:`Parent directory <dir_src_record>` (``src/record``)
+|exhale_lsh| :ref:`Parent directory <dir_src_record>` (``src\record``)
 
 .. |exhale_lsh| unicode:: U+021B0 .. UPWARDS ARROW WITH TIP LEFTWARDS
 
@@ -13,7 +13,7 @@ File record_manager.hpp
    :local:
    :backlinks: none
 
-Definition (``src/record/record_manager.hpp``)
+Definition (``src\record\record_manager.hpp``)
 ----------------------------------------------
 
 
@@ -32,15 +32,15 @@ Includes
 
 - ``QObject``
 
-- ``audio/audio_manager.hpp`` (:ref:`file_src_audio_audio_manager.hpp`)
+- ``audio/audio_manager.hpp``
 
-- ``core/settings.hpp`` (:ref:`file_src_core_settings.hpp`)
+- ``core/settings.hpp``
 
 - ``memory``
 
-- ``trigger/trigger_manager.hpp`` (:ref:`file_src_trigger_trigger_manager.hpp`)
+- ``trigger/trigger_manager.hpp``
 
-- ``video/video_manager.hpp`` (:ref:`file_src_video_video_manager.hpp`)
+- ``video/video_manager.hpp``
 
 
 

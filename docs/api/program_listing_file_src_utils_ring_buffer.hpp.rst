@@ -4,7 +4,7 @@
 Program Listing for File ring_buffer.hpp
 ========================================
 
-|exhale_lsh| :ref:`Return to documentation for file <file_src_utils_ring_buffer.hpp>` (``src/utils/ring_buffer.hpp``)
+|exhale_lsh| :ref:`Return to documentation for file <file_src_utils_ring_buffer.hpp>` (``src\utils\ring_buffer.hpp``)
 
 .. |exhale_lsh| unicode:: U+021B0 .. UPWARDS ARROW WITH TIP LEFTWARDS
 
@@ -48,9 +48,16 @@ Program Listing for File ring_buffer.hpp
    /// @tparam T  Element type.  Must be default-constructible.
    template<typename T>
    class RingBuffer {
+   #ifdef _MSC_VER
+   #  pragma warning(push)
+   #  pragma warning(disable: 4324) // structure padded due to alignas — intentional
+   #endif
        struct alignas(64) AlignedAtomic {
            std::atomic<std::size_t> v{0};
        };
+   #ifdef _MSC_VER
+   #  pragma warning(pop)
+   #endif
    
        AlignedAtomic   m_head;     ///< Producer counter (written by producer, read by consumer).
        AlignedAtomic   m_tail;     ///< Consumer counter (written by consumer, read by producer).

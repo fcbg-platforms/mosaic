@@ -4,7 +4,7 @@
 Program Listing for File trigger_manager.hpp
 ============================================
 
-|exhale_lsh| :ref:`Return to documentation for file <file_src_trigger_trigger_manager.hpp>` (``src/trigger/trigger_manager.hpp``)
+|exhale_lsh| :ref:`Return to documentation for file <file_src_trigger_trigger_manager.hpp>` (``src\trigger\trigger_manager.hpp``)
 
 .. |exhale_lsh| unicode:: U+021B0 .. UPWARDS ARROW WITH TIP LEFTWARDS
 
@@ -97,8 +97,15 @@ Program Listing for File trigger_manager.hpp
        /// Emitted on the main thread for every trigger event, regardless of source.
        /// Connect to this signal to react to events in real time.
        ///
-       /// @param event  A copy of the TriggerEvent (source, label, value, timestamp).
+       /// @param event  A copy of the TriggerEvent (source, label, value, timestamp, action).
        void event_received(mosaic::TriggerEvent event);
+   
+       /// Emitted when a trigger fires with action StartRecording or StopRecording.
+       /// Application connects this to RecordManager::start() / stop().
+       ///
+       /// @param action  The action requested (Start or Stop).
+       /// @param event   The trigger event that caused the action.
+       void action_requested(mosaic::TriggerAction action, mosaic::TriggerEvent event);
    
    private slots:
        void on_trigger_fired(mosaic::TriggerEvent event);

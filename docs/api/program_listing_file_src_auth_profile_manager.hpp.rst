@@ -4,7 +4,7 @@
 Program Listing for File profile_manager.hpp
 ============================================
 
-|exhale_lsh| :ref:`Return to documentation for file <file_src_auth_profile_manager.hpp>` (``src/auth/profile_manager.hpp``)
+|exhale_lsh| :ref:`Return to documentation for file <file_src_auth_profile_manager.hpp>` (``src\auth\profile_manager.hpp``)
 
 .. |exhale_lsh| unicode:: U+021B0 .. UPWARDS ARROW WITH TIP LEFTWARDS
 
@@ -101,10 +101,15 @@ Program Listing for File profile_manager.hpp
        /// @param displayName  Human-readable group name (any Unicode string).
        /// @param password     Plain-text password.  Pass an empty string for
        ///                     a password-free profile.
+       /// @param role         Privilege level for the new profile (default: User).
        /// @returns            RegisterResult::Ok on success, or an error code.
-       RegisterResult register_profile(const QString& username,
-                                        const QString& displayName,
-                                        const QString& password);
+       RegisterResult register_profile(const QString&  username,
+                                        const QString&  displayName,
+                                        const QString&  password,
+                                        Profile::Role   role = Profile::Role::User);
+   
+       /// @returns @c true if at least one profile with Admin role exists.
+       [[nodiscard]] bool has_admin() const;
    
        // ── Authentication ─────────────────────────────────────────────────────
    
@@ -162,6 +167,27 @@ Program Listing for File profile_manager.hpp
        /// @param newDisplay  New human-readable name.
        /// @returns           @c true if the profile was found and updated.
        bool rename_display(const QString& username, const QString& newDisplay);
+   
+       /// @brief Changes a profile's password.  Pass empty to remove password protection.
+       ///
+       /// @param username     Profile to update.
+       /// @param newPassword  New plain-text password, or empty string to clear.
+       /// @returns            @c true on success.
+       bool change_password(const QString& username, const QString& newPassword);
+   
+       /// @brief Updates a profile's privilege role.
+       ///
+       /// @param username  Profile to update.
+       /// @param role      New role.
+       /// @returns         @c true on success.
+       bool set_role(const QString& username, Profile::Role role);
+   
+       /// @brief Updates a profile's institution / lab name.
+       ///
+       /// @param username     Profile to update.
+       /// @param institution  New institution string (any Unicode).
+       /// @returns            @c true on success.
+       bool set_institution(const QString& username, const QString& institution);
    
        /// @brief Returns the hex accent colour for a given position in the palette.
        ///

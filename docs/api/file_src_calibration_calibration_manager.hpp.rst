@@ -4,7 +4,7 @@
 File calibration_manager.hpp
 ============================
 
-|exhale_lsh| :ref:`Parent directory <dir_src_calibration>` (``src/calibration``)
+|exhale_lsh| :ref:`Parent directory <dir_src_calibration>` (``src\calibration``)
 
 .. |exhale_lsh| unicode:: U+021B0 .. UPWARDS ARROW WITH TIP LEFTWARDS
 
@@ -13,7 +13,7 @@ File calibration_manager.hpp
    :local:
    :backlinks: none
 
-Definition (``src/calibration/calibration_manager.hpp``)
+Definition (``src\calibration\calibration_manager.hpp``)
 --------------------------------------------------------
 
 
@@ -34,11 +34,11 @@ Includes
 
 - ``QObject``
 
-- ``core/settings.hpp`` (:ref:`file_src_core_settings.hpp`)
+- ``core/settings.hpp``
 
 - ``memory``
 
-- ``video/video_frame.hpp`` (:ref:`file_src_video_video_frame.hpp`)
+- ``video/video_frame.hpp``
 
 
 

@@ -11,6 +11,9 @@ MOSAIC Documentation
    calibration
    lsl
    profiles
+   user_guide
+   analysis_api
+   math/index
    api/library_root
 
 .. raw:: html
@@ -22,6 +25,10 @@ MOSAIC Documentation
      padding: 28px 32px 20px;
      margin-bottom: 28px;
    ">
+     <img src="_static/logo-light.svg" class="only-light" alt="MOSAIC"
+          style="width:56px; height:56px; margin-bottom:14px; display:block;">
+     <img src="_static/logo-dark.svg" class="only-dark" alt="MOSAIC"
+          style="width:56px; height:56px; margin-bottom:14px; display:block;">
      <p style="
        font-size: 1.05rem;
        color: #9999cc;
@@ -86,6 +93,31 @@ MOSAIC Documentation
 
       Per-research-group profiles: isolated configs, PBKDF2 passwords,
       and the in-app profile switcher.
+
+   .. grid-item-card:: 📘  User guide
+      :link: user_guide
+      :link-type: doc
+      :class-card: sd-border-0
+
+      Task-oriented walkthrough: recording, browsing sessions, running each
+      Analysis-tab plugin, and the calibration workflow end to end.
+
+   .. grid-item-card:: 🐍  Python analysis API
+      :link: analysis_api
+      :link-type: doc
+      :class-card: sd-border-0
+
+      The ``analysis/`` project's importable library surface — Pose, Face
+      Masking, Diarization, Expression, Gaze Fusion, and Motion — with full
+      numpydoc-rendered signatures.
+
+   .. grid-item-card:: ∑  Mathematical background
+      :link: math/index
+      :link-type: doc
+      :class-card: sd-border-0
+
+      The derivations behind each analysis plugin: gaze-ray triangulation,
+      room-frame pose averaging, kinematics, and more.
 
    .. grid-item-card:: 📖  API reference
       :link: api/library_root
