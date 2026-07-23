@@ -28,6 +28,7 @@ public:
 
 protected:
     void keyPressEvent(QKeyEvent* event) override;  // disable Escape
+    void showEvent(QShowEvent* event) override;      // gentle fade-in on first show
 
 private slots:
     void on_card_selected(const QString& username);
@@ -42,7 +43,9 @@ private:
     void rebuild_profile_grid();
     void show_login_mode();
     void show_register_mode();
+    void crossfade_to_page(int index);
     void set_error(const QString& msg);
+    void set_register_error(const QString& msg);
     void clear_error();
     void attempt_login();
     void slide_password_in(bool visible);

@@ -1,18 +1,26 @@
 #include "ui/auth/login_dialog.hpp"
 #include <QCheckBox>
+#include <QEasingCurve>
 #include <QFont>
 #include <QFrame>
+#include <QGraphicsOpacityEffect>
 #include <QHBoxLayout>
 #include <QKeyEvent>
 #include <QLabel>
 #include <QLineEdit>
 #include <QPainter>
 #include <QPainterPath>
+#include <QParallelAnimationGroup>
+#include <QPointer>
+#include <QPropertyAnimation>
 #include <QScrollArea>
+#include <QSequentialAnimationGroup>
 #include <QSizePolicy>
 #include <QStackedWidget>
+#include <QVariantAnimation>
 #include <QVBoxLayout>
 #include <QPushButton>
+#include <algorithm>
 
 namespace mosaic {
 
@@ -25,9 +33,50 @@ class BrandingPanel : public QWidget {
 public:
     explicit BrandingPanel(QWidget* parent = nullptr) : QWidget(parent) {
         setFixedWidth(300);
+
+        // Slow, constant-speed spin of the diamond mark — the first
+        // continuous/looping animation in this codebase (everything else is
+        // a one-shot discrete transition). Only started/stopped in
+        // showEvent()/hideEvent() below so it doesn't keep repainting while
+        // this panel (and the login dialog it lives in) isn't on screen.
+        m_rotationAnim = new QVariantAnimation(this);
+        m_rotationAnim->setStartValue(0.0);
+        m_rotationAnim->setEndValue(360.0);
+        m_rotationAnim->setDuration(24000);
+        m_rotationAnim->setEasingCurve(QEasingCurve::Linear);
+        m_rotationAnim->setLoopCount(-1);
+        connect(m_rotationAnim, &QVariantAnimation::valueChanged, this, [this](const QVariant& v) {
+            m_diamondAngle = v.toDouble();
+            update();
+        });
+
+        // Subtle "breathing" glow behind the diamond, same start/stop gating.
+        m_pulseAnim = new QVariantAnimation(this);
+        m_pulseAnim->setKeyValueAt(0.0, 0.85);
+        m_pulseAnim->setKeyValueAt(0.5, 1.15);
+        m_pulseAnim->setKeyValueAt(1.0, 0.85);
+        m_pulseAnim->setDuration(3200);
+        m_pulseAnim->setEasingCurve(QEasingCurve::InOutSine);
+        m_pulseAnim->setLoopCount(-1);
+        connect(m_pulseAnim, &QVariantAnimation::valueChanged, this, [this](const QVariant& v) {
+            m_glowPulse = v.toDouble();
+            update();
+        });
     }
 
 protected:
+    void showEvent(QShowEvent* event) override {
+        QWidget::showEvent(event);
+        m_rotationAnim->start();
+        m_pulseAnim->start();
+    }
+
+    void hideEvent(QHideEvent* event) override {
+        QWidget::hideEvent(event);
+        m_rotationAnim->stop();
+        m_pulseAnim->stop();
+    }
+
     void paintEvent(QPaintEvent*) override {
         QPainter p(this);
         p.setRenderHint(QPainter::Antialiasing);
@@ -65,18 +114,24 @@ protected:
         drawGlow(width()-20, height()-80, 140, QColor("#226688"));
         drawGlow(width()/2,  height()/2,   80, QColor("#332266"));
 
-        // ── Diamond logo mark ────────────────────────────────────────────
+        // ── Diamond logo mark (rotating; wordmark/tags below stay static) ──
         const int cx   = width() / 2;
         const int logoY = 62;
         const int sz   = 36;
 
-        // Outer glow
-        QRadialGradient logoGlow(cx, logoY, sz + 20);
+        p.save();
+        p.translate(cx, logoY);
+        p.rotate(m_diamondAngle);
+        p.translate(-cx, -logoY);
+
+        // Outer glow (subtle breathing pulse)
+        const qreal glowR = (sz + 20) * m_glowPulse;
+        QRadialGradient logoGlow(QPointF(cx, logoY), glowR);
         logoGlow.setColorAt(0.0, QColor(100, 100, 255, 60));
         logoGlow.setColorAt(1.0, QColor(0,   0,   0,    0));
         p.setBrush(logoGlow);
         p.setPen(Qt::NoPen);
-        p.drawEllipse(cx - sz - 20, logoY - sz - 20, (sz + 20) * 2, (sz + 20) * 2);
+        p.drawEllipse(QPointF(cx, logoY), glowR, glowR);
 
         // Diamond shape
         QPainterPath diamond;
@@ -105,6 +160,8 @@ protected:
         p.setBrush(QColor(5, 5, 20, 200));
         p.setPen(Qt::NoPen);
         p.drawPath(innerDia);
+
+        p.restore();
 
         // ── MOSAIC wordmark ──────────────────────────────────────────────
         QFont wordFont;
@@ -182,7 +239,84 @@ protected:
         p.setPen(QPen(QBrush(edgeGrad), 1.0));
         p.drawLine(width() - 1, 0, width() - 1, height());
     }
+
+private:
+    qreal m_diamondAngle = 0.0;
+    qreal m_glowPulse    = 1.0;
+    QVariantAnimation* m_rotationAnim = nullptr;
+    QVariantAnimation* m_pulseAnim    = nullptr;
 };
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Small animation/paint helpers shared by the widgets below
+// ─────────────────────────────────────────────────────────────────────────────
+
+namespace {
+
+// Lazily installs (or reuses) a QGraphicsOpacityEffect on `w` — every fade/
+// crossfade below shares this instead of each keeping its own persisted
+// effect pointer; leaving the effect installed at opacity 1.0 is harmless.
+QGraphicsOpacityEffect* ensure_opacity_effect(QWidget* w) {
+    auto* effect = qobject_cast<QGraphicsOpacityEffect*>(w->graphicsEffect());
+    if (!effect) {
+        effect = new QGraphicsOpacityEffect(w);
+        w->setGraphicsEffect(effect);
+    }
+    return effect;
+}
+
+void fade_in_widget(QWidget* w) {
+    auto* effect = ensure_opacity_effect(w);
+    auto* anim = new QPropertyAnimation(effect, "opacity", w);
+    anim->setDuration(150);
+    anim->setStartValue(0.0);
+    anim->setEndValue(1.0);
+    anim->start(QAbstractAnimation::DeleteWhenStopped);
+}
+
+// Short, decaying horizontal shake — the standard "invalid input" cue.
+// Animates the widget's own `pos` property (a real Q_PROPERTY on QWidget,
+// backed by move()) relative to wherever it currently sits under its
+// layout, and always ends exactly back at that position.
+void shake_widget(QWidget* w) {
+    if (!w) { return; }
+    const QPoint base = w->pos();
+    auto* group = new QSequentialAnimationGroup(w);
+    const int offsets[] = { 8, -8, 6, -6, 3, -3, 0 };
+    QPoint prev = base;
+    for (int off : offsets) {
+        const QPoint target = base + QPoint(off, 0);
+        auto* anim = new QPropertyAnimation(w, "pos");
+        anim->setDuration(45);
+        anim->setEasingCurve(QEasingCurve::InOutQuad);
+        anim->setStartValue(prev);
+        anim->setEndValue(target);
+        group->addAnimation(anim);
+        prev = target;
+    }
+    group->start(QAbstractAnimation::DeleteWhenStopped);
+}
+
+// Restarts a 0..1 hover-intensity animation toward `target` from wherever it
+// currently is, so a fast in-out-in doesn't visually jump.
+void restart_hover_anim(QVariantAnimation* anim, qreal currentT, qreal target) {
+    anim->stop();
+    anim->setStartValue(currentT);
+    anim->setEndValue(target);
+    anim->start();
+}
+
+// Linear per-channel RGBA interpolation, t clamped to [0, 1].
+QColor lerp_color(const QColor& a, const QColor& b, qreal t) {
+    t = std::clamp(t, 0.0, 1.0);
+    return QColor(
+        static_cast<int>(a.red()   + (b.red()   - a.red())   * t),
+        static_cast<int>(a.green() + (b.green() - a.green()) * t),
+        static_cast<int>(a.blue()  + (b.blue()  - a.blue())  * t),
+        static_cast<int>(a.alpha() + (b.alpha() - a.alpha()) * t));
+}
+
+} // namespace
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Avatar chip — profile selection card
@@ -203,6 +337,14 @@ public:
             .arg(m_profile.displayName,
                  m_profile.username,
                  m_profile.institution.isEmpty() ? "" : m_profile.institution));
+
+        m_hoverAnim = new QVariantAnimation(this);
+        m_hoverAnim->setDuration(120);
+        m_hoverAnim->setEasingCurve(QEasingCurve::OutCubic);
+        connect(m_hoverAnim, &QVariantAnimation::valueChanged, this, [this](const QVariant& v) {
+            m_hoverT = v.toDouble();
+            update();
+        });
     }
 
     void set_selected(bool selected) {
@@ -228,11 +370,14 @@ protected:
         const QColor accent(m_profile.accentColour.isEmpty()
                              ? "#5566bb" : m_profile.accentColour);
 
-        // Hover / selected background card
-        if (m_selected || underMouse()) {
+        // Hover / selected background card (hover fades smoothly via
+        // m_hoverT; the selected state itself stays a hard on/off, since it
+        // shouldn't fade with hover)
+        if (m_selected || m_hoverT > 0.0) {
             painter.setPen(Qt::NoPen);
-            QColor cardBg = m_selected ? QColor(accent.red(), accent.green(), accent.blue(), 20)
-                                       : QColor(255, 255, 255, 6);
+            QColor cardBg = m_selected
+                ? QColor(accent.red(), accent.green(), accent.blue(), 20)
+                : QColor(255, 255, 255, static_cast<int>(6 * m_hoverT));
             painter.setBrush(cardBg);
             painter.drawRoundedRect(rect().adjusted(2, 2, -2, -2), 8, 8);
         }
@@ -322,12 +467,14 @@ protected:
     }
 
     void mousePressEvent(QMouseEvent*) override { emit clicked(m_profile.username); }
-    void enterEvent(QEnterEvent*)      override { update(); }
-    void leaveEvent(QEvent*)           override { update(); }
+    void enterEvent(QEnterEvent*)      override { restart_hover_anim(m_hoverAnim, m_hoverT, 1.0); }
+    void leaveEvent(QEvent*)           override { restart_hover_anim(m_hoverAnim, m_hoverT, 0.0); }
 
 private:
     Profile m_profile;
     bool    m_selected{false};
+    qreal   m_hoverT{0.0};
+    QVariantAnimation* m_hoverAnim = nullptr;
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -341,6 +488,14 @@ public:
         setFixedSize(100, 124);
         setCursor(Qt::PointingHandCursor);
         setToolTip("Create new profile");
+
+        m_hoverAnim = new QVariantAnimation(this);
+        m_hoverAnim->setDuration(120);
+        m_hoverAnim->setEasingCurve(QEasingCurve::OutCubic);
+        connect(m_hoverAnim, &QVariantAnimation::valueChanged, this, [this](const QVariant& v) {
+            m_hoverT = v.toDouble();
+            update();
+        });
     }
 
 signals:
@@ -351,35 +506,39 @@ protected:
         QPainter painter(this);
         painter.setRenderHint(QPainter::Antialiasing);
 
-        const bool hovered = underMouse();
-        if (hovered) {
-            painter.setBrush(QColor(255, 255, 255, 8));
+        if (m_hoverT > 0.0) {
+            painter.setBrush(QColor(255, 255, 255, static_cast<int>(8 * m_hoverT)));
             painter.setPen(Qt::NoPen);
             painter.drawRoundedRect(rect().adjusted(2, 2, -2, -2), 8, 8);
         }
 
         const QRectF circle(14, 8, 72, 72);
-        painter.setBrush(hovered ? QColor("#161630") : QColor("#0e0e28"));
-        painter.setPen(QPen(QColor(hovered ? "#4444aa" : "#252545"), 1.5, Qt::DashLine));
+        painter.setBrush(lerp_color(QColor("#0e0e28"), QColor("#161630"), m_hoverT));
+        painter.setPen(QPen(lerp_color(QColor("#252545"), QColor("#4444aa"), m_hoverT),
+                             1.5, Qt::DashLine));
         painter.drawEllipse(circle);
 
         QFont font = painter.font();
         font.setPointSize(26);
         painter.setFont(font);
-        painter.setPen(QColor(hovered ? "#7777ee" : "#33336a"));
+        painter.setPen(lerp_color(QColor("#33336a"), QColor("#7777ee"), m_hoverT));
         painter.drawText(circle, Qt::AlignCenter, "+");
 
         QFont nameFont;
         nameFont.setPointSize(8);
         painter.setFont(nameFont);
-        painter.setPen(QColor(hovered ? "#6666aa" : "#44445a"));
+        painter.setPen(lerp_color(QColor("#44445a"), QColor("#6666aa"), m_hoverT));
         painter.drawText(QRectF(0, 85, width(), 22),
                          Qt::AlignHCenter | Qt::AlignTop, "New profile");
     }
 
     void mousePressEvent(QMouseEvent*) override { emit clicked(); }
-    void enterEvent(QEnterEvent*)      override { update(); }
-    void leaveEvent(QEvent*)           override { update(); }
+    void enterEvent(QEnterEvent*)      override { restart_hover_anim(m_hoverAnim, m_hoverT, 1.0); }
+    void leaveEvent(QEvent*)           override { restart_hover_anim(m_hoverAnim, m_hoverT, 0.0); }
+
+private:
+    qreal m_hoverT{0.0};
+    QVariantAnimation* m_hoverAnim = nullptr;
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -389,6 +548,14 @@ protected:
 struct LoginDialog::Impl {
     ProfileManager& profileMgr;
     QString         activeUsername;
+    bool            hasFadedIn               = false; // dialog fade-in runs once
+    bool            passwordRowTargetVisible = false; // guards redundant slide_password_in() restarts
+    // Tracks whichever animation is currently in flight for each of the two
+    // multi-stage transitions below, so a re-entrant call (e.g. fast repeated
+    // clicking) can cancel the stale one instead of leaving two animations
+    // racing on the same property.
+    QPointer<QPropertyAnimation>      pageTransitionAnim;
+    QPointer<QParallelAnimationGroup> passwordAnimGroup;
 
     QStackedWidget* stack        = nullptr;
     QWidget*        loginPage    = nullptr;
@@ -763,8 +930,52 @@ void LoginDialog::rebuild_profile_grid() {
 // Login mode
 // ─────────────────────────────────────────────────────────────────────────────
 
+// Sequential fade-out/fade-in page switch — QStackedWidget only ever paints
+// one page at a time, so a true overlapping crossfade isn't possible without
+// restructuring away from it; this reads as a smooth transition rather than
+// today's hard cut, which is the actual goal.
+void LoginDialog::crossfade_to_page(int index) {
+    QWidget* currentPage = d->stack->currentWidget();
+    QWidget* targetPage  = d->stack->widget(index);
+    if (!targetPage || currentPage == targetPage) {
+        d->stack->setCurrentIndex(index);
+        return;
+    }
+
+    // Cancel whichever phase (out or in) of a still-in-flight transition is
+    // currently running — without this, fast repeated clicking (e.g. the
+    // "+"/"← Back" buttons) can start a second crossfade before the first
+    // one reaches setCurrentIndex(), leaving two animations racing on the
+    // same opacity effect and landing on the wrong page.
+    if (d->pageTransitionAnim) { d->pageTransitionAnim->stop(); }
+
+    auto* outEffect = ensure_opacity_effect(currentPage);
+    auto* outAnim   = new QPropertyAnimation(outEffect, "opacity", currentPage);
+    outAnim->setDuration(130);
+    outAnim->setEasingCurve(QEasingCurve::InOutCubic);
+    outAnim->setStartValue(outEffect->opacity());
+    outAnim->setEndValue(0.0);
+    d->pageTransitionAnim = outAnim;
+
+    connect(outAnim, &QAbstractAnimation::finished, this, [this, index, targetPage] {
+        d->stack->setCurrentIndex(index);
+
+        auto* inEffect = ensure_opacity_effect(targetPage);
+        inEffect->setOpacity(0.0);
+        auto* inAnim = new QPropertyAnimation(inEffect, "opacity", targetPage);
+        inAnim->setDuration(130);
+        inAnim->setEasingCurve(QEasingCurve::InOutCubic);
+        inAnim->setStartValue(0.0);
+        inAnim->setEndValue(1.0);
+        d->pageTransitionAnim = inAnim;
+        inAnim->start(QAbstractAnimation::DeleteWhenStopped);
+    });
+
+    outAnim->start(QAbstractAnimation::DeleteWhenStopped);
+}
+
 void LoginDialog::show_login_mode() {
-    d->stack->setCurrentIndex(0);
+    crossfade_to_page(0);
 }
 
 void LoginDialog::on_card_selected(const QString& username) {
@@ -791,18 +1002,61 @@ void LoginDialog::on_card_selected(const QString& username) {
     d->selectedLabel->setText(label);
 
     const bool needsPassword = prof->has_password();
-    d->passwordRow->setVisible(needsPassword);
-    if (needsPassword) {
-        d->passwordEdit->clear();
-        d->passwordEdit->setFocus();
-    }
+    slide_password_in(needsPassword);
 
     d->loginBtn->setEnabled(true);
 }
 
+// Grows/fades the password row in or out (reuses CameraCardW::toggle_expanded()'s
+// exact maximumHeight/180ms/InOutCubic recipe, plus an opacity fade so it both
+// grows and fades together instead of popping instantly).
 void LoginDialog::slide_password_in(bool visible) {
-    d->passwordRow->setVisible(visible);
-    if (visible) { d->passwordEdit->setFocus(); }
+    if (visible == d->passwordRowTargetVisible) { return; }
+    d->passwordRowTargetVisible = visible;
+
+    // Cancel a still-in-flight reveal/collapse before starting a new one —
+    // switching between profiles quickly enough to retrigger this mid-
+    // animation would otherwise leave two animations racing on the same
+    // maximumHeight/opacity properties (visible jank, and a final state that
+    // depends on whichever one happens to finish last).
+    if (d->passwordAnimGroup) { d->passwordAnimGroup->stop(); }
+
+    auto* opacityEffect = ensure_opacity_effect(d->passwordRow);
+
+    auto* heightAnim = new QPropertyAnimation(d->passwordRow, "maximumHeight");
+    heightAnim->setDuration(180);
+    heightAnim->setEasingCurve(QEasingCurve::InOutCubic);
+
+    auto* opacityAnim = new QPropertyAnimation(opacityEffect, "opacity");
+    opacityAnim->setDuration(180);
+    opacityAnim->setEasingCurve(QEasingCurve::InOutCubic);
+
+    if (visible) {
+        d->passwordRow->show();
+        d->passwordRow->setMaximumHeight(0);
+        opacityEffect->setOpacity(0.0);
+        heightAnim->setStartValue(0);
+        heightAnim->setEndValue(d->passwordRow->sizeHint().height());
+        opacityAnim->setStartValue(0.0);
+        opacityAnim->setEndValue(1.0);
+        connect(heightAnim, &QAbstractAnimation::finished, d->passwordRow, [this] {
+            d->passwordRow->setMaximumHeight(QWIDGETSIZE_MAX);
+        });
+        d->passwordEdit->clear();
+        d->passwordEdit->setFocus();
+    } else {
+        heightAnim->setStartValue(d->passwordRow->height());
+        heightAnim->setEndValue(0);
+        opacityAnim->setStartValue(opacityEffect->opacity());
+        opacityAnim->setEndValue(0.0);
+        connect(heightAnim, &QAbstractAnimation::finished, d->passwordRow, &QWidget::hide);
+    }
+
+    auto* group = new QParallelAnimationGroup(d->passwordRow);
+    group->addAnimation(heightAnim);
+    group->addAnimation(opacityAnim);
+    d->passwordAnimGroup = group;
+    group->start(QAbstractAnimation::DeleteWhenStopped);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -816,7 +1070,7 @@ void LoginDialog::show_register_mode() {
     d->regConfirm->clear();
     if (d->regAdminCk) { d->regAdminCk->setChecked(false); }
     d->regError->hide();
-    d->stack->setCurrentIndex(1);
+    crossfade_to_page(1);
     d->regUsername->setFocus();
 }
 
@@ -833,8 +1087,7 @@ void LoginDialog::on_register_clicked() {
                              && d->regAdminCk->isVisible();
 
     if (!password.isEmpty() && password != confirm) {
-        d->regError->setText("Passwords do not match.");
-        d->regError->show();
+        set_register_error("Passwords do not match.");
         return;
     }
 
@@ -852,16 +1105,13 @@ void LoginDialog::on_register_clicked() {
         accept();
         break;
     case Res::UsernameTaken:
-        d->regError->setText(QString("Username '%1' is already taken.").arg(username));
-        d->regError->show();
+        set_register_error(QString("Username '%1' is already taken.").arg(username));
         break;
     case Res::UsernameInvalid:
-        d->regError->setText("Username must be 3–32 characters: a-z, 0-9, _ only.");
-        d->regError->show();
+        set_register_error("Username must be 3–32 characters: a-z, 0-9, _ only.");
         break;
     case Res::PasswordTooShort:
-        d->regError->setText("Password must be at least 4 characters (or leave blank).");
-        d->regError->show();
+        set_register_error("Password must be at least 4 characters (or leave blank).");
         break;
     }
 }
@@ -908,15 +1158,42 @@ void LoginDialog::on_guest_clicked() {
 void LoginDialog::set_error(const QString& msg) {
     d->errorLabel->setText(msg);
     d->errorLabel->setVisible(true);
+    fade_in_widget(d->errorLabel);
+    shake_widget(d->passwordRow->isVisible() ? d->passwordRow : d->profileGridW);
 }
 
 void LoginDialog::clear_error() {
     d->errorLabel->setVisible(false);
 }
 
+void LoginDialog::set_register_error(const QString& msg) {
+    d->regError->setText(msg);
+    d->regError->setVisible(true);
+    fade_in_widget(d->regError);
+    shake_widget(d->regError->parentWidget());
+}
+
 void LoginDialog::keyPressEvent(QKeyEvent* event) {
     if (event->key() == Qt::Key_Escape) { return; }
     QDialog::keyPressEvent(event);
+}
+
+// Gentle fade-in the first (and only, in practice — a fresh LoginDialog is
+// constructed each time through main.cpp's auth loop) time this dialog is
+// shown.
+void LoginDialog::showEvent(QShowEvent* event) {
+    QDialog::showEvent(event);
+    if (d->hasFadedIn) { return; }
+    d->hasFadedIn = true;
+
+    auto* effect = ensure_opacity_effect(this);
+    effect->setOpacity(0.0);
+    auto* anim = new QPropertyAnimation(effect, "opacity", this);
+    anim->setDuration(220);
+    anim->setEasingCurve(QEasingCurve::OutCubic);
+    anim->setStartValue(0.0);
+    anim->setEndValue(1.0);
+    anim->start(QAbstractAnimation::DeleteWhenStopped);
 }
 
 } // namespace mosaic
