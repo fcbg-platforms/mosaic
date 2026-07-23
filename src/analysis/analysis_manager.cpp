@@ -128,6 +128,22 @@ void AnalysisManager::run_gaze_fusion(const QString& sessionPath, int minCameras
     enqueue_or_launch(sessionPath, "analysis/run_gaze_fusion.py", args, {});
 }
 
+void AnalysisManager::run_pose3d_reconstruction(const QString& sessionPath, int minCameras,
+                                                 double maxReprojectionErrorPx, int frameSkip) {
+    if (!QFileInfo::exists(sessionPath + "/sync_manifest.json")) {
+        SyncManifest::generate(sessionPath).save(sessionPath);
+    }
+
+    const QStringList args = {
+        "--session",                   sessionPath,
+        "--min-cameras",               QString::number(qMax(1, minCameras)),
+        "--max-reprojection-error-px", QString::number(maxReprojectionErrorPx),
+        "--skip",                      QString::number(qMax(1, frameSkip)),
+    };
+    // No secrets involved, unlike run_diarization()'s hfToken.
+    enqueue_or_launch(sessionPath, "analysis/run_pose3d.py", args, {});
+}
+
 void AnalysisManager::enqueue_or_launch(const QString& sessionPath, const QString& scriptRelPath,
                                          const QStringList& args, const QProcessEnvironment& env) {
     const Job job{sessionPath, scriptRelPath, args, env};
