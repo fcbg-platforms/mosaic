@@ -10,7 +10,7 @@ Directory record
 .. |exhale_lsh| unicode:: U+021B0 .. UPWARDS ARROW WITH TIP LEFTWARDS
 
 
-*Directory path:* ``src/record``
+*Directory path:* ``src\record``
 
 
 Files

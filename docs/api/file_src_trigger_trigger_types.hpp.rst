@@ -4,7 +4,7 @@
 File trigger_types.hpp
 ======================
 
-|exhale_lsh| :ref:`Parent directory <dir_src_trigger>` (``src/trigger``)
+|exhale_lsh| :ref:`Parent directory <dir_src_trigger>` (``src\trigger``)
 
 .. |exhale_lsh| unicode:: U+021B0 .. UPWARDS ARROW WITH TIP LEFTWARDS
 
@@ -13,7 +13,7 @@ File trigger_types.hpp
    :local:
    :backlinks: none
 
-Definition (``src/trigger/trigger_types.hpp``)
+Definition (``src\trigger\trigger_types.hpp``)
 ----------------------------------------------
 
 
@@ -40,11 +40,19 @@ Included By
 -----------
 
 
+- :ref:`file_src_core_application.cpp`
+
+- :ref:`file_src_core_settings.cpp`
+
+- :ref:`file_src_core_settings.hpp`
+
 - :ref:`file_src_trigger_keyboard_trigger.hpp`
 
 - :ref:`file_src_trigger_lsl_inlet.hpp`
 
 - :ref:`file_src_trigger_parallel_port_trigger.hpp`
+
+- :ref:`file_src_trigger_serial_trigger.hpp`
 
 - :ref:`file_src_trigger_trigger_manager.hpp`
 
@@ -65,4 +73,20 @@ Classes
 
 
 - :ref:`exhale_struct_structmosaic_1_1_trigger_event`
+
+
+Enums
+-----
+
+
+- :ref:`exhale_enum_trigger__types_8hpp_1ad213ae47bd8bff3c59f66d8b47bd5875`
+
+
+Functions
+---------
+
+
+- :ref:`exhale_function_trigger__types_8hpp_1ada35c7de906a7a70169dcf7136d95f4f`
+
+- :ref:`exhale_function_trigger__types_8hpp_1aed84a20b4dfee1e9bf8d96d8cfc4aaa2`
 

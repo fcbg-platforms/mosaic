@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="MOSAIC">
+  <!-- Provisional placeholder mark — swap for real branding when available.
+       3x3 "mosaic tile" grid: nine independent camera views composing one
+       observation, echoing the project name. Colors match custom.css's
+       dark-mode brand palette (--pst-color-primary / --pst-color-secondary). -->
+  <rect x="4"  y="4"  width="16" height="16" rx="4" fill="#7a9cff"/>
+  <rect x="24" y="4"  width="16" height="16" rx="4" fill="#44cc88"/>
+  <rect x="44" y="4"  width="16" height="16" rx="4" fill="#7a9cff" opacity="0.55"/>
+  <rect x="4"  y="24" width="16" height="16" rx="4" fill="#44cc88" opacity="0.55"/>
+  <rect x="24" y="24" width="16" height="16" rx="4" fill="#7a9cff"/>
+  <rect x="44" y="24" width="16" height="16" rx="4" fill="#44cc88"/>
+  <rect x="4"  y="44" width="16" height="16" rx="4" fill="#44cc88" opacity="0.55"/>
+  <rect x="24" y="44" width="16" height="16" rx="4" fill="#7a9cff" opacity="0.55"/>
+  <rect x="44" y="44" width="16" height="16" rx="4" fill="#7a9cff"/>
+</svg>

@@ -4,7 +4,7 @@
 Program Listing for File trigger_recorder.hpp
 =============================================
 
-|exhale_lsh| :ref:`Return to documentation for file <file_src_trigger_trigger_recorder.hpp>` (``src/trigger/trigger_recorder.hpp``)
+|exhale_lsh| :ref:`Return to documentation for file <file_src_trigger_trigger_recorder.hpp>` (``src\trigger\trigger_recorder.hpp``)
 
 .. |exhale_lsh| unicode:: U+021B0 .. UPWARDS ARROW WITH TIP LEFTWARDS
 

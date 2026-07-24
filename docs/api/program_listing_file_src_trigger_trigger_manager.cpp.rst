@@ -4,7 +4,7 @@
 Program Listing for File trigger_manager.cpp
 ============================================
 
-|exhale_lsh| :ref:`Return to documentation for file <file_src_trigger_trigger_manager.cpp>` (``src/trigger/trigger_manager.cpp``)
+|exhale_lsh| :ref:`Return to documentation for file <file_src_trigger_trigger_manager.cpp>` (``src\trigger\trigger_manager.cpp``)
 
 .. |exhale_lsh| unicode:: U+021B0 .. UPWARDS ARROW WITH TIP LEFTWARDS
 
@@ -15,6 +15,9 @@ Program Listing for File trigger_manager.cpp
    #include "trigger/lsl_inlet.hpp"
    #include "trigger/lsl_outlet.hpp"
    #include "trigger/parallel_port_trigger.hpp"
+   #ifdef MOSAIC_HAVE_SERIAL
+   #include "trigger/serial_trigger.hpp"
+   #endif
    #include "trigger/trigger_recorder.hpp"
    #include "utils/logger.hpp"
    
@@ -24,6 +27,9 @@ Program Listing for File trigger_manager.cpp
        TriggerSettings& settings;
    
        std::vector<std::unique_ptr<KeyboardTrigger>>      keyTriggers;
+   #ifdef MOSAIC_HAVE_SERIAL
+       std::vector<std::unique_ptr<SerialTrigger>>        serialTriggers;
+   #endif
        std::vector<std::unique_ptr<LslInlet>>             lslInlets;
        std::vector<std::unique_ptr<ParallelPortTrigger>>  portTriggers;
        std::unique_ptr<LslOutlet>                         lslOutlet;
@@ -49,9 +55,15 @@ Program Listing for File trigger_manager.cpp
    void TriggerManager::reload() {
        // ── Tear down existing sources ─────────────────────────────────────────
        for (auto& kt : d->keyTriggers)    { kt->set_active(false); }
+   #ifdef MOSAIC_HAVE_SERIAL
+       for (auto& st : d->serialTriggers) { st->close(); }
+   #endif
        for (auto& pp : d->portTriggers)   { pp->stop(); }
        for (auto& li : d->lslInlets)      { li->disconnect(); }
        d->keyTriggers.clear();
+   #ifdef MOSAIC_HAVE_SERIAL
+       d->serialTriggers.clear();
+   #endif
        d->portTriggers.clear();
        d->lslInlets.clear();
    
@@ -69,6 +81,25 @@ Program Listing for File trigger_manager.cpp
            kt->set_active(true);
            d->keyTriggers.push_back(std::move(kt));
        }
+   
+       // ── Serial triggers ────────────────────────────────────────────────────
+   #ifdef MOSAIC_HAVE_SERIAL
+       for (auto& cfg : d->settings.serialTriggers) {
+           if (!cfg.enabled || cfg.portName.isEmpty()) { continue; }
+           auto st = std::make_unique<SerialTrigger>(cfg, this);
+           connect(st.get(), &SerialTrigger::triggered,
+                   this,     &TriggerManager::on_trigger_fired);
+           connect(st.get(), &SerialTrigger::error_occurred, this,
+                   [](const QString& msg) {
+                       log_error(QString("[TriggerManager] Serial error: %1").arg(msg));
+                   });
+           if (!st->open()) {
+               log_warning(QString("[TriggerManager] Serial port '%1' failed to open.")
+                               .arg(cfg.portName));
+           }
+           d->serialTriggers.push_back(std::move(st));
+       }
+   #endif
    
        // ── LSL inlets ─────────────────────────────────────────────────────────
        for (auto& cfg : d->settings.lslInlets) {
@@ -115,21 +146,55 @@ Program Listing for File trigger_manager.cpp
                                    d->settings.lslOutletRate);
        }
    
-       log_info(QString("[TriggerManager] Reloaded: %1 keyboard, %2 LSL inlet(s), %3 parallel port(s). "
-                        "LSL outlet: %4.")
+       log_info(QString("[TriggerManager] Reloaded: %1 keyboard, %2 serial, %3 LSL inlet(s), "
+                        "%4 parallel port(s). LSL outlet: %5.")
                     .arg(d->keyTriggers.size())
+   #ifdef MOSAIC_HAVE_SERIAL
+                    .arg(d->serialTriggers.size())
+   #else
+                    .arg(0)
+   #endif
                     .arg(d->lslInlets.size())
                     .arg(d->portTriggers.size())
                     .arg(d->lslOutlet->is_open() ? "on" : "off"));
    }
    
+   // ── Action lookup ──────────────────────────────────────────────────────────
+   
+   static TriggerAction lookup_action(const TriggerSettings& settings,
+                                      const TriggerEvent& ev) {
+       if (ev.source == "keyboard") {
+           for (const auto& cfg : settings.keyboardTriggers) {
+               if (cfg.name == ev.label) { return cfg.action; }
+           }
+       } else if (ev.source == "serial") {
+           for (const auto& cfg : settings.serialTriggers) {
+               if (cfg.name == ev.label) { return cfg.action; }
+           }
+       } else if (ev.source == "parallel_port") {
+           if (!settings.parallelPorts.empty()) { return settings.parallelPorts[0].action; }
+       } else if (ev.source == "lsl") {
+           for (const auto& cfg : settings.lslInlets) {
+               if (cfg.enabled) { return cfg.action; }
+           }
+       }
+       return TriggerAction::Log;
+   }
+   
    // ── Event routing ──────────────────────────────────────────────────────────
    
    void TriggerManager::on_trigger_fired(TriggerEvent event) {
+       event.action = lookup_action(d->settings, event);
+   
        if (d->recorder->is_recording()) {
            d->recorder->record_event(event);
        }
-       emit event_received(std::move(event));
+       emit event_received(event);
+   
+       if (event.action == TriggerAction::StartRecording ||
+           event.action == TriggerAction::StopRecording) {
+           emit action_requested(event.action, event);
+       }
    }
    
    // ── LSL frame marker ───────────────────────────────────────────────────────

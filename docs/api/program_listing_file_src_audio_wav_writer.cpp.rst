@@ -4,7 +4,7 @@
 Program Listing for File wav_writer.cpp
 =======================================
 
-|exhale_lsh| :ref:`Return to documentation for file <file_src_audio_wav_writer.cpp>` (``src/audio/wav_writer.cpp``)
+|exhale_lsh| :ref:`Return to documentation for file <file_src_audio_wav_writer.cpp>` (``src\audio\wav_writer.cpp``)
 
 .. |exhale_lsh| unicode:: U+021B0 .. UPWARDS ARROW WITH TIP LEFTWARDS
 

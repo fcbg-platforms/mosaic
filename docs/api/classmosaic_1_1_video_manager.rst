@@ -6,6 +6,16 @@ Class VideoManager
 - Defined in :ref:`file_src_video_video_manager.hpp`
 
 
+Nested Relationships
+--------------------
+
+
+Nested Types
+************
+
+- :ref:`exhale_struct_structmosaic_1_1_video_manager_1_1_camera_stats`
+
+
 Inheritance Relationships
 -------------------------
 

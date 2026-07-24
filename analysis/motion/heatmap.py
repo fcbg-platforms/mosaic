@@ -20,23 +20,26 @@ def generate_heatmap(
     show_trails: bool = True,
     dpi: int = 150,
 ) -> None:
-    """
-    Render a Gaussian-smoothed position density map.
+    """Render a Gaussian-smoothed position density map.
 
     Parameters
     ----------
-    trajectories
+    trajectories : dict of int to list of tuple of float
         ``{animal_id: [(cx, cy), ...]}`` in pixel coordinates.
-    frame_size
+    frame_size : tuple of int
         ``(width, height)`` of the original video frame.
-    output_path
+    output_path : str
         Destination PNG/PDF path.
-    sigma
+    sigma : float, default 20.0
         Gaussian blur radius (px) for density smoothing.
-    cmap
+    cmap : str, default "hot"
         Matplotlib colormap name (e.g. ``"hot"``, ``"viridis"``, ``"plasma"``).
-    show_trails
-        If True, overlay per-animal trajectory lines.
+    title : str, default "Position Density Heatmap"
+        Plot title.
+    show_trails : bool, default True
+        If ``True``, overlay per-animal trajectory lines.
+    dpi : int, default 150
+        Output image resolution.
     """
     import matplotlib.pyplot as plt
     from scipy.ndimage import gaussian_filter
@@ -107,9 +110,25 @@ def generate_trajectory_plot(
     title: str = "Trajectory Plot",
     dpi: int = 150,
 ) -> None:
-    """
-    Plain trajectory line plot, one colour per animal.
-    Start marker = circle, end marker = square.
+    """Plain trajectory line plot, one colour per animal.
+
+    Parameters
+    ----------
+    trajectories : dict of int to list of tuple of float
+        ``{animal_id: [(cx, cy), ...]}`` in pixel coordinates.
+    frame_size : tuple of int
+        ``(width, height)`` of the original video frame.
+    output_path : str
+        Destination PNG/PDF path.
+    title : str, default "Trajectory Plot"
+        Plot title.
+    dpi : int, default 150
+        Output image resolution.
+
+    Notes
+    -----
+    Each trajectory is colour-coded by time (start = transparent, end =
+    opaque); start marker is a circle, end marker is a square.
     """
     import matplotlib.pyplot as plt
     import matplotlib.patches as mpatches
@@ -172,7 +191,23 @@ def generate_velocity_histogram(
     title: str = "Velocity Distribution",
     dpi: int = 150,
 ) -> None:
-    """Histogram of per-frame velocities (mm/s or px/frame)."""
+    """Histogram of per-frame velocities, with median/mean markers.
+
+    Parameters
+    ----------
+    velocities : list of float
+        Per-frame velocity samples; non-positive values are excluded.
+    output_path : str
+        Destination PNG/PDF path.
+    mm_per_px : float, default 1.0
+        Only used to pick the x-axis unit label (``"mm/s"`` if not
+        ``1.0``, else ``"px/frame"``) — velocities themselves must
+        already be pre-scaled by the caller.
+    title : str, default "Velocity Distribution"
+        Plot title.
+    dpi : int, default 150
+        Output image resolution.
+    """
     import matplotlib.pyplot as plt
 
     unit = "mm/s" if mm_per_px != 1.0 else "px/frame"

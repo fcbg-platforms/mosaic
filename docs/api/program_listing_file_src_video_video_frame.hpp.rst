@@ -4,7 +4,7 @@
 Program Listing for File video_frame.hpp
 ========================================
 
-|exhale_lsh| :ref:`Return to documentation for file <file_src_video_video_frame.hpp>` (``src/video/video_frame.hpp``)
+|exhale_lsh| :ref:`Return to documentation for file <file_src_video_video_frame.hpp>` (``src\video\video_frame.hpp``)
 
 .. |exhale_lsh| unicode:: U+021B0 .. UPWARDS ARROW WITH TIP LEFTWARDS
 
@@ -27,20 +27,32 @@ Program Listing for File video_frame.hpp
    /// FFmpeg encoders expect after a @c sws_scale() call.
    ///
    /// @par Timestamp fields
-   /// Two independent timestamps are captured at the moment of the camera grab
-   /// (inside VideoGrabber, before the ring-buffer push):
+   /// Three timestamps are captured at (or derived from) the moment of the
+   /// camera grab (inside VideoGrabber, before the ring-buffer push):
    ///
-   /// | Field          | Clock          | Use case                                   |
-   /// |----------------|----------------|--------------------------------------------|
-   /// | @c elapsedNs   | steady_clock   | Align to trigger events in trigger.csv     |
-   /// | @c wallClockNs | system_clock   | Absolute calendar alignment; file naming   |
+   /// | Field          | Clock                  | Use case                                   |
+   /// |----------------|------------------------|---------------------------------------------|
+   /// | @c elapsedNs   | steady_clock (host)    | Cross-camera alignment (SyncManifest)      |
+   /// | @c wallClockNs | system_clock (host)    | Absolute calendar alignment; file naming   |
+   /// | @c hwTimestampNs | camera device clock  | Diagnostic ground-truth; per-camera only   |
    ///
-   /// Both are written to @c timestamps_camN.csv by FrameTimestampWriter.
+   /// @c hwTimestampNs comes from the Basler camera's own GevTimestamp chunk
+   /// (converted from ticks to nanoseconds using GevTimestampTickFrequency) —
+   /// it is captured by the camera at exposure time rather than stamped in
+   /// software after RetrieveResult() returns, so it is not subject to host
+   /// scheduling/network jitter. However each camera's device clock is free-
+   /// running relative to the others unless hardware triggering is active, so
+   /// it is **not** directly comparable across cameras and must not be used
+   /// for cross-camera alignment on its own — use @c elapsedNs for that.
+   /// It is 0 if chunk timestamps could not be read from this frame.
+   ///
+   /// All three are written to @c timestamps_camN.csv by FrameTimestampWriter.
    struct VideoFrame {
-       int     cameraIndex  = 0;    ///< Zero-based camera index (matches timestamps_camN.csv).
-       int64_t frameId      = 0;    ///< Monotonic per-camera counter starting at 1 per session.
-       int64_t elapsedNs    = 0;    ///< elapsed_ns() at grab time — steady_clock.
-       int64_t wallClockNs  = 0;    ///< wall_clock_ns() at grab time — system_clock.
+       int     cameraIndex   = 0;    ///< Zero-based camera index (matches timestamps_camN.csv).
+       int64_t frameId       = 0;    ///< Monotonic per-camera counter starting at 1 per session.
+       int64_t elapsedNs     = 0;    ///< elapsed_ns() at grab time — steady_clock.
+       int64_t wallClockNs   = 0;    ///< wall_clock_ns() at grab time — system_clock.
+       int64_t hwTimestampNs = 0;    ///< Camera-hardware chunk timestamp, ns. 0 if unavailable.
    
        int     width        = 0;    ///< Frame width in pixels.
        int     height       = 0;    ///< Frame height in pixels.

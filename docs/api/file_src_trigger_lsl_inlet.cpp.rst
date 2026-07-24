@@ -4,7 +4,7 @@
 File lsl_inlet.cpp
 ==================
 
-|exhale_lsh| :ref:`Parent directory <dir_src_trigger>` (``src/trigger``)
+|exhale_lsh| :ref:`Parent directory <dir_src_trigger>` (``src\trigger``)
 
 .. |exhale_lsh| unicode:: U+021B0 .. UPWARDS ARROW WITH TIP LEFTWARDS
 
@@ -13,7 +13,7 @@ File lsl_inlet.cpp
    :local:
    :backlinks: none
 
-Definition (``src/trigger/lsl_inlet.cpp``)
+Definition (``src\trigger\lsl_inlet.cpp``)
 ------------------------------------------
 
 
@@ -38,11 +38,11 @@ Includes
 
 - ``lsl_inlet.moc``
 
-- ``trigger/lsl_inlet.hpp`` (:ref:`file_src_trigger_lsl_inlet.hpp`)
+- ``trigger/lsl_inlet.hpp``
 
-- ``utils/logger.hpp`` (:ref:`file_src_utils_logger.hpp`)
+- ``utils/logger.hpp``
 
-- ``utils/timestamp.hpp`` (:ref:`file_src_utils_timestamp.hpp`)
+- ``utils/timestamp.hpp``
 
 
 

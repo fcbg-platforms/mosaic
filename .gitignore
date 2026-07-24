@@ -55,6 +55,11 @@ analysis/diarize/models/
 # already has an identical face_landmarker.task; re-downloaded here too)
 analysis/expression/models/
 
+# Auto-downloaded MediaPipe FaceLandmarker weights (analysis/gaze backend,
+# used by the Multi-Camera Gaze Fusion plugin) — same per-plugin-owns-its-
+# cache convention as the entries above.
+analysis/gaze/models/
+
 # Logs
 *.log
 
@@ -66,3 +71,11 @@ recordings/
 
 # Generated documentation output (rebuild via MOSAIC_BUILD_DOCS)
 docs/html/
+# Non-portable, machine-specific Doxygen config (absolute paths) — Doxyfile.in
+# is the real template-driven source, substituted at build time.
+docs/Doxyfile
+# autosummary-generated stub .rst files (regenerated on every Sphinx build)
+docs/_autosummary/
+# Sphinx build output (rebuild via `sphinx-build` / MOSAIC_BUILD_DOCS)
+docs/_build/
+build-docs/

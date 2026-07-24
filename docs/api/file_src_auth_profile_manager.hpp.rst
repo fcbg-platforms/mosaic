@@ -4,7 +4,7 @@
 File profile_manager.hpp
 ========================
 
-|exhale_lsh| :ref:`Parent directory <dir_src_auth>` (``src/auth``)
+|exhale_lsh| :ref:`Parent directory <dir_src_auth>` (``src\auth``)
 
 .. |exhale_lsh| unicode:: U+021B0 .. UPWARDS ARROW WITH TIP LEFTWARDS
 
@@ -13,7 +13,7 @@ File profile_manager.hpp
    :local:
    :backlinks: none
 
-Definition (``src/auth/profile_manager.hpp``)
+Definition (``src\auth\profile_manager.hpp``)
 ---------------------------------------------
 
 
@@ -32,7 +32,7 @@ Includes
 
 - ``QObject``
 
-- ``auth/profile.hpp`` (:ref:`file_src_auth_profile.hpp`)
+- ``auth/profile.hpp``
 
 - ``memory``
 

@@ -53,8 +53,8 @@ _FERPLUS_MODEL_SHA256 = (
     "a2a2ba6a335a3b29c21acb6272f962bd3d47f84952aaffa03b60986e04efa61c"
 )
 
-# Official FER+ label order (see module docstring) — index i is the
-# emotion for the ONNX model's i-th output logit.
+#: Official FER+ label order (see module docstring) — index *i* is the
+#: emotion for the ONNX model's *i*-th output logit.
 FERPLUS_LABELS: list[str] = [
     "Neutral", "Happiness", "Surprise", "Sadness",
     "Anger", "Disgust", "Fear", "Contempt",
@@ -62,6 +62,12 @@ FERPLUS_LABELS: list[str] = [
 
 
 class FerPlusClassifier:
+    """Microsoft FER+ ONNX model backend — 8-category emotion classification.
+
+    Downloads and sha256-verifies ``emotion-ferplus-8.onnx`` to ``models/``
+    on first use (see :func:`_ensure_download_verified`).
+    """
+
     def __init__(self) -> None:
         import onnxruntime as ort
 
@@ -73,11 +79,24 @@ class FerPlusClassifier:
         self._input_name = self._session.get_inputs()[0].name
 
     def classify(self, face_crop_bgr: np.ndarray) -> tuple[str, float]:
-        """face_crop_bgr should be a tight crop around one detected face
-        (e.g. via detector.crop_bbox()) — the model card gives no explicit
-        crop/alignment guidance, but FER2013/FER+'s source data is already
-        tightly-cropped near-square face images, so a loose/full-scene
-        frame would be a real preprocessing mismatch against training."""
+        """Classify one face crop's dominant emotion.
+
+        Parameters
+        ----------
+        face_crop_bgr : numpy.ndarray
+            A tight crop around one detected face (e.g. via
+            :func:`~expression.detector.crop_bbox`). The model card gives
+            no explicit crop/alignment guidance, but FER2013/FER+'s
+            source data is already tightly-cropped near-square face
+            images, so a loose/full-scene frame would be a real
+            preprocessing mismatch against training.
+
+        Returns
+        -------
+        tuple of (str, float)
+            ``(label, score)`` — ``label`` is one of :data:`FERPLUS_LABELS`,
+            ``score`` the softmax probability of that label.
+        """
         gray = cv2.cvtColor(face_crop_bgr, cv2.COLOR_BGR2GRAY)
         resized = cv2.resize(gray, (64, 64))
         # No normalization — the model expects raw 0-255 pixel intensities.
@@ -88,12 +107,29 @@ class FerPlusClassifier:
 
 
 def _softmax_and_label(logits: list[float], labels: list[str]) -> tuple[str, float]:
-    """Pure post-processing step, pulled out specifically so it's
-    unit-testable without onnxruntime/the model file present (same
-    "extract the one pure/testable piece" pattern diarize's resolve_device()
-    established, where the ONNX/model-inference call itself isn't
-    unit-tested but its pure post-processing is). Numerically stable softmax
-    (subtracts the max before exponentiating)."""
+    """Apply a numerically-stable softmax and pick the argmax label.
+
+    Parameters
+    ----------
+    logits : list of float
+        Raw model output logits, parallel to ``labels``.
+    labels : list of str
+        Class labels, parallel to ``logits`` (e.g. :data:`FERPLUS_LABELS`).
+
+    Returns
+    -------
+    tuple of (str, float)
+        ``(label, score)`` for the highest-probability class.
+
+    Notes
+    -----
+    Pulled out as a pure function specifically so it's unit-testable
+    without onnxruntime/the model file present (same "extract the one
+    pure/testable piece" pattern :func:`~diarize.pipeline.resolve_device`
+    established). Subtracts ``max(logits)`` before exponentiating for
+    numerical stability. See :doc:`/math/facial_expression` for the
+    formula.
+    """
     max_logit = max(logits)
     exps = [math.exp(v - max_logit) for v in logits]
     total = sum(exps)
@@ -104,6 +140,30 @@ def _softmax_and_label(logits: list[float], labels: list[str]) -> tuple[str, flo
 
 
 def _ensure_download_verified(dest: Path, url: str, expected_sha256: str) -> Path:
+    """Download ``url`` to ``dest`` if not already cached, verifying its sha256.
+
+    Parameters
+    ----------
+    dest : pathlib.Path
+        Destination file path; parent directories are created as needed.
+    url : str
+        Source URL.
+    expected_sha256 : str
+        Expected hex-digest sha256 of the downloaded file.
+
+    Returns
+    -------
+    pathlib.Path
+        ``dest``, unchanged.
+
+    Raises
+    ------
+    RuntimeError
+        If the downloaded file's sha256 doesn't match
+        ``expected_sha256`` — the bad download is deleted rather than
+        cached, so a truncated/corrupted file can't silently produce
+        garbage predictions on a later run.
+    """
     if dest.exists() and _sha256_of(dest) == expected_sha256:
         return dest
 

@@ -4,7 +4,7 @@
 Program Listing for File frame_timestamp_writer.hpp
 ===================================================
 
-|exhale_lsh| :ref:`Return to documentation for file <file_src_video_frame_timestamp_writer.hpp>` (``src/video/frame_timestamp_writer.hpp``)
+|exhale_lsh| :ref:`Return to documentation for file <file_src_video_frame_timestamp_writer.hpp>` (``src\video\frame_timestamp_writer.hpp``)
 
 .. |exhale_lsh| unicode:: U+021B0 .. UPWARDS ARROW WITH TIP LEFTWARDS
 
@@ -18,7 +18,11 @@ Program Listing for File frame_timestamp_writer.hpp
    namespace mosaic {
    
    // Writes one CSV row per grabbed frame:
-   //   frame_id, elapsed_ns, wall_ns
+   //   frame_id, elapsed_ns, wall_ns, hw_timestamp_ns
+   //
+   // hw_timestamp_ns is the camera's own hardware chunk timestamp (0 if
+   // unavailable) — see VideoFrame::hwTimestampNs for what it can and cannot
+   // be used for.
    //
    // Thread-safe: write() is called from the grabber thread while the main
    // thread may call is_open() / frames_written() concurrently.
@@ -33,7 +37,7 @@ Program Listing for File frame_timestamp_writer.hpp
        [[nodiscard]] bool start(const QString& path);
    
        // Appends one row. Thread-safe.
-       void write(int64_t frameId, int64_t elapsedNs, int64_t wallNs);
+       void write(int64_t frameId, int64_t elapsedNs, int64_t wallNs, int64_t hwTimestampNs);
    
        // Flushes and closes the file.
        void stop();

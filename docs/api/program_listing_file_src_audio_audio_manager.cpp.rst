@@ -4,7 +4,7 @@
 Program Listing for File audio_manager.cpp
 ==========================================
 
-|exhale_lsh| :ref:`Return to documentation for file <file_src_audio_audio_manager.cpp>` (``src/audio/audio_manager.cpp``)
+|exhale_lsh| :ref:`Return to documentation for file <file_src_audio_audio_manager.cpp>` (``src\audio\audio_manager.cpp``)
 
 .. |exhale_lsh| unicode:: U+021B0 .. UPWARDS ARROW WITH TIP LEFTWARDS
 
@@ -19,6 +19,7 @@ Program Listing for File audio_manager.cpp
    
    struct AudioManager::Impl {
        std::vector<std::unique_ptr<AudioRecorder>> recorders;
+       std::vector<std::unique_ptr<AudioRecorder>> monitorRecorders;
        bool recording{false};
    };
    
@@ -39,10 +40,35 @@ Program Listing for File audio_manager.cpp
    
    // ── Recording lifecycle ────────────────────────────────────────────────────
    
+   void AudioManager::start_monitoring(const std::vector<MicrophoneParameters>& microphones) {
+       stop_monitoring();
+       if (microphones.empty()) return;
+   
+       log_info(QString("[AudioManager] Starting %1 monitor-only recorder(s).").arg(microphones.size()));
+       d->monitorRecorders.reserve(microphones.size());
+   
+       for (int i = 0; i < static_cast<int>(microphones.size()); ++i) {
+           auto rec = std::make_unique<AudioRecorder>(microphones[static_cast<size_t>(i)], this);
+           connect(rec.get(), &AudioRecorder::level_rms_changed, this,
+                   [this, i](float rms) { emit level_rms_changed(i, rms); },
+                   Qt::QueuedConnection);
+           if (!rec->start("")) {  // monitor-only mode
+               log_warning(QString("[AudioManager] Monitor recorder %1 failed to start.").arg(i));
+           }
+           d->monitorRecorders.push_back(std::move(rec));
+       }
+   }
+   
+   void AudioManager::stop_monitoring() {
+       for (auto& rec : d->monitorRecorders) rec->stop();
+       d->monitorRecorders.clear();
+   }
+   
    void AudioManager::start(const QString& sessionDir,
                              const QString& basename,
                              const std::vector<MicrophoneParameters>& microphones) {
-       stop();  // clean up any previous session
+       stop_monitoring();  // monitoring and recording are mutually exclusive
+       stop();             // clean up any previous recording session
    
        if (microphones.empty()) {
            log_info("[AudioManager] No microphones configured — skipping audio recording.");
@@ -87,7 +113,8 @@ Program Listing for File audio_manager.cpp
        d->recording = false;
    }
    
-   bool AudioManager::is_recording()   const { return d->recording; }
+   bool AudioManager::is_monitoring() const { return !d->monitorRecorders.empty(); }
+   bool AudioManager::is_recording()  const { return d->recording; }
    int  AudioManager::recorder_count() const {
        return static_cast<int>(d->recorders.size());
    }

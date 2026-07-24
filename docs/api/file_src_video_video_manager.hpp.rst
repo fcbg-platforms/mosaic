@@ -4,7 +4,7 @@
 File video_manager.hpp
 ======================
 
-|exhale_lsh| :ref:`Parent directory <dir_src_video>` (``src/video``)
+|exhale_lsh| :ref:`Parent directory <dir_src_video>` (``src\video``)
 
 .. |exhale_lsh| unicode:: U+021B0 .. UPWARDS ARROW WITH TIP LEFTWARDS
 
@@ -13,7 +13,7 @@ File video_manager.hpp
    :local:
    :backlinks: none
 
-Definition (``src/video/video_manager.hpp``)
+Definition (``src\video\video_manager.hpp``)
 --------------------------------------------
 
 
@@ -30,13 +30,15 @@ Includes
 --------
 
 
+- ``QImage``
+
 - ``QObject``
 
-- ``core/settings.hpp`` (:ref:`file_src_core_settings.hpp`)
+- ``core/settings.hpp``
 
 - ``memory``
 
-- ``video/video_frame.hpp`` (:ref:`file_src_video_video_frame.hpp`)
+- ``video/video_frame.hpp``
 
 
 
@@ -63,6 +65,8 @@ Namespaces
 Classes
 -------
 
+
+- :ref:`exhale_struct_structmosaic_1_1_video_manager_1_1_camera_stats`
 
 - :ref:`exhale_class_classmosaic_1_1_video_manager`
 

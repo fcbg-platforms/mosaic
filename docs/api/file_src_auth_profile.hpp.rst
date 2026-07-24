@@ -4,7 +4,7 @@
 File profile.hpp
 ================
 
-|exhale_lsh| :ref:`Parent directory <dir_src_auth>` (``src/auth``)
+|exhale_lsh| :ref:`Parent directory <dir_src_auth>` (``src\auth``)
 
 .. |exhale_lsh| unicode:: U+021B0 .. UPWARDS ARROW WITH TIP LEFTWARDS
 
@@ -13,7 +13,7 @@ File profile.hpp
    :local:
    :backlinks: none
 
-Definition (``src/auth/profile.hpp``)
+Definition (``src\auth\profile.hpp``)
 -------------------------------------
 
 

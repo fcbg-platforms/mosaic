@@ -10,7 +10,7 @@ Directory utils
 .. |exhale_lsh| unicode:: U+021B0 .. UPWARDS ARROW WITH TIP LEFTWARDS
 
 
-*Directory path:* ``src/utils``
+*Directory path:* ``src\utils``
 
 
 Files

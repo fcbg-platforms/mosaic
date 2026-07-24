@@ -11,6 +11,10 @@ dependencies = [
     "myst-parser>=2.0",
     "sphinx-copybutton>=0.5",
     "sphinx-design>=0.5",
+    # For autodoc's rendered numpy.ndarray type hints across analysis/'s
+    # public API — small/CPU-only, deliberately NOT mocked (see conf.py's
+    # autodoc_mock_imports comment).
+    "numpy>=1.26",
 ]
 
 [tool.uv]

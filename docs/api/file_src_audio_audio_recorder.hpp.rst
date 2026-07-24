@@ -4,7 +4,7 @@
 File audio_recorder.hpp
 =======================
 
-|exhale_lsh| :ref:`Parent directory <dir_src_audio>` (``src/audio``)
+|exhale_lsh| :ref:`Parent directory <dir_src_audio>` (``src\audio``)
 
 .. |exhale_lsh| unicode:: U+021B0 .. UPWARDS ARROW WITH TIP LEFTWARDS
 
@@ -13,7 +13,7 @@ File audio_recorder.hpp
    :local:
    :backlinks: none
 
-Definition (``src/audio/audio_recorder.hpp``)
+Definition (``src\audio\audio_recorder.hpp``)
 ---------------------------------------------
 
 
@@ -36,9 +36,9 @@ Includes
 
 - ``atomic``
 
-- ``audio/wav_writer.hpp`` (:ref:`file_src_audio_wav_writer.hpp`)
+- ``audio/wav_writer.hpp``
 
-- ``core/settings.hpp`` (:ref:`file_src_core_settings.hpp`)
+- ``core/settings.hpp``
 
 - ``memory``
 

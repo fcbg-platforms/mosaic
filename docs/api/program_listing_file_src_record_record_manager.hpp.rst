@@ -4,7 +4,7 @@
 Program Listing for File record_manager.hpp
 ===========================================
 
-|exhale_lsh| :ref:`Return to documentation for file <file_src_record_record_manager.hpp>` (``src/record/record_manager.hpp``)
+|exhale_lsh| :ref:`Return to documentation for file <file_src_record_record_manager.hpp>` (``src\record\record_manager.hpp``)
 
 .. |exhale_lsh| unicode:: U+021B0 .. UPWARDS ARROW WITH TIP LEFTWARDS
 

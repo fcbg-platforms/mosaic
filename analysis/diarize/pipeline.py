@@ -24,18 +24,48 @@ from typing import Optional, TypedDict
 
 
 class WhisperSegment(TypedDict):
+    """One faster-whisper transcription segment.
+
+    Attributes
+    ----------
+    start, end : float
+        Segment bounds, in seconds.
+    text : str
+        Transcribed text for this segment.
+    """
     start: float   # seconds
     end: float     # seconds
     text: str
 
 
 class DiarizationTurn(TypedDict):
+    """One pyannote.audio speaker turn.
+
+    Attributes
+    ----------
+    start, end : float
+        Turn bounds, in seconds.
+    speaker : str
+        Speaker label (e.g. ``"SPEAKER_00"``).
+    """
     start: float   # seconds
     end: float     # seconds
     speaker: str
 
 
 class TranscriptSegment(TypedDict):
+    """One final, speaker-labeled transcript segment (:func:`assign_speakers`'s output).
+
+    Attributes
+    ----------
+    start_ms, end_ms : int
+        Segment bounds, in milliseconds.
+    speaker : str or None
+        Assigned speaker label, or ``None`` if no diarization turn
+        overlapped this segment (or diarization wasn't run at all).
+    text : str
+        Transcribed text for this segment.
+    """
     start_ms: int
     end_ms: int
     speaker: Optional[str]   # None = no diarization turn overlapped (or none was run)
@@ -45,9 +75,25 @@ class TranscriptSegment(TypedDict):
 # ── Device selection ──────────────────────────────────────────────────────────
 
 def resolve_device(device_arg: Optional[str]) -> str:
-    """Returns device_arg unchanged if given, else "cuda" if a CUDA device is
-    available, else "cpu". Shared by transcribe_audio()/diarize_audio() so
-    they never disagree about which hardware to use for the same run."""
+    """Resolve which device to run inference on.
+
+    Parameters
+    ----------
+    device_arg : str or None
+        Explicit device (e.g. ``"cuda"``, ``"cpu"``), or ``None`` to
+        auto-detect.
+
+    Returns
+    -------
+    str
+        ``device_arg`` unchanged if given, else ``"cuda"`` if a CUDA
+        device is available, else ``"cpu"``.
+
+    Notes
+    -----
+    Shared by :func:`load_whisper_model`/:func:`load_diarization_pipeline`
+    so they never disagree about which hardware to use for the same run.
+    """
     if device_arg:
         return device_arg
     import torch
@@ -57,10 +103,27 @@ def resolve_device(device_arg: Optional[str]) -> str:
 # ── Transcription (faster-whisper) ────────────────────────────────────────────
 
 def load_whisper_model(model_size: str, device: str):
-    """Loads a faster-whisper model once, for reuse across every audio file
-    in a session — transcribe_audio() used to build a fresh model per call,
-    which reloaded weights from disk/cache once per microphone instead of
-    once per run."""
+    """Load a faster-whisper model once, for reuse across a whole session.
+
+    Parameters
+    ----------
+    model_size : str
+        faster-whisper model size (e.g. ``"small"``, ``"large-v3"``).
+    device : str
+        Inference device, typically from :func:`resolve_device`.
+
+    Returns
+    -------
+    faster_whisper.WhisperModel
+        A loaded model, ready for repeated :func:`transcribe_audio` calls.
+
+    Notes
+    -----
+    Call this once per run and pass the result to every
+    :func:`transcribe_audio` call in that run — building a fresh model per
+    audio file reloads weights from disk/cache once per microphone instead
+    of once per run.
+    """
     from faster_whisper import WhisperModel
 
     compute_type = "float16" if device == "cuda" else "int8"
@@ -69,10 +132,25 @@ def load_whisper_model(model_size: str, device: str):
 
 def transcribe_audio(model, audio_path: Path,
                       language: Optional[str]) -> tuple[list[WhisperSegment], str]:
-    """Returns (segments, detected_language) for a model built by
-    load_whisper_model(). faster-whisper decodes and resamples the input file
-    internally (mono/16kHz) — no separate preprocessing step is needed
-    regardless of the recording's original sample rate/channel count."""
+    """Transcribe one audio file with a pre-loaded whisper model.
+
+    Parameters
+    ----------
+    model : faster_whisper.WhisperModel
+        A model from :func:`load_whisper_model`.
+    audio_path : pathlib.Path
+        Path to the audio file. faster-whisper decodes/resamples it
+        internally (mono/16kHz) — no separate preprocessing step is
+        needed regardless of the recording's original sample
+        rate/channel count.
+    language : str or None
+        Force a language code (e.g. ``"en"``), or ``None`` to auto-detect.
+
+    Returns
+    -------
+    tuple of (list of WhisperSegment, str)
+        ``(segments, detected_language)``.
+    """
     segments_iter, info = model.transcribe(str(audio_path), language=language or None)
     segments: list[WhisperSegment] = [
         {"start": seg.start, "end": seg.end, "text": seg.text.strip()}
@@ -94,13 +172,36 @@ _GATING_HELP = (
 
 
 def load_diarization_pipeline(hf_token: str, device: str):
-    """Loads the pyannote diarization pipeline once, for reuse across every
-    audio file in a session — diarize_audio() used to build a fresh pipeline
-    per call, which reloaded weights from disk/cache once per microphone
-    instead of once per run. Raises RuntimeError with actionable setup
-    instructions if the token is missing/invalid or the gated models haven't
-    been accepted yet, rather than letting a raw HTTP/auth exception
-    propagate to the caller's log."""
+    """Load the pyannote diarization pipeline once, for reuse across a session.
+
+    Parameters
+    ----------
+    hf_token : str
+        Hugging Face access token with the gated diarization models
+        accepted (see the module docstring's gating instructions).
+    device : str
+        Inference device, typically from :func:`resolve_device`.
+
+    Returns
+    -------
+    pyannote.audio.Pipeline
+        A loaded pipeline, ready for repeated :func:`diarize_audio` calls.
+
+    Raises
+    ------
+    RuntimeError
+        If the token is missing/invalid or the gated models haven't been
+        accepted yet — raised with actionable setup instructions rather
+        than letting a raw HTTP/auth exception propagate to the caller's
+        log.
+
+    Notes
+    -----
+    Call this once per run and pass the result to every
+    :func:`diarize_audio` call in that run — building a fresh pipeline per
+    audio file reloads weights from disk/cache once per microphone
+    instead of once per run.
+    """
     import torch
     from pyannote.audio import Pipeline
 
@@ -118,8 +219,23 @@ def load_diarization_pipeline(hf_token: str, device: str):
 
 def diarize_audio(pipeline, audio_path: Path,
                    min_speakers: int, max_speakers: int) -> list[DiarizationTurn]:
-    """Runs a pipeline built by load_diarization_pipeline() against one audio
-    file."""
+    """Run a pre-loaded diarization pipeline against one audio file.
+
+    Parameters
+    ----------
+    pipeline : pyannote.audio.Pipeline
+        A pipeline from :func:`load_diarization_pipeline`.
+    audio_path : pathlib.Path
+        Path to the audio file.
+    min_speakers, max_speakers : int
+        Optional pyannote hints for the expected speaker count; ``0``
+        means "no hint" and is omitted from the call.
+
+    Returns
+    -------
+    list of DiarizationTurn
+        One entry per detected speaker turn.
+    """
     kwargs = {}
     if min_speakers > 0:
         kwargs["min_speakers"] = min_speakers
@@ -138,11 +254,31 @@ def diarize_audio(pipeline, audio_path: Path,
 
 def assign_speakers(whisper_segments: list[WhisperSegment],
                      diarization_turns: list[DiarizationTurn]) -> list[TranscriptSegment]:
-    """Assigns each whisper segment the speaker of whichever diarization turn
-    overlaps it the most (by duration), the standard WhisperX-style recipe.
-    A segment with zero overlap against every turn (or when diarization_turns
-    is empty, e.g. diarization was skipped) gets speaker=None rather than a
-    guessed label."""
+    """Label each transcribed segment with its best-overlapping speaker turn.
+
+    Parameters
+    ----------
+    whisper_segments : list of WhisperSegment
+        Transcription segments from :func:`transcribe_audio`, ``start``/
+        ``end`` in seconds.
+    diarization_turns : list of DiarizationTurn
+        Speaker turns from :func:`diarize_audio`, ``start``/``end`` in
+        seconds plus a ``speaker`` label. May be empty (diarization was
+        skipped) — every output segment then gets ``speaker=None``.
+
+    Returns
+    -------
+    list of TranscriptSegment
+        One entry per input segment, in order, with ``start_ms``/
+        ``end_ms`` (rounded to the nearest millisecond) and ``speaker``
+        set to whichever turn overlaps it most by duration, or ``None``
+        if no turn overlaps it at all.
+
+    Notes
+    -----
+    Max-overlap interval matching, the standard WhisperX-style recipe.
+    See :doc:`/math/speaker_diarization` for the exact overlap formula.
+    """
     result: list[TranscriptSegment] = []
     for seg in whisper_segments:
         best_speaker: Optional[str] = None

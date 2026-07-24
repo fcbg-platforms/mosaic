@@ -4,7 +4,7 @@
 File lsl_outlet.cpp
 ===================
 
-|exhale_lsh| :ref:`Parent directory <dir_src_trigger>` (``src/trigger``)
+|exhale_lsh| :ref:`Parent directory <dir_src_trigger>` (``src\trigger``)
 
 .. |exhale_lsh| unicode:: U+021B0 .. UPWARDS ARROW WITH TIP LEFTWARDS
 
@@ -13,7 +13,7 @@ File lsl_outlet.cpp
    :local:
    :backlinks: none
 
-Definition (``src/trigger/lsl_outlet.cpp``)
+Definition (``src\trigger\lsl_outlet.cpp``)
 -------------------------------------------
 
 
@@ -32,9 +32,9 @@ Includes
 
 - ``lsl_cpp.h``
 
-- ``trigger/lsl_outlet.hpp`` (:ref:`file_src_trigger_lsl_outlet.hpp`)
+- ``trigger/lsl_outlet.hpp``
 
-- ``utils/logger.hpp`` (:ref:`file_src_utils_logger.hpp`)
+- ``utils/logger.hpp``
 
 
 

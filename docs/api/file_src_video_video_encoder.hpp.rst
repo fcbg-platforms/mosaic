@@ -4,7 +4,7 @@
 File video_encoder.hpp
 ======================
 
-|exhale_lsh| :ref:`Parent directory <dir_src_video>` (``src/video``)
+|exhale_lsh| :ref:`Parent directory <dir_src_video>` (``src\video``)
 
 .. |exhale_lsh| unicode:: U+021B0 .. UPWARDS ARROW WITH TIP LEFTWARDS
 
@@ -13,7 +13,7 @@ File video_encoder.hpp
    :local:
    :backlinks: none
 
-Definition (``src/video/video_encoder.hpp``)
+Definition (``src\video\video_encoder.hpp``)
 --------------------------------------------
 
 
@@ -34,11 +34,11 @@ Includes
 
 - ``memory``
 
-- ``utils/ring_buffer.hpp`` (:ref:`file_src_utils_ring_buffer.hpp`)
+- ``utils/ring_buffer.hpp``
 
-- ``video/frame_timestamp_writer.hpp`` (:ref:`file_src_video_frame_timestamp_writer.hpp`)
+- ``video/frame_timestamp_writer.hpp``
 
-- ``video/video_frame.hpp`` (:ref:`file_src_video_video_frame.hpp`)
+- ``video/video_frame.hpp``
 
 
 
