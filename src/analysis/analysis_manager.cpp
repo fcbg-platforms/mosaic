@@ -30,6 +30,26 @@ struct Job {
     QProcessEnvironment  env;   // additive on top of the parent process's environment
 };
 
+// True if sessionPath has no sync_manifest.json yet, or if any of its
+// timestamps_camN.csv files were modified more recently than the manifest —
+// e.g. an interrupted/re-run recording over the same session folder. A stale
+// manifest silently feeds run_pose3d.py a wrong cross-camera tick alignment
+// with no visible symptom, so this is checked on every run rather than only
+// "does the file exist".
+bool sync_manifest_is_stale(const QString& sessionPath) {
+    const QFileInfo manifestInfo(sessionPath + "/sync_manifest.json");
+    if (!manifestInfo.exists()) { return true; }
+
+    const QDir videoDir(sessionPath + "/video");
+    const QStringList csvFiles = videoDir.entryList({"timestamps_cam*.csv"}, QDir::Files);
+    for (const QString& csvName : csvFiles) {
+        if (QFileInfo(videoDir.filePath(csvName)).lastModified() > manifestInfo.lastModified()) {
+            return true;
+        }
+    }
+    return false;
+}
+
 } // namespace
 
 struct AnalysisManager::Impl {
@@ -130,7 +150,7 @@ void AnalysisManager::run_gaze_fusion(const QString& sessionPath, int minCameras
 
 void AnalysisManager::run_pose3d_reconstruction(const QString& sessionPath, int minCameras,
                                                  double maxReprojectionErrorPx, int frameSkip) {
-    if (!QFileInfo::exists(sessionPath + "/sync_manifest.json")) {
+    if (sync_manifest_is_stale(sessionPath)) {
         SyncManifest::generate(sessionPath).save(sessionPath);
     }
 

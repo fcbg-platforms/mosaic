@@ -121,6 +121,16 @@ TEST(Skeleton3DResult, LoadsValidFileWithFullSchema) {
     EXPECT_DOUBLE_EQ(p0.keypoints[0].reprojectionErrorPx, 2.1);
     ASSERT_EQ(p0.reprojectedPx.size(), 3);
     EXPECT_DOUBLE_EQ(p0.reprojectedPx.value(0)[0].x(), 500.0);
+
+    // p1 (below) is only contributed to by cameras 0/1, but reprojected_px is
+    // written for EVERY calibrated camera including non-contributing ones —
+    // confirm camera 2's entry actually parses and isn't dropped/restricted
+    // to source_cameras.
+    const auto& p1 = f0.people[1];
+    EXPECT_EQ(p1.sourceCameras, QVector<int>({0, 1}));
+    ASSERT_TRUE(p1.reprojectedPx.contains(2));
+    ASSERT_EQ(p1.reprojectedPx.value(2).size(), 3);
+    EXPECT_DOUBLE_EQ(p1.reprojectedPx.value(2)[0].x(), 615.0);
 }
 
 TEST(Skeleton3DResult, MissingFileIsInvalidNotCrashing) {
@@ -177,11 +187,23 @@ TEST(Skeleton3DResult, InvalidKeypointsHaveNullFieldsAcrossAllArrays) {
     EXPECT_TRUE(p1.keypoints[0].valid);
     EXPECT_FALSE(p1.keypoints[1].valid);
     EXPECT_DOUBLE_EQ(p1.keypoints[1].reprojectionErrorPx, -1.0);
+    // positionRoom at an invalid index must also stay at its default — not
+    // just reprojectionErrorPx — since keypointsValid is documented as the
+    // single source of truth across every parallel array.
+    EXPECT_DOUBLE_EQ(p1.keypoints[1].positionRoom[0], 0.0);
+    EXPECT_DOUBLE_EQ(p1.keypoints[1].positionRoom[1], 0.0);
+    EXPECT_DOUBLE_EQ(p1.keypoints[1].positionRoom[2], 0.0);
     EXPECT_TRUE(p1.keypoints[2].valid);
 
     // A null entry in reprojected_px still parses to a default (null)
     // QPointF at that index, not a dropped/shorter vector — every camera's
     // vector stays index-aligned with keypoints() regardless of validity.
+    // Checked across all three cameras' entries (0/1/2), not just camera 0,
+    // since a bug could plausibly touch only one camera's array.
     ASSERT_EQ(p1.reprojectedPx.value(0).size(), 3);
     EXPECT_EQ(p1.reprojectedPx.value(0)[1], QPointF());
+    ASSERT_EQ(p1.reprojectedPx.value(1).size(), 3);
+    EXPECT_EQ(p1.reprojectedPx.value(1)[1], QPointF());
+    ASSERT_EQ(p1.reprojectedPx.value(2).size(), 3);
+    EXPECT_EQ(p1.reprojectedPx.value(2)[1], QPointF());
 }

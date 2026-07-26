@@ -29,6 +29,7 @@ def _look_at_camera(position, target=(0.0, 0.0, 0.0), up=(0.0, 1.0, 0.0)):
     true_up = np.cross(forward, right)
 
     r = np.column_stack([right, true_up, forward])
+    assert np.isclose(np.linalg.det(r), 1.0), "camera basis must be a proper rotation"
     m = np.eye(4)
     m[:3, :3] = r
     m[:3, 3] = position
