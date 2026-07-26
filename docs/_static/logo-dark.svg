@@ -1,15 +1,21 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="MOSAIC">
-  <!-- Provisional placeholder mark — swap for real branding when available.
-       3x3 "mosaic tile" grid: nine independent camera views composing one
-       observation, echoing the project name. Colors match custom.css's
-       dark-mode brand palette (--pst-color-primary / --pst-color-secondary). -->
-  <rect x="4"  y="4"  width="16" height="16" rx="4" fill="#7a9cff"/>
-  <rect x="24" y="4"  width="16" height="16" rx="4" fill="#44cc88"/>
-  <rect x="44" y="4"  width="16" height="16" rx="4" fill="#7a9cff" opacity="0.55"/>
-  <rect x="4"  y="24" width="16" height="16" rx="4" fill="#44cc88" opacity="0.55"/>
-  <rect x="24" y="24" width="16" height="16" rx="4" fill="#7a9cff"/>
-  <rect x="44" y="24" width="16" height="16" rx="4" fill="#44cc88"/>
-  <rect x="4"  y="44" width="16" height="16" rx="4" fill="#44cc88" opacity="0.55"/>
-  <rect x="24" y="44" width="16" height="16" rx="4" fill="#7a9cff" opacity="0.55"/>
-  <rect x="44" y="44" width="16" height="16" rx="4" fill="#7a9cff"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-60 -60 120 120" width="120" height="120" role="img" aria-label="MOSAIC">
+  <!-- Same mark as logo-light.svg — the diamond's colors are fully
+       opaque/self-contained (not text/background-dependent), so it reads
+       identically against both the light and dark doc themes. Kept as a
+       separate file only because pydata-sphinx-theme's logo option expects
+       distinct image_light/image_dark entries. -->
+  <defs>
+    <radialGradient id="mosaicLogoGlow" cx="0" cy="0" r="56" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#6464ff" stop-opacity="0.235"/>
+      <stop offset="100%" stop-color="#6464ff" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="mosaicLogoDiamond" x1="0" y1="-36" x2="0" y2="36" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#9999ff"/>
+      <stop offset="50%" stop-color="#6666ee"/>
+      <stop offset="100%" stop-color="#4444aa"/>
+    </linearGradient>
+  </defs>
+  <circle cx="0" cy="0" r="56" fill="url(#mosaicLogoGlow)"/>
+  <path d="M 0 -36 L 36 0 L 0 36 L -36 0 Z" fill="url(#mosaicLogoDiamond)" stroke="#aaaaff" stroke-width="1.2"/>
+  <path d="M 0 -18 L 18 0 L 0 18 L -18 0 Z" fill="#050514" fill-opacity="0.784"/>
 </svg>
