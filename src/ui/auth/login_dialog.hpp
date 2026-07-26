@@ -1,6 +1,7 @@
 #pragma once
 #include "auth/profile_manager.hpp"
 #include <QDialog>
+#include <functional>
 #include <memory>
 
 namespace mosaic {
@@ -28,6 +29,7 @@ public:
 
 protected:
     void keyPressEvent(QKeyEvent* event) override;  // disable Escape
+    void showEvent(QShowEvent* event) override;      // gentle fade-in on first show
 
 private slots:
     void on_card_selected(const QString& username);
@@ -42,7 +44,15 @@ private:
     void rebuild_profile_grid();
     void show_login_mode();
     void show_register_mode();
+    // onComplete (if given) runs once the target page actually becomes
+    // current and visible — NOT synchronously after this call returns, since
+    // the switch is deferred to the fade-out animation's finished signal.
+    // Needed for anything that must act on the target page itself (e.g.
+    // setFocus() on one of its widgets), which would otherwise run while
+    // that page is still hidden behind the stack.
+    void crossfade_to_page(int index, std::function<void()> onComplete = {});
     void set_error(const QString& msg);
+    void set_register_error(const QString& msg);
     void clear_error();
     void attempt_login();
     void slide_password_in(bool visible);
