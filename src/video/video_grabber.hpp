@@ -78,7 +78,14 @@ public:
     // needs real, undownscaled pixels for accurate ChArUco corner detection
     // — preview_frame() is deliberately capped to 640×360 for the live
     // monitor and is not suitable for that. Safe to call from any thread.
-    void request_calibration_frame();
+    //
+    // token is echoed back verbatim on calibration_frame_ready() so a caller
+    // that issues one request per "shot" (e.g. RoomCalibrationW) can reject a
+    // reply that arrives after it has already moved on to a later shot,
+    // instead of relying only on timing (a delayed reply — e.g. from GigE
+    // packet loss/resend — could otherwise be silently misattributed to the
+    // wrong shot).
+    void request_calibration_frame(uint64_t token = 0);
 
     [[nodiscard]] bool    is_open()          const;
     [[nodiscard]] int64_t frames_grabbed()   const;
@@ -110,7 +117,8 @@ signals:
     // request_calibration_frame() call. QImage (not VideoFrame) to match
     // preview_frame()'s existing, already-proven-safe cross-thread payload
     // convention rather than introducing a new custom-struct Qt meta-type.
-    void calibration_frame_ready(int cameraIndex, QImage frame);
+    // token is whatever was passed to request_calibration_frame().
+    void calibration_frame_ready(int cameraIndex, QImage frame, uint64_t token);
 
 protected:
     void run() override;

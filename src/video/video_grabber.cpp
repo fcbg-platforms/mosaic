@@ -40,7 +40,12 @@ struct VideoGrabber::Impl {
     // Same deferred-to-grab-thread pattern as liveApplyPending, but for a
     // one-shot full-resolution frame request (see
     // VideoGrabber::request_calibration_frame()).
-    std::atomic<bool> calibrationFramePending {false};
+    std::atomic<bool>     calibrationFramePending {false};
+    // Echoed back verbatim on calibration_frame_ready() — see that signal's
+    // doc comment. Written before calibrationFramePending is set, read after
+    // calibrationFramePending is claimed via exchange(), so the token always
+    // corresponds to the request that set the pending flag.
+    std::atomic<uint64_t> calibrationFrameToken {0};
 
     // GevTimestampTickFrequency (Hz), read once in open() and reused by the
     // grab thread to convert each frame's chunk timestamp from device ticks
@@ -511,7 +516,8 @@ void VideoGrabber::apply_live_params() {
 #endif
 }
 
-void VideoGrabber::request_calibration_frame() {
+void VideoGrabber::request_calibration_frame(uint64_t token) {
+    d->calibrationFrameToken.store(token);
     d->calibrationFramePending.store(true);
 }
 
@@ -695,7 +701,8 @@ void VideoGrabber::run_pylon_loop() {
             if (d->calibrationFramePending.exchange(false)) {
                 const QImage full(frame->data.data(), w, h, static_cast<int>(stride),
                                    QImage::Format_BGR888);
-                emit calibration_frame_ready(d->cameraIndex, full.copy());
+                emit calibration_frame_ready(d->cameraIndex, full.copy(),
+                                              d->calibrationFrameToken.load());
             }
 
             // Throttled preview at ~half the grab rate for live QML display.
@@ -815,7 +822,8 @@ void VideoGrabber::run_stub_loop() {
         // counterpart above).
         if (d->calibrationFramePending.exchange(false)) {
             const QImage full(frame->data.data(), width, height, width * 3, QImage::Format_BGR888);
-            emit calibration_frame_ready(d->cameraIndex, full.copy());
+            emit calibration_frame_ready(d->cameraIndex, full.copy(),
+                                          d->calibrationFrameToken.load());
         }
 
         // Emit a throttled preview (~15 fps) for live QML display.

@@ -49,7 +49,7 @@ private:
     void build_camera_section(QVBoxLayout* parent);
     void build_capture_section(QVBoxLayout* parent);
 
-    void on_calibration_frame_ready(int cameraIndex, QImage frame);
+    void on_calibration_frame_ready(int cameraIndex, QImage frame, uint64_t token);
     void on_preview_frame(int cameraIndex, QImage frame);
     void finalize_shot();
     void capture_shot();

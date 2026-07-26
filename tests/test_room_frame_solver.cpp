@@ -52,6 +52,22 @@ TEST(RoomFrameSolver, ComposeAppliesRightOperandFirst) {
     EXPECT_NEAR(c[11], 0.0, 1e-9);
 }
 
+// The test above uses two pure translations, which commute — it can't
+// actually distinguish compose(a,b) from a swapped compose(b,a), since both
+// orders give the same result. A rotation composed with a translation does
+// NOT commute, so this pins down the real "apply b first, then a" contract:
+// translating by (1,0,0) then rotating 90 deg about Z must land at (0,1,0),
+// not (1,0,0) (which is what a silently-swapped implementation would give).
+TEST(RoomFrameSolver, ComposeArgumentOrderMattersWithRotation) {
+    const Mat4 rot90 = rot_z_translate(90.0, 0, 0, 0);
+    Mat4 translateX  = identity();
+    translateX[3]    = 1.0;   // translate x by 1
+    const Mat4 c = compose(rot90, translateX);
+    EXPECT_NEAR(c[3], 0.0, 1e-9);
+    EXPECT_NEAR(c[7], 1.0, 1e-9);
+    EXPECT_NEAR(c[11], 0.0, 1e-9);
+}
+
 // ── average ───────────────────────────────────────────────────────────────
 
 TEST(RoomFrameSolver, AverageReturnsRotationBisector) {
@@ -69,6 +85,27 @@ TEST(RoomFrameSolver, AverageAveragesTranslationArithmetically) {
     b[3] = 4.0;
     const Mat4 avg = average({a, b});
     EXPECT_NEAR(avg[3], 3.0, 1e-9);
+}
+
+// The two tests above use rotations close to 180 deg, where the internal
+// rotation-matrix-to-quaternion conversion happens to canonicalize both
+// samples to the same hemisphere already (their dot product stays positive
+// even without sign-alignment) — they'd still pass with the sign-alignment
+// step deleted entirely. This test picks two rotations (239 deg and 300 deg)
+// straddling that conversion's w-largest/z-largest branch boundary far
+// enough apart that their raw quaternions land in OPPOSITE hemispheres
+// (verified by hand: dot product is -0.86, clearly negative) — without
+// sign-alignment, naively summing them would partially cancel instead of
+// averaging, producing something unrelated to the correct bisector. Values
+// confirmed with an independent numeric reimplementation of the conversion
+// before writing this test.
+TEST(RoomFrameSolver, AverageSignAlignsQuaternionsAcrossHemisphereBoundary) {
+    const Mat4 a        = rot_z_translate(239.0, 0, 0, 0);
+    const Mat4 b        = rot_z_translate(300.0, 0, 0, 0);
+    const Mat4 avg      = average({a, b});
+    // Correct short-path bisector between 239 deg and 300 deg is 269.5 deg.
+    const Mat4 expected = rot_z_translate(269.5, 0, 0, 0);
+    expect_mat4_near(avg, expected, 1e-6);
 }
 
 TEST(RoomFrameSolver, AverageOfSingleSampleIsUnchanged) {
