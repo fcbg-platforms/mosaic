@@ -6,6 +6,9 @@ on:
   pull_request:
     branches: [main]
 
+permissions:
+  contents: read
+
 # NOTE: this builds only the hardware-free configuration
 # (MOSAIC_ENABLE_CAMERAS=OFF, MOSAIC_ENABLE_FFMPEG=OFF, MOSAIC_ENABLE_LSL=OFF).
 # Basler Pylon is a licensed vendor SDK (not fetchable via vcpkg) and
@@ -84,3 +87,48 @@ jobs:
         # --keep-going: start permissive to baseline pre-existing warnings
         # before tightening to a hard -W once confirmed clean.
         run: uv run sphinx-build -b html --keep-going . _build/html
+
+      - name: Upload built docs (build-time artifact, not the Pages one yet)
+        uses: actions/upload-artifact@v4
+        with:
+          name: docs-html
+          path: docs/_build/html
+
+  # Separate job (not just conditional steps inside `docs`) so a PR run of
+  # `docs` never touches the github-pages environment at all: that
+  # environment has a branch-protection rule limiting deployments to main,
+  # and a job-level `if: false` skips the job before any environment check
+  # happens — whereas gating individual steps inside `docs` still evaluates
+  # the job's `environment:` up front for EVERY trigger (including PRs),
+  # which GitHub rejects outright for a non-main branch before running any
+  # step at all. Found this the hard way: PR #11's `docs` job failed in 2s
+  # with zero steps executed once `environment: github-pages` was added
+  # directly to it.
+  docs-deploy:
+    needs: docs
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      pages:    write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    concurrency:
+      group: "pages"
+      cancel-in-progress: false
+    steps:
+      - name: Download built docs
+        uses: actions/download-artifact@v4
+        with:
+          name: docs-html
+          path: docs-html
+
+      - name: Upload docs as a Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs-html
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
