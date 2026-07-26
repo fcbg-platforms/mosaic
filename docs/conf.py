@@ -177,9 +177,9 @@ html_short_title = "MOSAIC"
 
 html_theme_options = {
     "logo": {
-        # Placeholder mark — see docs/_static/logo-{light,dark}.svg's own
-        # comment. Swap these two files for finalized brand assets whenever
-        # they exist; the theme wiring itself won't need to change.
+        # Matches the diamond mark painted in BrandingPanel::paintEvent()
+        # (src/ui/auth/login_dialog.cpp) — see docs/_static/logo-{light,dark}.svg's
+        # own comment for the geometry/color correspondence.
         "image_light": "_static/logo-light.svg",
         "image_dark":  "_static/logo-dark.svg",
         "text": "MOSAIC",
