@@ -56,6 +56,7 @@ struct MainWindow::Impl {
     QLabel*         statusLabel   = nullptr;
     PoseWorker*     poseWorker    = nullptr;
     AnalysisTabW*   analysisTab   = nullptr;
+    VideoSettingsW* videoSettingsW = nullptr;
 
     // Coalesces rapid-fire camera_params_changed emissions (e.g. dragging a
     // slider fires valueChanged on every intermediate tick) into a single
@@ -215,7 +216,14 @@ void MainWindow::build_central_widget() {
     d->settingsTabs->setDocumentMode(true);
 
     auto* videoSettingsW = new VideoSettingsW(d->settings.video);
+    d->videoSettingsW = videoSettingsW;
     d->settingsTabs->addTab(videoSettingsW, "Video");
+    // Cameras are already opened and previewing by the time MainWindow is
+    // constructed (Application::initialize() does this first) — start
+    // "Discover cameras" disabled to match, rather than a moment of being
+    // clickable before the recording_started/stopped guards in
+    // build_status_bar() ever fire.
+    videoSettingsW->set_discover_enabled(!(d->videoMgr && d->videoMgr->camera_count() > 0));
     d->settingsTabs->addTab(
         new AudioSettingsW(d->settings.audio, d->audioMgr),                "Audio");
     d->settingsTabs->addTab(
@@ -227,7 +235,7 @@ void MainWindow::build_central_widget() {
     d->settingsTabs->addTab(
         new PerformanceMonitorW(d->videoMgr, d->audioMgr, d->analysisMgr),  "Perf");
     d->settingsTabs->addTab(
-        new CalibrationW(d->settings.video),                           "Calibrate");
+        new CalibrationW(d->settings.video),                                "Calibrate");
 
     d->mainSplitter->addWidget(d->settingsTabs);
 
@@ -261,6 +269,11 @@ void MainWindow::build_central_widget() {
         connect(d->videoMgr, &VideoManager::frame_preview,
                 d->bridge, &MonitorBridge::on_frame_preview,
                 Qt::QueuedConnection);
+        // Live per-camera "does this firmware support GigE Vision Action
+        // Command triggering" readout — see gige_action_command.hpp /
+        // CameraCardW::set_action_command_capability().
+        connect(d->videoMgr, &VideoManager::action_command_capability,
+                videoSettingsW, &VideoSettingsW::set_action_command_capability);
     }
 
     // When the camera list changes, fully reload the hardware.
@@ -423,6 +436,7 @@ void MainWindow::build_status_bar() {
                 [this](const QString& path) {
             d->statusLabel->setText(QString("● Recording  →  %1").arg(path));
             d->statusLabel->setStyleSheet("color: #ff6666; font-weight: bold;");
+            if (d->videoSettingsW) { d->videoSettingsW->set_discover_enabled(false); }
         });
         connect(d->recordMgr, &RecordManager::recording_stopped, this,
                 [this](const QString& /*path*/, int durationMs) {
@@ -430,6 +444,13 @@ void MainWindow::build_status_bar() {
                 QString("Recording stopped. Duration: %1 s")
                     .arg(durationMs / 1000.0, 0, 'f', 1));
             d->statusLabel->setStyleSheet("");
+            // Preview auto-resumes right after recording stops (see
+            // Application's own recording_stopped handler), keeping every
+            // Action1-armed camera's ticker alive — only re-enable if there
+            // are genuinely no cameras open at all.
+            if (d->videoSettingsW && d->videoMgr) {
+                d->videoSettingsW->set_discover_enabled(d->videoMgr->camera_count() == 0);
+            }
         });
     }
 

@@ -3,7 +3,9 @@
 #include "ui/auth/admin_panel_dialog.hpp"
 #include "ui/auth/login_dialog.hpp"
 #include "ui/style.hpp"
+#include "utils/logger.hpp"
 #include <QApplication>
+#include <exception>
 
 #ifdef _WIN32
 #include <windows.h>
@@ -36,6 +38,33 @@ static LONG WINAPI mosaic_exception_filter(EXCEPTION_POINTERS* ep)
 }
 #endif
 
+// QApplication::notify() is the single choke point every slot invoked
+// through the Qt event loop passes through (button clicks, QTimer::timeout,
+// etc.) — Qt does not catch exceptions escaping a slot itself, so by
+// default an uncaught exception thrown from inside any slot propagates out
+// of notify() and terminates the process (this is a well-documented Qt
+// hazard, not specific to this codebase). Wrapping the base call here turns
+// that into a logged, recoverable error instead — the same "one bad thing
+// shouldn't kill everything" philosophy already applied throughout
+// VideoGrabber's own try_set() helper, just at the one place that covers
+// every main-thread slot at once rather than one call site at a time.
+class MosaicApplication : public QApplication {
+public:
+    using QApplication::QApplication;
+
+    bool notify(QObject* receiver, QEvent* event) override {
+        try {
+            return QApplication::notify(receiver, event);
+        } catch (const std::exception& e) {
+            mosaic::log_error(QString("[MosaicApplication] Uncaught exception in a Qt slot: %1")
+                                   .arg(QString::fromUtf8(e.what())));
+        } catch (...) {
+            mosaic::log_error("[MosaicApplication] Uncaught non-standard exception in a Qt slot.");
+        }
+        return false;
+    }
+};
+
 // Exit code returned by MainWindow when the user picks "Switch profile".
 static constexpr int k_switch_exit_code = 42;
 
@@ -45,7 +74,7 @@ int main(int argc, char* argv[])
     ::SetUnhandledExceptionFilter(mosaic_exception_filter);
 #endif
 
-    QApplication app(argc, argv);
+    MosaicApplication app(argc, argv);
     app.setApplicationName("MOSAIC");
     app.setApplicationVersion("0.1.0");
     app.setOrganizationName("CSRU");

@@ -445,8 +445,10 @@ void CameraCardW::build_hw_trigger_tab(QWidget* tab) {
 
     // Options match the real TriggerSource enum on the Basler ace-classic
     // GigE cameras this was verified against — Line1 is the opto-isolated
-    // input, Action1 is a GigE Vision scheduled action command, Software
-    // lets the SDK drive the trigger for testing without external wiring.
+    // input, Action1 is a GigE Vision Action Command (fired once per frame,
+    // continuously, for the duration of the session — see
+    // VideoManager::ActionCommandTicker), Software lets the SDK drive the
+    // trigger for testing without external wiring.
     auto* srcCombo = make_combo({"Line1", "Software", "Action1"},
                                 m_params.hwTriggerSource);
     srcCombo->setEnabled(m_params.hwTriggerEnabled);
@@ -455,6 +457,16 @@ void CameraCardW::build_hw_trigger_tab(QWidget* tab) {
     auto* delaySpin = make_dspin(0.0, 1'000'000.0, m_params.hwTriggerDelayUs, 10.0, 1);
     delaySpin->setEnabled(m_params.hwTriggerEnabled);
     form->addRow("Trigger delay:", with_unit(delaySpin, "µs"));
+
+    // Live, per-session readout of whether this camera's firmware actually
+    // supports GigE Vision Action Command triggering — set via
+    // set_action_command_capability(), fed by VideoGrabber's live probe at
+    // open() time (see gige_action_command.hpp). Only meaningful when
+    // "Action1" is selected above; otherwise stays at its default text.
+    m_actionCapabilityLbl = new QLabel("Action-command support: not probed this session");
+    m_actionCapabilityLbl->setProperty("role", "muted");
+    m_actionCapabilityLbl->setWordWrap(true);
+    form->addRow(m_actionCapabilityLbl);
 
     add_separator(form);
     auto* hint = new QLabel(
@@ -472,13 +484,32 @@ void CameraCardW::build_hw_trigger_tab(QWidget* tab) {
         delaySpin->setEnabled(enabled);
     };
 
-    connect(enabledCk, &QCheckBox::toggled, this, [this, update_states](bool val){
+    // The capability label only ever gets a fresh value from a live probe
+    // when Action1 is actually requested at open() time (VideoGrabber::
+    // open() only emits action_command_capability() inside that case) — so
+    // switching away from Action1 (or disabling hw trigger entirely) here
+    // in the UI, without necessarily reopening the camera, would otherwise
+    // leave a stale SUPPORTED/NOT-supported readout displayed indefinitely,
+    // describing a probe that no longer reflects what's configured. Reset
+    // it back to its "not probed" default the moment Action1 stops being
+    // the active selection, so it can never lie about the camera's current
+    // configuration.
+    auto reset_action_label_if_not_action1 = [this, enabledCk, srcCombo]{
+        if (!enabledCk->isChecked() || srcCombo->currentText() != "Action1") {
+            set_action_command_capability(std::nullopt);
+        }
+    };
+
+    connect(enabledCk, &QCheckBox::toggled, this, [this, update_states, reset_action_label_if_not_action1](bool val){
         m_params.hwTriggerEnabled = val;
         update_states(val);
+        reset_action_label_if_not_action1();
         emit params_changed();
     });
-    connect(srcCombo, &QComboBox::currentTextChanged, this, [this](const QString& val){
-        m_params.hwTriggerSource = val; emit params_changed();
+    connect(srcCombo, &QComboBox::currentTextChanged, this, [this, reset_action_label_if_not_action1](const QString& val){
+        m_params.hwTriggerSource = val;
+        reset_action_label_if_not_action1();
+        emit params_changed();
     });
     connect(delaySpin, qOverload<double>(&QDoubleSpinBox::valueChanged), this, [this](double val){
         m_params.hwTriggerDelayUs = val; emit params_changed();
@@ -525,6 +556,19 @@ void CameraCardW::set_connected(bool connected) {
         m_statusDot->setStyleSheet(connected
             ? "background: #44cc88; border-radius: 5px;"
             : "background: #333355; border-radius: 5px;");
+}
+
+void CameraCardW::set_action_command_capability(std::optional<bool> supported) {
+    if (!m_actionCapabilityLbl) { return; }
+    if (!supported.has_value()) {
+        m_actionCapabilityLbl->setText("Action-command support: not probed this session");
+    } else if (*supported) {
+        m_actionCapabilityLbl->setText("Action-command support: SUPPORTED");
+    } else {
+        m_actionCapabilityLbl->setText(
+            "Action-command support: NOT supported on this firmware — falling back to "
+            "free-run. Switch trigger source to Line1 or Software.");
+    }
 }
 
 void CameraCardW::refresh() {
