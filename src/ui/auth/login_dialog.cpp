@@ -4,6 +4,7 @@
 #include <QFont>
 #include <QFrame>
 #include <QGraphicsOpacityEffect>
+#include <QHash>
 #include <QHBoxLayout>
 #include <QKeyEvent>
 #include <QLabel>
@@ -274,13 +275,29 @@ void fade_in_widget(QWidget* w) {
     anim->start(QAbstractAnimation::DeleteWhenStopped);
 }
 
+// Tracks any currently in-flight shake_widget() animation per widget, so a
+// second shake requested before the first settles (e.g. two failed attempts
+// in quick succession) resumes from the widget's TRUE rest position instead
+// of wherever it happens to be mid-shake, and cancels the stale group rather
+// than letting two animations race on the same `pos` property.
+struct ShakeState { QPoint basePos; QAbstractAnimation* group = nullptr; };
+QHash<QWidget*, ShakeState>& shake_states() {
+    static QHash<QWidget*, ShakeState> states;
+    return states;
+}
+
 // Short, decaying horizontal shake — the standard "invalid input" cue.
 // Animates the widget's own `pos` property (a real Q_PROPERTY on QWidget,
 // backed by move()) relative to wherever it currently sits under its
 // layout, and always ends exactly back at that position.
 void shake_widget(QWidget* w) {
     if (!w) { return; }
-    const QPoint base = w->pos();
+    auto& states = shake_states();
+    const auto it = states.find(w);
+    const bool alreadyShaking = (it != states.end());
+    const QPoint base = alreadyShaking ? it->basePos : w->pos();
+    if (alreadyShaking) { it->group->stop(); }
+
     auto* group = new QSequentialAnimationGroup(w);
     const int offsets[] = { 8, -8, 6, -6, 3, -3, 0 };
     QPoint prev = base;
@@ -294,6 +311,20 @@ void shake_widget(QWidget* w) {
         group->addAnimation(anim);
         prev = target;
     }
+    states[w] = ShakeState{base, group};
+    // finished() only fires on natural completion, never on stop() (see the
+    // re-entrant path above) — so a superseded group's own handler simply
+    // never runs, which is correct: the map entry it would have cleared was
+    // already overwritten synchronously by the new shake before this point.
+    QObject::connect(group, &QAbstractAnimation::finished, w, [w, group] {
+        auto& s = shake_states();
+        const auto found = s.find(w);
+        if (found != s.end() && found->group == group) { s.remove(w); }
+    });
+    // Guards against w being destroyed mid-shake (e.g. dialog teardown)
+    // leaving a stale entry keyed by a dangling pointer that a future,
+    // unrelated widget allocated at the same address could wrongly match.
+    QObject::connect(w, &QObject::destroyed, [w] { shake_states().remove(w); });
     group->start(QAbstractAnimation::DeleteWhenStopped);
 }
 
@@ -550,6 +581,16 @@ struct LoginDialog::Impl {
     QString         activeUsername;
     bool            hasFadedIn               = false; // dialog fade-in runs once
     bool            passwordRowTargetVisible = false; // guards redundant slide_password_in() restarts
+    // The page crossfade_to_page() is currently showing OR mid-transition
+    // toward. Deliberately tracked here rather than inferred from
+    // stack->currentWidget(), which doesn't update until the fade-out
+    // animation's finished callback actually calls setCurrentIndex() —
+    // during that ~130ms window currentWidget() still reports the OLD page,
+    // so a same-as-current-page check against it can't tell "already
+    // heading to index" apart from "heading somewhere else entirely",
+    // letting a fast-enough repeated click skip the re-entrancy guard below.
+    // Starts at 0 to match loginPage being index 0 and shown by default.
+    int             pageTransitionTargetIndex = 0;
     // Tracks whichever animation is currently in flight for each of the two
     // multi-stage transitions below, so a re-entrant call (e.g. fast repeated
     // clicking) can cancel the stale one instead of leaving two animations
@@ -572,6 +613,7 @@ struct LoginDialog::Impl {
     QPushButton*       guestBtn        = nullptr;
     AvatarChip*        selectedChip    = nullptr;
     QList<AvatarChip*> chips;
+    AddChip*           addChip         = nullptr; // rebuilt each time; previous one must be deleted
 
     // Register page
     QLineEdit* regUsername  = nullptr;
@@ -892,6 +934,11 @@ void LoginDialog::build_ui() {
 void LoginDialog::rebuild_profile_grid() {
     for (auto* chip : d->chips) { chip->deleteLater(); }
     d->chips.clear();
+    // takeAt()+delete below only removes the QLayoutItem wrapper, not the
+    // widget it wraps — the "+" card must be explicitly deleted too, same
+    // as the avatar chips above, or it's silently orphaned (still a live
+    // child widget with its own running hover animation) on every rebuild.
+    if (d->addChip) { d->addChip->deleteLater(); d->addChip = nullptr; }
 
     while (d->profileGrid->count()) {
         auto* item = d->profileGrid->takeAt(0);
@@ -914,12 +961,12 @@ void LoginDialog::rebuild_profile_grid() {
         if (col >= kCols) { col = 0; ++row; }
     }
 
-    auto* addChip = new AddChip(d->profileGridW);
-    connect(addChip, &AddChip::clicked, this, [this] {
+    d->addChip = new AddChip(d->profileGridW);
+    connect(d->addChip, &AddChip::clicked, this, [this] {
         d->regAdminRow->setVisible(false);
         show_register_mode();
     });
-    d->profileGrid->addWidget(addChip, row, col);
+    d->profileGrid->addWidget(d->addChip, row, col);
 
     if (!d->activeUsername.isEmpty()) {
         on_card_selected(d->activeUsername);
@@ -934,13 +981,13 @@ void LoginDialog::rebuild_profile_grid() {
 // one page at a time, so a true overlapping crossfade isn't possible without
 // restructuring away from it; this reads as a smooth transition rather than
 // today's hard cut, which is the actual goal.
-void LoginDialog::crossfade_to_page(int index) {
-    QWidget* currentPage = d->stack->currentWidget();
-    QWidget* targetPage  = d->stack->widget(index);
-    if (!targetPage || currentPage == targetPage) {
-        d->stack->setCurrentIndex(index);
-        return;
-    }
+void LoginDialog::crossfade_to_page(int index, std::function<void()> onComplete) {
+    // Already showing (or already mid-transition toward) this page — a
+    // repeated call (e.g. clicking the same nav button twice) is a no-op.
+    // This must be checked against pageTransitionTargetIndex, not
+    // stack->currentWidget(), for the reason documented on that member.
+    if (d->pageTransitionTargetIndex == index) { return; }
+    d->pageTransitionTargetIndex = index;
 
     // Cancel whichever phase (out or in) of a still-in-flight transition is
     // currently running — without this, fast repeated clicking (e.g. the
@@ -948,6 +995,15 @@ void LoginDialog::crossfade_to_page(int index) {
     // one reaches setCurrentIndex(), leaving two animations racing on the
     // same opacity effect and landing on the wrong page.
     if (d->pageTransitionAnim) { d->pageTransitionAnim->stop(); }
+
+    QWidget* currentPage = d->stack->currentWidget();
+    QWidget* targetPage  = d->stack->widget(index);
+    if (!targetPage || currentPage == targetPage) {
+        if (targetPage) { ensure_opacity_effect(targetPage)->setOpacity(1.0); }
+        d->stack->setCurrentIndex(index);
+        if (targetPage && onComplete) { onComplete(); }
+        return;
+    }
 
     auto* outEffect = ensure_opacity_effect(currentPage);
     auto* outAnim   = new QPropertyAnimation(outEffect, "opacity", currentPage);
@@ -957,8 +1013,10 @@ void LoginDialog::crossfade_to_page(int index) {
     outAnim->setEndValue(0.0);
     d->pageTransitionAnim = outAnim;
 
-    connect(outAnim, &QAbstractAnimation::finished, this, [this, index, targetPage] {
+    connect(outAnim, &QAbstractAnimation::finished, this,
+            [this, index, targetPage, onComplete] {
         d->stack->setCurrentIndex(index);
+        if (onComplete) { onComplete(); }
 
         auto* inEffect = ensure_opacity_effect(targetPage);
         inEffect->setOpacity(0.0);
@@ -1011,7 +1069,19 @@ void LoginDialog::on_card_selected(const QString& username) {
 // exact maximumHeight/180ms/InOutCubic recipe, plus an opacity fade so it both
 // grows and fades together instead of popping instantly).
 void LoginDialog::slide_password_in(bool visible) {
-    if (visible == d->passwordRowTargetVisible) { return; }
+    if (visible == d->passwordRowTargetVisible) {
+        // Row is already at (or already animating toward) this visibility,
+        // so there's no reveal/collapse animation to (re)start. But when
+        // switching directly between two password-protected profiles, the
+        // field itself must still reset for the newly-selected profile —
+        // otherwise it would silently keep showing the previous profile's
+        // leftover text, unfocused.
+        if (visible) {
+            d->passwordEdit->clear();
+            d->passwordEdit->setFocus();
+        }
+        return;
+    }
     d->passwordRowTargetVisible = visible;
 
     // Cancel a still-in-flight reveal/collapse before starting a new one —
@@ -1070,8 +1140,11 @@ void LoginDialog::show_register_mode() {
     d->regConfirm->clear();
     if (d->regAdminCk) { d->regAdminCk->setChecked(false); }
     d->regError->hide();
-    crossfade_to_page(1);
-    d->regUsername->setFocus();
+    // setFocus() must wait until the register page is actually current —
+    // crossfade_to_page() defers that ~130ms behind its fade-out animation,
+    // and a focus request against a still-hidden page's widget is not
+    // reliably preserved until it becomes visible.
+    crossfade_to_page(1, [this] { d->regUsername->setFocus(); });
 }
 
 void LoginDialog::on_cancel_register_clicked() {
