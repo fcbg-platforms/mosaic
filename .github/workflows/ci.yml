@@ -6,6 +6,9 @@ on:
   pull_request:
     branches: [main]
 
+permissions:
+  contents: read
+
 # NOTE: this builds only the hardware-free configuration
 # (MOSAIC_ENABLE_CAMERAS=OFF, MOSAIC_ENABLE_FFMPEG=OFF, MOSAIC_ENABLE_LSL=OFF).
 # Basler Pylon is a licensed vendor SDK (not fetchable via vcpkg) and
@@ -54,6 +57,20 @@ jobs:
     # unconditionally, before MOSAIC_BUILD_DOCS is even read, so a
     # CMake-driven docs build would still need the full Qt6+vcpkg toolchain.
     # Standalone Doxygen + sphinx-build needs none of that.
+    #
+    # The upload/deploy steps below only run on a push to main (never on a
+    # PR — a PR's docs build is check-only), and grant this job the extra
+    # pages/id-token permissions that action needs, on top of the read-only
+    # default set at the top of this file.
+    permissions:
+      pages:    write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    concurrency:
+      group: "pages"
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@v4
 
@@ -84,3 +101,14 @@ jobs:
         # --keep-going: start permissive to baseline pre-existing warnings
         # before tightening to a hard -W once confirmed clean.
         run: uv run sphinx-build -b html --keep-going . _build/html
+
+      - name: Upload docs as a Pages artifact
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs/_build/html
+
+      - name: Deploy to GitHub Pages
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        id: deployment
+        uses: actions/deploy-pages@v4
