@@ -57,20 +57,6 @@ jobs:
     # unconditionally, before MOSAIC_BUILD_DOCS is even read, so a
     # CMake-driven docs build would still need the full Qt6+vcpkg toolchain.
     # Standalone Doxygen + sphinx-build needs none of that.
-    #
-    # The upload/deploy steps below only run on a push to main (never on a
-    # PR — a PR's docs build is check-only), and grant this job the extra
-    # pages/id-token permissions that action needs, on top of the read-only
-    # default set at the top of this file.
-    permissions:
-      pages:    write
-      id-token: write
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    concurrency:
-      group: "pages"
-      cancel-in-progress: false
     steps:
       - uses: actions/checkout@v4
 
@@ -102,13 +88,47 @@ jobs:
         # before tightening to a hard -W once confirmed clean.
         run: uv run sphinx-build -b html --keep-going . _build/html
 
-      - name: Upload docs as a Pages artifact
-        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-        uses: actions/upload-pages-artifact@v3
+      - name: Upload built docs (build-time artifact, not the Pages one yet)
+        uses: actions/upload-artifact@v4
         with:
+          name: docs-html
           path: docs/_build/html
 
+  # Separate job (not just conditional steps inside `docs`) so a PR run of
+  # `docs` never touches the github-pages environment at all: that
+  # environment has a branch-protection rule limiting deployments to main,
+  # and a job-level `if: false` skips the job before any environment check
+  # happens — whereas gating individual steps inside `docs` still evaluates
+  # the job's `environment:` up front for EVERY trigger (including PRs),
+  # which GitHub rejects outright for a non-main branch before running any
+  # step at all. Found this the hard way: PR #11's `docs` job failed in 2s
+  # with zero steps executed once `environment: github-pages` was added
+  # directly to it.
+  docs-deploy:
+    needs: docs
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      pages:    write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    concurrency:
+      group: "pages"
+      cancel-in-progress: false
+    steps:
+      - name: Download built docs
+        uses: actions/download-artifact@v4
+        with:
+          name: docs-html
+          path: docs-html
+
+      - name: Upload docs as a Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs-html
+
       - name: Deploy to GitHub Pages
-        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
         id: deployment
         uses: actions/deploy-pages@v4
