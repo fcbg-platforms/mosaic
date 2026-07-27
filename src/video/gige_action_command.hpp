@@ -52,6 +52,23 @@ inline constexpr uint32_t k_action_group_mask = 0xFFFFFFFF; // Pylon::AllGroupMa
 // own documented default acquisition rate for this camera generation.
 inline constexpr double k_default_action_fps = 25.0;
 
+// Safety margin applied to the slowest camera's own measured/configured
+// rate before deriving the shared trigger period — see action_command_
+// period_ms()'s doc comment for why triggering AT a camera's exact ceiling
+// (marginFactor=1.0) isn't safe in practice: a camera's own reported
+// achievable rate (e.g. Basler's ResultingFrameRate) is the rate it can
+// sustain with perfect timing, but the trigger ticker fires from software
+// on a separate thread with real (if small) jitter — any trigger that
+// lands even slightly before the camera has finished its previous
+// exposure/readout cycle is simply missed, not queued. Confirmed on real
+// room-11 hardware 2026-07-27: a camera triggered at exactly its own
+// resultFPS ceiling (0% margin) missed a stable ~39-40% of triggers across
+// several independent runs, on a link independently confirmed not to be a
+// bad cable — backing off the trigger rate below that ceiling is the fix,
+// not a hardware change. 0.85 (14% slower than the ceiling) is a starting
+// point, not a measured-optimal value.
+inline constexpr double k_default_action_margin = 0.85;
+
 // Pure: computes the shared firing period (milliseconds) for a group of
 // cameras being triggered by continuous per-frame Action Commands — the
 // interval between consecutive ActionCommandSession::fire() calls. Uses the
@@ -65,7 +82,16 @@ inline constexpr double k_default_action_fps = 25.0;
 // this time). Non-positive values in targetFps are ignored. Returns the
 // period for k_default_action_fps if targetFps is empty or every value is
 // non-positive.
-[[nodiscard]] double action_command_period_ms(const std::vector<double>& targetFps);
+//
+// marginFactor scales the resolved rate down before computing the period
+// (period = 1000 / (minFps * marginFactor)), so the slowest camera is
+// triggered somewhat below its own ceiling rather than exactly at it — see
+// k_default_action_margin's doc comment above for why this is needed.
+// Values outside (0, 1] are treated as 1.0 (no margin) rather than
+// producing a negative/infinite period from a caller mistake.
+[[nodiscard]] double action_command_period_ms(
+    const std::vector<double>& targetFps,
+    double                     marginFactor = k_default_action_margin);
 
 // Owns the GigE transport layer handle for the lifetime of a continuous,
 // per-frame Action-Command-triggered recording/preview session, so

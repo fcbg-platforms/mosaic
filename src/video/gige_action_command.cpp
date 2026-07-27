@@ -39,13 +39,14 @@ uint32_t ipv4_broadcast_address(uint32_t ip, uint32_t mask) {
     return ip | ~mask;
 }
 
-double action_command_period_ms(const std::vector<double>& targetFps) {
+double action_command_period_ms(const std::vector<double>& targetFps, double marginFactor) {
     double minFps = std::numeric_limits<double>::infinity();
     for (const double fps : targetFps) {
         if (fps > 0.0 && fps < minFps) { minFps = fps; }
     }
     if (!std::isfinite(minFps)) { minFps = k_default_action_fps; }
-    return 1000.0 / minFps;
+    if (!(marginFactor > 0.0 && marginFactor <= 1.0)) { marginFactor = 1.0; }
+    return 1000.0 / (minFps * marginFactor);
 }
 
 #if defined(MOSAIC_HAVE_CAMERAS)
