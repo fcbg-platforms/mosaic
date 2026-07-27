@@ -138,6 +138,9 @@ protected:
         if (m_info.hasGazeFusion) {
             drawBadge("GAZE", QColor("#0a2a2a"), QColor("#22cccc"));
         }
+        if (m_info.hasSkeleton3D) {
+            drawBadge("3D POSE", QColor("#1a0a2a"), QColor("#aa66ff"));
+        }
         if (!m_info.annotations.isEmpty()) {
             drawBadge(QString("%1 notes").arg(m_info.annotations.size()),
                       QColor("#1a100a"), QColor("#cc8844"));

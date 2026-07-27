@@ -84,6 +84,7 @@ struct SessionInfo {
     bool      hasTranscript     = false;
     bool      hasExpression     = false;
     bool      hasGazeFusion     = false;
+    bool      hasSkeleton3D     = false;
     QStringList videoFiles;
     QStringList audioFiles;
     QStringList analysisFiles;
@@ -133,13 +134,14 @@ struct SessionInfo {
                            fi.fileName().contains("keypoint") || fi.fileName().contains("heatmap") ||
                            fi.fileName().contains("trajectory") || fi.fileName().contains("velocity") ||
                            fi.fileName().contains("transcript") || fi.fileName().contains("expression") ||
-                           fi.fileName().contains("gaze")) {
+                           fi.fileName().contains("gaze") || fi.fileName().contains("skeleton")) {
                     info.analysisFiles << fn;
                     if (fi.fileName().contains("pose"))       { info.hasPoseAnalysis   = true; }
                     if (fi.fileName().contains("motion"))     { info.hasMotionAnalysis = true; }
                     if (fi.fileName().contains("transcript")) { info.hasTranscript     = true; }
                     if (fi.fileName().contains("expression")) { info.hasExpression     = true; }
                     if (fi.fileName().contains("gaze"))       { info.hasGazeFusion     = true; }
+                    if (fi.fileName().contains("skeleton"))   { info.hasSkeleton3D     = true; }
                 }
             }
         };

@@ -28,6 +28,8 @@ qt_add_executable(mosaic MACOSX_BUNDLE
     analysis/sync_manifest.cpp
     analysis/gaze_fusion_result.hpp
     analysis/gaze_fusion_result.cpp
+    analysis/skeleton3d_result.hpp
+    analysis/skeleton3d_result.cpp
 
     # ── Foundation ────────────────────────────────────────────────────────
     utils/logger.hpp
@@ -155,6 +157,8 @@ qt_add_executable(mosaic MACOSX_BUNDLE
     ui/analysis/analysis_tab_w.cpp
     ui/analysis/gaze_room_view_w.hpp
     ui/analysis/gaze_room_view_w.cpp
+    ui/analysis/skeleton3d_room_view_w.hpp
+    ui/analysis/skeleton3d_room_view_w.cpp
 
     # ── QML bridge ────────────────────────────────────────────────────────
     ui/monitor_bridge.hpp

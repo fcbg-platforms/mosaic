@@ -4,10 +4,12 @@
 #include "analysis/pose_analysis_result.hpp"
 #include "analysis/pose_kinematics.hpp"
 #include "analysis/pose_models.hpp"
+#include "analysis/skeleton3d_result.hpp"
 #include "analysis/transcript_result.hpp"
 #include "session/session_info.hpp"
 #include "ui/analysis/gaze_room_view_w.hpp"
 #include "ui/analysis/pose_overlay_player_w.hpp"
+#include "ui/analysis/skeleton3d_room_view_w.hpp"
 #include "ui/anim_utils.hpp"
 #include <QAbstractItemView>
 #include <QCheckBox>
@@ -380,6 +382,9 @@ struct AnalysisTabW::Impl {
     QSpinBox*        minCamerasSpin        = nullptr;   // gaze_fusion
     QDoubleSpinBox*  gazeMinConfidenceSpin = nullptr;   // gaze_fusion
     QSpinBox*        gazeSkipSpin          = nullptr;   // gaze_fusion
+    QSpinBox*        pose3dMinCamerasSpin      = nullptr;   // pose3d
+    QDoubleSpinBox*  maxReprojectionErrorSpin  = nullptr;   // pose3d
+    QSpinBox*        pose3dSkipSpin            = nullptr;   // pose3d
 
     QPushButton* runBtn      = nullptr;
     QLabel*      statusLbl   = nullptr;
@@ -389,9 +394,11 @@ struct AnalysisTabW::Impl {
     // micRowW (Mic, diarize) are mutually exclusive — select_plugin() shows
     // exactly one, mirroring how kinematicsRowW is toggled.
     QWidget*             sourceRowW    = nullptr;
-    QComboBox*          cameraCombo   = nullptr;   // pose + face_mask + expression
+    QComboBox*          cameraCombo   = nullptr;   // pose + face_mask + expression + gaze_fusion + pose3d
     QComboBox*          keypointCombo = nullptr;   // pose only
     QComboBox*          blendshapeCombo = nullptr; // expression only
+    QComboBox*          trackCombo    = nullptr;   // pose3d only — filters the CSV export;
+                                                    // the 3D room view always shows every track
     PoseOverlayPlayerW*  player       = nullptr;   // shared: video (pose/face_mask/expression),
                                                     // or audio (diarize)
     MetricsChartW*       chart        = nullptr;   // pose + expression
@@ -419,6 +426,15 @@ struct AnalysisTabW::Impl {
     QPushButton*    exportGazeBtn  = nullptr;   // gaze_fusion only
     GazeRoomViewW*  roomView       = nullptr;   // gaze_fusion only
 
+    // 3D Pose Reconstruction view controls — mirrors gazeFusionRowW's
+    // own-container pattern. skeleton3dRoomView is the interactive
+    // orbit-rotatable 3D view, added as resultsSplitter's 5th child (not
+    // part of this row) for the same stretch-factor reason roomView isn't.
+    QWidget*             pose3dRowW      = nullptr;   // pose3d only
+    QLabel*              pose3dStatsLbl  = nullptr;   // pose3d only
+    QPushButton*         exportPose3dBtn = nullptr;   // pose3d only
+    Skeleton3DRoomViewW* skeleton3dRoomView = nullptr; // pose3d only
+
     // Kinematics view controls — reshape how the already-loaded
     // currentResult is displayed, not what gets launched (unlike runBox's
     // model/skip controls), so they live in their own row. Pose only —
@@ -436,6 +452,7 @@ struct AnalysisTabW::Impl {
     TranscriptResult      currentTranscript;         // diarize only
     ExpressionResult      currentExpressionResult;   // expression only
     GazeFusionResult      currentGazeFusion;         // gaze_fusion only
+    Skeleton3DResult      currentSkeleton3D;         // pose3d only
 
     // AnalysisManager is a single shared instance (also used by
     // SessionBrowserW's "Run Pose" button and PerformanceMonitorW's
@@ -478,6 +495,7 @@ struct AnalysisTabW::Impl {
         currentExpressionResult = ExpressionResult();
         currentTranscript       = TranscriptResult();
         currentGazeFusion       = GazeFusionResult();
+        currentSkeleton3D       = Skeleton3DResult();
     }
 };
 
@@ -568,6 +586,7 @@ void AnalysisTabW::build_ui() {
     d->pluginCombo->addItem("Speaker Diarization", "diarize");
     d->pluginCombo->addItem("Facial Expression", "expression");
     d->pluginCombo->addItem("Multi-Camera Gaze Fusion", "gaze_fusion");
+    d->pluginCombo->addItem("3D Pose Reconstruction", "pose3d");
     controlsRow->addWidget(new QLabel("Plugin:"));
     controlsRow->addWidget(d->pluginCombo);
     connect(d->pluginCombo, &QComboBox::currentIndexChanged, this, &AnalysisTabW::select_plugin);
@@ -767,6 +786,40 @@ void AnalysisTabW::build_ui() {
     gazeFusionCtlLay->addWidget(d->gazeSkipSpin);
     d->controlsStack->addWidget(gazeFusionPage);
 
+    // ── 3D Pose Reconstruction controls page ────────────────────────────
+    // Reads the Pose plugin's already-computed .pose.json sidecars (see
+    // run_analysis()'s pre-flight check) rather than running any new
+    // inference — no model/backend choice needed here.
+    auto* pose3dPage = new QWidget;
+    auto* pose3dCtlLay = new QHBoxLayout(pose3dPage);
+    pose3dCtlLay->setContentsMargins(0, 0, 0, 0);
+
+    d->pose3dMinCamerasSpin = new QSpinBox;
+    d->pose3dMinCamerasSpin->setRange(2, 6);
+    d->pose3dMinCamerasSpin->setValue(2);
+    d->pose3dMinCamerasSpin->setPrefix("min cams ");
+    d->pose3dMinCamerasSpin->setToolTip(
+        "Minimum cameras a person cluster must span to be reconstructed at all "
+        "(2 is the mathematical minimum for triangulation).");
+    pose3dCtlLay->addWidget(d->pose3dMinCamerasSpin);
+
+    d->maxReprojectionErrorSpin = new QDoubleSpinBox;
+    d->maxReprojectionErrorSpin->setRange(1.0, 100.0);
+    d->maxReprojectionErrorSpin->setValue(15.0);
+    d->maxReprojectionErrorSpin->setSuffix(" px");
+    d->maxReprojectionErrorSpin->setToolTip(
+        "Per-view reprojection-error threshold for outlier-camera rejection during "
+        "keypoint triangulation. A view further than this from the triangulated "
+        "point is dropped and the point is re-triangulated from the rest.");
+    pose3dCtlLay->addWidget(d->maxReprojectionErrorSpin);
+
+    d->pose3dSkipSpin = new QSpinBox;
+    d->pose3dSkipSpin->setRange(1, 30);
+    d->pose3dSkipSpin->setValue(1);
+    d->pose3dSkipSpin->setPrefix("skip ");
+    pose3dCtlLay->addWidget(d->pose3dSkipSpin);
+    d->controlsStack->addWidget(pose3dPage);
+
     controlsRow->addWidget(d->controlsStack, 1);
 
     d->runBtn = new QPushButton("▶  Run");
@@ -810,6 +863,15 @@ void AnalysisTabW::build_ui() {
     resultsRow->addWidget(d->blendshapeCombo, 1);
     connect(d->blendshapeCombo, &QComboBox::currentIndexChanged, this,
             &AnalysisTabW::update_expression_view);
+
+    d->trackCombo = new QComboBox;
+    d->trackCombo->setToolTip(
+        "Filters the stats/CSV export to one reconstructed person. The 3D room "
+        "view always shows every tracked person regardless of this selection.");
+    resultsRow->addWidget(new QLabel("Track:"));
+    resultsRow->addWidget(d->trackCombo, 1);
+    connect(d->trackCombo, &QComboBox::currentIndexChanged, this,
+            &AnalysisTabW::update_pose3d_view);
 
     d->openFolderBtn = new QPushButton("Open output folder");
     d->openFolderBtn->setVisible(false);
@@ -953,6 +1015,27 @@ void AnalysisTabW::build_ui() {
 
     rightLay->addWidget(d->gazeFusionRowW);
 
+    // ── 3D Pose Reconstruction view controls: reconstruction-quality stats
+    //    + CSV export. Pose3D only — own container so select_plugin() can
+    //    hide the whole row with one call, mirroring gazeFusionRowW.
+    d->pose3dRowW = new QWidget;
+    auto* pose3dRow = new QHBoxLayout(d->pose3dRowW);
+    pose3dRow->setContentsMargins(0, 0, 0, 0);
+
+    d->pose3dStatsLbl = new QLabel;
+    d->pose3dStatsLbl->setStyleSheet("color:#7070a0; font-size:11px;");
+    pose3dRow->addWidget(d->pose3dStatsLbl, 1);
+
+    d->exportPose3dBtn = new QPushButton("Export CSV");
+    d->exportPose3dBtn->setToolTip(
+        "Exports tick/timestamp/track/keypoint/position/validity/reprojection-error "
+        "for every reconstructed keypoint as CSV (long format), filtered by the "
+        "Track picker above (or every track if \"All\").");
+    connect(d->exportPose3dBtn, &QPushButton::clicked, this, &AnalysisTabW::export_skeleton3d_csv);
+    pose3dRow->addWidget(d->exportPose3dBtn);
+
+    rightLay->addWidget(d->pose3dRowW);
+
     auto* resultsSplitter = new QSplitter(Qt::Horizontal);
     d->player = new PoseOverlayPlayerW;   // reused for audio-only playback in diarize mode too —
     resultsSplitter->addWidget(d->player); // set_video() just calls QMediaPlayer::setSource(),
@@ -982,10 +1065,15 @@ void AnalysisTabW::build_ui() {
     d->roomView->setVisible(false);
     resultsSplitter->addWidget(d->roomView);
 
+    d->skeleton3dRoomView = new Skeleton3DRoomViewW;   // shown only for the pose3d plugin
+    d->skeleton3dRoomView->setVisible(false);
+    resultsSplitter->addWidget(d->skeleton3dRoomView);
+
     resultsSplitter->setStretchFactor(0, 1);
     resultsSplitter->setStretchFactor(1, 1);
     resultsSplitter->setStretchFactor(2, 1);
     resultsSplitter->setStretchFactor(3, 1);
+    resultsSplitter->setStretchFactor(4, 1);
     rightLay->addWidget(resultsSplitter, 1);
 
     d->chart->set_seek_callback([this](int64_t ms) { d->player->seek(ms); });
@@ -993,6 +1081,7 @@ void AnalysisTabW::build_ui() {
         d->chart->set_playhead_ms(ms);
         highlight_active_transcript_row(ms);
         if (is_gaze_fusion_plugin()) { d->roomView->set_position_ms(ms); }
+        if (is_pose3d_plugin()) { d->skeleton3dRoomView->set_position_ms(ms); }
     });
 
     splitter->addWidget(rightPanel);
@@ -1086,6 +1175,7 @@ void AnalysisTabW::select_plugin(int index) {
     const bool isExpression = is_expression_plugin();
     const bool isFaceMask   = is_face_mask_plugin();
     const bool isGazeFusion = is_gaze_fusion_plugin();
+    const bool isPose3D     = is_pose3d_plugin();
 
     // These are independent sibling widgets with overlapping visibility
     // rules, not QStackedWidget pages, so they aren't crossfaded as a group
@@ -1100,11 +1190,14 @@ void AnalysisTabW::select_plugin(int index) {
     };
     set_visible_animated(d->keypointCombo, isPose);
     set_visible_animated(d->blendshapeCombo, isExpression);
+    set_visible_animated(d->trackCombo, isPose3D);
     set_visible_animated(d->chart, isPose || isExpression);
     set_visible_animated(d->kinematicsRowW, isPose);
     set_visible_animated(d->expressionRowW, isExpression);
     set_visible_animated(d->gazeFusionRowW, isGazeFusion);
     set_visible_animated(d->roomView, isGazeFusion);
+    set_visible_animated(d->pose3dRowW, isPose3D);
+    set_visible_animated(d->skeleton3dRoomView, isPose3D);
     set_visible_animated(d->openFolderBtn, isFaceMask);
     set_visible_animated(d->sourceRowW, !isDiarize);
     set_visible_animated(d->micRowW, isDiarize);
@@ -1156,6 +1249,10 @@ bool AnalysisTabW::is_gaze_fusion_plugin() const {
     return d->pluginCombo->currentData().toString() == "gaze_fusion";
 }
 
+bool AnalysisTabW::is_pose3d_plugin() const {
+    return d->pluginCombo->currentData().toString() == "pose3d";
+}
+
 void AnalysisTabW::reload_current_camera_result() {
     const auto* info = d->current_session();
     d->reset_all_results();
@@ -1191,6 +1288,57 @@ void AnalysisTabW::reload_current_camera_result() {
 
         if (!d->currentGazeFusion.is_valid()) {
             d->statusLbl->setText("No gaze fusion result yet for this session — click Run.");
+            d->statusLbl->setStyleSheet("color:#6060a0; font-size:11px;");
+        }
+        return;
+    }
+
+    if (is_pose3d_plugin()) {
+        // Session-level result (reconstruction is inherently cross-camera),
+        // so it loads regardless of whether a camera is selected — only the
+        // player's per-camera reprojected overlay needs cameraCombo's
+        // current selection. Mirrors the gaze_fusion branch above exactly.
+        if (!info) {
+            d->player->set_video(QString());
+            d->player->set_pose_result(d->currentResult);
+            d->skeleton3dRoomView->set_result(d->currentSkeleton3D);
+            update_pose3d_view();
+            return;
+        }
+
+        const QString skeletonAbs = info->path + "/skeleton3d.json";
+        d->currentSkeleton3D = QFileInfo::exists(skeletonAbs)
+            ? Skeleton3DResult::load(skeletonAbs) : Skeleton3DResult();
+        d->skeleton3dRoomView->set_result(d->currentSkeleton3D);
+
+        if (d->cameraCombo->currentIndex() >= 0) {
+            const QString videoRel = d->cameraCombo->currentData().toString();
+            d->player->set_video(info->path + "/" + videoRel);
+            d->player->set_skeleton3d_result(d->currentSkeleton3D, d->cameraCombo->currentIndex());
+        } else {
+            d->player->set_video(QString());
+            d->player->set_pose_result(d->currentResult);
+        }
+
+        d->trackCombo->blockSignals(true);
+        d->trackCombo->clear();
+        d->trackCombo->addItem("All tracks", -1);
+        QList<int> trackIds;
+        for (const auto& frame : d->currentSkeleton3D.frames()) {
+            for (const auto& person : frame.people) {
+                if (!trackIds.contains(person.trackId)) { trackIds << person.trackId; }
+            }
+        }
+        std::sort(trackIds.begin(), trackIds.end());
+        for (int tid : trackIds) {
+            d->trackCombo->addItem(QString("Track %1").arg(tid), tid);
+        }
+        d->trackCombo->blockSignals(false);
+
+        update_pose3d_view();
+
+        if (!d->currentSkeleton3D.is_valid()) {
+            d->statusLbl->setText("No 3D reconstruction yet for this session — click Run.");
             d->statusLbl->setStyleSheet("color:#6060a0; font-size:11px;");
         }
         return;
@@ -1651,6 +1799,92 @@ void AnalysisTabW::export_gaze_csv() {
     });
 }
 
+// ── 3D Pose Reconstruction view ──────────────────────────────────────────
+
+void AnalysisTabW::update_pose3d_view() {
+    if (!d->currentSkeleton3D.is_valid() || d->currentSkeleton3D.frames().isEmpty()) {
+        d->pose3dStatsLbl->clear();
+        return;
+    }
+
+    const int trackFilter = d->trackCombo->currentIndex() >= 0
+        ? d->trackCombo->currentData().toInt() : -1;
+
+    int nFramesWithPeople = 0;
+    int nPeopleTotal = 0;
+    double errorSum = 0.0;
+    int errorCount = 0;
+    int validKpSum = 0;
+    int totalKpSum = 0;
+
+    for (const auto& frame : d->currentSkeleton3D.frames()) {
+        bool anyThisFrame = false;
+        for (const auto& person : frame.people) {
+            if (trackFilter >= 0 && person.trackId != trackFilter) { continue; }
+            anyThisFrame = true;
+            ++nPeopleTotal;
+            for (const auto& kp : person.keypoints) {
+                ++totalKpSum;
+                if (kp.valid) {
+                    ++validKpSum;
+                    errorSum += kp.reprojectionErrorPx;
+                    ++errorCount;
+                }
+            }
+        }
+        if (anyThisFrame) { ++nFramesWithPeople; }
+    }
+
+    if (nPeopleTotal == 0) {
+        d->pose3dStatsLbl->setText(trackFilter >= 0
+            ? "No data for the selected track."
+            : "No people reconstructed in this result.");
+        return;
+    }
+
+    const double avgError = errorCount > 0 ? errorSum / errorCount : 0.0;
+    const double validPct = totalKpSum > 0 ? 100.0 * validKpSum / totalKpSum : 0.0;
+
+    d->pose3dStatsLbl->setText(QString(
+        "%1 frame(s) with people  ·  %2 person-observation(s)  ·  "
+        "%3% keypoints valid  ·  avg reprojection error %4 px")
+        .arg(nFramesWithPeople)
+        .arg(nPeopleTotal)
+        .arg(validPct, 0, 'f', 0)
+        .arg(avgError, 0, 'f', 1));
+}
+
+void AnalysisTabW::export_skeleton3d_csv() {
+    const auto* info = d->current_session();
+    if (!info || !d->currentSkeleton3D.is_valid()) { return; }
+
+    const int trackFilter = d->trackCombo->currentIndex() >= 0
+        ? d->trackCombo->currentData().toInt() : -1;
+    const QString suggested = info->path + "/skeleton3d.csv";
+    const auto& names = d->currentSkeleton3D.keypoint_names();
+
+    export_csv(this, "Export 3D Pose", suggested, [&](QTextStream& ts) {
+        ts << "tick,timestamp_ns,track_id,keypoint_name,x_mm,y_mm,z_mm,valid,reprojection_error_px\n";
+        for (const auto& frame : d->currentSkeleton3D.frames()) {
+            for (const auto& person : frame.people) {
+                if (trackFilter >= 0 && person.trackId != trackFilter) { continue; }
+                for (int i = 0; i < person.keypoints.size(); ++i) {
+                    const auto& kp = person.keypoints[i];
+                    const QString kpName = i < names.size() ? names[i] : QString("kp%1").arg(i);
+                    ts << frame.tick << "," << frame.timestampNs << "," << person.trackId << ","
+                       << kpName << ","
+                       << (kp.valid ? QString::number(kp.positionRoom[0]) : QString()) << ","
+                       << (kp.valid ? QString::number(kp.positionRoom[1]) : QString()) << ","
+                       << (kp.valid ? QString::number(kp.positionRoom[2]) : QString()) << ","
+                       << (kp.valid ? "1" : "0") << ","
+                       << (kp.valid ? QString::number(kp.reprojectionErrorPx) : QString())
+                       << "\n";
+                }
+            }
+        }
+    });
+}
+
 void AnalysisTabW::run_analysis() {
     if (d->currentSessionPath.isEmpty()) { return; }
 
@@ -1661,6 +1895,29 @@ void AnalysisTabW::run_analysis() {
         const int maxSpeakers = d->maxSpeakersSpin->value();
         if (minSpeakers > 0 && maxSpeakers > 0 && minSpeakers > maxSpeakers) {
             d->statusLbl->setText("Error: Min speakers can't exceed Max speakers.");
+            d->statusLbl->setStyleSheet("color:#cc4444; font-size:11px;");
+            return;
+        }
+    }
+
+    if (plugin == "pose3d") {
+        // Validation-only pre-check, no dispatch (mirrors diarize's
+        // min>max-speakers guard above) — run_pose3d.py reads .pose.json
+        // sidecars rather than running its own inference, so launching it
+        // against a session with no Pose output would just fail deep
+        // inside the script with a less actionable error.
+        const auto* info = d->current_session();
+        int nWithPose = 0;
+        if (info) {
+            for (const auto& videoRel : info->videoFiles) {
+                if (QFileInfo::exists(info->path + "/" + pose_json_path_for(videoRel))) {
+                    ++nWithPose;
+                }
+            }
+        }
+        if (nWithPose < 2) {
+            d->statusLbl->setText(
+                "Error: run the Pose plugin on at least 2 cameras in this session first.");
             d->statusLbl->setStyleSheet("color:#cc4444; font-size:11px;");
             return;
         }
@@ -1695,6 +1952,11 @@ void AnalysisTabW::run_analysis() {
             d->minCamerasSpin->value(),
             d->gazeMinConfidenceSpin->value(),
             d->gazeSkipSpin->value());
+    } else if (plugin == "pose3d") {
+        d->analysisMgr->run_pose3d_reconstruction(d->currentSessionPath,
+            d->pose3dMinCamerasSpin->value(),
+            d->maxReprojectionErrorSpin->value(),
+            d->pose3dSkipSpin->value());
     } else {
         // Defensive: pluginCombo only ever offers the ids handled above, but
         // a silent fallthrough here would otherwise launch face-masking with
