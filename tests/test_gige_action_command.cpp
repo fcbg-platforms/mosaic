@@ -7,6 +7,7 @@ using mosaic::ipv4_broadcast_address;
 using mosaic::ipv4_from_dotted;
 using mosaic::ipv4_to_dotted;
 using mosaic::k_default_action_fps;
+using mosaic::k_default_action_margin;
 
 TEST(Ipv4BroadcastAddress, ClassCSubnet) {
     // The real room-11 scenario: each camera on its own /24.
@@ -71,7 +72,7 @@ TEST(Ipv4ToDotted, RoundTripsThroughFromDotted) {
 }
 
 TEST(ActionCommandPeriodMs, SinglePositiveValue) {
-    EXPECT_DOUBLE_EQ(action_command_period_ms({25.0}), 40.0);
+    EXPECT_DOUBLE_EQ(action_command_period_ms({25.0}, 1.0), 40.0);
 }
 
 TEST(ActionCommandPeriodMs, UsesMinimumOfMultipleValues) {
@@ -79,17 +80,40 @@ TEST(ActionCommandPeriodMs, UsesMinimumOfMultipleValues) {
     // than it can sustain would just reproduce the same GigE packet-loss
     // failure mode already seen from over-requested free-run fps, just
     // self-inflicted by our own trigger cadence this time.
-    EXPECT_DOUBLE_EQ(action_command_period_ms({25.0, 20.0, 30.0}), 50.0); // 1000/20
+    EXPECT_DOUBLE_EQ(action_command_period_ms({25.0, 20.0, 30.0}, 1.0), 50.0); // 1000/20
 }
 
 TEST(ActionCommandPeriodMs, IgnoresNonPositiveValues) {
-    EXPECT_DOUBLE_EQ(action_command_period_ms({25.0, 0.0, -5.0, 20.0}), 50.0); // 1000/20
+    EXPECT_DOUBLE_EQ(action_command_period_ms({25.0, 0.0, -5.0, 20.0}, 1.0), 50.0); // 1000/20
 }
 
 TEST(ActionCommandPeriodMs, EmptyInputFallsBackToDefault) {
-    EXPECT_DOUBLE_EQ(action_command_period_ms({}), 1000.0 / k_default_action_fps);
+    EXPECT_DOUBLE_EQ(action_command_period_ms({}, 1.0), 1000.0 / k_default_action_fps);
 }
 
 TEST(ActionCommandPeriodMs, AllNonPositiveFallsBackToDefault) {
-    EXPECT_DOUBLE_EQ(action_command_period_ms({0.0, -1.0}), 1000.0 / k_default_action_fps);
+    EXPECT_DOUBLE_EQ(action_command_period_ms({0.0, -1.0}, 1.0), 1000.0 / k_default_action_fps);
+}
+
+TEST(ActionCommandPeriodMs, DefaultMarginSlowsPeriodBelowRawCeiling) {
+    // Real room-11 finding (2026-07-27): triggering a camera at exactly its
+    // own reported ceiling (no margin) caused a stable ~39-40% trigger-miss
+    // rate even on a confirmed-good cable — software trigger jitter means
+    // some triggers land while the camera is still mid-cycle. The default
+    // margin must produce a period strictly longer (slower) than the
+    // no-margin period for the same input.
+    const double noMargin      = action_command_period_ms({20.0}, 1.0);
+    const double defaultMargin = action_command_period_ms({20.0});
+    EXPECT_GT(defaultMargin, noMargin);
+    EXPECT_DOUBLE_EQ(defaultMargin, 1000.0 / (20.0 * k_default_action_margin));
+}
+
+TEST(ActionCommandPeriodMs, CustomMarginIsApplied) {
+    EXPECT_DOUBLE_EQ(action_command_period_ms({20.0}, 0.5), 100.0); // 1000/(20*0.5)
+}
+
+TEST(ActionCommandPeriodMs, OutOfRangeMarginFallsBackToNoMargin) {
+    EXPECT_DOUBLE_EQ(action_command_period_ms({20.0}, 0.0), 50.0);
+    EXPECT_DOUBLE_EQ(action_command_period_ms({20.0}, -1.0), 50.0);
+    EXPECT_DOUBLE_EQ(action_command_period_ms({20.0}, 1.5), 50.0);
 }
