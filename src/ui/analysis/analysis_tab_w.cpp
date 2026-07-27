@@ -10,6 +10,7 @@
 #include "ui/analysis/gaze_room_view_w.hpp"
 #include "ui/analysis/pose_overlay_player_w.hpp"
 #include "ui/analysis/skeleton3d_room_view_w.hpp"
+#include "ui/anim_utils.hpp"
 #include <QAbstractItemView>
 #include <QCheckBox>
 #include <QChart>
@@ -27,18 +28,23 @@
 #include <QLegend>
 #include <QLineEdit>
 #include <QLineSeries>
+#include <QEasingCurve>
 #include <QListWidget>
 #include <QMap>
 #include <QMouseEvent>
+#include <QPainter>
+#include <QPersistentModelIndex>
 #include <QPushButton>
 #include <QSpinBox>
 #include <QSplitter>
 #include <QStackedWidget>
+#include <QStyledItemDelegate>
 #include <QTableWidget>
 #include <QTextEdit>
 #include <QTextStream>
 #include <QUrl>
 #include <QValueAxis>
+#include <QVariantAnimation>
 #include <QVBoxLayout>
 #include <algorithm>
 #include <cmath>
@@ -264,6 +270,89 @@ private:
     SeekCb       seekCb_;
 };
 
+// Custom-paints session rows with a hover-intensity tint instead of relying
+// on default QListWidget/QStyle selection painting. Only one row can be
+// hovered at a time in a single view, so this owns a single QVariantAnimation
+// (not one per row) driving m_hoverT, keyed against whichever row m_hoveredIndex
+// currently names — matching AvatarChip/AddChip's own "animate hover on a
+// custom-painted widget via QVariantAnimation + repaint" idiom
+// (login_dialog.cpp), the only way to animate hover here since QSS :hover
+// transitions aren't supported by Qt's style engine for delegate painting.
+class SessionListDelegate : public QStyledItemDelegate {
+public:
+    explicit SessionListDelegate(QListWidget* view, QObject* parent = nullptr)
+        : QStyledItemDelegate(parent), m_view(view) {
+        m_hoverAnim = new QVariantAnimation(this);
+        m_hoverAnim->setDuration(120);
+        m_hoverAnim->setEasingCurve(QEasingCurve::OutCubic);
+        connect(m_hoverAnim, &QVariantAnimation::valueChanged, this, [this](const QVariant& v) {
+            m_hoverT = v.toReal();
+            if (m_view) { m_view->viewport()->update(); }
+        });
+        m_view->setMouseTracking(true);
+        m_view->viewport()->installEventFilter(this);
+    }
+
+    bool eventFilter(QObject* obj, QEvent* event) override {
+        if (obj == m_view->viewport()) {
+            if (event->type() == QEvent::MouseMove) {
+                set_hovered(m_view->indexAt(static_cast<QMouseEvent*>(event)->pos()));
+            } else if (event->type() == QEvent::Leave) {
+                set_hovered(QModelIndex());
+            }
+        }
+        return QStyledItemDelegate::eventFilter(obj, event);
+    }
+
+    void paint(QPainter* painter, const QStyleOptionViewItem& option,
+               const QModelIndex& index) const override {
+        painter->save();
+        painter->setRenderHint(QPainter::Antialiasing);
+
+        const bool isSelected = option.state & QStyle::State_Selected;
+        const bool isHovered   = (index == m_hoveredIndex);
+        const qreal t          = isHovered ? m_hoverT : 0.0;
+
+        const QColor bg = isSelected
+            ? QColor("#3a3a88")
+            : anim::lerp_color(QColor("#13132a"), QColor("#1a1a38"), t);
+        painter->fillRect(option.rect, bg);
+
+        if (isSelected) {
+            painter->fillRect(QRect(option.rect.left(), option.rect.top(), 3, option.rect.height()),
+                               QColor("#6060dd"));
+        }
+
+        painter->setPen(QColor("#c8c8e0"));
+        painter->drawText(option.rect.adjusted(12, 0, -10, 0),
+                           Qt::AlignVCenter | Qt::AlignLeft,
+                           index.data(Qt::DisplayRole).toString());
+
+        painter->setPen(QColor("#1e1e3a"));
+        painter->drawLine(option.rect.bottomLeft(), option.rect.bottomRight());
+        painter->restore();
+    }
+
+    [[nodiscard]] QSize sizeHint(const QStyleOptionViewItem& option,
+                                  const QModelIndex& index) const override {
+        QSize s = QStyledItemDelegate::sizeHint(option, index);
+        s.setHeight(qMax(s.height(), 28));
+        return s;
+    }
+
+private:
+    void set_hovered(const QModelIndex& index) {
+        if (index == m_hoveredIndex) { return; }
+        m_hoveredIndex = index;
+        anim::restart_hover_anim(m_hoverAnim, m_hoverT, index.isValid() ? 1.0 : 0.0);
+    }
+
+    QListWidget*          m_view      = nullptr;
+    QVariantAnimation*    m_hoverAnim = nullptr;
+    qreal                 m_hoverT    = 0.0;
+    QPersistentModelIndex m_hoveredIndex;
+};
+
 // ── AnalysisTabW::Impl ──────────────────────────────────────────────────
 
 struct AnalysisTabW::Impl {
@@ -473,6 +562,7 @@ void AnalysisTabW::build_ui() {
     leftLay->setContentsMargins(0, 0, 0, 0);
     leftLay->addWidget(new QLabel("<b>Sessions</b>"));
     d->sessionList = new QListWidget;
+    d->sessionList->setItemDelegate(new SessionListDelegate(d->sessionList, d->sessionList));
     leftLay->addWidget(d->sessionList, 1);
     splitter->addWidget(leftPanel);
 
@@ -1079,7 +1169,6 @@ void AnalysisTabW::select_camera(int index) {
 
 void AnalysisTabW::select_plugin(int index) {
     if (index < 0) { return; }
-    d->controlsStack->setCurrentIndex(index);
 
     const bool isPose       = is_pose_plugin();
     const bool isDiarize    = is_diarize_plugin();
@@ -1087,22 +1176,39 @@ void AnalysisTabW::select_plugin(int index) {
     const bool isFaceMask   = is_face_mask_plugin();
     const bool isGazeFusion = is_gaze_fusion_plugin();
     const bool isPose3D     = is_pose3d_plugin();
-    d->keypointCombo->setVisible(isPose);
-    d->blendshapeCombo->setVisible(isExpression);
-    d->trackCombo->setVisible(isPose3D);
-    d->chart->setVisible(isPose || isExpression);
-    d->kinematicsRowW->setVisible(isPose);
-    d->expressionRowW->setVisible(isExpression);
-    d->gazeFusionRowW->setVisible(isGazeFusion);
-    d->roomView->setVisible(isGazeFusion);
-    d->pose3dRowW->setVisible(isPose3D);
-    d->skeleton3dRoomView->setVisible(isPose3D);
-    d->openFolderBtn->setVisible(isFaceMask);
-    d->sourceRowW->setVisible(!isDiarize);
-    d->micRowW->setVisible(isDiarize);
-    d->transcriptTable->setVisible(isDiarize);
 
-    reload_current_camera_result();
+    // These are independent sibling widgets with overlapping visibility
+    // rules, not QStackedWidget pages, so they aren't crossfaded as a group
+    // (that would mean restructuring them into an actual stack). Hiding
+    // stays instant; a widget that newly becomes visible gets a light fade-in
+    // instead of popping — a widget already visible, or one being hidden,
+    // is left alone.
+    auto set_visible_animated = [](QWidget* w, bool visible) {
+        if (visible == w->isVisible()) { return; }
+        w->setVisible(visible);
+        if (visible) { anim::fade_in_widget(w, 130); }
+    };
+    set_visible_animated(d->keypointCombo, isPose);
+    set_visible_animated(d->blendshapeCombo, isExpression);
+    set_visible_animated(d->trackCombo, isPose3D);
+    set_visible_animated(d->chart, isPose || isExpression);
+    set_visible_animated(d->kinematicsRowW, isPose);
+    set_visible_animated(d->expressionRowW, isExpression);
+    set_visible_animated(d->gazeFusionRowW, isGazeFusion);
+    set_visible_animated(d->roomView, isGazeFusion);
+    set_visible_animated(d->pose3dRowW, isPose3D);
+    set_visible_animated(d->skeleton3dRoomView, isPose3D);
+    set_visible_animated(d->openFolderBtn, isFaceMask);
+    set_visible_animated(d->sourceRowW, !isDiarize);
+    set_visible_animated(d->micRowW, isDiarize);
+    set_visible_animated(d->transcriptTable, isDiarize);
+
+    // controlsStack's own crossfade defers reload_current_camera_result()
+    // until the new page is actually current (right as the fade-in phase
+    // starts), matching LoginDialog::show_register_mode()'s existing
+    // pattern of deferring a focus() call behind its own crossfade.
+    anim::crossfade_stacked_widget(d->controlsStack, index, 130,
+                                    [this] { reload_current_camera_result(); });
 }
 
 // ── Analysis lifecycle ───────────────────────────────────────────────────

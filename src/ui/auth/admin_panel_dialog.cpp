@@ -1,4 +1,5 @@
 #include "ui/auth/admin_panel_dialog.hpp"
+#include "ui/anim_utils.hpp"
 #include <QCheckBox>
 #include <QDateTime>
 #include <QDesktopServices>
@@ -43,6 +44,14 @@ public:
         m_avatar->setFixedSize(40, 40);
         m_avatar->setAlignment(Qt::AlignCenter);
         set_avatar(prof);
+        // A small "lifted" touch matching AvatarChip's glow-ring treatment
+        // on the login page's larger avatars — scoped to just the avatar,
+        // not the whole row, to stay subtle and cheap to keep re-rendered.
+        auto* avatarShadow = new QGraphicsDropShadowEffect(m_avatar);
+        avatarShadow->setBlurRadius(10);
+        avatarShadow->setColor(QColor(0, 0, 0, 140));
+        avatarShadow->setOffset(0, 2);
+        m_avatar->setGraphicsEffect(avatarShadow);
         lay->addWidget(m_avatar);
 
         // Name column
@@ -510,7 +519,7 @@ void AdminPanelDialog::populate_detail(const QString& username) {
     const Profile* prof = d->profileMgr.find(username);
     if (!prof) return;
 
-    d->detailHeader->hide();
+    anim::fade_out_widget(d->detailHeader);
 
     d->nameEdit->setText(prof->displayName);
     d->institutionEdit->setText(prof->institution);
@@ -674,7 +683,8 @@ void AdminPanelDialog::delete_profile() {
     d->detailUsername.clear();
     d->launchBtn->setEnabled(false);
     d->launchBtn->setText("▶  Launch as selected profile");
-    d->detailHeader->show();
+    d->detailHeader->setVisible(true);
+    anim::fade_in_widget(d->detailHeader);
 }
 
 // ── Key handling ───────────────────────────────────────────────────────────

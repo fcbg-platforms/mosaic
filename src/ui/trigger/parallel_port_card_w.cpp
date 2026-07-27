@@ -1,12 +1,13 @@
 #include "ui/trigger/parallel_port_card_w.hpp"
+#include "ui/anim_utils.hpp"
 #include <QCheckBox>
 #include <QFrame>
-#include <QGroupBox>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QLineEdit>
 #include <QPushButton>
 #include <QSpinBox>
+#include <QToolButton>
 #include <QVBoxLayout>
 
 namespace mosaic {
@@ -14,10 +15,17 @@ namespace mosaic {
 struct ParallelPortCardW::Impl {
     ParallelPortConfig& config;
     int                 index{0};
-    QGroupBox*          box     = nullptr;
 
-    explicit Impl(ParallelPortConfig& cfg, int idx)
-        : config(cfg), index(idx) {}
+    QWidget*     body      = nullptr;
+    QToolButton* expandBtn = nullptr;
+    QLabel*      nameLabel = nullptr;
+    // Purely visual "am I showing my settings right now" state — orthogonal
+    // to config.enabled ("is this trigger source active"). The two must
+    // never be wired to toggle each other: an unchecked-but-expanded card
+    // shows its grayed-out body, a checked-but-collapsed card hides it.
+    bool         expanded  = true;
+
+    explicit Impl(ParallelPortConfig& cfg, int idx) : config(cfg), index(idx) {}
 };
 
 ParallelPortCardW::ParallelPortCardW(ParallelPortConfig& config,
@@ -25,18 +33,80 @@ ParallelPortCardW::ParallelPortCardW(ParallelPortConfig& config,
                                       QWidget*           parent)
     : QWidget(parent), d(std::make_unique<Impl>(config, index))
 {
-    auto* outerLay = new QVBoxLayout(this);
-    outerLay->setContentsMargins(0, 0, 0, 0);
+    // Same header/body collapsible-card shell as CameraCardW/KeyboardCardW/
+    // MicrophoneCardW/SerialCardW — this was previously the one "card" that
+    // didn't follow it (a single checkable QGroupBox with no expand/collapse
+    // and no header at all).
+    setObjectName("ParallelPortCardW");
+    setStyleSheet(R"(
+        #ParallelPortCardW {
+            background: #13132a;
+            border: 1px solid #252545;
+            border-radius: 6px;
+        }
+    )");
 
-    d->box = new QGroupBox(QString("Parallel Port %1").arg(index + 1));
-    d->box->setCheckable(true);
-    d->box->setChecked(config.enabled);
-    connect(d->box, &QGroupBox::toggled, this, [this](bool on) {
+    auto* root = new QVBoxLayout(this);
+    root->setContentsMargins(0, 0, 0, 0);
+    root->setSpacing(0);
+
+    // ── Header ───────────────────────────────────────────────────────────
+    auto* header = new QWidget(this);
+    header->setObjectName("ppHeader");
+    header->setStyleSheet(R"(
+        QWidget#ppHeader {
+            background: #1a1a38;
+            border-bottom: 1px solid #252545;
+            border-radius: 6px 6px 0 0;
+        }
+    )");
+    header->setFixedHeight(40);
+
+    auto* headerLay = new QHBoxLayout(header);
+    headerLay->setContentsMargins(8, 0, 8, 0);
+    headerLay->setSpacing(6);
+
+    auto* expandBtn = new QToolButton;
+    expandBtn->setText("▼");
+    expandBtn->setStyleSheet("QToolButton { background: transparent; border: none;"
+                             " color: #6666aa; font-size: 10px; }");
+    expandBtn->setCursor(Qt::PointingHandCursor);
+    d->expandBtn = expandBtn;
+    headerLay->addWidget(expandBtn);
+
+    d->nameLabel = new QLabel(QString("Parallel Port %1").arg(index + 1));
+    d->nameLabel->setStyleSheet("font-weight: bold; font-size: 12px;"
+                                " color: #c8c8e0; background: transparent;");
+    headerLay->addWidget(d->nameLabel);
+    headerLay->addStretch();
+
+    // "Is this trigger source active" — moved here from the old
+    // QGroupBox::setCheckable(true), which conflated this with the card's
+    // expanded/collapsed visual state (a concept that didn't separately
+    // exist before this restructure). Still disables the body's contents
+    // when off, matching the old checkable-groupbox behavior.
+    auto* enabledCk = new QCheckBox("Active");
+    enabledCk->setChecked(config.enabled);
+    connect(enabledCk, &QCheckBox::toggled, this, [this](bool on) {
         d->config.enabled = on;
+        d->body->setEnabled(on);
         emit config_changed();
     });
+    headerLay->addWidget(enabledCk);
 
-    auto* form = new QVBoxLayout(d->box);
+    connect(expandBtn, &QToolButton::clicked, this, [this] {
+        d->expanded = !d->expanded;
+        anim::animate_collapse(d->body, d->expanded);
+        d->expandBtn->setText(d->expanded ? "▼" : "▶");
+    });
+
+    // ── Body ─────────────────────────────────────────────────────────────
+    d->body = new QWidget(this);
+    d->body->setStyleSheet("background: transparent;");
+    d->body->setEnabled(config.enabled);
+
+    auto* form = new QVBoxLayout(d->body);
+    form->setContentsMargins(10, 10, 10, 10);
     form->setSpacing(6);
 
     // ── Port address ──────────────────────────────────────────────────────
@@ -106,14 +176,15 @@ ParallelPortCardW::ParallelPortCardW(ParallelPortConfig& config,
     removeRow->addWidget(removeBtn);
     form->addLayout(removeRow);
 
-    outerLay->addWidget(d->box);
+    root->addWidget(header);
+    root->addWidget(d->body);
 }
 
 ParallelPortCardW::~ParallelPortCardW() = default;
 
 void ParallelPortCardW::set_index(int index) {
     d->index = index;
-    d->box->setTitle(QString("Parallel Port %1").arg(index + 1));
+    d->nameLabel->setText(QString("Parallel Port %1").arg(index + 1));
 }
 
 } // namespace mosaic

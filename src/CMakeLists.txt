@@ -45,6 +45,8 @@ qt_add_executable(mosaic MACOSX_BUNDLE
 
     # ── UI chrome ─────────────────────────────────────────────────────────
     ui/style.hpp
+    ui/anim_utils.hpp
+    ui/anim_utils.cpp
     ui/main_window.hpp
     ui/main_window.cpp
 
@@ -124,6 +126,10 @@ qt_add_executable(mosaic MACOSX_BUNDLE
     # ── Calibration ───────────────────────────────────────────────────────
     calibration/calibration_manager.hpp
     calibration/calibration_manager.cpp
+    calibration/rms_quality.hpp
+    calibration/rms_quality.cpp
+    ui/calibration/badge_style.hpp
+    ui/calibration/badge_style.cpp
     calibration/room_frame_solver.hpp
     calibration/room_frame_solver.cpp
     calibration/room_calibration_manager.hpp

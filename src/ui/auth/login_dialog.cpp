@@ -1,10 +1,10 @@
 #include "ui/auth/login_dialog.hpp"
+#include "ui/anim_utils.hpp"
 #include <QCheckBox>
 #include <QEasingCurve>
 #include <QFont>
 #include <QFrame>
 #include <QGraphicsOpacityEffect>
-#include <QHash>
 #include <QHBoxLayout>
 #include <QKeyEvent>
 #include <QLabel>
@@ -15,13 +15,11 @@
 #include <QPointer>
 #include <QPropertyAnimation>
 #include <QScrollArea>
-#include <QSequentialAnimationGroup>
 #include <QSizePolicy>
 #include <QStackedWidget>
 #include <QVariantAnimation>
 #include <QVBoxLayout>
 #include <QPushButton>
-#include <algorithm>
 
 namespace mosaic {
 
@@ -248,106 +246,11 @@ private:
     QVariantAnimation* m_pulseAnim    = nullptr;
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Small animation/paint helpers shared by the widgets below
-// ─────────────────────────────────────────────────────────────────────────────
-
-namespace {
-
-// Lazily installs (or reuses) a QGraphicsOpacityEffect on `w` — every fade/
-// crossfade below shares this instead of each keeping its own persisted
-// effect pointer; leaving the effect installed at opacity 1.0 is harmless.
-QGraphicsOpacityEffect* ensure_opacity_effect(QWidget* w) {
-    auto* effect = qobject_cast<QGraphicsOpacityEffect*>(w->graphicsEffect());
-    if (!effect) {
-        effect = new QGraphicsOpacityEffect(w);
-        w->setGraphicsEffect(effect);
-    }
-    return effect;
-}
-
-void fade_in_widget(QWidget* w) {
-    auto* effect = ensure_opacity_effect(w);
-    auto* anim = new QPropertyAnimation(effect, "opacity", w);
-    anim->setDuration(150);
-    anim->setStartValue(0.0);
-    anim->setEndValue(1.0);
-    anim->start(QAbstractAnimation::DeleteWhenStopped);
-}
-
-// Tracks any currently in-flight shake_widget() animation per widget, so a
-// second shake requested before the first settles (e.g. two failed attempts
-// in quick succession) resumes from the widget's TRUE rest position instead
-// of wherever it happens to be mid-shake, and cancels the stale group rather
-// than letting two animations race on the same `pos` property.
-struct ShakeState { QPoint basePos; QAbstractAnimation* group = nullptr; };
-QHash<QWidget*, ShakeState>& shake_states() {
-    static QHash<QWidget*, ShakeState> states;
-    return states;
-}
-
-// Short, decaying horizontal shake — the standard "invalid input" cue.
-// Animates the widget's own `pos` property (a real Q_PROPERTY on QWidget,
-// backed by move()) relative to wherever it currently sits under its
-// layout, and always ends exactly back at that position.
-void shake_widget(QWidget* w) {
-    if (!w) { return; }
-    auto& states = shake_states();
-    const auto it = states.find(w);
-    const bool alreadyShaking = (it != states.end());
-    const QPoint base = alreadyShaking ? it->basePos : w->pos();
-    if (alreadyShaking) { it->group->stop(); }
-
-    auto* group = new QSequentialAnimationGroup(w);
-    const int offsets[] = { 8, -8, 6, -6, 3, -3, 0 };
-    QPoint prev = base;
-    for (int off : offsets) {
-        const QPoint target = base + QPoint(off, 0);
-        auto* anim = new QPropertyAnimation(w, "pos");
-        anim->setDuration(45);
-        anim->setEasingCurve(QEasingCurve::InOutQuad);
-        anim->setStartValue(prev);
-        anim->setEndValue(target);
-        group->addAnimation(anim);
-        prev = target;
-    }
-    states[w] = ShakeState{base, group};
-    // finished() only fires on natural completion, never on stop() (see the
-    // re-entrant path above) — so a superseded group's own handler simply
-    // never runs, which is correct: the map entry it would have cleared was
-    // already overwritten synchronously by the new shake before this point.
-    QObject::connect(group, &QAbstractAnimation::finished, w, [w, group] {
-        auto& s = shake_states();
-        const auto found = s.find(w);
-        if (found != s.end() && found->group == group) { s.remove(w); }
-    });
-    // Guards against w being destroyed mid-shake (e.g. dialog teardown)
-    // leaving a stale entry keyed by a dangling pointer that a future,
-    // unrelated widget allocated at the same address could wrongly match.
-    QObject::connect(w, &QObject::destroyed, [w] { shake_states().remove(w); });
-    group->start(QAbstractAnimation::DeleteWhenStopped);
-}
-
-// Restarts a 0..1 hover-intensity animation toward `target` from wherever it
-// currently is, so a fast in-out-in doesn't visually jump.
-void restart_hover_anim(QVariantAnimation* anim, qreal currentT, qreal target) {
-    anim->stop();
-    anim->setStartValue(currentT);
-    anim->setEndValue(target);
-    anim->start();
-}
-
-// Linear per-channel RGBA interpolation, t clamped to [0, 1].
-QColor lerp_color(const QColor& a, const QColor& b, qreal t) {
-    t = std::clamp(t, 0.0, 1.0);
-    return QColor(
-        static_cast<int>(a.red()   + (b.red()   - a.red())   * t),
-        static_cast<int>(a.green() + (b.green() - a.green()) * t),
-        static_cast<int>(a.blue()  + (b.blue()  - a.blue())  * t),
-        static_cast<int>(a.alpha() + (b.alpha() - a.alpha()) * t));
-}
-
-} // namespace
+// Small animation/paint helpers shared across the UI (ensure_opacity_effect,
+// fade_in_widget, shake_widget, lerp_color, restart_hover_anim,
+// crossfade_stacked_widget, ...) live in mosaic::anim (ui/anim_utils.hpp) —
+// promoted there once other widgets needed the same recipes this file
+// originated.
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Avatar chip — profile selection card
@@ -498,8 +401,8 @@ protected:
     }
 
     void mousePressEvent(QMouseEvent*) override { emit clicked(m_profile.username); }
-    void enterEvent(QEnterEvent*)      override { restart_hover_anim(m_hoverAnim, m_hoverT, 1.0); }
-    void leaveEvent(QEvent*)           override { restart_hover_anim(m_hoverAnim, m_hoverT, 0.0); }
+    void enterEvent(QEnterEvent*)      override { anim::restart_hover_anim(m_hoverAnim, m_hoverT, 1.0); }
+    void leaveEvent(QEvent*)           override { anim::restart_hover_anim(m_hoverAnim, m_hoverT, 0.0); }
 
 private:
     Profile m_profile;
@@ -544,28 +447,28 @@ protected:
         }
 
         const QRectF circle(14, 8, 72, 72);
-        painter.setBrush(lerp_color(QColor("#0e0e28"), QColor("#161630"), m_hoverT));
-        painter.setPen(QPen(lerp_color(QColor("#252545"), QColor("#4444aa"), m_hoverT),
+        painter.setBrush(anim::lerp_color(QColor("#0e0e28"), QColor("#161630"), m_hoverT));
+        painter.setPen(QPen(anim::lerp_color(QColor("#252545"), QColor("#4444aa"), m_hoverT),
                              1.5, Qt::DashLine));
         painter.drawEllipse(circle);
 
         QFont font = painter.font();
         font.setPointSize(26);
         painter.setFont(font);
-        painter.setPen(lerp_color(QColor("#33336a"), QColor("#7777ee"), m_hoverT));
+        painter.setPen(anim::lerp_color(QColor("#33336a"), QColor("#7777ee"), m_hoverT));
         painter.drawText(circle, Qt::AlignCenter, "+");
 
         QFont nameFont;
         nameFont.setPointSize(8);
         painter.setFont(nameFont);
-        painter.setPen(lerp_color(QColor("#44445a"), QColor("#6666aa"), m_hoverT));
+        painter.setPen(anim::lerp_color(QColor("#44445a"), QColor("#6666aa"), m_hoverT));
         painter.drawText(QRectF(0, 85, width(), 22),
                          Qt::AlignHCenter | Qt::AlignTop, "New profile");
     }
 
     void mousePressEvent(QMouseEvent*) override { emit clicked(); }
-    void enterEvent(QEnterEvent*)      override { restart_hover_anim(m_hoverAnim, m_hoverT, 1.0); }
-    void leaveEvent(QEvent*)           override { restart_hover_anim(m_hoverAnim, m_hoverT, 0.0); }
+    void enterEvent(QEnterEvent*)      override { anim::restart_hover_anim(m_hoverAnim, m_hoverT, 1.0); }
+    void leaveEvent(QEvent*)           override { anim::restart_hover_anim(m_hoverAnim, m_hoverT, 0.0); }
 
 private:
     qreal m_hoverT{0.0};
@@ -581,21 +484,14 @@ struct LoginDialog::Impl {
     QString         activeUsername;
     bool            hasFadedIn               = false; // dialog fade-in runs once
     bool            passwordRowTargetVisible = false; // guards redundant slide_password_in() restarts
-    // The page crossfade_to_page() is currently showing OR mid-transition
-    // toward. Deliberately tracked here rather than inferred from
-    // stack->currentWidget(), which doesn't update until the fade-out
-    // animation's finished callback actually calls setCurrentIndex() —
-    // during that ~130ms window currentWidget() still reports the OLD page,
-    // so a same-as-current-page check against it can't tell "already
-    // heading to index" apart from "heading somewhere else entirely",
-    // letting a fast-enough repeated click skip the re-entrancy guard below.
-    // Starts at 0 to match loginPage being index 0 and shown by default.
-    int             pageTransitionTargetIndex = 0;
-    // Tracks whichever animation is currently in flight for each of the two
-    // multi-stage transitions below, so a re-entrant call (e.g. fast repeated
-    // clicking) can cancel the stale one instead of leaving two animations
-    // racing on the same property.
-    QPointer<QPropertyAnimation>      pageTransitionAnim;
+    // crossfade_to_page()'s own re-entrancy-guard state (target page index +
+    // in-flight animation) now lives inside anim::crossfade_stacked_widget's
+    // internal side-table, keyed by `stack` — nothing to track here anymore.
+    //
+    // Tracks whichever animation is currently in flight for
+    // slide_password_in()'s multi-stage transition, so a re-entrant call
+    // (e.g. fast repeated profile switching) can cancel the stale one
+    // instead of leaving two animations racing on the same property.
     QPointer<QParallelAnimationGroup> passwordAnimGroup;
 
     QStackedWidget* stack        = nullptr;
@@ -980,56 +876,13 @@ void LoginDialog::rebuild_profile_grid() {
 // Sequential fade-out/fade-in page switch — QStackedWidget only ever paints
 // one page at a time, so a true overlapping crossfade isn't possible without
 // restructuring away from it; this reads as a smooth transition rather than
-// today's hard cut, which is the actual goal.
+// today's hard cut, which is the actual goal. Thin wrapper around the shared
+// anim::crossfade_stacked_widget() (see ui/anim_utils.hpp) — kept as a named
+// member since show_login_mode()/show_register_mode() and this class's own
+// header doc comment already describe it in login-specific terms (index 0 =
+// login, 1 = register).
 void LoginDialog::crossfade_to_page(int index, std::function<void()> onComplete) {
-    // Already showing (or already mid-transition toward) this page — a
-    // repeated call (e.g. clicking the same nav button twice) is a no-op.
-    // This must be checked against pageTransitionTargetIndex, not
-    // stack->currentWidget(), for the reason documented on that member.
-    if (d->pageTransitionTargetIndex == index) { return; }
-    d->pageTransitionTargetIndex = index;
-
-    // Cancel whichever phase (out or in) of a still-in-flight transition is
-    // currently running — without this, fast repeated clicking (e.g. the
-    // "+"/"← Back" buttons) can start a second crossfade before the first
-    // one reaches setCurrentIndex(), leaving two animations racing on the
-    // same opacity effect and landing on the wrong page.
-    if (d->pageTransitionAnim) { d->pageTransitionAnim->stop(); }
-
-    QWidget* currentPage = d->stack->currentWidget();
-    QWidget* targetPage  = d->stack->widget(index);
-    if (!targetPage || currentPage == targetPage) {
-        if (targetPage) { ensure_opacity_effect(targetPage)->setOpacity(1.0); }
-        d->stack->setCurrentIndex(index);
-        if (targetPage && onComplete) { onComplete(); }
-        return;
-    }
-
-    auto* outEffect = ensure_opacity_effect(currentPage);
-    auto* outAnim   = new QPropertyAnimation(outEffect, "opacity", currentPage);
-    outAnim->setDuration(130);
-    outAnim->setEasingCurve(QEasingCurve::InOutCubic);
-    outAnim->setStartValue(outEffect->opacity());
-    outAnim->setEndValue(0.0);
-    d->pageTransitionAnim = outAnim;
-
-    connect(outAnim, &QAbstractAnimation::finished, this,
-            [this, index, targetPage, onComplete] {
-        d->stack->setCurrentIndex(index);
-        if (onComplete) { onComplete(); }
-
-        auto* inEffect = ensure_opacity_effect(targetPage);
-        inEffect->setOpacity(0.0);
-        auto* inAnim = new QPropertyAnimation(inEffect, "opacity", targetPage);
-        inAnim->setDuration(130);
-        inAnim->setEasingCurve(QEasingCurve::InOutCubic);
-        inAnim->setStartValue(0.0);
-        inAnim->setEndValue(1.0);
-        d->pageTransitionAnim = inAnim;
-        inAnim->start(QAbstractAnimation::DeleteWhenStopped);
-    });
-
-    outAnim->start(QAbstractAnimation::DeleteWhenStopped);
+    anim::crossfade_stacked_widget(d->stack, index, 130, std::move(onComplete));
 }
 
 void LoginDialog::show_login_mode() {
@@ -1091,7 +944,7 @@ void LoginDialog::slide_password_in(bool visible) {
     // depends on whichever one happens to finish last).
     if (d->passwordAnimGroup) { d->passwordAnimGroup->stop(); }
 
-    auto* opacityEffect = ensure_opacity_effect(d->passwordRow);
+    auto* opacityEffect = anim::ensure_opacity_effect(d->passwordRow);
 
     auto* heightAnim = new QPropertyAnimation(d->passwordRow, "maximumHeight");
     heightAnim->setDuration(180);
@@ -1231,8 +1084,8 @@ void LoginDialog::on_guest_clicked() {
 void LoginDialog::set_error(const QString& msg) {
     d->errorLabel->setText(msg);
     d->errorLabel->setVisible(true);
-    fade_in_widget(d->errorLabel);
-    shake_widget(d->passwordRow->isVisible() ? d->passwordRow : d->profileGridW);
+    anim::fade_in_widget(d->errorLabel);
+    anim::shake_widget(d->passwordRow->isVisible() ? d->passwordRow : d->profileGridW);
 }
 
 void LoginDialog::clear_error() {
@@ -1242,8 +1095,8 @@ void LoginDialog::clear_error() {
 void LoginDialog::set_register_error(const QString& msg) {
     d->regError->setText(msg);
     d->regError->setVisible(true);
-    fade_in_widget(d->regError);
-    shake_widget(d->regError->parentWidget());
+    anim::fade_in_widget(d->regError);
+    anim::shake_widget(d->regError->parentWidget());
 }
 
 void LoginDialog::keyPressEvent(QKeyEvent* event) {
@@ -1259,7 +1112,7 @@ void LoginDialog::showEvent(QShowEvent* event) {
     if (d->hasFadedIn) { return; }
     d->hasFadedIn = true;
 
-    auto* effect = ensure_opacity_effect(this);
+    auto* effect = anim::ensure_opacity_effect(this);
     effect->setOpacity(0.0);
     auto* anim = new QPropertyAnimation(effect, "opacity", this);
     anim->setDuration(220);
