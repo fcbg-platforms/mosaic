@@ -199,28 +199,6 @@ protected:
                    Qt::AlignHCenter | Qt::TextWordWrap,
                    "Multi-camera Observatory for Social & Activity Interaction Capture");
 
-        // ── Feature tags ─────────────────────────────────────────────────
-        const int tagsY = sepY + 110;
-        auto drawTag = [&](int tagX, int tagY, const QString& text) {
-            QFont tagFont;
-            tagFont.setPointSize(7);
-            tagFont.setBold(true);
-            p.setFont(tagFont);
-            const auto fm = p.fontMetrics();
-            const int tw = fm.horizontalAdvance(text);
-            const QRectF bg2(tagX - tw/2 - 7, tagY, tw + 14, 16);
-            p.setBrush(QColor(20, 20, 60, 180));
-            p.setPen(QPen(QColor("#2a2a66"), 1.0));
-            p.drawRoundedRect(bg2, 3, 3);
-            p.setPen(QColor("#6666aa"));
-            p.drawText(bg2, Qt::AlignCenter, text);
-        };
-
-        drawTag(cx - 60, tagsY,     "Basler SDK");
-        drawTag(cx + 56, tagsY,     "FFmpeg");
-        drawTag(cx - 62, tagsY + 22, "Lab Streaming Layer");
-        drawTag(cx + 52, tagsY + 22, "Qt6 C++23");
-
         // ── Version chip at bottom ────────────────────────────────────────
         QFont verFont;
         verFont.setPointSize(7);

@@ -7,6 +7,7 @@
 using mosaic::AppSettings;
 using mosaic::CameraParameters;
 using mosaic::ProfileManager;
+using mosaic::VideoSettings;
 
 // Regression test for the room-11 "drop a camera, does it come back on
 // relaunch" question: VideoSettings::cameras is a plain runtime vector with
@@ -35,6 +36,36 @@ TEST(CameraPersistence, DroppedCameraStaysDroppedAfterSaveAndLoad) {
     ASSERT_EQ(loaded->video.cameras.size(), 2u);
     EXPECT_EQ(loaded->video.cameras[0].serialNumber, QString("111"));
     EXPECT_EQ(loaded->video.cameras[1].serialNumber, QString("333"));
+}
+
+// Regression test for a real use-after-free: VideoManager::open() binds a
+// raw `const CameraParameters&` into each VideoGrabber for that grabber's
+// entire lifetime (see VideoGrabber::Impl::params), pointing directly into
+// VideoSettings::cameras's vector storage. VideoSettingsW's constructor
+// later reserve()s VideoSettings::kMaxCameras against that same vector —
+// if VideoSettings::from_json() hadn't already reserved at least that much
+// capacity when it first populated `cameras`, that reserve() (or any
+// push_back() past whatever smaller capacity from_json() left behind)
+// would reallocate and silently invalidate every already-bound
+// VideoGrabber reference, crashing the next time a camera control is
+// edited. This can't be exercised end-to-end without real hardware, so
+// this test asserts the one practically-testable invariant: from_json()
+// leaves enough capacity headroom that no code path relying on it can
+// trigger that reallocation.
+TEST(CameraPersistence, FromJsonReservesCapacityForLiveReferenceStability) {
+    QJsonArray cams;
+    for (int i = 0; i < 3; ++i) {
+        CameraParameters c;
+        c.serialNumber = QString("cam-%1").arg(i);
+        cams.append(c.to_json());
+    }
+    const QJsonObject videoObj{{"cameras", cams}};
+
+    const auto loaded = VideoSettings::from_json(videoObj);
+    ASSERT_TRUE(loaded.has_value());
+    ASSERT_EQ(loaded->cameras.size(), 3u);
+    EXPECT_GE(loaded->cameras.capacity(),
+              static_cast<size_t>(VideoSettings::kMaxCameras));
 }
 
 // Regression test for "per-user settings should not clobber each other":
