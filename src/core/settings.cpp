@@ -151,6 +151,12 @@ std::optional<VideoSettings> VideoSettings::from_json(const QJsonObject& o) {
     // Legacy "sync_fps"/"target_fps" keys from older settings.json files are
     // silently ignored — the feature was never wired into acquisition.
     if (o.contains("cameras")) {
+        // Reserve up front so a caller that immediately hands this
+        // VideoSettings to VideoManager::open() (see Application::
+        // initialize()) gets the same reference-stability guarantee
+        // VideoSettingsW's constructor already relies on — see
+        // VideoSettings::kMaxCameras's doc comment.
+        s.cameras.reserve(VideoSettings::kMaxCameras);
         for (const auto& v : o["cameras"].toArray()) {
             if (auto c = CameraParameters::from_json(v.toObject()))
                 s.cameras.push_back(std::move(*c));

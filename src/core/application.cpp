@@ -7,6 +7,37 @@
 #include "utils/timestamp.hpp"
 #include <QCoreApplication>
 #include <QDir>
+#include <array>
+
+namespace {
+
+// Pre-configured camera list for a brand-new profile that has no
+// settings.json yet (register_profile() only creates the profile
+// directory — it never writes a settings file, see profile_manager.cpp).
+// Matches this app's real room-11 rig: 6 Basler acA1920-25gc units, one
+// per isolated GigE NIC, sharing one GigE Action Command trigger group.
+// Only serialNumber/friendlyName are set per entry — every other field
+// uses CameraParameters' own defaults, which already default to Action1
+// hardware-trigger sync (see CameraParameters::hwTriggerEnabled/
+// hwTriggerSource in settings.hpp), so a seeded slot behaves identically
+// to one added by hand through the UI today. Order matches the room-
+// position mapping already used in this rig's settings.json.
+std::vector<mosaic::CameraParameters> default_room11_cameras() {
+    static constexpr std::array<const char*, 6> kSerials = {
+        "24925616", "24925618", "24925620", "24925615", "24925621", "24893039",
+    };
+    std::vector<mosaic::CameraParameters> cameras;
+    cameras.reserve(kSerials.size());
+    for (size_t i = 0; i < kSerials.size(); ++i) {
+        mosaic::CameraParameters cam;
+        cam.serialNumber = QString::fromLatin1(kSerials[i]);
+        cam.friendlyName = QString("Camera %1").arg(i + 1);
+        cameras.push_back(cam);
+    }
+    return cameras;
+}
+
+} // namespace
 
 namespace mosaic {
 
@@ -46,9 +77,35 @@ void Application::initialize(const QString& username) {
                  .arg(d->username)
                  .arg(elapsed_ms()));
 
+    // AppSettings::load() returns a valid (default-constructed) AppSettings
+    // even when settingsPath doesn't exist yet — it only returns
+    // std::nullopt on an actual JSON parse error — so "no settings file"
+    // must be checked explicitly here, not inferred from the optional being
+    // engaged.
+    const bool settingsFileExisted = QFileInfo::exists(settingsPath);
     if (auto loaded = AppSettings::load(settingsPath)) {
         d->settings = std::move(*loaded);
     }
+    if (!settingsFileExisted) {
+        // No settings.json yet — a brand-new profile. Seed it with the
+        // real room-11 camera rig instead of starting with zero cameras
+        // configured, so a newly registered profile is immediately usable
+        // without a manual "add camera" pass for each of the 6 units.
+        d->settings.video.cameras = default_room11_cameras();
+    }
+
+    // Guarantee reference stability before videoManager->open() below binds
+    // a live VideoGrabber::Impl::params reference into each element of this
+    // vector (for that grabber's entire lifetime). Required regardless of
+    // which path populated `cameras` above: VideoSettings::from_json()
+    // already reserves this same cap internally, but that reservation does
+    // not survive default_room11_cameras()'s own reserve(6)-then-move-assign
+    // path for a brand-new profile — so this call is the one place that
+    // covers both. See VideoSettings::kMaxCameras's doc comment (settings.hpp)
+    // for the full explanation of why a reallocation here would be a
+    // use-after-free (this was a real, confirmed crash: any camera-settings
+    // edit after this point would dereference freed memory).
+    d->settings.video.cameras.reserve(VideoSettings::kMaxCameras);
 
     connect(QCoreApplication::instance(), &QCoreApplication::aboutToQuit,
             this, &Application::shutdown);

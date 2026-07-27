@@ -1,5 +1,6 @@
 #include "ui/video/video_settings_w.hpp"
 #include "ui/video/camera_card_w.hpp"
+#include "utils/logger.hpp"
 #include "video/video_grabber.hpp"
 #include <algorithm>
 #include <QComboBox>
@@ -58,8 +59,11 @@ VideoSettingsW::VideoSettingsW(VideoSettings& settings, QWidget* parent)
     outerLay->addWidget(scroll);
 
     // Pre-reserve so push_back never reallocates — keeps all CameraParameters&
-    // references held by existing cards valid for the lifetime of this widget.
-    m_settings.cameras.reserve(32);
+    // references held by existing cards (CameraCardW) AND by any already-open
+    // VideoGrabber (see VideoManager::open(), called before this widget is
+    // constructed — Application::initialize() also reserves this same cap
+    // for that reason) valid for the lifetime of this widget.
+    m_settings.cameras.reserve(VideoSettings::kMaxCameras);
 
     // Create cards for cameras already in settings WITHOUT pushing them again.
     for (int i = 0; i < static_cast<int>(m_settings.cameras.size()); ++i)
@@ -255,7 +259,8 @@ void VideoSettingsW::discover_cameras() {
     // increasingly-large close/reopen cycles all queued and run back-to-back on
     // the GUI thread for one click, easily adding up to a many-seconds freeze
     // with several real cameras.
-    int added = 0;
+    int  added   = 0;
+    bool atCap   = false;
     for (const auto& cam : found) {
         if (cam.serialNumber.isEmpty()) { continue; }
         const bool alreadyPresent = std::any_of(
@@ -264,6 +269,17 @@ void VideoSettingsW::discover_cameras() {
                 return existing.serialNumber == cam.serialNumber;
             });
         if (alreadyPresent) { continue; }
+
+        // Refuse past kMaxCameras rather than push_back()ing past the
+        // capacity every already-open VideoGrabber/CameraCardW's
+        // CameraParameters& reference depends on staying stable — see
+        // VideoSettings::kMaxCameras's doc comment (settings.hpp).
+        if (m_settings.cameras.size() >= static_cast<size_t>(VideoSettings::kMaxCameras)) {
+            log_error(QString("[VideoSettingsW] discover_cameras: already at the %1-camera "
+                               "limit — not adding any more.").arg(VideoSettings::kMaxCameras));
+            atCap = true;
+            break;
+        }
 
         CameraParameters params;
         params.serialNumber = cam.serialNumber;
@@ -282,8 +298,11 @@ void VideoSettingsW::discover_cameras() {
         d->discoverStatusLbl->setText(found.isEmpty()
             ? "No cameras found — check network cabling/power, or that this build was "
               "compiled with camera support."
-            : QString("Found %1 camera(s); added %2 new card(s) (%3 already configured).")
-                  .arg(found.size()).arg(added).arg(found.size() - added));
+            : QString("Found %1 camera(s); added %2 new card(s) (%3 already configured).%4")
+                  .arg(found.size()).arg(added).arg(found.size() - added)
+                  .arg(atCap ? QString(" Reached the %1-camera limit.")
+                                   .arg(VideoSettings::kMaxCameras)
+                             : QString()));
         d->discoverStatusLbl->show();
     }
 }
@@ -300,6 +319,15 @@ void VideoSettingsW::make_card(int index) {
 }
 
 void VideoSettingsW::add_camera(CameraParameters params) {
+    // Refuse past kMaxCameras rather than push_back()ing past the capacity
+    // every already-open VideoGrabber/CameraCardW's CameraParameters&
+    // reference depends on staying stable — see VideoSettings::kMaxCameras's
+    // doc comment (settings.hpp).
+    if (m_settings.cameras.size() >= static_cast<size_t>(VideoSettings::kMaxCameras)) {
+        log_error(QString("[VideoSettingsW] add_camera: already at the %1-camera limit — "
+                           "refusing to add another.").arg(VideoSettings::kMaxCameras));
+        return;
+    }
     m_settings.cameras.push_back(std::move(params));
     make_card(static_cast<int>(m_settings.cameras.size()) - 1);
     emit settings_changed();

@@ -19,6 +19,18 @@ namespace mosaic {
 
 struct VideoGrabber::Impl {
     int                                      cameraIndex;
+    // Bound once, for this grabber's entire lifetime, to an element of the
+    // VideoSettings::cameras vector passed to VideoManager::open() (see
+    // VideoSettings::kMaxCameras's doc comment in settings.hpp). Any
+    // reallocation of that vector after this reference is taken — from
+    // push_back()ing past capacity anywhere (VideoSettingsW::add_camera(),
+    // discover_cameras(), or a future call site) — invalidates this
+    // reference and produces a use-after-free the next time
+    // apply_image_params() (below) reads d->params.*. If you add a new way
+    // to grow VideoSettings::cameras while a VideoManager session may be
+    // open, make sure it either respects kMaxCameras or reopens
+    // VideoManager (which rebinds fresh references) before any control
+    // edit can reach here.
     const CameraParameters&                  params;
     RingBuffer<std::shared_ptr<VideoFrame>>& frameBuffer;
     TriggerManager*                          triggerMgr;  // not owned, may be null

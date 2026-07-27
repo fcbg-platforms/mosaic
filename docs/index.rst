@@ -8,6 +8,7 @@ MOSAIC Documentation
    quickstart
    architecture
    recording
+   camera_settings
    calibration
    lsl
    profiles
@@ -69,6 +70,14 @@ MOSAIC Documentation
 
       Session folders, file formats, per-frame timestamp CSV, and the
       ``session_meta.json`` sidecar.
+
+   .. grid-item-card:: 🎛  Camera settings
+      :link: camera_settings
+      :link-type: doc
+      :class-card: sd-border-0
+
+      Every Image/Exposure/Gain/Advanced/HW-Trigger field, its default, and
+      how to change it for one camera or for every future one.
 
    .. grid-item-card:: 📐  Camera calibration
       :link: calibration
