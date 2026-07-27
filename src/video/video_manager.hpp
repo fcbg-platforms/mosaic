@@ -103,9 +103,11 @@ public:
 
     /// @brief Requests one full-resolution frame from the given camera for
     /// room (extrinsic) calibration — see VideoGrabber::request_calibration_frame().
-    /// Delivered asynchronously via calibration_frame_ready(); no-op if no
+    /// Delivered asynchronously via calibration_frame_ready(), echoing token
+    /// back verbatim so a caller that requests one frame per "shot" can
+    /// reject a reply for a shot it has already moved past. No-op if no
     /// open unit matches configIndex.
-    void request_calibration_frame(int configIndex);
+    void request_calibration_frame(int configIndex, uint64_t token = 0);
 
     /// @returns @c true while a recording session is active.
     [[nodiscard]] bool    is_recording()          const;
@@ -164,7 +166,8 @@ signals:
     void frame_preview(int cameraIndex, QImage frame);
 
     /// Full-resolution frame delivered in response to request_calibration_frame().
-    void calibration_frame_ready(int cameraIndex, QImage frame);
+    /// token is whatever was passed to request_calibration_frame().
+    void calibration_frame_ready(int cameraIndex, QImage frame, uint64_t token);
 
     /// Passthrough of VideoGrabber::action_command_capability() — reports
     /// whether a camera's firmware supports GigE Vision Action Command

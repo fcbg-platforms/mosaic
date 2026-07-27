@@ -146,6 +146,28 @@ public:
     void run_expression_analysis(const QString& sessionPath, const QString& backend,
                                   int maxFaces, double minConfidence, int frameSkip);
 
+    /// @brief Fuse per-camera 3D gaze rays (from every camera with both
+    /// intrinsic and extrinsic calibration) into a triangulated room-space
+    /// gaze origin/direction, plus (when the room plane is defined) a
+    /// target point, per synchronized master tick. Writes a session-root
+    /// "gaze_fusion.json" sidecar — originals are never modified.
+    ///
+    /// Always runs when called directly, exactly like analyze_session(). If a
+    /// previous analysis is still running, this queues the new job.
+    ///
+    /// Proactively generates+saves sync_manifest.json first if the session
+    /// doesn't already have one (mirrors SessionPlayerW's own "generate if
+    /// missing" pattern) — the fusion script requires it and shouldn't have
+    /// to duplicate that C++-side generation logic in Python.
+    ///
+    /// @param sessionPath    Absolute path to the recorded session directory.
+    /// @param minCameras     Minimum simultaneous cameras required to compute
+    ///                       a target point (rays are still recorded below this).
+    /// @param minConfidence  Face detection/presence confidence threshold (0-1).
+    /// @param frameSkip      Process every Nth frame per camera (1 = every frame).
+    void run_gaze_fusion(const QString& sessionPath, int minCameras,
+                          double minConfidence, int frameSkip);
+
     /// @brief Stop the currently running analysis process immediately.
     void stop();
 

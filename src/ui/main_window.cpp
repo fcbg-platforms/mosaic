@@ -235,7 +235,7 @@ void MainWindow::build_central_widget() {
     d->settingsTabs->addTab(
         new PerformanceMonitorW(d->videoMgr, d->audioMgr, d->analysisMgr),  "Perf");
     d->settingsTabs->addTab(
-        new CalibrationW(d->settings.video),                                "Calibrate");
+        new CalibrationW(d->settings.video, d->settings.room, d->videoMgr),   "Calibrate");
 
     d->mainSplitter->addWidget(d->settingsTabs);
 

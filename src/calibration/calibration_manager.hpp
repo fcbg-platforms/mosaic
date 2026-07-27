@@ -98,22 +98,6 @@ public:
     /// @returns @c true if a valid calibration result is available.
     [[nodiscard]] bool has_result() const;
 
-    /// @brief Computes pairwise extrinsics between two cameras.
-    ///
-    /// Both cameras must have been individually calibrated first.  The result
-    /// is stored in @p cam1Result.extrinsicRt (4×4 RT relative to camera 0).
-    ///
-    /// @note This overload requires simultaneous checkerboard views from both
-    ///       cameras, which is not yet supported in the MOSAIC UI.  Planned.
-    ///
-    /// @param cam0Result  Calibration of the reference camera (camera 0).
-    /// @param cam1Result  Calibration of the second camera.  extrinsicRt is written here.
-    /// @param spec        Board geometry used for both captures.
-    /// @returns           @c true on success.
-    static bool stereo_calibrate(CalibrationData& cam0Result,
-                                  CalibrationData& cam1Result,
-                                  const BoardSpec& spec);
-
 signals:
     /// Emitted after each call to feed_frame().
     /// @param viewIndex  Running index of this detection attempt.

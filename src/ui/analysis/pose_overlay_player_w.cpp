@@ -42,16 +42,32 @@ public:
     void set_frame(const PoseFrame* frame, QVector<QPair<int, int>> skeletonEdges) {
         frame_          = frame;
         skeletonEdges_  = std::move(skeletonEdges);
-        exprFrame_      = nullptr;   // mutually exclusive with expression mode
+        exprFrame_      = nullptr;   // mutually exclusive with expression/gaze mode
+        gazeFrame_      = nullptr;
         update();
     }
 
-    // Facial-expression draw mode — mutually exclusive with set_frame()
-    // above (see PoseOverlayPlayerW::set_pose_result()/
-    // set_expression_result() for why both setters clear each other).
+    // Facial-expression draw mode — mutually exclusive with set_frame()/
+    // set_gaze_frame() (see PoseOverlayPlayerW::set_pose_result()/
+    // set_expression_result()/set_gaze_result() for why every setter clears
+    // the others).
     void set_expression_frame(const ExpressionFrame* frame) {
         exprFrame_     = frame;
         frame_         = nullptr;
+        gazeFrame_     = nullptr;
+        skeletonEdges_.clear();
+        update();
+    }
+
+    // Gaze-fusion draw mode — mutually exclusive with set_frame()/
+    // set_expression_frame() (see above). cameraIndex picks which
+    // GazeFusionFrame::perCamera entry to draw (the currently-loaded
+    // video's own camera).
+    void set_gaze_frame(const GazeFusionFrame* frame, int cameraIndex) {
+        gazeFrame_       = frame;
+        gazeCameraIndex_ = cameraIndex;
+        frame_           = nullptr;
+        exprFrame_       = nullptr;
         skeletonEdges_.clear();
         update();
     }
@@ -64,6 +80,7 @@ public:
     void clear() {
         frame_      = nullptr;
         exprFrame_  = nullptr;
+        gazeFrame_  = nullptr;
         nativeSize_ = QSize();
         update();
     }
@@ -89,6 +106,10 @@ protected:
         QPainter painter(this);
         painter.setRenderHint(QPainter::Antialiasing);
 
+        if (gazeFrame_) {
+            paint_gaze(painter, to_widget);
+            return;
+        }
         if (exprFrame_) {
             paint_expression(painter, to_widget);
             return;
@@ -150,10 +171,60 @@ private:
         }
     }
 
+    // Draws a bbox + short direction arrow (from gazeDx/gazeDy, same
+    // convention as the live QML monitor's gaze overlay in
+    // src/qml/MonitorView.qml) for whichever GazeFusionCamera entry in
+    // gazeFrame_->perCamera matches gazeCameraIndex_ — a fused frame may
+    // carry contributions from several cameras, but this overlay only ever
+    // draws the one matching the currently-loaded video.
+    void paint_gaze(QPainter& painter, const std::function<QPointF(QPointF)>& to_widget) {
+        const GazeFusionCamera* cam = nullptr;
+        for (const auto& c : gazeFrame_->perCamera) {
+            if (c.cameraIndex == gazeCameraIndex_) { cam = &c; break; }
+        }
+        if (!cam) { return; }
+
+        const QFontMetrics fm(painter.font());
+
+        const QRectF box(to_widget(cam->faceBoxPx.topLeft()),
+                          to_widget(cam->faceBoxPx.bottomRight()));
+        painter.setPen(QPen(QColor(80, 220, 220), 2));
+        painter.setBrush(Qt::NoBrush);
+        painter.drawRect(box);
+
+        // Arrow from box centre, extending toward (gazeDx, gazeDy) scaled by
+        // the box's own size — same relative-to-face-size convention the
+        // live monitor overlay uses, just computed in native-video pixel
+        // space here (before to_widget scaling) rather than screen space.
+        const QPointF centerNative = cam->faceBoxPx.center();
+        const QPointF tipNative(
+            centerNative.x() + cam->gazeDx * cam->faceBoxPx.width()  * 0.5,
+            centerNative.y() + cam->gazeDy * cam->faceBoxPx.height() * 0.5);
+        painter.setPen(QPen(QColor(255, 220, 60), 2));
+        painter.drawLine(to_widget(centerNative), to_widget(tipNative));
+        painter.setBrush(QColor(255, 220, 60));
+        painter.setPen(Qt::NoPen);
+        painter.drawEllipse(to_widget(tipNative), 3, 3);
+
+        const QString label = QString("cam%1  dx%2 dy%3")
+            .arg(cam->cameraIndex)
+            .arg(cam->gazeDx, 0, 'f', 2)
+            .arg(cam->gazeDy, 0, 'f', 2);
+        const QRectF labelBg(box.left(), box.top() - fm.height() - 4,
+                              fm.horizontalAdvance(label) + 8, fm.height() + 4);
+        painter.setPen(Qt::NoPen);
+        painter.setBrush(QColor(0, 0, 0, 160));
+        painter.drawRect(labelBg);
+        painter.setPen(QColor(160, 230, 230));
+        painter.drawText(labelBg, Qt::AlignCenter, label);
+    }
+
     QSize                    nativeSize_;
     const PoseFrame*         frame_ = nullptr;
     QVector<QPair<int, int>> skeletonEdges_;
     const ExpressionFrame*   exprFrame_ = nullptr;
+    const GazeFusionFrame*   gazeFrame_ = nullptr;
+    int                      gazeCameraIndex_ = -1;
 };
 
 // ── PoseOverlayPlayerW::Impl ────────────────────────────────────────────
@@ -170,12 +241,26 @@ struct PoseOverlayPlayerW::Impl {
 
     PoseAnalysisResult poseResult;
     ExpressionResult   expressionResult;
+    GazeFusionResult   gazeResult;
+    int                gazeCameraIndex = -1;
     QSize              nativeSize;
     double             fps        = 25.0;
     bool               scrubbing  = false;
 
     [[nodiscard]] int frame_estimate(int64_t positionMs) const {
         return static_cast<int>(std::llround(positionMs / 1000.0 * fps));
+    }
+
+    // GazeFusionResult::nearest_frame() is keyed on absolute timestampNs
+    // (the shared master timeline — see its header doc), not a per-video
+    // frame index like Pose/Expression's nearest_frame(). Approximates
+    // "player position 0" as aligned with the gaze result's own first fused
+    // tick — a small-skew approximation in the same spirit as this
+    // codebase's other cross-camera-alignment conveniences, not a
+    // replacement for SyncManifest's own precise alignment.
+    [[nodiscard]] int64_t gaze_timestamp_estimate(int64_t positionMs) const {
+        if (gazeResult.frames().isEmpty()) { return 0; }
+        return gazeResult.frames().first().timestampNs + positionMs * 1000000LL;
     }
 };
 
@@ -253,7 +338,11 @@ PoseOverlayPlayerW::PoseOverlayPlayerW(QWidget* parent)
         if (!d->scrubbing) { d->scrubber->setValue(static_cast<int>(pos)); }
         d->timeLbl->setText(format_ms(pos) + " / " + format_ms(d->player->duration()));
 
-        if (d->expressionResult.is_valid()) {
+        if (d->gazeResult.is_valid()) {
+            const GazeFusionFrame* frame =
+                d->gazeResult.nearest_frame(d->gaze_timestamp_estimate(pos));
+            d->overlay->set_gaze_frame(frame, d->gazeCameraIndex);
+        } else if (d->expressionResult.is_valid()) {
             const ExpressionFrame* frame =
                 d->expressionResult.nearest_frame(d->frame_estimate(pos));
             d->overlay->set_expression_frame(frame);
@@ -296,6 +385,7 @@ void PoseOverlayPlayerW::set_video(const QString& videoPath) {
 
 void PoseOverlayPlayerW::set_pose_result(const PoseAnalysisResult& result) {
     d->expressionResult = ExpressionResult();   // mutually exclusive, see header doc
+    d->gazeResult        = GazeFusionResult();
     d->poseResult = result;
     const PoseFrame* frame = d->poseResult.is_valid()
         ? d->poseResult.nearest_frame(d->frame_estimate(d->player->position()))
@@ -305,11 +395,23 @@ void PoseOverlayPlayerW::set_pose_result(const PoseAnalysisResult& result) {
 
 void PoseOverlayPlayerW::set_expression_result(const ExpressionResult& result) {
     d->poseResult = PoseAnalysisResult();   // mutually exclusive, see header doc
+    d->gazeResult = GazeFusionResult();
     d->expressionResult = result;
     const ExpressionFrame* frame = d->expressionResult.is_valid()
         ? d->expressionResult.nearest_frame(d->frame_estimate(d->player->position()))
         : nullptr;
     d->overlay->set_expression_frame(frame);
+}
+
+void PoseOverlayPlayerW::set_gaze_result(const GazeFusionResult& result, int cameraIndex) {
+    d->poseResult       = PoseAnalysisResult();   // mutually exclusive, see header doc
+    d->expressionResult = ExpressionResult();
+    d->gazeResult        = result;
+    d->gazeCameraIndex   = cameraIndex;
+    const GazeFusionFrame* frame = d->gazeResult.is_valid()
+        ? d->gazeResult.nearest_frame(d->gaze_timestamp_estimate(d->player->position()))
+        : nullptr;
+    d->overlay->set_gaze_frame(frame, cameraIndex);
 }
 
 int64_t PoseOverlayPlayerW::position_ms() const { return d->player->position(); }
