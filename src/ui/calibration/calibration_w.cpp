@@ -1,4 +1,6 @@
 #include "ui/calibration/calibration_w.hpp"
+#include "calibration/rms_quality.hpp"
+#include "ui/calibration/badge_style.hpp"
 #include "ui/calibration/room_calibration_w.hpp"
 #include <QCheckBox>
 #include <QComboBox>
@@ -288,26 +290,28 @@ void CalibrationW::on_calibration_done(double rmsError, bool success) {
 
     if (!success) {
         d->rmsLabel->setText("Failed");
-        d->rmsLabel->setStyleSheet("color: #dd4444;");
+        d->rmsLabel->setStyleSheet(badge_stylesheet(false));
         return;
     }
 
     update_result_labels();
     d->saveBtn->setEnabled(d->manager.has_result());
 
-    const QString quality = rmsError < 0.5 ? "excellent" :
-                             rmsError < 1.0 ? "good"      :
-                             rmsError < 2.0 ? "acceptable": "poor";
+    const RmsQuality quality = rms_quality_for(rmsError);
+    const QString qualityStr = quality == RmsQuality::Excellent  ? "excellent"  :
+                                quality == RmsQuality::Good       ? "good"       :
+                                quality == RmsQuality::Acceptable ? "acceptable" : "poor";
     d->rmsLabel->setToolTip(
         QString("Reprojection error: %1 px (%2)\n"
                 "< 0.5 px = excellent, 1–2 px = acceptable, > 2 px = poor")
-            .arg(rmsError, 0, 'f', 3).arg(quality));
+            .arg(rmsError, 0, 'f', 3).arg(qualityStr));
 }
 
 void CalibrationW::update_result_labels() {
     if (!d->manager.has_result()) {
         const QString dash = "—";
         d->rmsLabel->setText(dash);
+        d->rmsLabel->setStyleSheet(QString());
         d->fxLabel->setText(dash);
         d->fyLabel->setText(dash);
         d->cxLabel->setText(dash);
@@ -316,6 +320,7 @@ void CalibrationW::update_result_labels() {
     }
     const auto cal = d->manager.result();
     d->rmsLabel->setText(QString("%1 px").arg(cal.rmsError, 0, 'f', 3));
+    d->rmsLabel->setStyleSheet(badge_stylesheet(rms_quality_for(cal.rmsError)));
     d->fxLabel->setText(QString("%1").arg(cal.cameraMatrix[0], 0, 'f', 1));
     d->fyLabel->setText(QString("%1").arg(cal.cameraMatrix[4], 0, 'f', 1));
     d->cxLabel->setText(QString("%1").arg(cal.cameraMatrix[2], 0, 'f', 1));
