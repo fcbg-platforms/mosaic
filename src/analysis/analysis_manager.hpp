@@ -168,6 +168,30 @@ public:
     void run_gaze_fusion(const QString& sessionPath, int minCameras,
                           double minConfidence, int frameSkip);
 
+    /// @brief Triangulate each camera's already-computed 2D pose keypoints
+    /// (analyze_session()'s ".pose.json" sidecars — must already exist for
+    /// at least 2 cameras) into 3D room-space skeletons, using the room
+    /// extrinsic calibration and real cross-camera person association
+    /// (multi-person capable, unlike run_gaze_fusion()'s single-subject
+    /// design). Writes a session-root "skeleton3d.json" sidecar —
+    /// originals are never modified.
+    ///
+    /// Always runs when called directly, exactly like analyze_session(). If a
+    /// previous analysis is still running, this queues the new job.
+    ///
+    /// Proactively generates+saves sync_manifest.json first if the session
+    /// doesn't already have one, same as run_gaze_fusion().
+    ///
+    /// @param sessionPath              Absolute path to the recorded session directory.
+    /// @param minCameras               Minimum cameras a person cluster must span to
+    ///                                 be reconstructed at all (>=2, the mathematical
+    ///                                 minimum for triangulation).
+    /// @param maxReprojectionErrorPx   Per-view reprojection error threshold (px) for
+    ///                                 outlier-view rejection during triangulation.
+    /// @param frameSkip                Process every Nth master tick (1 = every tick).
+    void run_pose3d_reconstruction(const QString& sessionPath, int minCameras,
+                                    double maxReprojectionErrorPx, int frameSkip);
+
     /// @brief Stop the currently running analysis process immediately.
     void stop();
 

@@ -33,9 +33,10 @@ struct Job {
 // True if sessionPath has no sync_manifest.json yet, or if any of its
 // timestamps_camN.csv files were modified more recently than the manifest —
 // e.g. an interrupted/re-run recording over the same session folder. A stale
-// manifest silently feeds run_gaze_fusion.py a wrong cross-camera tick
-// alignment with no visible symptom, so this is checked on every run rather
-// than only "does the file exist".
+// manifest silently feeds run_gaze_fusion.py or run_pose3d.py a wrong
+// cross-camera tick alignment with no visible symptom, so this is checked
+// on every run rather than only "does the file exist". Shared by both
+// run_gaze_fusion() and run_pose3d_reconstruction() below.
 bool sync_manifest_is_stale(const QString& sessionPath) {
     const QFileInfo manifestInfo(sessionPath + "/sync_manifest.json");
     if (!manifestInfo.exists()) { return true; }
@@ -146,6 +147,22 @@ void AnalysisManager::run_gaze_fusion(const QString& sessionPath, int minCameras
     };
     // No secrets involved, unlike run_diarization()'s hfToken.
     enqueue_or_launch(sessionPath, "analysis/run_gaze_fusion.py", args, {});
+}
+
+void AnalysisManager::run_pose3d_reconstruction(const QString& sessionPath, int minCameras,
+                                                 double maxReprojectionErrorPx, int frameSkip) {
+    if (sync_manifest_is_stale(sessionPath)) {
+        SyncManifest::generate(sessionPath).save(sessionPath);
+    }
+
+    const QStringList args = {
+        "--session",                   sessionPath,
+        "--min-cameras",               QString::number(qMax(1, minCameras)),
+        "--max-reprojection-error-px", QString::number(maxReprojectionErrorPx),
+        "--skip",                      QString::number(qMax(1, frameSkip)),
+    };
+    // No secrets involved, unlike run_diarization()'s hfToken.
+    enqueue_or_launch(sessionPath, "analysis/run_pose3d.py", args, {});
 }
 
 void AnalysisManager::enqueue_or_launch(const QString& sessionPath, const QString& scriptRelPath,

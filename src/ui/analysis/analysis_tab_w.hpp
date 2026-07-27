@@ -10,7 +10,7 @@ namespace mosaic {
 // Top-level "Analysis" tab: pick a recorded session, run a post-hoc analysis
 // plugin, and review the result in-app.
 //
-// Five plugins today, selected via a combo box: Pose (YOLOv8) — a
+// Six plugins today, selected via a combo box: Pose (YOLOv8) — a
 // synchronised video+skeleton-overlay player alongside a per-keypoint
 // metrics plot; Face Masking — plain playback of an anonymized output video
 // written to a sibling "anonymized/" folder, never touching the original
@@ -20,11 +20,16 @@ namespace mosaic {
 // Facial Expression — MediaPipe FaceLandmarker blendshapes classified into a
 // dominant basic-emotion label per detected face (via a rule-based heuristic
 // or a pretrained FER+ ONNX model), shown as a bbox+label video overlay plus
-// a per-blendshape score-over-time plot; and Multi-Camera Gaze Fusion —
+// a per-blendshape score-over-time plot; Multi-Camera Gaze Fusion —
 // per-camera 3D gaze rays (analysis/gaze) triangulated across whichever
 // cameras have both intrinsic and extrinsic (room) calibration, shown as a
 // per-camera bbox+direction-arrow video overlay plus a top-down 3D room
-// view (GazeRoomViewW). AnalysisManager (analysis/analysis_manager.hpp)
+// view (GazeRoomViewW); and 3D Pose Reconstruction — the already-computed
+// Pose plugin output (per camera) triangulated across cameras with real
+// cross-camera person association (multi-person capable, unlike Gaze
+// Fusion's single-subject design), shown as a per-camera reprojected
+// skeleton overlay plus an interactive, orbit-rotatable 3D room view
+// (Skeleton3DRoomViewW). AnalysisManager (analysis/analysis_manager.hpp)
 // runs each plugin's script through the same shared subprocess queue. For
 // Pose, the metrics plot can show raw Position (x/y) or, entirely computed
 // client-side from the already-loaded result (no extra Python run needed —
@@ -56,11 +61,14 @@ private:
     void export_expression_csv();
     void update_gaze_view();
     void export_gaze_csv();
+    void update_pose3d_view();
+    void export_skeleton3d_csv();
     [[nodiscard]] bool is_pose_plugin() const;
     [[nodiscard]] bool is_diarize_plugin() const;
     [[nodiscard]] bool is_expression_plugin() const;
     [[nodiscard]] bool is_face_mask_plugin() const;
     [[nodiscard]] bool is_gaze_fusion_plugin() const;
+    [[nodiscard]] bool is_pose3d_plugin() const;
     [[nodiscard]] QString pose_json_path_for(const QString& videoRelPath) const;
     [[nodiscard]] QString anonymized_video_path_for(const QString& videoRelPath) const;
     [[nodiscard]] QString transcript_json_path_for(const QString& audioRelPath) const;
