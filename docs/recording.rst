@@ -120,8 +120,9 @@ Each camera produces a ``timestamps_camN.csv`` alongside its ``video_N.mp4``, bo
   ``GevTimestamp`` chunk, converted from device ticks to nanoseconds), if the
   connected camera and SDK support chunk data. ``0`` if unavailable. This is
   independent of host-side scheduling/network jitter, but is **not**
-  comparable across cameras unless they share a hardware trigger/genlock
-  source (see :ref:`synchronization` — Mosaic does not do this today).
+  directly comparable across cameras unless they were driven by a shared
+  trigger source during acquisition (see :ref:`synchronization` for when
+  that's the case).
 
 .. note::
 
@@ -134,10 +135,52 @@ Each camera produces a ``timestamps_camN.csv`` alongside its ``video_N.mp4``, bo
 Synchronization
 ----------------
 
-Mosaic does **not** use a hardware trigger or genlock to force all cameras to
-expose simultaneously. Each camera free-runs at its own configured frame
-rate, and synchronization across cameras is done **post-hoc**, after
-recording, by :cpp:class:`mosaic::SyncManifest`:
+Mosaic has two layers of synchronization, one acquisition-time and one
+playback-time. Which one actually determines simultaneity for a given
+recording depends on whether each camera's hardware trigger is enabled.
+
+Acquisition-time: GigE Vision Action Command triggering
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+When a camera's *HW Trigger* tab (Video settings) has ``hwTriggerEnabled``
+on and ``hwTriggerSource`` set to ``"Action1"``, that camera is configured
+with ``TriggerSelector=FrameStart`` / ``TriggerMode=On`` / ``TriggerSource=
+Action1`` and waits for a GigE Vision Action Command broadcast before
+exposing each frame — it does not free-run. ``VideoManager`` arms every
+such camera (``start_grabbing()``) first, then a dedicated background
+thread (``ActionCommandTicker``) broadcasts one Action Command per frame,
+continuously, at a shared period derived from the *slowest* participating
+camera's own measured achievable frame rate — so no camera is ever driven
+faster than it can sustain. Every Action1-armed camera therefore exposes
+each frame in response to the same broadcast, giving real acquisition-time
+simultaneity rather than an after-the-fact approximation.
+
+This is **per-camera, not all-or-nothing**: support is probed live each
+time a camera opens (some GigE firmware/node-map combinations don't expose
+the required ``ActionSelector``/``ActionDeviceKey``/``ActionGroupKey``/
+``ActionGroupMask`` nodes), and a camera that doesn't support it — or
+simply has ``hwTriggerSource`` set to something else (``Line1``,
+``Software``, plain free-run) — falls back to free-running independently,
+exactly as described below, with zero effect on the other cameras. The HW
+Trigger tab shows a live "Action-command support: SUPPORTED / NOT
+supported" readout per camera so this never needs guessing.
+
+Practically: as of the room 11 camera fleet's current configuration, every
+camera defaults to ``hwTriggerEnabled=true`` / ``hwTriggerSource="Action1"``,
+so a normal recording session already gets real hardware-triggered
+simultaneity, not just the post-hoc alignment below — confirmed on real
+hardware, with all 6 cameras firing off the same continuous per-frame
+broadcast and producing matching frame counts. Real GigE packet loss on a
+specific camera's link can still cause that one camera to miss some
+broadcasts (indistinguishable in effect from any other dropped-frame cause
+below), which is why the post-hoc layer remains in place regardless.
+
+Playback-time: post-hoc alignment via SyncManifest
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Whether or not hardware triggering was active, Mosaic always additionally
+builds a **post-hoc** alignment after recording, via
+:cpp:class:`mosaic::SyncManifest`:
 
 1. It reads every camera's ``timestamps_camN.csv``.
 2. It finds the overlapping time window (on the shared ``elapsed_ns`` clock)
@@ -148,10 +191,15 @@ recording, by :cpp:class:`mosaic::SyncManifest`:
 4. The result (``sync_manifest.json``) is what :cpp:class:`mosaic::SessionPlayerW`
    uses to play all cameras back in sync.
 
-This means synchronization quality is a **playback-time property**, not an
-acquisition-time guarantee — two cameras' frame N are not guaranteed to be
-the same physical instant, only mapped to the nearest common tick after the
-fact.
+This is what every analysis plugin that fuses across cameras (gaze fusion,
+3D pose reconstruction) actually reads — they consume the master-tick
+timeline, not raw per-camera frame indices, so they benefit from tighter
+alignment when hardware triggering was active without needing to know
+whether it was. When hardware triggering was **not** active for a session,
+this layer is the *only* synchronization, and its quality is a
+playback-time property, not an acquisition-time guarantee — two cameras'
+frame N are not guaranteed to be the same physical instant, only mapped to
+the nearest common tick after the fact.
 
 Why cameras end up with different frame counts
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -194,13 +242,18 @@ all 6 cameras don't burst onto the same network card simultaneously and
 saturate it. It has no effect on exposure timing or capture rate, and is
 unrelated to synchronization; it exists purely to reduce GigE packet loss.
 
-If frame-accurate simultaneous exposure across cameras is required (rather
-than post-hoc nearest-tick alignment), that needs a real hardware
-trigger/genlock signal wired to every camera's trigger input — the camera's
-own ``TriggerMode``/``TriggerSource``/``TriggerDelay`` nodes are wired (see
-the *HW Trigger* tab in the Video settings), but nothing currently drives a
-shared trigger signal to all cameras simultaneously; this is future work
-contingent on the lab's actual trigger wiring.
+Frame-accurate simultaneous exposure across cameras is available today via
+the GigE Vision Action Command triggering described above (``hwTriggerSource
+= "Action1"``) — no physical trigger cable/genlock wiring is required, since
+Action Commands travel over the existing camera network. A physical
+hardware-trigger-cable path (``Line1``/``Software`` sources, the camera's
+own ``TriggerMode``/``TriggerSource``/``TriggerDelay`` nodes) also exists in
+the *HW Trigger* tab for labs that do have a wired trigger signal, but it is
+not required for acquisition-time sync on this rig. True PTP-synchronized
+(sub-millisecond) scheduled triggering was investigated and found
+unsupported by this camera generation's firmware (no ``GevIEEE1588`` node)
+— Action Command triggering is the ceiling on this hardware, not an interim
+step toward something tighter.
 
 Trigger CSV
 -----------
