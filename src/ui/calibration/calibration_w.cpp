@@ -1,6 +1,7 @@
 #include "ui/calibration/calibration_w.hpp"
 #include "calibration/rms_quality.hpp"
 #include "ui/calibration/badge_style.hpp"
+#include "ui/calibration/room_calibration_w.hpp"
 #include <QCheckBox>
 #include <QComboBox>
 #include <QDoubleSpinBox>
@@ -12,6 +13,7 @@
 #include <QPushButton>
 #include <QScrollArea>
 #include <QSpinBox>
+#include <QTabWidget>
 #include <QVBoxLayout>
 
 namespace mosaic {
@@ -19,6 +21,7 @@ namespace mosaic {
 struct CalibrationW::Impl {
     VideoSettings&      videoSettings;
     CalibrationManager  manager;
+    RoomCalibrationW*   roomTab = nullptr;   // not owned (child widget, Qt parent-owns)
 
     // Board configuration
     QSpinBox*       colsSpin      = nullptr;
@@ -44,11 +47,16 @@ struct CalibrationW::Impl {
     explicit Impl(VideoSettings& vs) : videoSettings(vs) {}
 };
 
-CalibrationW::CalibrationW(VideoSettings& videoSettings, QWidget* parent)
+CalibrationW::CalibrationW(VideoSettings& videoSettings, RoomSettings& roomSettings,
+                            VideoManager* videoMgr, QWidget* parent)
     : QWidget(parent), d(std::make_unique<Impl>(videoSettings))
 {
     auto* outerLay = new QVBoxLayout(this);
     outerLay->setContentsMargins(0, 0, 0, 0);
+
+    auto* innerTabs = new QTabWidget;
+    innerTabs->setDocumentMode(true);
+    outerLay->addWidget(innerTabs);
 
     auto* scroll = new QScrollArea;
     scroll->setWidgetResizable(true);
@@ -69,7 +77,9 @@ CalibrationW::CalibrationW(VideoSettings& videoSettings, QWidget* parent)
         contentLay->addWidget(note);
         contentLay->addStretch();
         scroll->setWidget(content);
-        outerLay->addWidget(scroll);
+        innerTabs->addTab(scroll, "Intrinsics");
+        d->roomTab = new RoomCalibrationW(videoSettings, roomSettings, videoMgr);
+        innerTabs->addTab(d->roomTab, "Room (Extrinsics)");
         return;
     }
 
@@ -80,7 +90,10 @@ CalibrationW::CalibrationW(VideoSettings& videoSettings, QWidget* parent)
     contentLay->addStretch();
 
     scroll->setWidget(content);
-    outerLay->addWidget(scroll);
+    innerTabs->addTab(scroll, "Intrinsics");
+
+    d->roomTab = new RoomCalibrationW(videoSettings, roomSettings, videoMgr);
+    innerTabs->addTab(d->roomTab, "Room (Extrinsics)");
 
     // Connect CalibrationManager signals.
     connect(&d->manager, &CalibrationManager::corners_detected,
@@ -91,6 +104,11 @@ CalibrationW::CalibrationW(VideoSettings& videoSettings, QWidget* parent)
         d->calibrateBtn->setEnabled(false);
         d->calibrateBtn->setText("Calibrating…");
     });
+
+    // A fresh intrinsic calibration must be visible to the Room tab's
+    // solvePnP-based extrinsic solve immediately, not just after this
+    // widget is recreated.
+    connect(this, &CalibrationW::calibration_saved, d->roomTab, &RoomCalibrationW::refresh_intrinsics);
 }
 
 CalibrationW::~CalibrationW() = default;
@@ -314,7 +332,16 @@ void CalibrationW::save_to_settings() {
     const int camIdx = d->cameraCombo->currentIndex();
     if (camIdx < 0 || camIdx >= static_cast<int>(d->videoSettings.cameras.size())) { return; }
 
-    d->videoSettings.cameras[static_cast<size_t>(camIdx)].calibration = d->manager.result();
+    // Overwrite only the intrinsic fields — a whole-struct assignment would
+    // also stomp extrinsicRt/extrinsicCalibrated back to their defaults if
+    // the Room (Extrinsics) tab had already solved this camera's pose,
+    // silently discarding it every time intrinsics are re-run.
+    const CalibrationData intrinsics = d->manager.result();
+    CalibrationData& stored = d->videoSettings.cameras[static_cast<size_t>(camIdx)].calibration;
+    stored.calibrated   = intrinsics.calibrated;
+    stored.rmsError      = intrinsics.rmsError;
+    stored.cameraMatrix  = intrinsics.cameraMatrix;
+    stored.distCoeffs    = intrinsics.distCoeffs;
     emit calibration_saved(camIdx);
 
     QMessageBox::information(this, "Calibration saved",

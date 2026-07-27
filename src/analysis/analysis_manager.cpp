@@ -1,4 +1,5 @@
 #include "analysis/analysis_manager.hpp"
+#include "analysis/sync_manifest.hpp"
 #include "utils/logger.hpp"
 #include <QCoreApplication>
 #include <QDir>
@@ -28,6 +29,26 @@ struct Job {
     QStringList          args;
     QProcessEnvironment  env;   // additive on top of the parent process's environment
 };
+
+// True if sessionPath has no sync_manifest.json yet, or if any of its
+// timestamps_camN.csv files were modified more recently than the manifest —
+// e.g. an interrupted/re-run recording over the same session folder. A stale
+// manifest silently feeds run_gaze_fusion.py a wrong cross-camera tick
+// alignment with no visible symptom, so this is checked on every run rather
+// than only "does the file exist".
+bool sync_manifest_is_stale(const QString& sessionPath) {
+    const QFileInfo manifestInfo(sessionPath + "/sync_manifest.json");
+    if (!manifestInfo.exists()) { return true; }
+
+    const QDir videoDir(sessionPath + "/video");
+    const QStringList csvFiles = videoDir.entryList({"timestamps_cam*.csv"}, QDir::Files);
+    for (const QString& csvName : csvFiles) {
+        if (QFileInfo(videoDir.filePath(csvName)).lastModified() > manifestInfo.lastModified()) {
+            return true;
+        }
+    }
+    return false;
+}
 
 } // namespace
 
@@ -109,6 +130,22 @@ void AnalysisManager::run_expression_analysis(const QString& sessionPath, const 
     };
     // No secrets involved, unlike run_diarization()'s hfToken.
     enqueue_or_launch(sessionPath, "analysis/run_expression.py", args, {});
+}
+
+void AnalysisManager::run_gaze_fusion(const QString& sessionPath, int minCameras,
+                                       double minConfidence, int frameSkip) {
+    if (sync_manifest_is_stale(sessionPath)) {
+        SyncManifest::generate(sessionPath).save(sessionPath);
+    }
+
+    const QStringList args = {
+        "--session",        sessionPath,
+        "--min-cameras",    QString::number(qMax(1, minCameras)),
+        "--min-confidence", QString::number(minConfidence),
+        "--skip",           QString::number(qMax(1, frameSkip)),
+    };
+    // No secrets involved, unlike run_diarization()'s hfToken.
+    enqueue_or_launch(sessionPath, "analysis/run_gaze_fusion.py", args, {});
 }
 
 void AnalysisManager::enqueue_or_launch(const QString& sessionPath, const QString& scriptRelPath,

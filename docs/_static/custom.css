@@ -142,3 +142,146 @@ html[data-theme="dark"] .bd-footer {
     border-top: 1px solid #1a1a36;
     color: #44445a;
 }
+
+/* ── Architecture diagrams (docs/architecture.rst) ────────────────────────── */
+:root {
+    --mosaic-diagram-surface: #f7f8fc;
+    --mosaic-diagram-border:  #dde1f0;
+    --mosaic-diagram-text:    #33344d;
+    --mosaic-diagram-sub:     #6a6f8f;
+    --mosaic-accent-ui:       #4a6cf7;
+    --mosaic-accent-mgr:      #22a878;
+    --mosaic-accent-worker:   #dd8833;
+    --mosaic-accent-core:     #9955dd;
+    --mosaic-accent-utils:    #888899;
+}
+
+html[data-theme="dark"] {
+    --mosaic-diagram-surface: #10102a;
+    --mosaic-diagram-border:  #23234a;
+    --mosaic-diagram-text:    #d8d8f0;
+    --mosaic-diagram-sub:     #9494bf;
+    --mosaic-accent-ui:       #7a9cff;
+    --mosaic-accent-mgr:      #44cc99;
+    --mosaic-accent-worker:   #eeaa55;
+    --mosaic-accent-core:     #bb88ff;
+    --mosaic-accent-utils:    #aaaacc;
+}
+
+.mosaic-diagram {
+    margin: 1.4em 0 1.8em;
+    font-size: 0.92rem;
+    max-width: 100%;
+    overflow-x: auto;
+}
+
+/* Layered stack (Overview) */
+.mosaic-stack { display: flex; flex-direction: column; gap: 6px; }
+.mosaic-layer {
+    background: var(--mosaic-diagram-surface);
+    border: 1px solid var(--mosaic-diagram-border);
+    border-left-width: 4px;
+    border-radius: 6px;
+    padding: 10px 14px;
+}
+.mosaic-layer-title { font-weight: 700; color: var(--mosaic-diagram-text); }
+.mosaic-layer-title .mosaic-layer-sub {
+    font-weight: 400;
+    color: var(--mosaic-diagram-sub);
+    font-size: 0.85em;
+    margin-left: 6px;
+}
+.mosaic-layer-items {
+    margin-top: 4px;
+    color: var(--mosaic-diagram-sub);
+    font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+    font-size: 0.85em;
+}
+.mosaic-layer.ui     { border-left-color: var(--mosaic-accent-ui); }
+.mosaic-layer.mgr    { border-left-color: var(--mosaic-accent-mgr); }
+.mosaic-layer.worker { border-left-color: var(--mosaic-accent-worker); }
+.mosaic-layer.core   { border-left-color: var(--mosaic-accent-core); }
+.mosaic-layer.utils  { border-left-color: var(--mosaic-accent-utils); }
+
+/* Left-to-right flow (Video pipeline) */
+.mosaic-flow { display: flex; align-items: stretch; flex-wrap: wrap; gap: 4px; }
+.mosaic-flow-box {
+    background: var(--mosaic-diagram-surface);
+    border: 1px solid var(--mosaic-diagram-border);
+    border-radius: 6px;
+    padding: 10px 14px;
+    min-width: 130px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    text-align: center;
+}
+.mosaic-flow-title { font-weight: 700; color: var(--mosaic-diagram-text); font-size: 0.95em; }
+.mosaic-flow-sub { color: var(--mosaic-diagram-sub); font-size: 0.8em; margin-top: 2px; }
+.mosaic-flow-arrow {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 6px;
+    color: var(--mosaic-diagram-sub);
+    font-size: 1.3em;
+    min-width: 22px;
+}
+.mosaic-flow-col { display: flex; flex-direction: column; gap: 4px; justify-content: center; }
+
+/* Vertical stepper (Startup sequence) */
+.mosaic-steps { display: flex; flex-direction: column; }
+.mosaic-step { display: flex; gap: 12px; position: relative; padding-bottom: 18px; }
+.mosaic-step:last-child { padding-bottom: 0; }
+.mosaic-step::before {
+    content: "";
+    position: absolute;
+    left: 11px;
+    top: 24px;
+    bottom: 0;
+    width: 2px;
+    background: var(--mosaic-diagram-border);
+}
+.mosaic-step:last-child::before { display: none; }
+.mosaic-step-dot {
+    flex: 0 0 auto;
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    background: var(--mosaic-accent-ui);
+    color: #fff;
+    font-size: 0.75em;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1;
+}
+.mosaic-step-body { padding-top: 2px; }
+.mosaic-step-title {
+    font-weight: 700;
+    color: var(--mosaic-diagram-text);
+    font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+    font-size: 0.9em;
+}
+.mosaic-step-desc { color: var(--mosaic-diagram-sub); font-size: 0.85em; margin-top: 3px; }
+.mosaic-step-desc code {
+    background: none;
+    color: var(--mosaic-diagram-text);
+    padding: 0;
+}
+
+/* Framed file-tree blocks (Session output, Settings persistence) */
+.mosaic-tree {
+    font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+    font-size: 0.85em;
+    background: var(--mosaic-diagram-surface);
+    border: 1px solid var(--mosaic-diagram-border);
+    border-radius: 6px;
+    padding: 12px 16px;
+    color: var(--mosaic-diagram-text);
+    line-height: 1.7;
+    white-space: pre;
+    overflow-x: auto;
+}
+.mosaic-tree .mosaic-tree-comment { color: var(--mosaic-diagram-sub); }

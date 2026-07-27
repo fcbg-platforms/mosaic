@@ -1,15 +1,17 @@
 #pragma once
 #include "analysis/expression_result.hpp"
+#include "analysis/gaze_fusion_result.hpp"
 #include "analysis/pose_analysis_result.hpp"
 #include <QWidget>
 #include <memory>
 
 namespace mosaic {
 
-// Single-camera video playback with a pose-keypoint/skeleton overlay OR a
-// facial-expression bbox+label overlay drawn in sync with the current
-// playback position (the two are mutually exclusive — see
-// set_pose_result()/set_expression_result()).
+// Single-camera video playback with a pose-keypoint/skeleton overlay, a
+// facial-expression bbox+label overlay, OR a gaze-fusion bbox+direction-
+// arrow overlay, drawn in sync with the current playback position (all
+// three are mutually exclusive — see set_pose_result()/
+// set_expression_result()/set_gaze_result()).
 //
 // Not a reuse of SessionPlayerW's CameraSlotW: that class is coupled to
 // multi-camera master-clock sync, which doesn't apply to this single-video,
@@ -44,6 +46,14 @@ public:
     // default-constructed (is_valid() == false) result to clear the
     // overlay. Mutually exclusive with set_pose_result() (see above).
     void set_expression_result(const ExpressionResult& result);
+
+    // Sets the gaze-fusion data drawn as a bbox+direction-arrow overlay for
+    // one specific camera (cameraIndex — the currently-loaded video's own
+    // camera index, used to pick which GazeFusionFrame::perCamera entry
+    // applies at each position). Pass a default-constructed
+    // (is_valid() == false) result to clear the overlay. Mutually exclusive
+    // with set_pose_result()/set_expression_result() (see above).
+    void set_gaze_result(const GazeFusionResult& result, int cameraIndex);
 
     [[nodiscard]] int64_t position_ms() const;
     [[nodiscard]] int64_t duration_ms() const;

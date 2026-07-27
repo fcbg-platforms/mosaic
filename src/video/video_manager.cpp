@@ -418,10 +418,10 @@ void VideoManager::apply_live_params(int configIndex) {
     }
 }
 
-void VideoManager::request_calibration_frame(int configIndex) {
+void VideoManager::request_calibration_frame(int configIndex, uint64_t token) {
     for (auto& unit : d->units) {
         if (unit.configIndex == configIndex && unit.grabber) {
-            unit.grabber->request_calibration_frame();
+            unit.grabber->request_calibration_frame(token);
             return;
         }
     }

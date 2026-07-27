@@ -1,10 +1,12 @@
 #include "ui/analysis/analysis_tab_w.hpp"
 #include "analysis/expression_result.hpp"
+#include "analysis/gaze_fusion_result.hpp"
 #include "analysis/pose_analysis_result.hpp"
 #include "analysis/pose_kinematics.hpp"
 #include "analysis/pose_models.hpp"
 #include "analysis/transcript_result.hpp"
 #include "session/session_info.hpp"
+#include "ui/analysis/gaze_room_view_w.hpp"
 #include "ui/analysis/pose_overlay_player_w.hpp"
 #include "ui/anim_utils.hpp"
 #include <QAbstractItemView>
@@ -375,6 +377,9 @@ struct AnalysisTabW::Impl {
     QSpinBox*        maxFacesSpin          = nullptr;   // expression
     QDoubleSpinBox*  minConfidenceSpin     = nullptr;   // expression
     QSpinBox*        exprSkipSpin          = nullptr;   // expression
+    QSpinBox*        minCamerasSpin        = nullptr;   // gaze_fusion
+    QDoubleSpinBox*  gazeMinConfidenceSpin = nullptr;   // gaze_fusion
+    QSpinBox*        gazeSkipSpin          = nullptr;   // gaze_fusion
 
     QPushButton* runBtn      = nullptr;
     QLabel*      statusLbl   = nullptr;
@@ -404,6 +409,16 @@ struct AnalysisTabW::Impl {
     QLabel*      expressionStatsLbl  = nullptr;   // expression only
     QPushButton* exportExpressionBtn = nullptr;   // expression only
 
+    // Gaze-fusion view controls — mirrors expressionRowW/kinematicsRowW's
+    // own-container pattern so select_plugin() can hide the whole row with
+    // one call. roomView is the 3D top-down view, added as a 4th
+    // resultsSplitter child (not part of this row) since it needs the same
+    // stretch-factor treatment as player/chart/transcriptTable.
+    QWidget*        gazeFusionRowW = nullptr;   // gaze_fusion only
+    QLabel*         gazeStatsLbl   = nullptr;   // gaze_fusion only
+    QPushButton*    exportGazeBtn  = nullptr;   // gaze_fusion only
+    GazeRoomViewW*  roomView       = nullptr;   // gaze_fusion only
+
     // Kinematics view controls — reshape how the already-loaded
     // currentResult is displayed, not what gets launched (unlike runBox's
     // model/skip controls), so they live in their own row. Pose only —
@@ -420,6 +435,7 @@ struct AnalysisTabW::Impl {
     PoseAnalysisResult    currentResult;             // pose only
     TranscriptResult      currentTranscript;         // diarize only
     ExpressionResult      currentExpressionResult;   // expression only
+    GazeFusionResult      currentGazeFusion;         // gaze_fusion only
 
     // AnalysisManager is a single shared instance (also used by
     // SessionBrowserW's "Run Pose" button and PerformanceMonitorW's
@@ -450,6 +466,18 @@ struct AnalysisTabW::Impl {
     // same empty-frames edge case identically.
     [[nodiscard]] int64_t first_timestamp_ns() const {
         return currentResult.frames().isEmpty() ? 0 : currentResult.frames().first().timestampNs;
+    }
+
+    // Called once at the top of reload_current_camera_result() so each
+    // plugin branch only needs to (re-)populate the ONE result field it
+    // actually owns, instead of every branch separately clearing the other
+    // 3-4 fields it doesn't use — a pattern that had drifted into 6+
+    // near-identical reset lines across the function.
+    void reset_all_results() {
+        currentResult           = PoseAnalysisResult();
+        currentExpressionResult = ExpressionResult();
+        currentTranscript       = TranscriptResult();
+        currentGazeFusion       = GazeFusionResult();
     }
 };
 
@@ -539,6 +567,7 @@ void AnalysisTabW::build_ui() {
     d->pluginCombo->addItem("Face Masking (anonymize)", "face_mask");
     d->pluginCombo->addItem("Speaker Diarization", "diarize");
     d->pluginCombo->addItem("Facial Expression", "expression");
+    d->pluginCombo->addItem("Multi-Camera Gaze Fusion", "gaze_fusion");
     controlsRow->addWidget(new QLabel("Plugin:"));
     controlsRow->addWidget(d->pluginCombo);
     connect(d->pluginCombo, &QComboBox::currentIndexChanged, this, &AnalysisTabW::select_plugin);
@@ -706,6 +735,38 @@ void AnalysisTabW::build_ui() {
     expressionLay->addWidget(d->exprSkipSpin);
     d->controlsStack->addWidget(expressionPage);
 
+    // ── Multi-Camera Gaze Fusion controls page ──────────────────────────
+    // No plane-editing controls here — the plane is defined once, at Room
+    // (Extrinsics) calibration time, in the same room frame as the
+    // extrinsics; duplicating that UI here would risk two out-of-sync
+    // plane definitions.
+    auto* gazeFusionPage = new QWidget;
+    auto* gazeFusionCtlLay = new QHBoxLayout(gazeFusionPage);
+    gazeFusionCtlLay->setContentsMargins(0, 0, 0, 0);
+
+    d->minCamerasSpin = new QSpinBox;
+    d->minCamerasSpin->setRange(1, 6);
+    d->minCamerasSpin->setValue(2);
+    d->minCamerasSpin->setPrefix("min cams ");
+    d->minCamerasSpin->setToolTip(
+        "Minimum simultaneous cameras required to compute a target point on the room "
+        "plane. Rays from fewer cameras are still recorded, just without a target point.");
+    gazeFusionCtlLay->addWidget(d->minCamerasSpin);
+
+    d->gazeMinConfidenceSpin = new QDoubleSpinBox;
+    d->gazeMinConfidenceSpin->setRange(0.1, 1.0);
+    d->gazeMinConfidenceSpin->setSingleStep(0.05);
+    d->gazeMinConfidenceSpin->setValue(0.5);
+    d->gazeMinConfidenceSpin->setPrefix("min conf ");
+    gazeFusionCtlLay->addWidget(d->gazeMinConfidenceSpin);
+
+    d->gazeSkipSpin = new QSpinBox;
+    d->gazeSkipSpin->setRange(1, 30);
+    d->gazeSkipSpin->setValue(1);
+    d->gazeSkipSpin->setPrefix("skip ");
+    gazeFusionCtlLay->addWidget(d->gazeSkipSpin);
+    d->controlsStack->addWidget(gazeFusionPage);
+
     controlsRow->addWidget(d->controlsStack, 1);
 
     d->runBtn = new QPushButton("▶  Run");
@@ -870,6 +931,28 @@ void AnalysisTabW::build_ui() {
 
     rightLay->addWidget(d->expressionRowW);
 
+    // ── Gaze-fusion view controls: fit-quality stats + CSV export. Gaze
+    //    Fusion only — own container so select_plugin() can hide the whole
+    //    row with one call, mirroring expressionRowW/kinematicsRowW.
+    d->gazeFusionRowW = new QWidget;
+    auto* gazeFusionRow = new QHBoxLayout(d->gazeFusionRowW);
+    gazeFusionRow->setContentsMargins(0, 0, 0, 0);
+
+    d->gazeStatsLbl = new QLabel;
+    d->gazeStatsLbl->setStyleSheet("color:#7070a0; font-size:11px;");
+    d->gazeStatsLbl->setToolTip(
+        "Subject identity is not tracked across frames — treat subject 0 as one "
+        "continuous face only for single-face sessions.");
+    gazeFusionRow->addWidget(d->gazeStatsLbl, 1);
+
+    d->exportGazeBtn = new QPushButton("Export CSV");
+    d->exportGazeBtn->setToolTip(
+        "Exports tick/timestamp/fused-ray/residual/target for every fused frame as CSV.");
+    connect(d->exportGazeBtn, &QPushButton::clicked, this, &AnalysisTabW::export_gaze_csv);
+    gazeFusionRow->addWidget(d->exportGazeBtn);
+
+    rightLay->addWidget(d->gazeFusionRowW);
+
     auto* resultsSplitter = new QSplitter(Qt::Horizontal);
     d->player = new PoseOverlayPlayerW;   // reused for audio-only playback in diarize mode too —
     resultsSplitter->addWidget(d->player); // set_video() just calls QMediaPlayer::setSource(),
@@ -895,15 +978,21 @@ void AnalysisTabW::build_ui() {
     });
     resultsSplitter->addWidget(d->transcriptTable);
 
+    d->roomView = new GazeRoomViewW;   // shown only for the gaze_fusion plugin
+    d->roomView->setVisible(false);
+    resultsSplitter->addWidget(d->roomView);
+
     resultsSplitter->setStretchFactor(0, 1);
     resultsSplitter->setStretchFactor(1, 1);
     resultsSplitter->setStretchFactor(2, 1);
+    resultsSplitter->setStretchFactor(3, 1);
     rightLay->addWidget(resultsSplitter, 1);
 
     d->chart->set_seek_callback([this](int64_t ms) { d->player->seek(ms); });
     connect(d->player, &PoseOverlayPlayerW::position_changed, this, [this](int64_t ms) {
         d->chart->set_playhead_ms(ms);
         highlight_active_transcript_row(ms);
+        if (is_gaze_fusion_plugin()) { d->roomView->set_position_ms(ms); }
     });
 
     splitter->addWidget(rightPanel);
@@ -996,6 +1085,7 @@ void AnalysisTabW::select_plugin(int index) {
     const bool isDiarize    = is_diarize_plugin();
     const bool isExpression = is_expression_plugin();
     const bool isFaceMask   = is_face_mask_plugin();
+    const bool isGazeFusion = is_gaze_fusion_plugin();
 
     // These are independent sibling widgets with overlapping visibility
     // rules, not QStackedWidget pages, so they aren't crossfaded as a group
@@ -1013,6 +1103,8 @@ void AnalysisTabW::select_plugin(int index) {
     set_visible_animated(d->chart, isPose || isExpression);
     set_visible_animated(d->kinematicsRowW, isPose);
     set_visible_animated(d->expressionRowW, isExpression);
+    set_visible_animated(d->gazeFusionRowW, isGazeFusion);
+    set_visible_animated(d->roomView, isGazeFusion);
     set_visible_animated(d->openFolderBtn, isFaceMask);
     set_visible_animated(d->sourceRowW, !isDiarize);
     set_visible_animated(d->micRowW, isDiarize);
@@ -1060,14 +1152,51 @@ bool AnalysisTabW::is_face_mask_plugin() const {
     return d->pluginCombo->currentData().toString() == "face_mask";
 }
 
+bool AnalysisTabW::is_gaze_fusion_plugin() const {
+    return d->pluginCombo->currentData().toString() == "gaze_fusion";
+}
+
 void AnalysisTabW::reload_current_camera_result() {
     const auto* info = d->current_session();
+    d->reset_all_results();
+
+    if (is_gaze_fusion_plugin()) {
+        // Unlike pose/expression/face_mask, this plugin's result is
+        // session-level (fusion is inherently cross-camera), so it loads
+        // regardless of whether a camera is selected — only the player's
+        // per-camera 2D overlay needs cameraCombo's current selection.
+        if (!info) {
+            d->player->set_video(QString());
+            d->player->set_pose_result(d->currentResult);
+            d->roomView->set_result(d->currentGazeFusion);
+            update_gaze_view();
+            return;
+        }
+
+        const QString gazeAbs = info->path + "/gaze_fusion.json";
+        d->currentGazeFusion = QFileInfo::exists(gazeAbs)
+            ? GazeFusionResult::load(gazeAbs) : GazeFusionResult();
+        d->roomView->set_result(d->currentGazeFusion);
+
+        if (d->cameraCombo->currentIndex() >= 0) {
+            const QString videoRel = d->cameraCombo->currentData().toString();
+            d->player->set_video(info->path + "/" + videoRel);
+            d->player->set_gaze_result(d->currentGazeFusion, d->cameraCombo->currentIndex());
+        } else {
+            d->player->set_video(QString());
+            d->player->set_pose_result(d->currentResult);
+        }
+
+        update_gaze_view();
+
+        if (!d->currentGazeFusion.is_valid()) {
+            d->statusLbl->setText("No gaze fusion result yet for this session — click Run.");
+            d->statusLbl->setStyleSheet("color:#6060a0; font-size:11px;");
+        }
+        return;
+    }
 
     if (is_diarize_plugin()) {
-        d->currentResult           = PoseAnalysisResult();
-        d->currentExpressionResult = ExpressionResult();
-        d->currentTranscript       = TranscriptResult();
-
         if (!info || d->micCombo->currentIndex() < 0) {
             d->player->set_video(QString());   // stop/clear any previously-loaded audio
             d->player->set_pose_result(d->currentResult);
@@ -1097,8 +1226,6 @@ void AnalysisTabW::reload_current_camera_result() {
     }
 
     if (!info || d->cameraCombo->currentIndex() < 0) {
-        d->currentResult           = PoseAnalysisResult();
-        d->currentExpressionResult = ExpressionResult();
         d->player->set_video(QString());   // stop/clear any previously-loaded video
         d->player->set_pose_result(d->currentResult);
         d->keypointCombo->clear();
@@ -1118,7 +1245,6 @@ void AnalysisTabW::reload_current_camera_result() {
     const QString videoAbs = info->path + "/" + videoRel;
 
     if (is_pose_plugin()) {
-        d->currentExpressionResult = ExpressionResult();
         d->player->set_video(videoAbs);
 
         const QString poseAbs = info->path + "/" + pose_json_path_for(videoRel);
@@ -1148,7 +1274,6 @@ void AnalysisTabW::reload_current_camera_result() {
     }
 
     if (is_expression_plugin()) {
-        d->currentResult = PoseAnalysisResult();
         d->player->set_video(videoAbs);
 
         const QString exprAbs = info->path + "/" + expression_json_path_for(videoRel);
@@ -1183,8 +1308,6 @@ void AnalysisTabW::reload_current_camera_result() {
         // anonymized output if it exists yet, otherwise the original as a
         // preview so the user can confirm they picked the right
         // camera/session.
-        d->currentResult           = PoseAnalysisResult();
-        d->currentExpressionResult = ExpressionResult();
         const QString anonAbs = info->path + "/" + anonymized_video_path_for(videoRel);
         const bool hasOutput = QFileInfo::exists(anonAbs);
         d->player->set_video(hasOutput ? anonAbs : videoAbs);
@@ -1466,6 +1589,68 @@ void AnalysisTabW::export_expression_csv() {
     });
 }
 
+// ── Gaze fusion view ─────────────────────────────────────────────────────
+
+void AnalysisTabW::update_gaze_view() {
+    if (!d->currentGazeFusion.is_valid() || d->currentGazeFusion.frames().isEmpty()) {
+        d->gazeStatsLbl->clear();
+        return;
+    }
+
+    const auto& frames = d->currentGazeFusion.frames();
+    int nTriangulated = 0, nWithTarget = 0;
+    double residualSum = 0.0;
+    int residualCount = 0;
+    for (const auto& f : frames) {
+        if (f.isTriangulated) {
+            ++nTriangulated;
+            if (f.residualRmsMm >= 0.0) { residualSum += f.residualRmsMm; ++residualCount; }
+        }
+        if (f.hasTarget) { ++nWithTarget; }
+    }
+
+    // "Triangulated" always means >=2 contributing cameras (the mathematical
+    // minimum closest_point_of_rays() needs) — a fixed threshold in
+    // run_gaze_fusion.py, independent of "min cams". The "min cams" spinbox
+    // only gates the separately-reported target-point ("% with a valid
+    // target" below); don't conflate the two in this label.
+    const double avgResidual = residualCount > 0 ? residualSum / residualCount : 0.0;
+    d->gazeStatsLbl->setText(QString(
+        "%1 frame(s)  ·  %2% triangulated (≥2 cams)  ·  avg residual %3 mm  ·  "
+        "%4% with a valid target")
+        .arg(frames.size())
+        .arg(100.0 * nTriangulated / frames.size(), 0, 'f', 0)
+        .arg(avgResidual, 0, 'f', 1)
+        .arg(100.0 * nWithTarget / frames.size(), 0, 'f', 0));
+}
+
+void AnalysisTabW::export_gaze_csv() {
+    const auto* info = d->current_session();
+    if (!info || !d->currentGazeFusion.is_valid()) { return; }
+
+    const QString suggested = info->path + "/gaze_fusion.csv";
+
+    export_csv(this, "Export Gaze Fusion", suggested, [&](QTextStream& ts) {
+        ts << "# subject_id is not tracked across frames — treat subject 0 as one "
+              "continuous face only for single-face sessions\n";
+        ts << "tick,timestamp_ns,num_cameras,is_triangulated,"
+              "fused_origin_x,fused_origin_y,fused_origin_z,"
+              "fused_direction_x,fused_direction_y,fused_direction_z,"
+              "residual_rms_mm,target_x,target_y,target_z\n";
+        for (const auto& f : d->currentGazeFusion.frames()) {
+            ts << f.tick << "," << f.timestampNs << "," << f.numCameras << ","
+               << (f.isTriangulated ? "1" : "0") << ","
+               << f.fusedOriginRoom[0] << "," << f.fusedOriginRoom[1] << "," << f.fusedOriginRoom[2] << ","
+               << f.fusedDirectionRoom[0] << "," << f.fusedDirectionRoom[1] << "," << f.fusedDirectionRoom[2] << ","
+               << (f.residualRmsMm >= 0.0 ? QString::number(f.residualRmsMm) : QString()) << ","
+               << (f.hasTarget ? QString::number(f.targetPointRoom[0]) : QString()) << ","
+               << (f.hasTarget ? QString::number(f.targetPointRoom[1]) : QString()) << ","
+               << (f.hasTarget ? QString::number(f.targetPointRoom[2]) : QString())
+               << "\n";
+        }
+    });
+}
+
 void AnalysisTabW::run_analysis() {
     if (d->currentSessionPath.isEmpty()) { return; }
 
@@ -1505,6 +1690,11 @@ void AnalysisTabW::run_analysis() {
             d->maxFacesSpin->value(),
             d->minConfidenceSpin->value(),
             d->exprSkipSpin->value());
+    } else if (plugin == "gaze_fusion") {
+        d->analysisMgr->run_gaze_fusion(d->currentSessionPath,
+            d->minCamerasSpin->value(),
+            d->gazeMinConfidenceSpin->value(),
+            d->gazeSkipSpin->value());
     } else {
         // Defensive: pluginCombo only ever offers the ids handled above, but
         // a silent fallthrough here would otherwise launch face-masking with

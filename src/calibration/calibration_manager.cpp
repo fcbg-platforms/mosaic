@@ -181,44 +181,4 @@ void CalibrationManager::calibrate() {
 CalibrationData CalibrationManager::result()     const { return d->result; }
 bool            CalibrationManager::has_result() const { return d->hasResult; }
 
-// ── Stereo calibration ─────────────────────────────────────────────────────
-
-bool CalibrationManager::stereo_calibrate(CalibrationData& cam0,
-                                           CalibrationData& cam1,
-                                           const BoardSpec& spec) {
-#if defined(MOSAIC_HAVE_OPENCV)
-    if (!cam0.calibrated || !cam1.calibrated) {
-        log_error("[Calibration] Both cameras must be individually calibrated before stereo.");
-        return false;
-    }
-
-    // Build the camera matrices from the stored arrays.
-    auto make_mat = [](const std::array<double, 9>& arr) {
-        cv::Mat mat(3, 3, CV_64F);
-        for (int row = 0; row < 3; ++row) {
-            for (int col = 0; col < 3; ++col) {
-                mat.at<double>(row, col) = arr[static_cast<size_t>(row * 3 + col)];
-            }
-        }
-        return mat;
-    };
-
-    cv::Mat K0 = make_mat(cam0.cameraMatrix);
-    cv::Mat K1 = make_mat(cam1.cameraMatrix);
-    cv::Mat D0 = cv::Mat(5, 1, CV_64F, cam0.distCoeffs.data());
-    cv::Mat D1 = cv::Mat(5, 1, CV_64F, cam1.distCoeffs.data());
-
-    // We need shared object/image points from a simultaneous capture.
-    // This API is simplified: the caller must supply them externally in a future
-    // extension. For now log an informative message.
-    log_warning("[Calibration] Stereo calibration requires simultaneous capture support "
-                "(planned feature). Single-camera calibrations are stored.");
-    (void)spec;
-    return false;
-#else
-    (void)cam0; (void)cam1; (void)spec;
-    return false;
-#endif
-}
-
 } // namespace mosaic

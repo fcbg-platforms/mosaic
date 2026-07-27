@@ -28,21 +28,23 @@ static std::array<double, N> json_to_array(const QJsonArray& ja,
 
 QJsonObject CalibrationData::to_json() const {
     return {
-        {"calibrated",    calibrated},
-        {"rms_error",     rmsError},
-        {"camera_matrix", array_to_json(cameraMatrix)},
-        {"dist_coeffs",   array_to_json(distCoeffs)},
-        {"extrinsic_rt",  array_to_json(extrinsicRt)},
+        {"calibrated",           calibrated},
+        {"rms_error",            rmsError},
+        {"camera_matrix",        array_to_json(cameraMatrix)},
+        {"dist_coeffs",          array_to_json(distCoeffs)},
+        {"extrinsic_rt",         array_to_json(extrinsicRt)},
+        {"extrinsic_calibrated", extrinsicCalibrated},
     };
 }
 
 std::optional<CalibrationData> CalibrationData::from_json(const QJsonObject& o) {
     CalibrationData cal;
-    if (o.contains("calibrated"))    { cal.calibrated   = o["calibrated"].toBool(); }
-    if (o.contains("rms_error"))     { cal.rmsError     = o["rms_error"].toDouble(-1.0); }
-    if (o.contains("camera_matrix")) { cal.cameraMatrix = json_to_array(o["camera_matrix"].toArray(), cal.cameraMatrix); }
-    if (o.contains("dist_coeffs"))   { cal.distCoeffs   = json_to_array(o["dist_coeffs"].toArray(),   cal.distCoeffs); }
-    if (o.contains("extrinsic_rt"))  { cal.extrinsicRt  = json_to_array(o["extrinsic_rt"].toArray(),  cal.extrinsicRt); }
+    if (o.contains("calibrated"))           { cal.calibrated          = o["calibrated"].toBool(); }
+    if (o.contains("rms_error"))            { cal.rmsError            = o["rms_error"].toDouble(-1.0); }
+    if (o.contains("camera_matrix"))        { cal.cameraMatrix        = json_to_array(o["camera_matrix"].toArray(), cal.cameraMatrix); }
+    if (o.contains("dist_coeffs"))          { cal.distCoeffs          = json_to_array(o["dist_coeffs"].toArray(),   cal.distCoeffs); }
+    if (o.contains("extrinsic_rt"))         { cal.extrinsicRt         = json_to_array(o["extrinsic_rt"].toArray(),  cal.extrinsicRt); }
+    if (o.contains("extrinsic_calibrated")) { cal.extrinsicCalibrated = o["extrinsic_calibrated"].toBool(); }
     return cal;
 }
 
@@ -380,6 +382,24 @@ std::optional<AnalysisSettings> AnalysisSettings::from_json(const QJsonObject& o
     return s;
 }
 
+// ── RoomSettings ───────────────────────────────────────────────────────────
+
+QJsonObject RoomSettings::to_json() const {
+    return {
+        {"plane_point",   array_to_json(planePoint)},
+        {"plane_normal",  array_to_json(planeNormal)},
+        {"plane_defined", planeDefined},
+    };
+}
+
+std::optional<RoomSettings> RoomSettings::from_json(const QJsonObject& o) {
+    RoomSettings s;
+    if (o.contains("plane_point"))   { s.planePoint   = json_to_array(o["plane_point"].toArray(),  s.planePoint); }
+    if (o.contains("plane_normal"))  { s.planeNormal  = json_to_array(o["plane_normal"].toArray(), s.planeNormal); }
+    if (o.contains("plane_defined")) { s.planeDefined = o["plane_defined"].toBool(); }
+    return s;
+}
+
 // ── AppSettings ────────────────────────────────────────────────────────────
 
 bool AppSettings::save(const QString& path) const {
@@ -390,6 +410,7 @@ bool AppSettings::save(const QString& path) const {
         {"trigger",        trigger.to_json()},
         {"record",         record.to_json()},
         {"analysis",       analysis.to_json()},
+        {"room",           room.to_json()},
     };
 
     if (!QDir().mkpath(QFileInfo(path).absolutePath())) {
@@ -434,6 +455,8 @@ std::optional<AppSettings> AppSettings::load(const QString& path) {
         s.record  = RecordSettings::from_json(root["record"].toObject()).value_or(s.record);
     if (root.contains("analysis"))
         s.analysis = AnalysisSettings::from_json(root["analysis"].toObject()).value_or(s.analysis);
+    if (root.contains("room"))
+        s.room    = RoomSettings::from_json(root["room"].toObject()).value_or(s.room);
 
     log_info(QString("Settings loaded ← %1").arg(path));
     return s;
