@@ -14,7 +14,9 @@ add_executable(mosaic_tests
     test_pose_kinematics.cpp
     test_transcript_result.cpp
     test_expression_result.cpp
+    test_rms_quality.cpp
     "${CMAKE_SOURCE_DIR}/src/video/gige_action_command.cpp"
+    "${CMAKE_SOURCE_DIR}/src/calibration/rms_quality.cpp"
     "${CMAKE_SOURCE_DIR}/src/analysis/sync_manifest.cpp"
     "${CMAKE_SOURCE_DIR}/src/analysis/pose_analysis_result.cpp"
     "${CMAKE_SOURCE_DIR}/src/analysis/pose_kinematics.cpp"
