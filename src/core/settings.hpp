@@ -151,6 +151,19 @@ struct AudioSettings {
     // Global encoding applied to all recordings
     QString codec = "pcm_s16le";        // "pcm_s16le" | "flac" | "aac" | "mp3"
 
+    // Upper bound on the number of configured microphones this app will ever
+    // treat as a live monitoring/recording rig — mirrors VideoSettings::
+    // kMaxCameras exactly, see its doc comment for the full use-after-free
+    // rationale. AudioManager::start_monitoring()/start() bind a raw
+    // `const MicrophoneParameters&` into each AudioRecorder for that
+    // recorder's entire lifetime (see AudioRecorder::m_params), and
+    // AudioSettingsW's constructor reserve()s this same cap against the
+    // same vector on behalf of MicrophoneCardW's references. 16 matches the
+    // reserve(16) call AudioSettingsW's constructor already made before
+    // this fix (a literal, not a hardware limit) — no known rig needs
+    // anywhere close to this many microphones.
+    static constexpr int kMaxMicrophones = 16;
+
     // Per-device configurations
     std::vector<MicrophoneParameters> microphones;
 

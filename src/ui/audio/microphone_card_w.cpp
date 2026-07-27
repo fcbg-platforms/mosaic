@@ -231,10 +231,17 @@ void MicrophoneCardW::build_body() {
 
 void MicrophoneCardW::set_level(float rms) {
     if (!m_levelBar) return;
-    // Scale: rms 0→0.33 maps to 0→100 (most speech sits in the lower third).
+    // Uses the shared "Scale" control (see AudioSettingsW::
+    // build_waveform_section()) instead of an independent, separately-tuned
+    // magic constant, so this VU meter and the waveform widget always agree
+    // on how "hot" a given RMS level looks.
     const int val = static_cast<int>(
-        std::min(rms * 300.0f, 100.0f));
+        std::clamp(rms * m_scale * 100.0f, 0.0f, 100.0f));
     m_levelBar->setValue(val);
+}
+
+void MicrophoneCardW::set_scale(float scale) {
+    m_scale = scale;
 }
 
 void MicrophoneCardW::set_index(int index) {

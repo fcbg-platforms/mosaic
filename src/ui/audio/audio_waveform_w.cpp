@@ -5,6 +5,7 @@
 #include <QThread>
 #include <algorithm>
 #include <deque>
+#include <utility>
 #include <vector>
 
 namespace mosaic {
@@ -24,8 +25,12 @@ static constexpr QColor k_channel_colors[] = {
 };
 
 struct AudioWaveformW::Impl {
-    int                              channelCount{1};
-    std::vector<std::deque<float>>   history;   // one deque per channel
+    int    channelCount{1};
+    float  scale{AudioWaveformW::kDefaultScale};
+    // One deque per channel, each entry a raw unscaled (min, max) envelope
+    // pair in [-1, 1] — display gain (scale) is applied at paint time, not
+    // stored here, so it can be changed live without re-pushing history.
+    std::vector<std::deque<std::pair<float, float>>> history;
 
     void ensure_channels(int count) {
         if (count < 1) { count = 1; }
@@ -34,7 +39,7 @@ struct AudioWaveformW::Impl {
         history.resize(static_cast<size_t>(count));
         // Pre-fill with silence so the trace starts flat.
         for (auto& ch : history) {
-            while (static_cast<int>(ch.size()) < k_history) { ch.push_front(0.0f); }
+            while (static_cast<int>(ch.size()) < k_history) { ch.push_front({0.0f, 0.0f}); }
         }
     }
 };
@@ -60,22 +65,29 @@ void AudioWaveformW::set_channel_count(int count) {
 
 int AudioWaveformW::channel_count() const { return d->channelCount; }
 
+// ── Scale ──────────────────────────────────────────────────────────────────
+
+void AudioWaveformW::set_scale(float scale) {
+    d->scale = std::clamp(scale, kMinScale, kMaxScale);
+    update();
+}
+
+float AudioWaveformW::scale() const { return d->scale; }
+
 // ── Data ingestion ─────────────────────────────────────────────────────────
 
-void AudioWaveformW::push_level(int channelIndex, float rms) {
+void AudioWaveformW::push_envelope(int channelIndex, float minSample, float maxSample) {
     // Thread safety: if called from a non-GUI thread, bounce back to GUI.
     if (QThread::currentThread() != thread()) {
-        QMetaObject::invokeMethod(this, [this, channelIndex, rms]{
-            push_level(channelIndex, rms);
+        QMetaObject::invokeMethod(this, [this, channelIndex, minSample, maxSample]{
+            push_envelope(channelIndex, minSample, maxSample);
         }, Qt::QueuedConnection);
         return;
     }
 
     if (channelIndex < 0 || channelIndex >= d->channelCount) { return; }
     auto& ch = d->history[static_cast<size_t>(channelIndex)];
-    // Boost quiet mic signals so they're visible; raw RMS is typically 0.01–0.1.
-    const float gained = std::min(1.0f, rms * 90.0f);
-    ch.push_back(gained);
+    ch.push_back({minSample, maxSample});
     if (static_cast<int>(ch.size()) > k_history) { ch.pop_front(); }
     update();
 }
@@ -115,40 +127,48 @@ void AudioWaveformW::paintEvent(QPaintEvent* /*event*/) {
         const int n = static_cast<int>(samples.size());
         if (n < 2) { continue; }
 
-        // Draw filled area first (semi-transparent)
-        QPainterPath fill;
         const float xStep = static_cast<float>(rc.width()) / static_cast<float>(k_history - 1);
 
-        fill.moveTo(0, midY);
-        for (int i = 0; i < n; ++i) {
-            const float xf = static_cast<float>(i) * xStep;
-            const float yf = static_cast<float>(midY) - samples[static_cast<size_t>(i)] * static_cast<float>(ampH);
-            fill.lineTo(static_cast<double>(xf), static_cast<double>(yf));
+        // Maps a raw [-1,1] sample to its y-coordinate, applying the
+        // current display scale and clamping so an over-scaled signal
+        // flattens against the channel strip's edges instead of drawing
+        // outside it.
+        auto yOf = [&](float v) {
+            const float clamped = std::clamp(v * d->scale, -1.0f, 1.0f);
+            return static_cast<qreal>(midY) - static_cast<qreal>(clamped) * static_cast<qreal>(ampH);
+        };
+
+        // Filled area: top edge walks the max series left→right, bottom
+        // edge walks the min series right→left, closing a real bipolar
+        // envelope polygon (both positive and negative excursions), not an
+        // always-upward-from-midline shape.
+        QPainterPath fill;
+        fill.moveTo(0.0, yOf(samples[0].second));
+        for (int i = 1; i < n; ++i) {
+            fill.lineTo(static_cast<qreal>(i) * xStep, yOf(samples[static_cast<size_t>(i)].second));
         }
-        fill.lineTo(static_cast<double>(static_cast<float>(n - 1) * xStep), static_cast<double>(midY));
-        fill.lineTo(0.0, static_cast<double>(midY));
+        for (int i = n - 1; i >= 0; --i) {
+            fill.lineTo(static_cast<qreal>(i) * xStep, yOf(samples[static_cast<size_t>(i)].first));
+        }
         fill.closeSubpath();
 
         QColor fillClr = clr;
         fillClr.setAlpha(40);
         p.fillPath(fill, fillClr);
 
-        // Draw line trace on top
+        // Outline: max and min traces drawn as two strokes.
         QPen tracePen(clr, 1.5f);
         p.setPen(tracePen);
-        bool first = true;
-        qreal prevX = 0.0;
-        qreal prevY = 0.0;
-        for (int i = 0; i < n; ++i) {
-            const qreal xd = static_cast<qreal>(i) * static_cast<qreal>(xStep);
-            const qreal yd = static_cast<qreal>(midY)
-                           - static_cast<qreal>(samples[static_cast<size_t>(i)])
-                           * static_cast<qreal>(ampH);
-            if (!first) { p.drawLine(QPointF(prevX, prevY), QPointF(xd, yd)); }
-            prevX = xd;
-            prevY = yd;
-            first = false;
+        QPainterPath topLine;
+        QPainterPath botLine;
+        topLine.moveTo(0.0, yOf(samples[0].second));
+        botLine.moveTo(0.0, yOf(samples[0].first));
+        for (int i = 1; i < n; ++i) {
+            topLine.lineTo(static_cast<qreal>(i) * xStep, yOf(samples[static_cast<size_t>(i)].second));
+            botLine.lineTo(static_cast<qreal>(i) * xStep, yOf(samples[static_cast<size_t>(i)].first));
         }
+        p.drawPath(topLine);
+        p.drawPath(botLine);
 
         // Channel label in top-left of the channel strip
         p.setPen(clr.darker(120));

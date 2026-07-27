@@ -116,10 +116,11 @@ void WavWriter::close() {
     d->file.close();
     d->open = false;
 
-    log_info(QString("[WavWriter] Closed — %1 bytes, %.2f s")
+    log_info(QString("[WavWriter] Closed — %1 bytes, %2 s")
                  .arg(d->bytesWritten)
                  .arg(double(d->bytesWritten) /
-                      (d->sampleRate * d->channels * d->bitsPerSample / 8)));
+                          (d->sampleRate * d->channels * d->bitsPerSample / 8),
+                      0, 'f', 2));
 }
 
 bool    WavWriter::is_open()       const { QMutexLocker l(&d->mutex); return d->open; }

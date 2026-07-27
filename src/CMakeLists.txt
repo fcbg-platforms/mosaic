@@ -102,6 +102,8 @@ qt_add_executable(mosaic MACOSX_BUNDLE
     # ── Audio backend ─────────────────────────────────────────────────────
     audio/wav_writer.hpp
     audio/wav_writer.cpp
+    audio/audio_envelope.hpp
+    audio/audio_envelope.cpp
     audio/audio_recorder.hpp
     audio/audio_recorder.cpp
     audio/audio_manager.hpp

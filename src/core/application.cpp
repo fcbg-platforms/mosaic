@@ -37,6 +37,18 @@ std::vector<mosaic::CameraParameters> default_room11_cameras() {
     return cameras;
 }
 
+// Pre-configured microphone list for a brand-new profile — mirrors
+// default_room11_cameras() above, but simpler: unlike cameras, there's no
+// stable "serial number" to seed here, since the goal is just "record from
+// whatever the OS considers the default input," not one specific room-11
+// unit. A single default-constructed entry (empty deviceId) is exactly
+// that — AudioRecorder::find_device() falls through to
+// QMediaDevices::defaultAudioInput() with no warning whenever deviceId is
+// empty.
+std::vector<mosaic::MicrophoneParameters> default_microphone() {
+    return { mosaic::MicrophoneParameters{} };
+}
+
 } // namespace
 
 namespace mosaic {
@@ -92,6 +104,13 @@ void Application::initialize(const QString& username) {
         // configured, so a newly registered profile is immediately usable
         // without a manual "add camera" pass for each of the 6 units.
         d->settings.video.cameras = default_room11_cameras();
+        // Seed one default microphone too, using the system's default
+        // audio input device — same reasoning as the camera seed: a new
+        // profile should be able to record audio immediately, not stay
+        // silent (and never even create a session's audio/ folder, since
+        // RecordManager::start() skips the whole audio block when the
+        // microphone list is empty) until a mic is added by hand.
+        d->settings.audio.microphones = default_microphone();
     }
 
     // Guarantee reference stability before videoManager->open() below binds
@@ -106,6 +125,13 @@ void Application::initialize(const QString& username) {
     // use-after-free (this was a real, confirmed crash: any camera-settings
     // edit after this point would dereference freed memory).
     d->settings.video.cameras.reserve(VideoSettings::kMaxCameras);
+    // Mirrors the video reservation immediately above: AudioManager::
+    // start_monitoring() (called below, before AudioSettingsW/
+    // MicrophoneCardW exist) binds a live `const MicrophoneParameters&`
+    // into each AudioRecorder for that recorder's entire lifetime (see
+    // AudioRecorder::m_params) — a reallocation of this vector after that
+    // point is a use-after-free the next time a recorder reads m_params.
+    d->settings.audio.microphones.reserve(AudioSettings::kMaxMicrophones);
 
     connect(QCoreApplication::instance(), &QCoreApplication::aboutToQuit,
             this, &Application::shutdown);

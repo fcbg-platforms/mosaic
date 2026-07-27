@@ -1,9 +1,8 @@
 #include "audio/audio_recorder.hpp"
+#include "audio/audio_envelope.hpp"
 #include "utils/logger.hpp"
 #include <QAudioDevice>
 #include <QMediaDevices>
-#include <cmath>
-#include <cstdint>
 
 namespace mosaic {
 
@@ -58,20 +57,55 @@ bool AudioRecorder::start(const QString& filePath) {
     fmt.setChannelCount(m_params.channels);
     fmt.setSampleFormat(QAudioFormat::Int16);
 
-    // Fall back to nearest supported format if needed.
+    // Fall back if the exact requested format isn't supported.
+    // compute_rms()/compute_envelope() (audio_envelope.hpp) and WavWriter
+    // (opened with a hardcoded 16-bit depth above) both need 16-bit signed
+    // PCM — but some devices (many professional/USB Audio Class 2.0
+    // interfaces) don't support 16-bit PCM capture AT ALL, only 32-bit
+    // float or 32-bit int. Rather than either (a) silently accepting
+    // device.preferredFormat() wholesale, which could change the sample
+    // format without saying so and corrupt every downstream byte
+    // interpretation, or (b) refusing to support that whole class of
+    // hardware, capture in whichever native format the device actually
+    // offers and convert every buffer to 16-bit PCM ourselves in
+    // on_data_ready() (see m_captureFormat).
     if (!device.isFormatSupported(fmt)) {
-        fmt = device.preferredFormat();
-        log_warning(QString("[AudioRecorder] Requested format not supported by '%1'. "
-                             "Falling back to %2 Hz, %3 ch.")
-                        .arg(device.description())
-                        .arg(fmt.sampleRate())
-                        .arg(fmt.channelCount()));
+        QAudioFormat preferred = device.preferredFormat();
+        QAudioFormat int16Attempt = preferred;
+        int16Attempt.setSampleFormat(QAudioFormat::Int16);
+        if (device.isFormatSupported(int16Attempt)) {
+            fmt = int16Attempt;
+            log_warning(QString("[AudioRecorder] Requested format not supported by '%1'. "
+                                 "Falling back to %2 Hz, %3 ch (16-bit PCM).")
+                            .arg(device.description())
+                            .arg(fmt.sampleRate())
+                            .arg(fmt.channelCount()));
+        } else if (preferred.sampleFormat() == QAudioFormat::Float ||
+                   preferred.sampleFormat() == QAudioFormat::Int32) {
+            fmt = preferred;
+            log_warning(QString("[AudioRecorder] '%1' has no 16-bit PCM mode — capturing "
+                                 "natively at %2 Hz, %3 ch (%4) and converting to 16-bit PCM.")
+                            .arg(device.description())
+                            .arg(fmt.sampleRate())
+                            .arg(fmt.channelCount())
+                            .arg(fmt.sampleFormat() == QAudioFormat::Float ? "32-bit float"
+                                                                            : "32-bit int"));
+        } else {
+            const QString msg = QString("Device '%1' offers no 16-bit, 32-bit float, or "
+                                         "32-bit int capture format Mosaic can convert.")
+                                     .arg(device.description());
+            log_error(msg);
+            emit error_occurred(msg);
+            if (!m_monitorOnly) m_writer.close();
+            return false;
+        }
     }
+    m_captureFormat = fmt.sampleFormat();
 
     // 3. Create and start QAudioSource.
     m_source = std::make_unique<QAudioSource>(device, fmt, this);
     m_source->setBufferSize(
-        fmt.sampleRate() * fmt.channelCount() * 2 / 10);  // ~100 ms buffer
+        fmt.sampleRate() * fmt.channelCount() * fmt.bytesPerSample() / 10);  // ~100 ms buffer
 
     m_ioDevice = m_source->start();  // pull mode
     if (!m_ioDevice || m_source->error() != QAudio::NoError) {
@@ -107,8 +141,17 @@ void AudioRecorder::stop() {
 
 void AudioRecorder::on_data_ready() {
     if (!m_ioDevice) return;
-    const QByteArray data = m_ioDevice->readAll();
+    QByteArray data = m_ioDevice->readAll();
     if (data.isEmpty()) return;
+
+    // Normalize to 16-bit PCM here, once, so WavWriter/compute_rms()/
+    // compute_envelope() below never need to know the device's native
+    // capture format (see m_captureFormat's doc comment).
+    if (m_captureFormat == QAudioFormat::Float) {
+        data = convert_float32_to_int16(data.constData(), data.size());
+    } else if (m_captureFormat == QAudioFormat::Int32) {
+        data = convert_int32_to_int16(data.constData(), data.size());
+    }
 
     if (!m_monitorOnly)
         m_writer.write(data.constData(), data.size());
@@ -116,20 +159,9 @@ void AudioRecorder::on_data_ready() {
     const float rms = compute_rms(data.constData(), data.size());
     m_level.store(rms, std::memory_order_relaxed);
     emit level_rms_changed(rms);
-}
 
-// RMS of 16-bit signed PCM samples, normalised to [0, 1].
-float AudioRecorder::compute_rms(const char* data, qint64 bytes) {
-    const int numSamples = static_cast<int>(bytes / 2);
-    if (numSamples == 0) return 0.0f;
-
-    const auto* s = reinterpret_cast<const int16_t*>(data);
-    double sum = 0.0;
-    for (int i = 0; i < numSamples; ++i) {
-        const double v = s[i] / 32768.0;
-        sum += v * v;
-    }
-    return static_cast<float>(std::sqrt(sum / numSamples));
+    const AudioEnvelope env = compute_envelope(data.constData(), data.size());
+    emit envelope_changed(env.minSample, env.maxSample);
 }
 
 // ── Accessors ──────────────────────────────────────────────────────────────
