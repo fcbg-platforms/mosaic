@@ -75,9 +75,13 @@ struct CameraParameters {
     double  autoTargetBrightness = 0.5;     // 0.0–1.0
     int     digitalShift     = 0;           // 0–4 bits (12→8 or 16→8 conversions)
 
-    // Hardware trigger input (e.g. TTL pulse on Basler Line1)
-    bool    hwTriggerEnabled = false;
-    QString hwTriggerSource  = "Line1";     // "Line1" | "Line2" | "Line3" | "Software"
+    // Hardware trigger input (e.g. TTL pulse on Basler Line1, or a GigE
+    // Vision Action Command broadcast when set to "Action1" — see
+    // gige_action_command.hpp). Defaults to Action1 enabled: room 11's
+    // camera fleet is meant to be synchronized this way out of the box for
+    // any newly-added camera, without a manual per-camera opt-in step.
+    bool    hwTriggerEnabled = true;
+    QString hwTriggerSource  = "Action1";   // "Line1" | "Line2" | "Line3" | "Software" | "Action1"
     double  hwTriggerDelayUs = 0.0;         // microseconds
 
     // Test pattern — shown in monitor when no real camera is connected

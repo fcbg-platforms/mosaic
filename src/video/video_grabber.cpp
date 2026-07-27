@@ -1,5 +1,6 @@
 #include "video/video_grabber.hpp"
 #include "trigger/trigger_manager.hpp"
+#include "video/gige_action_command.hpp"
 #include "video/param_mapping.hpp"
 #include "utils/logger.hpp"
 #include "utils/timestamp.hpp"
@@ -30,6 +31,24 @@ struct VideoGrabber::Impl {
     std::atomic<double>  currentFps   {0.0};
     std::atomic<int64_t> lastFrameElapsedNs {-1};
 
+    // Set true only once run_pylon_loop() has actually reached Pylon's
+    // StartGrabbing() call (or immediately in the stub loop, which has no
+    // equivalent setup step) — NOT merely once start_grabbing() has
+    // returned, which only confirms QThread::start() scheduled the thread,
+    // not that Pylon is actually listening for triggers yet. Reset false at
+    // the start of every start_grabbing() call. See is_actually_grabbing().
+    std::atomic<bool> actuallyGrabbing {false};
+
+    // GigE Vision Action Command trigger state — see
+    // action_command_ready()/action_device_key()/action_broadcast_address().
+    // Written only in open() (main thread) before the grab thread starts, so
+    // no synchronization is needed for reads afterward (plain bool/uint32_t/
+    // QString, not atomics — same happens-before argument as tickFreqHz
+    // below).
+    bool     actionCommandReady{false};
+    uint32_t actionDeviceKey{0};
+    QString  actionBroadcastAddress;
+
     // Set by apply_live_params() (typically called from the GUI thread) and
     // consumed by the grab thread's own loop. Pylon's CInstantCamera/node
     // map is not documented as safe for concurrent access from a second
@@ -53,6 +72,12 @@ struct VideoGrabber::Impl {
     // thread is started, so no synchronization is needed for the read in
     // run_pylon_loop() — QThread::start() establishes the happens-before edge.
     int64_t tickFreqHz = 0;
+
+    // The camera's real ResultingFrameRate as measured at open() time — same
+    // happens-before argument as tickFreqHz above (written once, main
+    // thread, before the grab thread starts). -1.0 if it couldn't be read
+    // (stub builds, or the node genuinely unavailable). See achievable_fps().
+    double resultingFps = -1.0;
 
 #if defined(MOSAIC_HAVE_CAMERAS)
     Pylon::CInstantCamera        camera;
@@ -164,6 +189,19 @@ bool VideoGrabber::open() {
                                 .arg(idx).arg(name)
                                 .arg(QString::fromLocal8Bit(e.GetDescription())));
             }
+            // Broadened beyond Pylon::GenericException so a node write that
+            // throws something else (a different exception type, std::bad_alloc,
+            // ...) degrades to a skipped parameter — same as any other bad
+            // setting — instead of escaping uncaught up through run_pylon_loop()
+            // and QThread::run(), which is fatal (std::terminate()).
+            catch (const std::exception& e) {
+                log_warning(QString("[Camera %1] Skipping '%2': unexpected exception: %3")
+                                .arg(idx).arg(name).arg(QString::fromUtf8(e.what())));
+            }
+            catch (...) {
+                log_warning(QString("[Camera %1] Skipping '%2': unknown non-standard exception")
+                                .arg(idx).arg(name));
+            }
         };
 
         try_set("Width",   [&]{ CIntegerParameter(cam,"Width").SetValue(d->params.width); });
@@ -214,25 +252,148 @@ bool VideoGrabber::open() {
             });
         }
 
-        // Hardware trigger input (external TTL pulse on a GPIO line drives
-        // frame acquisition instead of the camera free-running at
-        // AcquisitionFrameRate). Off by default — CameraParameters::
-        // hwTriggerEnabled starts false, so this only takes effect if a
-        // user explicitly opts in via the HW Trigger tab. A camera left
-        // triggered with no signal connected simply produces zero frames,
-        // so this must stay opt-in rather than auto-detected.
+        // Hardware trigger input (external TTL pulse on a GPIO line, or a
+        // GigE Vision Action Command broadcast, drives frame acquisition
+        // instead of the camera free-running at AcquisitionFrameRate). Off
+        // by default — CameraParameters::hwTriggerEnabled starts false, so
+        // this only takes effect if a user explicitly opts in via the HW
+        // Trigger tab. A camera left triggered with no signal/command ever
+        // arriving simply produces zero frames, so this must stay opt-in
+        // rather than auto-detected.
+        const bool wantsActionCommand = d->params.hwTriggerEnabled
+                                      && d->params.hwTriggerSource == "Action1";
+        d->actionCommandReady = false;
+
+        if (wantsActionCommand) {
+            // GigE Vision Action Command: this camera is triggered by a
+            // broadcast IssueActionCommand() (see gige_action_command.hpp)
+            // instead of a wired signal. ActionSelector/ActionDeviceKey/
+            // ActionGroupKey/ActionGroupMask are present on this camera
+            // generation per Pylon's own pylon/gige/ActionTriggerConfiguration.h
+            // sample, but genuinely unconfirmed on this specific firmware
+            // until probed live — fall back to free-run (TriggerMode stays
+            // Off below) if unsupported, rather than leaving the camera
+            // parked forever waiting for a command that will never arrive.
+            //
+            // TriggerSelector itself is NOT written here — it's the same
+            // "FrameStart" every other trigger source uses (see the shared
+            // write below). Real room-11 testing 2026-07-20 proved this
+            // camera generation rejects TriggerSource=Action1 while
+            // TriggerSelector=AcquisitionStart (a one-shot "start
+            // continuous acquisition" selector this code used to select
+            // specifically for Action1) — the camera ends up armed
+            // (TriggerMode=On) but never actually listening for the action
+            // command, a silent black-screen hang. Basler's own reference
+            // (CActionTriggerConfiguration::ApplyConfiguration()) only ever
+            // pairs TriggerSource=Action1 with TriggerSelector=FrameStart,
+            // which means Action Commands must be fired once PER FRAME,
+            // continuously, for the whole recording — see
+            // VideoManager::ActionCommandTicker.
+            try {
+                // ActionGroupKey/ActionGroupMask are selector-scoped ("Selected
+                // by: ActionSelector" per GenICam SFNC) — the selector must be
+                // set first, or the writes below land on whichever action
+                // index the device happened to have selected already.
+                CIntegerParameter(cam, "ActionSelector").SetToMinimum(); // selects "Action1" (index 0)
+                CIntegerParameter(cam, "ActionDeviceKey")
+                    .SetValue(static_cast<int64_t>(d->cameraIndex) + 1);
+                CIntegerParameter(cam, "ActionGroupKey").SetValue(static_cast<int64_t>(k_action_group_key));
+                CIntegerParameter(cam, "ActionGroupMask").SetValue(static_cast<int64_t>(k_action_group_mask));
+
+                // Resolve this camera's own broadcast address at runtime from
+                // what it reports (GevCurrentIPAddress/GevCurrentSubnetMask),
+                // rather than hardcoding the ops setup script's static
+                // per-NIC subnet list — each camera lives on its own
+                // isolated /24.
+                const auto ip   = static_cast<uint32_t>(CIntegerParameter(cam, "GevCurrentIPAddress").GetValue());
+                const auto mask = static_cast<uint32_t>(CIntegerParameter(cam, "GevCurrentSubnetMask").GetValue());
+                d->actionDeviceKey        = static_cast<uint32_t>(d->cameraIndex) + 1;
+                d->actionBroadcastAddress = ipv4_to_dotted(ipv4_broadcast_address(ip, mask));
+                d->actionCommandReady     = true;
+                log_info(QString("[Camera %1] Action-command trigger ready — deviceKey=%2 broadcast=%3")
+                             .arg(d->cameraIndex).arg(d->actionDeviceKey).arg(d->actionBroadcastAddress));
+            } catch (const Pylon::GenericException& e) {
+                log_warning(QString("[Camera %1] This firmware does not support GigE Vision Action "
+                                    "Commands (%2) — falling back to free-run for this session. "
+                                    "Switch 'Trigger source' to Line1 or Software instead.")
+                                .arg(d->cameraIndex).arg(QString::fromLocal8Bit(e.GetDescription())));
+            }
+            emit action_command_capability(d->cameraIndex, d->actionCommandReady);
+        }
+
+        // Falls back to free-run if Action1 was requested but unsupported
+        // on this firmware — never leave TriggerMode=On with nothing that
+        // will ever trigger it. Deliberately does not mutate
+        // d->params.hwTriggerEnabled/hwTriggerSource (the user's saved
+        // settings) — a firmware/config change is re-probed fresh on the
+        // next open(), not silently downgraded and stuck.
+        const bool effectiveHwTrigger = d->params.hwTriggerEnabled
+                                      && (!wantsActionCommand || d->actionCommandReady);
+
+        // Every trigger source (Line1/Software/Action1) uses the same
+        // per-frame "FrameStart" selector — see the note in the Action1
+        // probe above for why Action1 no longer gets a special
+        // "AcquisitionStart" case.
         try_set("TriggerSelector", [&]{
             CEnumParameter(cam, "TriggerSelector").SetValue("FrameStart");
         });
         try_set("TriggerMode", [&]{
             CEnumParameter(cam, "TriggerMode")
-                .SetValue(d->params.hwTriggerEnabled ? "On" : "Off");
+                .SetValue(effectiveHwTrigger ? "On" : "Off");
         });
-        if (d->params.hwTriggerEnabled) {
-            try_set("TriggerSource", [&]{
+        if (effectiveHwTrigger) {
+            // Basler's own reference Action Command configuration (pylon/gige/
+            // ActionTriggerConfiguration.h — CActionTriggerConfiguration::
+            // ApplyConfiguration()) explicitly sets AcquisitionMode=Continuous
+            // whenever it configures any trigger, and fails closed if it isn't
+            // writable, treating it as a hard requirement rather than assuming
+            // the camera's current value is already right. Mosaic never wrote
+            // this node before (free-run/Line1/Software all worked purely
+            // because the camera's power-on default happens to be Continuous)
+            // — make the same requirement explicit here for every hardware-
+            // triggered source, not just Action1, rather than silently
+            // depending on that default forever.
+            try_set("AcquisitionMode", [&]{
+                CEnumParameter(cam, "AcquisitionMode").SetValue("Continuous");
+            });
+
+            // Deliberately NOT routed through try_set(): a failed TriggerSource
+            // write must not be silently skipped like a cosmetic parameter.
+            // TriggerMode is already "On" at this point — if TriggerSource
+            // fails to land on the value we actually want, the camera keeps
+            // whatever TriggerSource it had before and ends up armed-and-
+            // waiting-forever for a signal that will never arrive — a silent
+            // black-screen hang, not just an imprecise setting (this is
+            // exactly what happened with the old TriggerSelector=
+            // AcquisitionStart design on real room-11 hardware, 2026-07-20 —
+            // see the Action1 probe's comment above). We must force back to
+            // free-run rather than leave that half-armed state in place.
+            try {
                 CEnumParameter(cam, "TriggerSource")
                     .SetValue(d->params.hwTriggerSource.toStdString().c_str());
-            });
+            } catch (const Pylon::GenericException& e) {
+                log_warning(QString("[Camera %1] TriggerSource='%2' rejected (%3) — forcing "
+                                    "TriggerMode back to Off to avoid an armed-but-never-"
+                                    "triggered camera (no frames would ever arrive).")
+                                .arg(idx).arg(d->params.hwTriggerSource)
+                                .arg(QString::fromLocal8Bit(e.GetDescription())));
+                try_set("TriggerMode", [&]{
+                    CEnumParameter(cam, "TriggerMode").SetValue("Off");
+                });
+                // The Action1 probe above only checked the Action* nodes —
+                // it never confirmed TriggerSource=Action1 itself would be
+                // accepted. If THAT write is what just failed, actionCommandReady
+                // is now a lie: VideoManager::arm_and_fire_action_commands()
+                // reads it to decide who gets continuous Action Command
+                // broadcasts, and this camera is no longer listening for them
+                // (TriggerMode just forced to Off above). Reset it and tell
+                // the UI, rather than leaving a stale "SUPPORTED" label next
+                // to a camera that will never actually trigger.
+                if (wantsActionCommand && d->actionCommandReady) {
+                    d->actionCommandReady = false;
+                    emit action_command_capability(d->cameraIndex, false);
+                }
+            }
             // SFNC 2.0: TriggerDelay (float, µs)
             // SFNC 1.x: TriggerDelayAbs (float, µs) — same dual-name pattern
             // as ExposureTime/ExposureTimeAbs (see apply_image_params()).
@@ -325,6 +486,7 @@ bool VideoGrabber::open() {
         const int64_t freq  = safe_i("GevTimestampTickFrequency");
         d->tickFreqHz = freq;
         const double  rfps  = safe_f_fallback("ResultingFrameRate", "ResultingFrameRateAbs");
+        d->resultingFps = rfps; // see achievable_fps()
         log_info(QString("[Camera %1] GigE pkt=%2B scpd=%3 scftd=%4 scbwa=%5 resultFPS=%6 tickFreq=%7Hz")
                      .arg(d->cameraIndex)
                      .arg(pktSz).arg(scpd).arg(scftd).arg(scbwa)
@@ -564,6 +726,7 @@ void VideoGrabber::start_grabbing() {
     d->frameCounter.store(0);
     d->dropCounter.store(0);
     d->lastFrameElapsedNs.store(-1);
+    d->actuallyGrabbing.store(false);
     QThread::start();
 }
 
@@ -610,6 +773,7 @@ void VideoGrabber::run_pylon_loop() {
 
         d->camera.StartGrabbing(Pylon::GrabStrategy_LatestImageOnly,
                                 Pylon::GrabLoop_ProvidedByUser);
+        d->actuallyGrabbing.store(true);
 
         Pylon::CGrabResultPtr  result;
         Pylon::CPylonImage     convertedImage;
@@ -741,12 +905,24 @@ void VideoGrabber::run_pylon_loop() {
         emit grab_error(d->cameraIndex,
                         QString::fromLocal8Bit(e.GetDescription()));
     }
+    // Broadened beyond Pylon::GenericException: an uncaught exception of any
+    // other type escaping this function escapes QThread::run() itself, which
+    // is fatal to the whole process (std::terminate()) — report and let the
+    // thread exit cleanly instead, same rationale as try_set()'s own
+    // broadened catch above.
+    catch (const std::exception& e) {
+        emit grab_error(d->cameraIndex,
+                        QString("Unexpected exception: %1").arg(QString::fromUtf8(e.what())));
+    } catch (...) {
+        emit grab_error(d->cameraIndex, "Unknown non-standard exception in grab loop.");
+    }
 }
 #else
 void VideoGrabber::run_pylon_loop() { run_stub_loop(); }
 #endif
 
 void VideoGrabber::run_stub_loop() {
+    d->actuallyGrabbing.store(true);
     const double fps   = d->params.fps > 0.0 ? d->params.fps : 30.0;
     const int    width  = d->params.width  > 0 ? d->params.width  : 1920;
     const int    height = d->params.height > 0 ? d->params.height : 1080;
@@ -849,10 +1025,19 @@ void VideoGrabber::run_stub_loop() {
 
 // ── Accessors ──────────────────────────────────────────────────────────────
 
+bool VideoGrabber::is_actually_grabbing() const { return d->actuallyGrabbing.load(); }
+
 bool    VideoGrabber::is_open()        const { return d->deviceOpen.load(); }
 int64_t VideoGrabber::frames_grabbed() const { return d->frameCounter.load(); }
 int64_t VideoGrabber::frames_dropped() const { return d->dropCounter.load(); }
 double  VideoGrabber::current_fps()    const { return d->currentFps.load(); }
 int64_t VideoGrabber::last_frame_elapsed_ns() const { return d->lastFrameElapsedNs.load(); }
+
+bool     VideoGrabber::action_command_ready()     const { return d->actionCommandReady; }
+uint32_t VideoGrabber::action_device_key()        const { return d->actionDeviceKey; }
+QString  VideoGrabber::action_broadcast_address() const { return d->actionBroadcastAddress; }
+
+double VideoGrabber::configured_fps() const { return d->params.fps; }
+double VideoGrabber::achievable_fps() const { return d->resultingFps; }
 
 } // namespace mosaic

@@ -39,7 +39,30 @@ _MODELS_DIR = Path(__file__).parent / "models"
 
 
 class FaceDetector(Protocol):
-    def detect(self, frame_bgr: np.ndarray) -> list[Box]: ...
+    """Structural interface every face-detection backend satisfies.
+
+    All three backends (:class:`MediaPipeFaceDetector`,
+    :class:`YoloFaceDetector`, :class:`OpenCVDnnFaceDetector`) implement
+    this without inheriting from it — a plain ``duck-typing`` Protocol so
+    ``run_face_mask.py`` doesn't need to know which one is in use.
+    """
+
+    def detect(self, frame_bgr: np.ndarray) -> list[Box]:
+        """Detect faces in one BGR frame.
+
+        Parameters
+        ----------
+        frame_bgr : numpy.ndarray
+            BGR frame, as returned by ``cv2.imread``/``cv2.VideoCapture``.
+
+        Returns
+        -------
+        list of Box
+            One ``(x1, y1, x2, y2)`` pixel box per detected face, already
+            filtered by this backend's own confidence threshold (box
+            tuples carry no separate confidence score).
+        """
+        ...
 
 
 # ── MediaPipe FaceLandmarker ─────────────────────────────────────────────────
@@ -51,6 +74,19 @@ _MEDIAPIPE_MODEL_URL = (
 
 
 class MediaPipeFaceDetector:
+    """MediaPipe Tasks ``FaceLandmarker``-based face detector.
+
+    Best recall of the three backends, supports multiple faces. Downloads
+    ``face_landmarker.task`` to ``models/`` on first use.
+
+    Parameters
+    ----------
+    conf_threshold : float, default 0.5
+        Minimum face-detection/-presence confidence to keep a face.
+    max_faces : int, default 10
+        Maximum simultaneous faces to detect per frame.
+    """
+
     def __init__(self, conf_threshold: float = 0.5, max_faces: int = 10) -> None:
         import mediapipe as mp
         from mediapipe.tasks import python as mp_python
@@ -72,6 +108,7 @@ class MediaPipeFaceDetector:
         self._landmarker = mp_vision.FaceLandmarker.create_from_options(options)
 
     def detect(self, frame_bgr: np.ndarray) -> list[Box]:
+        """See :meth:`FaceDetector.detect`."""
         h, w = frame_bgr.shape[:2]
         rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
         mp_image = self._mp.Image(image_format=self._mp.ImageFormat.SRGB, data=rgb)
@@ -97,6 +134,26 @@ _YOLO_FACE_URLS = {
 
 
 class YoloFaceDetector:
+    """Ultralytics YOLO face detector, using a community face checkpoint.
+
+    There is no Ultralytics-official face-detection weights file (unlike
+    ``yolov8n-pose.pt``), so this downloads a named community checkpoint
+    on first use (see the module docstring) unless ``model`` points at a
+    local file.
+
+    Parameters
+    ----------
+    model : str or None, default None
+        A local checkpoint path, a known community checkpoint name (see
+        ``_YOLO_FACE_URLS``), or ``None`` for the default
+        ``"yolov8n-face.pt"``.
+    conf_threshold : float, default 0.5
+        Minimum detection confidence to keep a face.
+    device : str or None, default None
+        Inference device (e.g. ``"cpu"``, ``"cuda:0"``); ``None`` lets
+        ultralytics choose.
+    """
+
     def __init__(self, model: Optional[str] = None, conf_threshold: float = 0.5,
                  device: Optional[str] = None) -> None:
         from ultralytics import YOLO
@@ -117,6 +174,7 @@ class YoloFaceDetector:
         self._model = YOLO(model_path)
 
     def detect(self, frame_bgr: np.ndarray) -> list[Box]:
+        """See :meth:`FaceDetector.detect`."""
         results = self._model(frame_bgr, conf=self._conf, device=self._device, verbose=False)
         boxes: list[Box] = []
         for res in results:
@@ -139,6 +197,19 @@ _OPENCV_MODEL_URL = (
 
 
 class OpenCVDnnFaceDetector:
+    """``cv2.dnn`` res10 SSD Caffe face detector.
+
+    No new ML framework dependency beyond ``opencv-python``, but the
+    weakest recall of the three backends on extreme head angles.
+    Downloads the official OpenCV-hosted prototxt/caffemodel to
+    ``models/`` on first use.
+
+    Parameters
+    ----------
+    conf_threshold : float, default 0.5
+        Minimum detection confidence to keep a face.
+    """
+
     def __init__(self, conf_threshold: float = 0.5) -> None:
         prototxt = _ensure_download(_MODELS_DIR / "deploy.prototxt", _OPENCV_PROTOTXT_URL)
         caffemodel = _ensure_download(
@@ -147,6 +218,7 @@ class OpenCVDnnFaceDetector:
         self._conf = conf_threshold
 
     def detect(self, frame_bgr: np.ndarray) -> list[Box]:
+        """See :meth:`FaceDetector.detect`."""
         h, w = frame_bgr.shape[:2]
         # blobFromImage already resizes to the given size — no need to
         # cv2.resize() first too.
@@ -168,6 +240,20 @@ class OpenCVDnnFaceDetector:
 # ── Shared model-download helper ─────────────────────────────────────────────
 
 def _ensure_download(dest: Path, url: str) -> Path:
+    """Download ``url`` to ``dest`` if not already cached there.
+
+    Parameters
+    ----------
+    dest : pathlib.Path
+        Destination file path; parent directories are created as needed.
+    url : str
+        Source URL.
+
+    Returns
+    -------
+    pathlib.Path
+        ``dest``, unchanged — returned for convenient call-site chaining.
+    """
     if not dest.exists():
         dest.parent.mkdir(parents=True, exist_ok=True)
         print(f"[facemask] Downloading {dest.name} …", flush=True)
@@ -180,6 +266,31 @@ def _ensure_download(dest: Path, url: str) -> Path:
 
 def make_detector(backend: str, model: Optional[str], conf_threshold: float,
                    device: Optional[str] = None) -> FaceDetector:
+    """Build a face-detection backend by name.
+
+    Parameters
+    ----------
+    backend : {"mediapipe", "yolov8", "opencv"}
+        Which backend to construct.
+    model : str or None
+        Forwarded to :class:`YoloFaceDetector` as its ``model`` argument;
+        ignored by the other two backends.
+    conf_threshold : float
+        Minimum detection confidence to keep a face.
+    device : str or None, default None
+        Forwarded to :class:`YoloFaceDetector` as its ``device`` argument;
+        ignored by the other two backends.
+
+    Returns
+    -------
+    FaceDetector
+        A constructed, ready-to-use detector.
+
+    Raises
+    ------
+    ValueError
+        If ``backend`` isn't one of the three known names.
+    """
     if backend == "mediapipe":
         return MediaPipeFaceDetector(conf_threshold=conf_threshold)
     if backend == "yolov8":

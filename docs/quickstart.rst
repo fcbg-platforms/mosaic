@@ -125,7 +125,7 @@ Building the documentation
 
 .. code-block:: bash
 
-   pip install -r docs/requirements.txt
+   cd docs && uv sync && cd ..
 
    # Build with CMake (recommended — runs Doxygen automatically)
    cmake -S . -B build/Debug -DMOSAIC_BUILD_DOCS=ON

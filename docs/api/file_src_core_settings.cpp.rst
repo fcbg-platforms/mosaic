@@ -4,7 +4,7 @@
 File settings.cpp
 =================
 
-|exhale_lsh| :ref:`Parent directory <dir_src_core>` (``src/core``)
+|exhale_lsh| :ref:`Parent directory <dir_src_core>` (``src\core``)
 
 .. |exhale_lsh| unicode:: U+021B0 .. UPWARDS ARROW WITH TIP LEFTWARDS
 
@@ -13,7 +13,7 @@ File settings.cpp
    :local:
    :backlinks: none
 
-Definition (``src/core/settings.cpp``)
+Definition (``src\core\settings.cpp``)
 --------------------------------------
 
 
@@ -40,9 +40,11 @@ Includes
 
 - ``QStandardPaths``
 
-- ``core/settings.hpp`` (:ref:`file_src_core_settings.hpp`)
+- ``core/settings.hpp``
 
-- ``utils/logger.hpp`` (:ref:`file_src_utils_logger.hpp`)
+- ``trigger/trigger_types.hpp``
+
+- ``utils/logger.hpp``
 
 
 

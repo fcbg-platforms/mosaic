@@ -4,7 +4,7 @@
 File wav_writer.hpp
 ===================
 
-|exhale_lsh| :ref:`Parent directory <dir_src_audio>` (``src/audio``)
+|exhale_lsh| :ref:`Parent directory <dir_src_audio>` (``src\audio``)
 
 .. |exhale_lsh| unicode:: U+021B0 .. UPWARDS ARROW WITH TIP LEFTWARDS
 
@@ -13,7 +13,7 @@ File wav_writer.hpp
    :local:
    :backlinks: none
 
-Definition (``src/audio/wav_writer.hpp``)
+Definition (``src\audio\wav_writer.hpp``)
 -----------------------------------------
 
 

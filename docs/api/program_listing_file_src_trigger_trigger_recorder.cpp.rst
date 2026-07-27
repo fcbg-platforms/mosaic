@@ -4,7 +4,7 @@
 Program Listing for File trigger_recorder.cpp
 =============================================
 
-|exhale_lsh| :ref:`Return to documentation for file <file_src_trigger_trigger_recorder.cpp>` (``src/trigger/trigger_recorder.cpp``)
+|exhale_lsh| :ref:`Return to documentation for file <file_src_trigger_trigger_recorder.cpp>` (``src\trigger\trigger_recorder.cpp``)
 
 .. |exhale_lsh| unicode:: U+021B0 .. UPWARDS ARROW WITH TIP LEFTWARDS
 

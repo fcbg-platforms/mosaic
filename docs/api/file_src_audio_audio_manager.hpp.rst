@@ -4,7 +4,7 @@
 File audio_manager.hpp
 ======================
 
-|exhale_lsh| :ref:`Parent directory <dir_src_audio>` (``src/audio``)
+|exhale_lsh| :ref:`Parent directory <dir_src_audio>` (``src\audio``)
 
 .. |exhale_lsh| unicode:: U+021B0 .. UPWARDS ARROW WITH TIP LEFTWARDS
 
@@ -13,7 +13,7 @@ File audio_manager.hpp
    :local:
    :backlinks: none
 
-Definition (``src/audio/audio_manager.hpp``)
+Definition (``src\audio\audio_manager.hpp``)
 --------------------------------------------
 
 
@@ -36,7 +36,7 @@ Includes
 
 - ``QObject``
 
-- ``core/settings.hpp`` (:ref:`file_src_core_settings.hpp`)
+- ``core/settings.hpp``
 
 - ``memory``
 

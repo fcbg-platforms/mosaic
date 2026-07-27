@@ -4,7 +4,7 @@
 File logger.hpp
 ===============
 
-|exhale_lsh| :ref:`Parent directory <dir_src_utils>` (``src/utils``)
+|exhale_lsh| :ref:`Parent directory <dir_src_utils>` (``src\utils``)
 
 .. |exhale_lsh| unicode:: U+021B0 .. UPWARDS ARROW WITH TIP LEFTWARDS
 
@@ -13,7 +13,7 @@ File logger.hpp
    :local:
    :backlinks: none
 
-Definition (``src/utils/logger.hpp``)
+Definition (``src\utils\logger.hpp``)
 -------------------------------------
 
 
@@ -44,6 +44,12 @@ Included By
 -----------
 
 
+- :ref:`file_src_analysis_analysis_manager.cpp`
+
+- :ref:`file_src_analysis_pose_worker.cpp`
+
+- :ref:`file_src_analysis_sync_manifest.cpp`
+
 - :ref:`file_src_audio_audio_manager.cpp`
 
 - :ref:`file_src_audio_audio_recorder.cpp`
@@ -53,6 +59,8 @@ Included By
 - :ref:`file_src_auth_profile_manager.cpp`
 
 - :ref:`file_src_calibration_calibration_manager.cpp`
+
+- :ref:`file_src_calibration_room_calibration_manager.cpp`
 
 - :ref:`file_src_core_application.cpp`
 
@@ -65,6 +73,8 @@ Included By
 - :ref:`file_src_trigger_lsl_outlet.cpp`
 
 - :ref:`file_src_trigger_parallel_port_trigger.cpp`
+
+- :ref:`file_src_trigger_serial_trigger.cpp`
 
 - :ref:`file_src_trigger_trigger_manager.cpp`
 

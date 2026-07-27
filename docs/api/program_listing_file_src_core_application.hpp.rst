@@ -4,7 +4,7 @@
 Program Listing for File application.hpp
 ========================================
 
-|exhale_lsh| :ref:`Return to documentation for file <file_src_core_application.hpp>` (``src/core/application.hpp``)
+|exhale_lsh| :ref:`Return to documentation for file <file_src_core_application.hpp>` (``src\core\application.hpp``)
 
 .. |exhale_lsh| unicode:: U+021B0 .. UPWARDS ARROW WITH TIP LEFTWARDS
 

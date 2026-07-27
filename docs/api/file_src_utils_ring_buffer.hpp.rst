@@ -4,7 +4,7 @@
 File ring_buffer.hpp
 ====================
 
-|exhale_lsh| :ref:`Parent directory <dir_src_utils>` (``src/utils``)
+|exhale_lsh| :ref:`Parent directory <dir_src_utils>` (``src\utils``)
 
 .. |exhale_lsh| unicode:: U+021B0 .. UPWARDS ARROW WITH TIP LEFTWARDS
 
@@ -13,7 +13,7 @@ File ring_buffer.hpp
    :local:
    :backlinks: none
 
-Definition (``src/utils/ring_buffer.hpp``)
+Definition (``src\utils\ring_buffer.hpp``)
 ------------------------------------------
 
 

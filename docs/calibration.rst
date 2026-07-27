@@ -120,6 +120,13 @@ What is stored
        the Room (Extrinsics) procedure — distinct from ``calibrated``, which
        only ever means "intrinsics done".
 
+Room (extrinsic) calibration solves every camera's position and orientation
+relative to one shared room origin — needed to combine per-camera 3D
+signals (e.g. gaze rays, see :doc:`math/gaze_fusion`) across cameras. See
+:doc:`user_guide`'s calibration workflow for a narrative walkthrough of the
+same steps, and :doc:`math/room_calibration` for the underlying pose-graph
+math.
+
 Using calibration data in Python
 ---------------------------------
 

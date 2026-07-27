@@ -4,7 +4,7 @@
 Program Listing for File profile.hpp
 ====================================
 
-|exhale_lsh| :ref:`Return to documentation for file <file_src_auth_profile.hpp>` (``src/auth/profile.hpp``)
+|exhale_lsh| :ref:`Return to documentation for file <file_src_auth_profile.hpp>` (``src\auth\profile.hpp``)
 
 .. |exhale_lsh| unicode:: U+021B0 .. UPWARDS ARROW WITH TIP LEFTWARDS
 
@@ -26,6 +26,13 @@ Program Listing for File profile.hpp
    ///
    /// @see ProfileManager
    struct Profile {
+   
+       /// @brief Privilege level for this profile.
+       enum class Role : uint8_t {
+           User  = 0, ///< Regular research-group profile.
+           Admin = 1, ///< Full administrator — can manage all profiles and global settings.
+       };
+   
        /// Unique login key — lowercase alphanumeric + underscore, 3–32 chars.
        QString  username;
    
@@ -56,12 +63,21 @@ Program Listing for File profile.hpp
        /// UTC timestamp when this profile was first created.
        QDateTime created;
    
+       /// Privilege level — only Admin profiles open the admin panel after login.
+       Role role = Role::User;
+   
+       /// Optional lab / university / department name (shown in admin panel and status bar).
+       QString institution;
+   
        /// @returns @c true if this is the built-in unauthenticated guest session.
        [[nodiscard]] bool is_guest()     const noexcept { return username == "guest"; }
    
        /// @returns @c true if a password hash is stored for this profile.
        ///          Profiles without a password always pass authentication.
        [[nodiscard]] bool has_password() const noexcept { return !passwordHash.isEmpty(); }
+   
+       /// @returns @c true if this profile has administrator privileges.
+       [[nodiscard]] bool is_admin()     const noexcept { return role == Role::Admin; }
    };
    
    } // namespace mosaic

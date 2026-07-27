@@ -4,7 +4,7 @@
 File profile_manager.cpp
 ========================
 
-|exhale_lsh| :ref:`Parent directory <dir_src_auth>` (``src/auth``)
+|exhale_lsh| :ref:`Parent directory <dir_src_auth>` (``src\auth``)
 
 .. |exhale_lsh| unicode:: U+021B0 .. UPWARDS ARROW WITH TIP LEFTWARDS
 
@@ -13,7 +13,7 @@ File profile_manager.cpp
    :local:
    :backlinks: none
 
-Definition (``src/auth/profile_manager.cpp``)
+Definition (``src\auth\profile_manager.cpp``)
 ---------------------------------------------
 
 
@@ -52,9 +52,9 @@ Includes
 
 - ``QStandardPaths``
 
-- ``auth/profile_manager.hpp`` (:ref:`file_src_auth_profile_manager.hpp`)
+- ``auth/profile_manager.hpp``
 
-- ``utils/logger.hpp`` (:ref:`file_src_utils_logger.hpp`)
+- ``utils/logger.hpp``
 
 
 

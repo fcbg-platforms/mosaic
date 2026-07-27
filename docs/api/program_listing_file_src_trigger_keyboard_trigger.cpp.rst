@@ -4,7 +4,7 @@
 Program Listing for File keyboard_trigger.cpp
 =============================================
 
-|exhale_lsh| :ref:`Return to documentation for file <file_src_trigger_keyboard_trigger.cpp>` (``src/trigger/keyboard_trigger.cpp``)
+|exhale_lsh| :ref:`Return to documentation for file <file_src_trigger_keyboard_trigger.cpp>` (``src\trigger\keyboard_trigger.cpp``)
 
 .. |exhale_lsh| unicode:: U+021B0 .. UPWARDS ARROW WITH TIP LEFTWARDS
 

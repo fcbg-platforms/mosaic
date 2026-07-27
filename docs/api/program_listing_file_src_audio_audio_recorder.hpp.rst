@@ -4,7 +4,7 @@
 Program Listing for File audio_recorder.hpp
 ===========================================
 
-|exhale_lsh| :ref:`Return to documentation for file <file_src_audio_audio_recorder.hpp>` (``src/audio/audio_recorder.hpp``)
+|exhale_lsh| :ref:`Return to documentation for file <file_src_audio_audio_recorder.hpp>` (``src\audio\audio_recorder.hpp``)
 
 .. |exhale_lsh| unicode:: U+021B0 .. UPWARDS ARROW WITH TIP LEFTWARDS
 
@@ -57,6 +57,7 @@ Program Listing for File audio_recorder.hpp
        QIODevice*   m_ioDevice{nullptr};
        WavWriter    m_writer;
        std::atomic<float> m_level{0.0f};
+       bool         m_monitorOnly{false};   // true when filePath is "" (no file writing)
    };
    
    } // namespace mosaic

@@ -10,7 +10,7 @@ Directory audio
 .. |exhale_lsh| unicode:: U+021B0 .. UPWARDS ARROW WITH TIP LEFTWARDS
 
 
-*Directory path:* ``src/audio``
+*Directory path:* ``src\audio``
 
 
 Files

@@ -4,7 +4,7 @@
 File frame_timestamp_writer.cpp
 ===============================
 
-|exhale_lsh| :ref:`Parent directory <dir_src_video>` (``src/video``)
+|exhale_lsh| :ref:`Parent directory <dir_src_video>` (``src\video``)
 
 .. |exhale_lsh| unicode:: U+021B0 .. UPWARDS ARROW WITH TIP LEFTWARDS
 
@@ -13,7 +13,7 @@ File frame_timestamp_writer.cpp
    :local:
    :backlinks: none
 
-Definition (``src/video/frame_timestamp_writer.cpp``)
+Definition (``src\video\frame_timestamp_writer.cpp``)
 -----------------------------------------------------
 
 
@@ -40,9 +40,9 @@ Includes
 
 - ``atomic``
 
-- ``utils/logger.hpp`` (:ref:`file_src_utils_logger.hpp`)
+- ``utils/logger.hpp``
 
-- ``video/frame_timestamp_writer.hpp`` (:ref:`file_src_video_frame_timestamp_writer.hpp`)
+- ``video/frame_timestamp_writer.hpp``
 
 
 

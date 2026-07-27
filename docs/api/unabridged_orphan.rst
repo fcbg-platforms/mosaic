@@ -16,6 +16,11 @@ Directories
 .. toctree::
    :maxdepth: 5
 
+   dir_src_analysis.rst
+
+.. toctree::
+   :maxdepth: 5
+
    dir_src_audio.rst
 
 .. toctree::
@@ -41,6 +46,11 @@ Directories
 .. toctree::
    :maxdepth: 5
 
+   dir_src_session.rst
+
+.. toctree::
+   :maxdepth: 5
+
    dir_src_trigger.rst
 
 .. toctree::
@@ -56,6 +66,16 @@ Directories
 Files
 *****
 
+
+.. toctree::
+   :maxdepth: 5
+
+   file_src_analysis_analysis_manager.cpp.rst
+
+.. toctree::
+   :maxdepth: 5
+
+   file_src_analysis_analysis_manager.hpp.rst
 
 .. toctree::
    :maxdepth: 5
@@ -100,12 +120,32 @@ Files
 .. toctree::
    :maxdepth: 5
 
+   file_src_analysis_expression_result.cpp.rst
+
+.. toctree::
+   :maxdepth: 5
+
+   file_src_analysis_expression_result.hpp.rst
+
+.. toctree::
+   :maxdepth: 5
+
    file_src_video_frame_timestamp_writer.cpp.rst
 
 .. toctree::
    :maxdepth: 5
 
    file_src_video_frame_timestamp_writer.hpp.rst
+
+.. toctree::
+   :maxdepth: 5
+
+   file_src_analysis_gaze_fusion_result.cpp.rst
+
+.. toctree::
+   :maxdepth: 5
+
+   file_src_analysis_gaze_fusion_result.hpp.rst
 
 .. toctree::
    :maxdepth: 5
@@ -165,6 +205,46 @@ Files
 .. toctree::
    :maxdepth: 5
 
+   file_src_video_param_mapping.hpp.rst
+
+.. toctree::
+   :maxdepth: 5
+
+   file_src_analysis_pose_analysis_result.cpp.rst
+
+.. toctree::
+   :maxdepth: 5
+
+   file_src_analysis_pose_analysis_result.hpp.rst
+
+.. toctree::
+   :maxdepth: 5
+
+   file_src_analysis_pose_kinematics.cpp.rst
+
+.. toctree::
+   :maxdepth: 5
+
+   file_src_analysis_pose_kinematics.hpp.rst
+
+.. toctree::
+   :maxdepth: 5
+
+   file_src_analysis_pose_models.hpp.rst
+
+.. toctree::
+   :maxdepth: 5
+
+   file_src_analysis_pose_worker.cpp.rst
+
+.. toctree::
+   :maxdepth: 5
+
+   file_src_analysis_pose_worker.hpp.rst
+
+.. toctree::
+   :maxdepth: 5
+
    file_src_auth_profile.hpp.rst
 
 .. toctree::
@@ -200,6 +280,41 @@ Files
 .. toctree::
    :maxdepth: 5
 
+   file_src_calibration_room_calibration_manager.cpp.rst
+
+.. toctree::
+   :maxdepth: 5
+
+   file_src_calibration_room_calibration_manager.hpp.rst
+
+.. toctree::
+   :maxdepth: 5
+
+   file_src_calibration_room_frame_solver.cpp.rst
+
+.. toctree::
+   :maxdepth: 5
+
+   file_src_calibration_room_frame_solver.hpp.rst
+
+.. toctree::
+   :maxdepth: 5
+
+   file_src_trigger_serial_trigger.cpp.rst
+
+.. toctree::
+   :maxdepth: 5
+
+   file_src_trigger_serial_trigger.hpp.rst
+
+.. toctree::
+   :maxdepth: 5
+
+   file_src_session_session_info.hpp.rst
+
+.. toctree::
+   :maxdepth: 5
+
    file_src_core_settings.cpp.rst
 
 .. toctree::
@@ -210,7 +325,27 @@ Files
 .. toctree::
    :maxdepth: 5
 
+   file_src_analysis_sync_manifest.cpp.rst
+
+.. toctree::
+   :maxdepth: 5
+
+   file_src_analysis_sync_manifest.hpp.rst
+
+.. toctree::
+   :maxdepth: 5
+
    file_src_utils_timestamp.hpp.rst
+
+.. toctree::
+   :maxdepth: 5
+
+   file_src_analysis_transcript_result.cpp.rst
+
+.. toctree::
+   :maxdepth: 5
+
+   file_src_analysis_transcript_result.hpp.rst
 
 .. toctree::
    :maxdepth: 5
@@ -246,6 +381,16 @@ Files
    :maxdepth: 5
 
    file_src_video_video_encoder.hpp.rst
+
+.. toctree::
+   :maxdepth: 5
+
+   file_src_video_video_feed_provider.cpp.rst
+
+.. toctree::
+   :maxdepth: 5
+
+   file_src_video_video_feed_provider.hpp.rst
 
 .. toctree::
    :maxdepth: 5

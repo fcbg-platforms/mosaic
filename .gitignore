@@ -71,3 +71,11 @@ recordings/
 
 # Generated documentation output (rebuild via MOSAIC_BUILD_DOCS)
 docs/html/
+# Non-portable, machine-specific Doxygen config (absolute paths) — Doxyfile.in
+# is the real template-driven source, substituted at build time.
+docs/Doxyfile
+# autosummary-generated stub .rst files (regenerated on every Sphinx build)
+docs/_autosummary/
+# Sphinx build output (rebuild via `sphinx-build` / MOSAIC_BUILD_DOCS)
+docs/_build/
+build-docs/

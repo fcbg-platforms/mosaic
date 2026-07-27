@@ -4,7 +4,7 @@
 File keyboard_trigger.cpp
 =========================
 
-|exhale_lsh| :ref:`Parent directory <dir_src_trigger>` (``src/trigger``)
+|exhale_lsh| :ref:`Parent directory <dir_src_trigger>` (``src\trigger``)
 
 .. |exhale_lsh| unicode:: U+021B0 .. UPWARDS ARROW WITH TIP LEFTWARDS
 
@@ -13,7 +13,7 @@ File keyboard_trigger.cpp
    :local:
    :backlinks: none
 
-Definition (``src/trigger/keyboard_trigger.cpp``)
+Definition (``src\trigger\keyboard_trigger.cpp``)
 -------------------------------------------------
 
 
@@ -38,9 +38,9 @@ Includes
 
 - ``QKeySequenceEdit``
 
-- ``trigger/keyboard_trigger.hpp`` (:ref:`file_src_trigger_keyboard_trigger.hpp`)
+- ``trigger/keyboard_trigger.hpp``
 
-- ``utils/timestamp.hpp`` (:ref:`file_src_utils_timestamp.hpp`)
+- ``utils/timestamp.hpp``
 
 
 

@@ -4,13 +4,14 @@
 Program Listing for File settings.cpp
 =====================================
 
-|exhale_lsh| :ref:`Return to documentation for file <file_src_core_settings.cpp>` (``src/core/settings.cpp``)
+|exhale_lsh| :ref:`Return to documentation for file <file_src_core_settings.cpp>` (``src\core\settings.cpp``)
 
 .. |exhale_lsh| unicode:: U+021B0 .. UPWARDS ARROW WITH TIP LEFTWARDS
 
 .. code-block:: cpp
 
    #include "core/settings.hpp"
+   #include "trigger/trigger_types.hpp"
    #include "utils/logger.hpp"
    #include <QDir>
    #include <QFile>
@@ -39,21 +40,23 @@ Program Listing for File settings.cpp
    
    QJsonObject CalibrationData::to_json() const {
        return {
-           {"calibrated",    calibrated},
-           {"rms_error",     rmsError},
-           {"camera_matrix", array_to_json(cameraMatrix)},
-           {"dist_coeffs",   array_to_json(distCoeffs)},
-           {"extrinsic_rt",  array_to_json(extrinsicRt)},
+           {"calibrated",           calibrated},
+           {"rms_error",            rmsError},
+           {"camera_matrix",        array_to_json(cameraMatrix)},
+           {"dist_coeffs",          array_to_json(distCoeffs)},
+           {"extrinsic_rt",         array_to_json(extrinsicRt)},
+           {"extrinsic_calibrated", extrinsicCalibrated},
        };
    }
    
    std::optional<CalibrationData> CalibrationData::from_json(const QJsonObject& o) {
        CalibrationData cal;
-       if (o.contains("calibrated"))    { cal.calibrated   = o["calibrated"].toBool(); }
-       if (o.contains("rms_error"))     { cal.rmsError     = o["rms_error"].toDouble(-1.0); }
-       if (o.contains("camera_matrix")) { cal.cameraMatrix = json_to_array(o["camera_matrix"].toArray(), cal.cameraMatrix); }
-       if (o.contains("dist_coeffs"))   { cal.distCoeffs   = json_to_array(o["dist_coeffs"].toArray(),   cal.distCoeffs); }
-       if (o.contains("extrinsic_rt"))  { cal.extrinsicRt  = json_to_array(o["extrinsic_rt"].toArray(),  cal.extrinsicRt); }
+       if (o.contains("calibrated"))           { cal.calibrated          = o["calibrated"].toBool(); }
+       if (o.contains("rms_error"))            { cal.rmsError            = o["rms_error"].toDouble(-1.0); }
+       if (o.contains("camera_matrix"))        { cal.cameraMatrix        = json_to_array(o["camera_matrix"].toArray(), cal.cameraMatrix); }
+       if (o.contains("dist_coeffs"))          { cal.distCoeffs          = json_to_array(o["dist_coeffs"].toArray(),   cal.distCoeffs); }
+       if (o.contains("extrinsic_rt"))         { cal.extrinsicRt         = json_to_array(o["extrinsic_rt"].toArray(),  cal.extrinsicRt); }
+       if (o.contains("extrinsic_calibrated")) { cal.extrinsicCalibrated = o["extrinsic_calibrated"].toBool(); }
        return cal;
    }
    
@@ -80,10 +83,19 @@ Program Listing for File settings.cpp
            {"gain_db",              gainDb},
            {"gain_auto_lower",      gainAutoLowerDb},
            {"gain_auto_upper",      gainAutoUpperDb},
-           {"gamma",                gamma},
-           {"black_level",          blackLevel},
-           {"balance_white_auto",   balanceWhiteAuto},
-           {"calibration",          calibration.to_json()},
+           {"gamma",                    gamma},
+           {"black_level",              blackLevel},
+           {"balance_white_auto",       balanceWhiteAuto},
+           {"saturation",               saturation},
+           {"contrast",                 contrast},
+           {"brightness",               brightness},
+           {"auto_target_brightness",   autoTargetBrightness},
+           {"digital_shift",            digitalShift},
+           {"hw_trigger_enabled",       hwTriggerEnabled},
+           {"hw_trigger_source",        hwTriggerSource},
+           {"hw_trigger_delay_us",      hwTriggerDelayUs},
+           {"test_pattern",             testPattern},
+           {"calibration",              calibration.to_json()},
        };
    }
    
@@ -108,9 +120,18 @@ Program Listing for File settings.cpp
        if (o.contains("gain_db"))            c.gainDb              = o["gain_db"].toDouble(c.gainDb);
        if (o.contains("gain_auto_lower"))    c.gainAutoLowerDb     = o["gain_auto_lower"].toDouble(c.gainAutoLowerDb);
        if (o.contains("gain_auto_upper"))    c.gainAutoUpperDb     = o["gain_auto_upper"].toDouble(c.gainAutoUpperDb);
-       if (o.contains("gamma"))              c.gamma               = o["gamma"].toDouble(c.gamma);
-       if (o.contains("black_level"))        c.blackLevel          = o["black_level"].toDouble(c.blackLevel);
-       if (o.contains("balance_white_auto")) { c.balanceWhiteAuto = o["balance_white_auto"].toString(c.balanceWhiteAuto); }
+       if (o.contains("gamma"))                    c.gamma               = o["gamma"].toDouble(c.gamma);
+       if (o.contains("black_level"))              c.blackLevel          = o["black_level"].toDouble(c.blackLevel);
+       if (o.contains("balance_white_auto"))       c.balanceWhiteAuto    = o["balance_white_auto"].toString(c.balanceWhiteAuto);
+       if (o.contains("saturation"))               c.saturation          = o["saturation"].toDouble(c.saturation);
+       if (o.contains("contrast"))                 c.contrast            = o["contrast"].toDouble(c.contrast);
+       if (o.contains("brightness"))               c.brightness          = o["brightness"].toDouble(c.brightness);
+       if (o.contains("auto_target_brightness"))   c.autoTargetBrightness= o["auto_target_brightness"].toDouble(c.autoTargetBrightness);
+       if (o.contains("digital_shift"))            c.digitalShift        = o["digital_shift"].toInt(c.digitalShift);
+       if (o.contains("hw_trigger_enabled"))       c.hwTriggerEnabled    = o["hw_trigger_enabled"].toBool(c.hwTriggerEnabled);
+       if (o.contains("hw_trigger_source"))        c.hwTriggerSource     = o["hw_trigger_source"].toString(c.hwTriggerSource);
+       if (o.contains("hw_trigger_delay_us"))      c.hwTriggerDelayUs    = o["hw_trigger_delay_us"].toDouble(c.hwTriggerDelayUs);
+       if (o.contains("test_pattern"))             c.testPattern         = o["test_pattern"].toString(c.testPattern);
        if (o.contains("calibration")) {
            if (auto cal = CalibrationData::from_json(o["calibration"].toObject())) {
                c.calibration = std::move(*cal);
@@ -129,8 +150,6 @@ Program Listing for File settings.cpp
            {"preset",     preset},
            {"crf",        crf},
            {"bitrate",    bitrate},
-           {"sync_fps",   syncFps},
-           {"target_fps", targetFps},
            {"cameras",    cams},
        };
    }
@@ -141,8 +160,8 @@ Program Listing for File settings.cpp
        if (o.contains("preset"))     s.preset     = o["preset"].toString(s.preset);
        if (o.contains("crf"))        s.crf        = o["crf"].toInt(s.crf);
        if (o.contains("bitrate"))    s.bitrate    = o["bitrate"].toInt(s.bitrate);
-       if (o.contains("sync_fps"))   s.syncFps    = o["sync_fps"].toBool(s.syncFps);
-       if (o.contains("target_fps")) s.targetFps  = o["target_fps"].toInt(s.targetFps);
+       // Legacy "sync_fps"/"target_fps" keys from older settings.json files are
+       // silently ignored — the feature was never wired into acquisition.
        if (o.contains("cameras")) {
            for (const auto& v : o["cameras"].toArray()) {
                if (auto c = CameraParameters::from_json(v.toObject()))
@@ -194,6 +213,38 @@ Program Listing for File settings.cpp
        return s;
    }
    
+   // ── SerialTriggerConfig ────────────────────────────────────────────────────
+   
+   QJsonObject SerialTriggerConfig::to_json() const {
+       return {
+           {"name",        name},
+           {"port_name",   portName},
+           {"baud_rate",   baudRate},
+           {"data_bits",   dataBits},
+           {"parity",      parity},
+           {"stop_bits",   stopBits},
+           {"match_mode",  matchMode},
+           {"match_value", matchValue},
+           {"enabled",     enabled},
+           {"action",      trigger_action_label(action)},
+       };
+   }
+   
+   std::optional<SerialTriggerConfig> SerialTriggerConfig::from_json(const QJsonObject& o) {
+       SerialTriggerConfig c;
+       if (o.contains("name"))        c.name       = o["name"].toString(c.name);
+       if (o.contains("port_name"))   c.portName   = o["port_name"].toString(c.portName);
+       if (o.contains("baud_rate"))   c.baudRate   = o["baud_rate"].toInt(c.baudRate);
+       if (o.contains("data_bits"))   c.dataBits   = o["data_bits"].toInt(c.dataBits);
+       if (o.contains("parity"))      c.parity     = o["parity"].toString(c.parity);
+       if (o.contains("stop_bits"))   c.stopBits   = o["stop_bits"].toDouble(c.stopBits);
+       if (o.contains("match_mode"))  c.matchMode  = o["match_mode"].toString(c.matchMode);
+       if (o.contains("match_value")) c.matchValue = o["match_value"].toString(c.matchValue);
+       if (o.contains("enabled"))     c.enabled    = o["enabled"].toBool(c.enabled);
+       if (o.contains("action"))      c.action     = trigger_action_from_label(o["action"].toString());
+       return c;
+   }
+   
    // ── ParallelPortConfig ─────────────────────────────────────────────────────
    
    QJsonObject ParallelPortConfig::to_json() const {
@@ -202,6 +253,7 @@ Program Listing for File settings.cpp
            {"poll_rate_ms",  pollRateMs},
            {"enabled",       enabled},
            {"invert_logic",  invertLogic},
+           {"action",        trigger_action_label(action)},
        };
    }
    
@@ -211,13 +263,15 @@ Program Listing for File settings.cpp
        if (o.contains("poll_rate_ms")) { c.pollRateMs  = o["poll_rate_ms"].toInt(c.pollRateMs);     }
        if (o.contains("enabled"))      { c.enabled     = o["enabled"].toBool(c.enabled);             }
        if (o.contains("invert_logic")) { c.invertLogic = o["invert_logic"].toBool(c.invertLogic);   }
+       if (o.contains("action"))       { c.action      = trigger_action_from_label(o["action"].toString()); }
        return c;
    }
    
    // ── KeyTriggerConfig ───────────────────────────────────────────────────────
    
    QJsonObject KeyTriggerConfig::to_json() const {
-       return {{"name", name}, {"key_seq", keySeq}, {"enabled", enabled}};
+       return {{"name", name}, {"key_seq", keySeq}, {"enabled", enabled},
+               {"action", trigger_action_label(action)}};
    }
    
    std::optional<KeyTriggerConfig> KeyTriggerConfig::from_json(const QJsonObject& o) {
@@ -225,6 +279,7 @@ Program Listing for File settings.cpp
        if (o.contains("name"))    c.name    = o["name"].toString(c.name);
        if (o.contains("key_seq")) c.keySeq  = o["key_seq"].toString(c.keySeq);
        if (o.contains("enabled")) c.enabled = o["enabled"].toBool(c.enabled);
+       if (o.contains("action"))  c.action  = trigger_action_from_label(o["action"].toString());
        return c;
    }
    
@@ -232,7 +287,8 @@ Program Listing for File settings.cpp
    
    QJsonObject LslInletConfig::to_json() const {
        return {{"name", name}, {"stream_name", streamName},
-               {"stream_type", streamType}, {"enabled", enabled}};
+               {"stream_type", streamType}, {"enabled", enabled},
+               {"action", trigger_action_label(action)}};
    }
    
    std::optional<LslInletConfig> LslInletConfig::from_json(const QJsonObject& o) {
@@ -241,14 +297,16 @@ Program Listing for File settings.cpp
        if (o.contains("stream_name")) c.streamName = o["stream_name"].toString(c.streamName);
        if (o.contains("stream_type")) c.streamType = o["stream_type"].toString(c.streamType);
        if (o.contains("enabled"))     c.enabled    = o["enabled"].toBool(c.enabled);
+       if (o.contains("action"))      c.action     = trigger_action_from_label(o["action"].toString());
        return c;
    }
    
    // ── TriggerSettings ────────────────────────────────────────────────────────
    
    QJsonObject TriggerSettings::to_json() const {
-       QJsonArray keys, lsls, ports;
+       QJsonArray keys, serials, lsls, ports;
        for (const auto& k : keyboardTriggers) { keys.append(k.to_json()); }
+       for (const auto& s : serialTriggers)   { serials.append(s.to_json()); }
        for (const auto& l : lslInlets)        { lsls.append(l.to_json()); }
        for (const auto& p : parallelPorts)    { ports.append(p.to_json()); }
        return {
@@ -257,6 +315,7 @@ Program Listing for File settings.cpp
            {"lsl_outlet_name",    lslOutletName},
            {"lsl_outlet_rate",    lslOutletRate},
            {"keyboard_triggers",  keys},
+           {"serial_triggers",    serials},
            {"lsl_inlets",         lsls},
            {"parallel_ports",     ports},
        };
@@ -271,6 +330,11 @@ Program Listing for File settings.cpp
        if (o.contains("keyboard_triggers")) {
            for (const auto& v : o["keyboard_triggers"].toArray()) {
                if (auto c = KeyTriggerConfig::from_json(v.toObject())) { s.keyboardTriggers.push_back(std::move(*c)); }
+           }
+       }
+       if (o.contains("serial_triggers")) {
+           for (const auto& v : o["serial_triggers"].toArray()) {
+               if (auto c = SerialTriggerConfig::from_json(v.toObject())) { s.serialTriggers.push_back(std::move(*c)); }
            }
        }
        if (o.contains("lsl_inlets")) {
@@ -318,6 +382,36 @@ Program Listing for File settings.cpp
        return s;
    }
    
+   QJsonObject AnalysisSettings::to_json() const {
+       return {
+           {"hf_token", hfToken},
+       };
+   }
+   
+   std::optional<AnalysisSettings> AnalysisSettings::from_json(const QJsonObject& o) {
+       AnalysisSettings s;
+       if (o.contains("hf_token")) s.hfToken = o["hf_token"].toString(s.hfToken);
+       return s;
+   }
+   
+   // ── RoomSettings ───────────────────────────────────────────────────────────
+   
+   QJsonObject RoomSettings::to_json() const {
+       return {
+           {"plane_point",   array_to_json(planePoint)},
+           {"plane_normal",  array_to_json(planeNormal)},
+           {"plane_defined", planeDefined},
+       };
+   }
+   
+   std::optional<RoomSettings> RoomSettings::from_json(const QJsonObject& o) {
+       RoomSettings s;
+       if (o.contains("plane_point"))   { s.planePoint   = json_to_array(o["plane_point"].toArray(),  s.planePoint); }
+       if (o.contains("plane_normal"))  { s.planeNormal  = json_to_array(o["plane_normal"].toArray(), s.planeNormal); }
+       if (o.contains("plane_defined")) { s.planeDefined = o["plane_defined"].toBool(); }
+       return s;
+   }
+   
    // ── AppSettings ────────────────────────────────────────────────────────────
    
    bool AppSettings::save(const QString& path) const {
@@ -327,6 +421,8 @@ Program Listing for File settings.cpp
            {"audio",          audio.to_json()},
            {"trigger",        trigger.to_json()},
            {"record",         record.to_json()},
+           {"analysis",       analysis.to_json()},
+           {"room",           room.to_json()},
        };
    
        if (!QDir().mkpath(QFileInfo(path).absolutePath())) {
@@ -369,6 +465,10 @@ Program Listing for File settings.cpp
            s.trigger = TriggerSettings::from_json(root["trigger"].toObject()).value_or(s.trigger);
        if (root.contains("record"))
            s.record  = RecordSettings::from_json(root["record"].toObject()).value_or(s.record);
+       if (root.contains("analysis"))
+           s.analysis = AnalysisSettings::from_json(root["analysis"].toObject()).value_or(s.analysis);
+       if (root.contains("room"))
+           s.room    = RoomSettings::from_json(root["room"].toObject()).value_or(s.room);
    
        log_info(QString("Settings loaded ← %1").arg(path));
        return s;

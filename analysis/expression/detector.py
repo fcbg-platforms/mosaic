@@ -30,16 +30,17 @@ _MEDIAPIPE_MODEL_URL = (
     "face_landmarker/face_landmarker/float16/1/face_landmarker.task"
 )
 
-# The standard ARKit-style blendshape category names MediaPipe's
-# FaceLandmarker outputs when output_face_blendshapes=True (the same
-# category set Apple ARKit/most game engines use, plus MediaPipe's own
-# "_neutral"). This module never trusts MediaPipe's positional output order
-# or exact count — _ordered_scores() below looks scores up by category NAME
-# instead — so a future mediapipe version reordering (or adding/removing)
-# its output categories can't silently misalign names/scores. Any category
-# MediaPipe returns that isn't in this list is silently omitted from the
-# parallel array; any name listed here that MediaPipe doesn't return
-# defaults to 0.0 — both are documented, low-risk degrades, not crashes.
+#: The standard ARKit-style blendshape category names MediaPipe's
+#: ``FaceLandmarker`` outputs when ``output_face_blendshapes=True`` (the
+#: same category set Apple ARKit/most game engines use, plus MediaPipe's
+#: own ``"_neutral"``). This module never trusts MediaPipe's positional
+#: output order or exact count — score lookup is always by category
+#: **name** against this list, so a future mediapipe version reordering
+#: (or adding/removing) its output categories can't silently misalign
+#: names/scores. Any category MediaPipe returns that isn't in this list is
+#: silently omitted; any name listed here that MediaPipe doesn't return
+#: defaults to ``0.0`` — both are documented, low-risk degrades, not
+#: crashes.
 BLENDSHAPE_NAMES: list[str] = [
     "_neutral",
     "browDownLeft", "browDownRight", "browInnerUp",
@@ -73,12 +74,35 @@ BLENDSHAPE_NAMES: list[str] = [
 
 @dataclass
 class FaceExpression:
+    """One detected face's bounding box and raw blendshape scores.
+
+    Attributes
+    ----------
+    bbox_xyxy : tuple of float
+        Detection bounding box, ``(x1, y1, x2, y2)`` pixels.
+    confidence : float
+        Detection confidence. Always ``1.0`` — see the constructor site's
+        comment for why a constant is more honest here than a proxy metric.
+    blendshape_scores : list of float
+        Per-category activation, in ``[0, 1]``, parallel to
+        :data:`BLENDSHAPE_NAMES`.
+    """
     bbox_xyxy: tuple[float, float, float, float]
     confidence: float
     blendshape_scores: list[float]   # parallel to BLENDSHAPE_NAMES
 
 
 class MediaPipeExpressionDetector:
+    """MediaPipe Tasks ``FaceLandmarker``-based blendshape detector.
+
+    Parameters
+    ----------
+    max_faces : int, default 5
+        Maximum simultaneous faces to detect per frame.
+    min_confidence : float, default 0.5
+        Minimum face-detection/-presence confidence to keep a face.
+    """
+
     def __init__(self, max_faces: int = 5, min_confidence: float = 0.5) -> None:
         import mediapipe as mp
         from mediapipe.tasks import python as mp_python
@@ -100,6 +124,18 @@ class MediaPipeExpressionDetector:
         self._landmarker = mp_vision.FaceLandmarker.create_from_options(options)
 
     def detect(self, frame_bgr: np.ndarray) -> list[FaceExpression]:
+        """Detect faces and their blendshape scores in one BGR frame.
+
+        Parameters
+        ----------
+        frame_bgr : numpy.ndarray
+            BGR frame, as returned by ``cv2.imread``/``cv2.VideoCapture``.
+
+        Returns
+        -------
+        list of FaceExpression
+            One entry per detected face.
+        """
         h, w = frame_bgr.shape[:2]
         rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
         mp_image = self._mp.Image(image_format=self._mp.ImageFormat.SRGB, data=rgb)
@@ -129,10 +165,28 @@ def _ordered_scores(categories) -> list[float]:
 
 
 def crop_bbox(frame_bgr: np.ndarray, bbox_xyxy: tuple[float, float, float, float]) -> np.ndarray:
-    """Crops frame_bgr to bbox_xyxy, clamped to the frame bounds. Used by the
-    FER+ backend (ferplus.py), which needs a tight face crop rather than the
-    full frame. Returns a possibly-empty array if the box is degenerate
-    (e.g. fully outside the frame) — callers must check .size before use."""
+    """Crop a frame to a bounding box, clamped to the frame bounds.
+
+    Parameters
+    ----------
+    frame_bgr : numpy.ndarray
+        BGR frame to crop.
+    bbox_xyxy : tuple of float
+        ``(x1, y1, x2, y2)`` pixel coordinates, e.g. from
+        :attr:`FaceExpression.bbox_xyxy`.
+
+    Returns
+    -------
+    numpy.ndarray
+        The cropped region. Possibly empty (shape ``(0, 0, 3)``) if the
+        box is degenerate (e.g. fully outside the frame) — callers must
+        check ``.size`` before use.
+
+    Notes
+    -----
+    Used by the FER+ backend (:mod:`~expression.ferplus`), which needs a
+    tight face crop rather than the full frame.
+    """
     h, w = frame_bgr.shape[:2]
     x1, y1, x2, y2 = bbox_xyxy
     x1c, y1c = max(0, int(x1)), max(0, int(y1))

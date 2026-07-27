@@ -26,6 +26,7 @@ struct VideoSettingsW::Impl {
     QVBoxLayout*   camerasLayout = nullptr;
     QVector<CameraCardW*> cards;
     QLabel*        discoverStatusLbl = nullptr;
+    QPushButton*   discoverBtn       = nullptr;
 };
 
 // ── Constructor ────────────────────────────────────────────────────────────
@@ -66,6 +67,15 @@ VideoSettingsW::VideoSettingsW(VideoSettings& settings, QWidget* parent)
 }
 
 VideoSettingsW::~VideoSettingsW() = default;
+
+void VideoSettingsW::set_discover_enabled(bool enabled) {
+    if (d->discoverBtn) { d->discoverBtn->setEnabled(enabled); }
+}
+
+void VideoSettingsW::set_action_command_capability(int cameraIndex, bool supported) {
+    if (cameraIndex < 0 || cameraIndex >= d->cards.size()) { return; }
+    d->cards[cameraIndex]->set_action_command_capability(supported);
+}
 
 // ── Encoding section ───────────────────────────────────────────────────────
 
@@ -208,6 +218,7 @@ void VideoSettingsW::build_cameras_section(QVBoxLayout* parent) {
                             "for each one found, with its serial number already filled in.");
     connect(discoverBtn, &QPushButton::clicked, this, &VideoSettingsW::discover_cameras);
     headerRow->addWidget(discoverBtn);
+    d->discoverBtn = discoverBtn;
 
     auto* addBtn = new QPushButton("+ Add camera");
     addBtn->setFixedHeight(26);

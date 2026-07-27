@@ -4,7 +4,7 @@
 File video_manager.cpp
 ======================
 
-|exhale_lsh| :ref:`Parent directory <dir_src_video>` (``src/video``)
+|exhale_lsh| :ref:`Parent directory <dir_src_video>` (``src\video``)
 
 .. |exhale_lsh| unicode:: U+021B0 .. UPWARDS ARROW WITH TIP LEFTWARDS
 
@@ -13,7 +13,7 @@ File video_manager.cpp
    :local:
    :backlinks: none
 
-Definition (``src/video/video_manager.cpp``)
+Definition (``src\video\video_manager.cpp``)
 --------------------------------------------
 
 
@@ -30,19 +30,25 @@ Includes
 --------
 
 
+- ``QCoreApplication``
+
 - ``QDir``
+
+- ``QSet``
 
 - ``atomic``
 
-- ``utils/logger.hpp`` (:ref:`file_src_utils_logger.hpp`)
+- ``trigger/trigger_manager.hpp``
 
-- ``utils/ring_buffer.hpp`` (:ref:`file_src_utils_ring_buffer.hpp`)
+- ``utils/logger.hpp``
 
-- ``video/video_encoder.hpp`` (:ref:`file_src_video_video_encoder.hpp`)
+- ``utils/ring_buffer.hpp``
 
-- ``video/video_grabber.hpp`` (:ref:`file_src_video_video_grabber.hpp`)
+- ``video/video_encoder.hpp``
 
-- ``video/video_manager.hpp`` (:ref:`file_src_video_video_manager.hpp`)
+- ``video/video_grabber.hpp``
+
+- ``video/video_manager.hpp``
 
 
 

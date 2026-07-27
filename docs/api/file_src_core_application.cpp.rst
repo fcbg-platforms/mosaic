@@ -4,7 +4,7 @@
 File application.cpp
 ====================
 
-|exhale_lsh| :ref:`Parent directory <dir_src_core>` (``src/core``)
+|exhale_lsh| :ref:`Parent directory <dir_src_core>` (``src\core``)
 
 .. |exhale_lsh| unicode:: U+021B0 .. UPWARDS ARROW WITH TIP LEFTWARDS
 
@@ -13,7 +13,7 @@ File application.cpp
    :local:
    :backlinks: none
 
-Definition (``src/core/application.cpp``)
+Definition (``src\core\application.cpp``)
 -----------------------------------------
 
 
@@ -34,15 +34,19 @@ Includes
 
 - ``QDir``
 
-- ``auth/profile_manager.hpp`` (:ref:`file_src_auth_profile_manager.hpp`)
+- ``analysis/analysis_manager.hpp``
 
-- ``core/application.hpp`` (:ref:`file_src_core_application.hpp`)
+- ``auth/profile_manager.hpp``
+
+- ``core/application.hpp``
+
+- ``trigger/trigger_types.hpp``
 
 - ``ui/main_window.hpp``
 
-- ``utils/logger.hpp`` (:ref:`file_src_utils_logger.hpp`)
+- ``utils/logger.hpp``
 
-- ``utils/timestamp.hpp`` (:ref:`file_src_utils_timestamp.hpp`)
+- ``utils/timestamp.hpp``
 
 
 
