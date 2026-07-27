@@ -4,7 +4,7 @@
 File logger.cpp
 ===============
 
-|exhale_lsh| :ref:`Parent directory <dir_src_utils>` (``src/utils``)
+|exhale_lsh| :ref:`Parent directory <dir_src_utils>` (``src\utils``)
 
 .. |exhale_lsh| unicode:: U+021B0 .. UPWARDS ARROW WITH TIP LEFTWARDS
 
@@ -13,7 +13,7 @@ File logger.cpp
    :local:
    :backlinks: none
 
-Definition (``src/utils/logger.cpp``)
+Definition (``src\utils\logger.cpp``)
 -------------------------------------
 
 
@@ -40,9 +40,9 @@ Includes
 
 - ``QTextStream``
 
-- ``utils/logger.hpp`` (:ref:`file_src_utils_logger.hpp`)
+- ``utils/logger.hpp``
 
-- ``utils/timestamp.hpp`` (:ref:`file_src_utils_timestamp.hpp`)
+- ``utils/timestamp.hpp``
 
 
 

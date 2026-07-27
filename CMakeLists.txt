@@ -48,6 +48,7 @@ list(INSERT CMAKE_MODULE_PATH 0 "${CMAKE_SOURCE_DIR}/cmake")
 # ── Cameras (Basler Pylon) ─────────────────────────────────────────────────
 if(MOSAIC_ENABLE_CAMERAS)
     find_package(Pylon REQUIRED)
+    add_subdirectory(tools)
 endif()
 
 # ── FFmpeg / NVENC ─────────────────────────────────────────────────────────

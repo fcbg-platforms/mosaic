@@ -4,14 +4,16 @@
 Program Listing for File application.cpp
 ========================================
 
-|exhale_lsh| :ref:`Return to documentation for file <file_src_core_application.cpp>` (``src/core/application.cpp``)
+|exhale_lsh| :ref:`Return to documentation for file <file_src_core_application.cpp>` (``src\core\application.cpp``)
 
 .. |exhale_lsh| unicode:: U+021B0 .. UPWARDS ARROW WITH TIP LEFTWARDS
 
 .. code-block:: cpp
 
    #include "core/application.hpp"
+   #include "analysis/analysis_manager.hpp"
    #include "auth/profile_manager.hpp"
+   #include "trigger/trigger_types.hpp"
    #include "ui/main_window.hpp"
    #include "utils/logger.hpp"
    #include "utils/timestamp.hpp"
@@ -27,6 +29,7 @@ Program Listing for File application.cpp
        std::unique_ptr<AudioManager>    audioManager;
        std::unique_ptr<VideoManager>    videoManager;
        std::unique_ptr<RecordManager>   recordManager;
+       std::unique_ptr<AnalysisManager> analysisManager;
        std::unique_ptr<MainWindow>      mainWindow;
    };
    
@@ -64,20 +67,72 @@ Program Listing for File application.cpp
    
        d->triggerManager = std::make_unique<TriggerManager>(d->settings.trigger, this);
        d->audioManager   = std::make_unique<AudioManager>(this);
-       d->videoManager   = std::make_unique<VideoManager>(this);
+       d->videoManager   = std::make_unique<VideoManager>(d->triggerManager.get(), this);
+   
+       // camera_error relays both grab failures (VideoGrabber::grab_error) and
+       // encode failures (VideoEncoder::encoding_error) — without this connection
+       // those errors are emitted but never surface anywhere, so a recording can
+       // silently produce zero output with no visible cause.
+       connect(d->videoManager.get(), &VideoManager::camera_error,
+               this, [](int cameraIndex, const QString& message) {
+           log_error(QString("[Camera %1] %2").arg(cameraIndex).arg(message));
+       });
    
        if (!d->settings.video.cameras.empty()) {
            d->videoManager->open(d->settings.video);
+           d->videoManager->start_preview();
        }
    
        d->recordManager = std::make_unique<RecordManager>(
            d->settings, d->triggerManager.get(),
            d->audioManager.get(), d->videoManager.get(), d->username, this);
    
+       // Trigger → action binding: let triggers start/stop recording automatically.
+       connect(d->triggerManager.get(), &TriggerManager::action_requested,
+               this, [this](TriggerAction action, const TriggerEvent& /*event*/) {
+           if (action == TriggerAction::StartRecording) {
+               if (!d->recordManager->is_recording()) {
+                   [[maybe_unused]] const bool started = d->recordManager->start();
+               }
+           } else if (action == TriggerAction::StopRecording) {
+               if (d->recordManager->is_recording())  { d->recordManager->stop(); }
+           }
+       });
+   
+       // Start audio monitoring immediately so the waveform widget shows live levels.
+       if (!d->settings.audio.microphones.empty()) {
+           d->audioManager->start_monitoring(d->settings.audio.microphones);
+       }
+   
+       // Restart monitoring and preview after each recording ends.
+       connect(d->recordManager.get(), &RecordManager::recording_stopped,
+               this, [this](const QString& /*path*/, int /*durationMs*/) {
+           if (!d->settings.audio.microphones.empty()) {
+               d->audioManager->start_monitoring(d->settings.audio.microphones);
+           }
+           if (!d->settings.video.cameras.empty()) {
+               d->videoManager->start_preview();
+           }
+       });
+   
+       // Analysis manager — post-recording pose estimation
+       d->analysisManager = std::make_unique<AnalysisManager>(this);
+       connect(d->analysisManager.get(), &AnalysisManager::output_received,
+               this, [](const QString& line) { log_info("[Analysis] " + line); });
+       connect(d->analysisManager.get(), &AnalysisManager::setup_error,
+               this, [](const QString& msg) { log_error("[Analysis] " + msg); });
+       connect(d->recordManager.get(), &RecordManager::recording_stopped,
+               this, [this](const QString& path, int /*durationMs*/) {
+           if (d->analysisManager->auto_analyze()) {
+               d->analysisManager->analyze_session(path);
+           }
+       });
+   
        d->mainWindow = std::make_unique<MainWindow>(
            d->settings, d->username,
            d->triggerManager.get(), d->audioManager.get(),
-           d->videoManager.get(), d->recordManager.get());
+           d->videoManager.get(), d->recordManager.get(),
+           d->analysisManager.get());
        d->mainWindow->show();
    
        log_info("Initialisation complete.");

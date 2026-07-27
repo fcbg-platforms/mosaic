@@ -77,6 +77,23 @@ EYE_ORIGIN_MODEL_MM = (HEAD_POSE_MODEL_MM[2] + HEAD_POSE_MODEL_MM[3]) / 2.0
 
 @dataclass
 class FaceGazeSample:
+    """One detected face's head pose and 2D iris-offset heuristic.
+
+    Attributes
+    ----------
+    bbox_xyxy : tuple of float
+        Detection bounding box, ``(x1, y1, x2, y2)`` pixels.
+    confidence : float
+        Detection confidence. Always ``1.0`` (FaceLandmarkerResult
+        carries no per-face detection score).
+    head_rotation : numpy.ndarray
+        3x3 head-pose rotation, camera-local (from ``cv2.solvePnP``).
+    head_translation : numpy.ndarray
+        Length-3 head-pose translation, camera-local, mm.
+    gaze_dx, gaze_dy : float
+        2D iris-offset heuristic, each in ``[-1, 1]`` — same heuristic as
+        ``python/pose/gaze_estimator.py``.
+    """
     bbox_xyxy: tuple[float, float, float, float]   # pixel coords
     confidence: float
     head_rotation: np.ndarray      # 3x3, camera-local
@@ -86,8 +103,20 @@ class FaceGazeSample:
 
 
 class MediaPipeGazeEstimator3D:
-    """Thread-unsafe — one instance per process, matching every other
-    MediaPipe-backed detector in this codebase."""
+    """MediaPipe Tasks ``FaceLandmarker`` + ``cv2.solvePnP``-based 3D gaze estimator.
+
+    Thread-unsafe — one instance per process, matching every other
+    MediaPipe-backed detector in this codebase.
+
+    Parameters
+    ----------
+    max_faces : int, default 1
+        Maximum simultaneous faces to detect per frame. The Multi-Camera
+        Gaze Fusion pipeline only ever consumes subject 0, so this is
+        left at its single-subject default in practice.
+    min_confidence : float, default 0.5
+        Minimum face-detection/-presence confidence to keep a face.
+    """
 
     def __init__(self, max_faces: int = 1, min_confidence: float = 0.5) -> None:
         import mediapipe as mp
@@ -110,12 +139,29 @@ class MediaPipeGazeEstimator3D:
 
     def detect(self, frame_bgr: np.ndarray,
                camera_matrix: np.ndarray, dist_coeffs: np.ndarray) -> list[FaceGazeSample]:
-        """camera_matrix: 3x3, dist_coeffs: length-5 — this camera's real
-        intrinsic calibration (read from session_meta.json by the caller),
-        required for a metric solvePnP solve. Faces missing iris landmarks,
-        with a degenerate eye width, or a failed solvePnP fit are silently
-        skipped — documented, low-risk degrade (one fewer camera
-        contributing to that frame's fusion), not a crash."""
+        """Detect faces and solve each one's 3D head pose in one BGR frame.
+
+        Parameters
+        ----------
+        frame_bgr : numpy.ndarray
+            BGR frame, as returned by ``cv2.imread``/``cv2.VideoCapture``.
+        camera_matrix : numpy.ndarray
+            3x3 camera intrinsic matrix — this camera's real calibration
+            (read from ``session_meta.json`` by the caller), required for
+            a metric ``solvePnP`` solve.
+        dist_coeffs : numpy.ndarray
+            Length-5 distortion coefficients, this camera's real
+            calibration.
+
+        Returns
+        -------
+        list of FaceGazeSample
+            One entry per successfully-solved face. Faces missing iris
+            landmarks, with a degenerate eye width, or a failed
+            ``solvePnP`` fit are silently skipped — a documented,
+            low-risk degrade (one fewer camera contributing to that
+            frame's fusion), not a crash.
+        """
         h, w = frame_bgr.shape[:2]
         rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
         mp_image = self._mp.Image(image_format=self._mp.ImageFormat.SRGB, data=rgb)
@@ -161,9 +207,26 @@ class MediaPipeGazeEstimator3D:
 
 
 def _iris_offset(lm):
-    """Same heuristic as python/pose/gaze_estimator.py's GazeEstimator.estimate()
-    — iris-centre offset from eye-socket centre, normalised by eye width.
-    Returns (None, None) if the eye width is too small to normalise by."""
+    """Compute the 2D iris-centre-offset-from-eye-socket-centre heuristic.
+
+    Parameters
+    ----------
+    lm : sequence
+        MediaPipe FaceLandmarker's 478-point face-mesh landmark list for
+        one detected face.
+
+    Returns
+    -------
+    tuple of (float, float) or tuple of (None, None)
+        ``(gaze_dx, gaze_dy)``, each in ``[-1, 1]``, or ``(None, None)``
+        if the eye width is too small to normalise by.
+
+    Notes
+    -----
+    Same heuristic as ``python/pose/gaze_estimator.py``'s
+    ``GazeEstimator.estimate()`` — iris-centre offset from eye-socket
+    centre, normalised by eye width.
+    """
     li_x, li_y = lm[_LEFT_IRIS_CENTER].x, lm[_LEFT_IRIS_CENTER].y
     ri_x, ri_y = lm[_RIGHT_IRIS_CENTER].x, lm[_RIGHT_IRIS_CENTER].y
 
@@ -185,6 +248,20 @@ def _iris_offset(lm):
 
 
 def _ensure_download(dest: Path, url: str) -> Path:
+    """Download ``url`` to ``dest`` if not already cached there.
+
+    Parameters
+    ----------
+    dest : pathlib.Path
+        Destination file path; parent directories are created as needed.
+    url : str
+        Source URL.
+
+    Returns
+    -------
+    pathlib.Path
+        ``dest``, unchanged.
+    """
     if not dest.exists():
         dest.parent.mkdir(parents=True, exist_ok=True)
         print(f"[gaze] Downloading {dest.name} …", flush=True)

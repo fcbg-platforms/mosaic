@@ -4,7 +4,7 @@
 Program Listing for File video_encoder.cpp
 ==========================================
 
-|exhale_lsh| :ref:`Return to documentation for file <file_src_video_video_encoder.cpp>` (``src/video/video_encoder.cpp``)
+|exhale_lsh| :ref:`Return to documentation for file <file_src_video_video_encoder.cpp>` (``src\video\video_encoder.cpp``)
 
 .. |exhale_lsh| unicode:: U+021B0 .. UPWARDS ARROW WITH TIP LEFTWARDS
 
@@ -94,14 +94,14 @@ Program Listing for File video_encoder.cpp
                QThread::msleep(1);
                continue;
            }
-           d->tsWriter.write(frame->frameId, frame->elapsedNs, frame->wallClockNs);
+           d->tsWriter.write(frame->frameId, frame->elapsedNs, frame->wallClockNs, frame->hwTimestampNs);
            d->encCount.fetch_add(1);
        }
    
        // Drain remaining frames.
        std::shared_ptr<VideoFrame> frame;
        while (d->frameBuffer.pop(frame)) {
-           d->tsWriter.write(frame->frameId, frame->elapsedNs, frame->wallClockNs);
+           d->tsWriter.write(frame->frameId, frame->elapsedNs, frame->wallClockNs, frame->hwTimestampNs);
            d->encCount.fetch_add(1);
        }
    
@@ -129,24 +129,27 @@ Program Listing for File video_encoder.cpp
    
        const auto& cfg = d->cfg;
    
-       // ── Choose codec ────────────────────────────────────────────────────────
-       const char* codecName = cfg.codec.toUtf8().constData();
-       const AVCodec* codec  = avcodec_find_encoder_by_name(codecName);
+       // ── Codec selection: preferred → libx264 fallback ───────────────────────
+       // Keep QByteArrays alive for the duration of the calls that use their data.
+       const QByteArray preferredNameBytes = cfg.codec.toUtf8();
+       const AVCodec* codec = avcodec_find_encoder_by_name(preferredNameBytes.constData());
+       bool usingGpu = cfg.codec.contains("nvenc") || cfg.codec.contains("videotoolbox");
        if (!codec) {
-           // Fallback: libx264 software
            log_warning(QString("[Encoder %1] Codec '%2' not found, falling back to libx264")
                            .arg(cfg.cameraIndex).arg(cfg.codec));
-           codec = avcodec_find_encoder_by_name("libx264");
+           codec   = avcodec_find_encoder_by_name("libx264");
+           usingGpu = false;
        }
        if (!codec) {
-           emit encoding_error(cfg.cameraIndex, "No suitable video codec found.");
+           emit encoding_error(cfg.cameraIndex, "No suitable video codec found (tried libx264).");
            return;
        }
    
-       // ── Open output file / format context ──────────────────────────────────
+       // ── Open output format context ──────────────────────────────────────────
+       const QByteArray outputPathBytes = cfg.outputPath.toUtf8();
        AVFormatContext* fmtCtx = nullptr;
        if (avformat_alloc_output_context2(&fmtCtx, nullptr, nullptr,
-                                           cfg.outputPath.toUtf8().constData()) < 0) {
+                                           outputPathBytes.constData()) < 0) {
            emit encoding_error(cfg.cameraIndex,
                                QString("Cannot create output context for: %1").arg(cfg.outputPath));
            return;
@@ -159,40 +162,59 @@ Program Listing for File video_encoder.cpp
            return;
        }
    
-       // ── Codec context ───────────────────────────────────────────────────────
-       AVCodecContext* ctx = avcodec_alloc_context3(codec);
+       // ── Build a codec context for the given codec ───────────────────────────
+       // Returns nullptr if avcodec_open2 fails (caller should retry with fallback).
+       auto try_open_codec = [&](const AVCodec* c, bool gpu) -> AVCodecContext* {
+           AVCodecContext* ctx = avcodec_alloc_context3(c);
+           if (!ctx) { return nullptr; }
+   
+           ctx->width     = cfg.width;
+           ctx->height    = cfg.height;
+           // 1 ms time_base lets PTS track real elapsed time from elapsed_ns.
+           // Frame rate hint uses the nominal fps; actual inter-frame spacing
+           // is determined by each frame's measured elapsed_ns timestamp.
+           ctx->time_base = AVRational{1, 1000};
+           ctx->framerate = AVRational{static_cast<int>(std::round(cfg.fps)), 1};
+           ctx->pix_fmt   = AV_PIX_FMT_YUV420P;
+           ctx->gop_size  = static_cast<int>(cfg.fps * 2);
+   
+           if (gpu) {
+               ctx->bit_rate = cfg.bitrate * 1000LL;
+               const QByteArray preset = cfg.preset.toUtf8();
+               av_opt_set(ctx->priv_data, "preset", preset.constData(), 0);
+           } else {
+               av_opt_set_int(ctx->priv_data, "crf", cfg.crf, 0);
+               av_opt_set(ctx->priv_data, "preset", "medium", 0);
+           }
+   
+           if (fmtCtx->oformat->flags & AVFMT_GLOBALHEADER) {
+               ctx->flags |= AV_CODEC_FLAG_GLOBAL_HEADER;
+           }
+   
+           if (avcodec_open2(ctx, c, nullptr) != 0) {
+               avcodec_free_context(&ctx);
+               return nullptr;
+           }
+           return ctx;
+       };
+   
+       // ── Open codec; fall back to libx264 if the GPU encoder fails at runtime ─
+       AVCodecContext* ctx = try_open_codec(codec, usingGpu);
+       if (!ctx && usingGpu) {
+           log_warning(QString("[Encoder %1] GPU codec '%2' failed to open "
+                               "(no compatible GPU/driver?), falling back to libx264")
+                           .arg(cfg.cameraIndex).arg(cfg.codec));
+           const AVCodec* sw = avcodec_find_encoder_by_name("libx264");
+           if (sw) {
+               codec    = sw;
+               usingGpu = false;
+               ctx      = try_open_codec(codec, false);
+           }
+       }
        if (!ctx) {
            avformat_free_context(fmtCtx);
-           emit encoding_error(cfg.cameraIndex, "Cannot allocate codec context.");
-           return;
-       }
-   
-       ctx->width     = cfg.width;
-       ctx->height    = cfg.height;
-       ctx->time_base = AVRational{1, static_cast<int>(cfg.fps * 1000)};
-       ctx->framerate = AVRational{static_cast<int>(cfg.fps * 1000), 1000};
-       ctx->pix_fmt   = AV_PIX_FMT_YUV420P;
-       ctx->gop_size  = static_cast<int>(cfg.fps * 2); // keyframe every 2 s
-   
-       const bool isGpu = cfg.codec.contains("nvenc") || cfg.codec.contains("videotoolbox");
-       if (isGpu) {
-           ctx->bit_rate = cfg.bitrate * 1000LL;
-           av_opt_set(ctx->priv_data, "preset", cfg.preset.toUtf8().constData(), 0);
-       } else {
-           // CRF mode for software codecs
-           av_opt_set_int(ctx->priv_data, "crf", cfg.crf, 0);
-           av_opt_set(ctx->priv_data, "preset", cfg.preset.toUtf8().constData(), 0);
-       }
-   
-       if (fmtCtx->oformat->flags & AVFMT_GLOBALHEADER) {
-           ctx->flags |= AV_CODEC_FLAG_GLOBAL_HEADER;
-       }
-   
-       if (avcodec_open2(ctx, codec, nullptr) < 0) {
-           avcodec_free_context(&ctx);
-           avformat_free_context(fmtCtx);
            emit encoding_error(cfg.cameraIndex,
-                               QString("Cannot open codec '%1'").arg(cfg.codec));
+                               QString("Cannot open codec '%1' or libx264 fallback.").arg(cfg.codec));
            return;
        }
    
@@ -201,9 +223,7 @@ Program Listing for File video_encoder.cpp
    
        // ── Open file for writing ───────────────────────────────────────────────
        if (!(fmtCtx->oformat->flags & AVFMT_NOFILE)) {
-           if (avio_open(&fmtCtx->pb,
-                         cfg.outputPath.toUtf8().constData(),
-                         AVIO_FLAG_WRITE) < 0) {
+           if (avio_open(&fmtCtx->pb, outputPathBytes.constData(), AVIO_FLAG_WRITE) < 0) {
                avcodec_free_context(&ctx);
                avformat_free_context(fmtCtx);
                emit encoding_error(cfg.cameraIndex,
@@ -212,7 +232,14 @@ Program Listing for File video_encoder.cpp
            }
        }
    
-       avformat_write_header(fmtCtx, nullptr);
+       if (avformat_write_header(fmtCtx, nullptr) < 0) {
+           if (!(fmtCtx->oformat->flags & AVFMT_NOFILE)) { avio_closep(&fmtCtx->pb); }
+           avcodec_free_context(&ctx);
+           avformat_free_context(fmtCtx);
+           emit encoding_error(cfg.cameraIndex,
+                               QString("Cannot write header for: %1").arg(cfg.outputPath));
+           return;
+       }
    
        // ── Colour conversion context (BGR24 → YUV420P) ─────────────────────────
        SwsContext* swsCtx = sws_getContext(
@@ -243,7 +270,10 @@ Program Listing for File video_encoder.cpp
    
        emit encoding_started(cfg.cameraIndex);
    
-       int64_t pts = 0;
+       // PTS is derived from each frame's elapsed_ns (steady_clock at grab time).
+       // Subtracting the first frame's timestamp gives t=0 at recording start.
+       // time_base = 1/1000, so: pts = elapsed_ms = elapsed_ns / 1_000_000.
+       int64_t startNs = -1;
    
        auto encode_frame = [&](AVFrame* frame) {
            if (avcodec_send_frame(ctx, frame) < 0) { return; }
@@ -275,10 +305,11 @@ Program Listing for File video_encoder.cpp
                      srcData, srcStride, 0, cfg.height,
                      avFrame->data, avFrame->linesize);
    
-           avFrame->pts = pts++;
+           if (startNs < 0) startNs = frame->elapsedNs;
+           avFrame->pts = (frame->elapsedNs - startNs) / 1'000'000;  // ns → ms
            encode_frame(avFrame);
    
-           d->tsWriter.write(frame->frameId, frame->elapsedNs, frame->wallClockNs);
+           d->tsWriter.write(frame->frameId, frame->elapsedNs, frame->wallClockNs, frame->hwTimestampNs);
            d->encCount.fetch_add(1);
        }
    
@@ -292,9 +323,10 @@ Program Listing for File video_encoder.cpp
                const int      srcStride[1] = { frame->stride };
                sws_scale(swsCtx, srcData, srcStride, 0, cfg.height,
                          avFrame->data, avFrame->linesize);
-               avFrame->pts = pts++;
+               if (startNs < 0) startNs = frame->elapsedNs;
+               avFrame->pts = (frame->elapsedNs - startNs) / 1'000'000;
                encode_frame(avFrame);
-               d->tsWriter.write(frame->frameId, frame->elapsedNs, frame->wallClockNs);
+               d->tsWriter.write(frame->frameId, frame->elapsedNs, frame->wallClockNs, frame->hwTimestampNs);
                d->encCount.fetch_add(1);
            }
        }

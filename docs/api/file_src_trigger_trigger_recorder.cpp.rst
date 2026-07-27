@@ -4,7 +4,7 @@
 File trigger_recorder.cpp
 =========================
 
-|exhale_lsh| :ref:`Parent directory <dir_src_trigger>` (``src/trigger``)
+|exhale_lsh| :ref:`Parent directory <dir_src_trigger>` (``src\trigger``)
 
 .. |exhale_lsh| unicode:: U+021B0 .. UPWARDS ARROW WITH TIP LEFTWARDS
 
@@ -13,7 +13,7 @@ File trigger_recorder.cpp
    :local:
    :backlinks: none
 
-Definition (``src/trigger/trigger_recorder.cpp``)
+Definition (``src\trigger\trigger_recorder.cpp``)
 -------------------------------------------------
 
 
@@ -40,9 +40,9 @@ Includes
 
 - ``QTextStream``
 
-- ``trigger/trigger_recorder.hpp`` (:ref:`file_src_trigger_trigger_recorder.hpp`)
+- ``trigger/trigger_recorder.hpp``
 
-- ``utils/timestamp.hpp`` (:ref:`file_src_utils_timestamp.hpp`)
+- ``utils/timestamp.hpp``
 
 
 

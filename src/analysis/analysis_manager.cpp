@@ -33,9 +33,10 @@ struct Job {
 // True if sessionPath has no sync_manifest.json yet, or if any of its
 // timestamps_camN.csv files were modified more recently than the manifest —
 // e.g. an interrupted/re-run recording over the same session folder. A stale
-// manifest silently feeds run_pose3d.py a wrong cross-camera tick alignment
-// with no visible symptom, so this is checked on every run rather than only
-// "does the file exist".
+// manifest silently feeds run_gaze_fusion.py or run_pose3d.py a wrong
+// cross-camera tick alignment with no visible symptom, so this is checked
+// on every run rather than only "does the file exist". Shared by both
+// run_gaze_fusion() and run_pose3d_reconstruction() below.
 bool sync_manifest_is_stale(const QString& sessionPath) {
     const QFileInfo manifestInfo(sessionPath + "/sync_manifest.json");
     if (!manifestInfo.exists()) { return true; }
@@ -134,7 +135,7 @@ void AnalysisManager::run_expression_analysis(const QString& sessionPath, const 
 
 void AnalysisManager::run_gaze_fusion(const QString& sessionPath, int minCameras,
                                        double minConfidence, int frameSkip) {
-    if (!QFileInfo::exists(sessionPath + "/sync_manifest.json")) {
+    if (sync_manifest_is_stale(sessionPath)) {
         SyncManifest::generate(sessionPath).save(sessionPath);
     }
 

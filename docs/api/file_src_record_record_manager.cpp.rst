@@ -4,7 +4,7 @@
 File record_manager.cpp
 =======================
 
-|exhale_lsh| :ref:`Parent directory <dir_src_record>` (``src/record``)
+|exhale_lsh| :ref:`Parent directory <dir_src_record>` (``src\record``)
 
 .. |exhale_lsh| unicode:: U+021B0 .. UPWARDS ARROW WITH TIP LEFTWARDS
 
@@ -13,7 +13,7 @@ File record_manager.cpp
    :local:
    :backlinks: none
 
-Definition (``src/record/record_manager.cpp``)
+Definition (``src\record\record_manager.cpp``)
 ----------------------------------------------
 
 
@@ -46,11 +46,11 @@ Includes
 
 - ``QTimer``
 
-- ``record/record_manager.hpp`` (:ref:`file_src_record_record_manager.hpp`)
+- ``record/record_manager.hpp``
 
-- ``utils/logger.hpp`` (:ref:`file_src_utils_logger.hpp`)
+- ``utils/logger.hpp``
 
-- ``utils/timestamp.hpp`` (:ref:`file_src_utils_timestamp.hpp`)
+- ``utils/timestamp.hpp``
 
 
 

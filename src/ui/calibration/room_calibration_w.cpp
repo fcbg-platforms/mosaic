@@ -41,19 +41,27 @@ struct RoomCalibrationW::Impl {
     QLabel*              shotCountLbl = nullptr;
     QTimer                captureTimer;
     // Extra grace period after captureTimer closes a shot's acceptance
-    // window, before the button re-enables a NEW capture. Without this, a
-    // calibration_frame_ready signal that's still in flight when
-    // captureTimer fires (e.g. a slow grab thread near the 500ms edge) can
-    // arrive AFTER the user has already clicked "Capture shot" again —
-    // awaitingShot would already be true for the new shot, so the stale
-    // frame gets silently misattributed to it instead of being dropped.
-    // Keeping the button disabled a bit longer gives stale signals time to
-    // arrive while awaitingShot is still false, where they're correctly
-    // ignored by on_calibration_frame_ready()'s existing guard.
+    // window, before the button re-enables a NEW capture — purely a UX
+    // pacing choice (avoids the button flickering enabled/disabled right at
+    // the 500ms edge). Correctness against a late-arriving reply no longer
+    // depends on this timing at all: on_calibration_frame_ready() rejects
+    // any reply whose echoed token doesn't match currentShotToken, so a
+    // frame delayed past this whole window (e.g. GigE resend) is dropped
+    // rather than misattributed to whichever shot happens to be active when
+    // it finally arrives.
     QTimer                cooldownTimer;
     bool                  awaitingShot  = false;
     QVector<VideoFrame>   pendingFrames;
     int                   lastShotIndex = -1;
+    // Incremented once per capture_shot() call and passed to every
+    // request_calibration_frame() call for that shot. on_calibration_frame_ready()
+    // only accepts a reply whose echoed token matches the CURRENT value —
+    // the structural fix for the race the awaitingShot/timer dance above can
+    // only narrow, not close: a reply delayed past this shot's whole
+    // capture+cooldown window (e.g. GigE resend) would otherwise still be
+    // silently misattributed to whatever shot is active when it finally
+    // arrives.
+    uint64_t              currentShotToken = 0;
 
     // Solve
     QComboBox*    referenceCombo = nullptr;
@@ -326,19 +334,20 @@ void RoomCalibrationW::build_capture_section(QVBoxLayout* parent) {
 void RoomCalibrationW::capture_shot() {
     if (d->awaitingShot) { return; }
     d->awaitingShot = true;
+    ++d->currentShotToken;
     d->pendingFrames.clear();
     d->captureBtn->setEnabled(false);
     d->captureBtn->setText("Capturing…");
 
     const int n = static_cast<int>(d->videoSettings.cameras.size());
     for (int i = 0; i < n; ++i) {
-        d->videoMgr->request_calibration_frame(i);
+        d->videoMgr->request_calibration_frame(i, d->currentShotToken);
     }
     d->captureTimer.start(500);
 }
 
-void RoomCalibrationW::on_calibration_frame_ready(int cameraIndex, QImage frame) {
-    if (!d->awaitingShot || frame.isNull()) { return; }
+void RoomCalibrationW::on_calibration_frame_ready(int cameraIndex, QImage frame, uint64_t token) {
+    if (!d->awaitingShot || frame.isNull() || token != d->currentShotToken) { return; }
 
     const QImage bgr = (frame.format() == QImage::Format_BGR888)
         ? frame

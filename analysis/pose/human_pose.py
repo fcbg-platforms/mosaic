@@ -29,21 +29,25 @@ except ImportError:
 
 
 class HumanPoseEstimator:
-    """
-    Wraps YOLOv8-pose for single-frame inference.
+    """Wraps YOLOv8-pose for single-frame inference.
 
     Parameters
     ----------
-    model_name:
-        YOLOv8 model variant (e.g. ``"yolov8n-pose.pt"``).  Downloaded
-        automatically from Ultralytics CDN on first use (~4–87 MB).
-    device:
-        Inference device — ``"cpu"``, ``"cuda:0"``, ``"mps"`` (Apple Silicon).
-        Pass ``None`` to auto-detect (prefers CUDA → MPS → CPU).
-    conf_threshold:
+    model_name : str, default "yolov8n-pose.pt"
+        YOLOv8 model variant. Downloaded automatically from the
+        Ultralytics CDN on first use (~4-87 MB).
+    device : str or None, default None
+        Inference device — ``"cpu"``, ``"cuda:0"``, ``"mps"`` (Apple
+        Silicon). ``None`` auto-detects (prefers CUDA → MPS → CPU).
+    conf_threshold : float, default 0.40
         Minimum detection confidence to include a subject.
-    iou_threshold:
+    iou_threshold : float, default 0.70
         NMS IoU threshold.
+
+    Raises
+    ------
+    ImportError
+        If ``ultralytics`` is not installed.
     """
 
     def __init__(
@@ -78,13 +82,25 @@ class HumanPoseEstimator:
         timestamp_ns: int = 0,
         camera_index: int = 0,
     ) -> PoseResult:
-        """
-        Run pose estimation on one BGR frame (as returned by cv2.imread / VideoCapture).
+        """Run pose estimation on one BGR frame.
+
+        Parameters
+        ----------
+        frame : numpy.ndarray
+            BGR frame, as returned by ``cv2.imread``/``cv2.VideoCapture``.
+        frame_index : int, default 0
+            Caller-supplied frame index, echoed into the result.
+        timestamp_ns : int, default 0
+            Caller-supplied timestamp (ns), echoed into the result.
+        camera_index : int, default 0
+            Caller-supplied camera index, echoed into the result.
 
         Returns
         -------
         PoseResult
-            Structured result containing per-subject keypoints.
+            Structured result containing per-subject keypoints, echoing
+            ``frame_index``/``timestamp_ns``/``camera_index`` back
+            unchanged and reporting this call's own ``inference_ms``.
         """
         t0 = time.perf_counter()
         results = self._model(

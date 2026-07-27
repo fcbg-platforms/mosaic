@@ -4,7 +4,7 @@
 File video_encoder.cpp
 ======================
 
-|exhale_lsh| :ref:`Parent directory <dir_src_video>` (``src/video``)
+|exhale_lsh| :ref:`Parent directory <dir_src_video>` (``src\video``)
 
 .. |exhale_lsh| unicode:: U+021B0 .. UPWARDS ARROW WITH TIP LEFTWARDS
 
@@ -13,7 +13,7 @@ File video_encoder.cpp
    :local:
    :backlinks: none
 
-Definition (``src/video/video_encoder.cpp``)
+Definition (``src\video\video_encoder.cpp``)
 --------------------------------------------
 
 
@@ -46,11 +46,11 @@ Includes
 
 - ``libswscale/swscale.h``
 
-- ``utils/logger.hpp`` (:ref:`file_src_utils_logger.hpp`)
+- ``utils/logger.hpp``
 
-- ``utils/timestamp.hpp`` (:ref:`file_src_utils_timestamp.hpp`)
+- ``utils/timestamp.hpp``
 
-- ``video/video_encoder.hpp`` (:ref:`file_src_video_video_encoder.hpp`)
+- ``video/video_encoder.hpp``
 
 
 

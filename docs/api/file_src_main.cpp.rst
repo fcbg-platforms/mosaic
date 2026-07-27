@@ -13,7 +13,7 @@ File main.cpp
    :local:
    :backlinks: none
 
-Definition (``src/main.cpp``)
+Definition (``src\main.cpp``)
 -----------------------------
 
 
@@ -32,9 +32,11 @@ Includes
 
 - ``QApplication``
 
-- ``auth/profile_manager.hpp`` (:ref:`file_src_auth_profile_manager.hpp`)
+- ``auth/profile_manager.hpp``
 
-- ``core/application.hpp`` (:ref:`file_src_core_application.hpp`)
+- ``core/application.hpp``
+
+- ``ui/auth/admin_panel_dialog.hpp``
 
 - ``ui/auth/login_dialog.hpp``
 

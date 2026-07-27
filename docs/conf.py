@@ -9,7 +9,7 @@ Build pipeline:
 
 Quickstart::
 
-    pip install -r docs/requirements.txt
+    cd docs && uv sync && cd ..
     cmake -S . -B build/Debug -DMOSAIC_BUILD_DOCS=ON
     cmake --build build/Debug --target docs
     # then open build/Debug/docs/sphinx/html/index.html
@@ -32,6 +32,12 @@ from pathlib import Path
 docs_dir = Path(__file__).parent
 project_root = docs_dir.parent
 sys.path.insert(0, str(project_root))
+# analysis/ subpackages import as top-level `pose`, `facemask`, `diarize`,
+# `expression`, `gaze`, `motion` — same convention analysis/tests/*.py uses
+# (sys.path.insert(0, str(Path(__file__).parent.parent)) from a file inside
+# analysis/tests/), so autodoc needs analysis/ itself on sys.path, not
+# project_root/analysis as a package.
+sys.path.insert(0, str(project_root / "analysis"))
 
 # Doxygen XML location: prefer the CMake-built path, fall back to a local one.
 _doxygen_xml = os.environ.get(
@@ -54,7 +60,11 @@ release   = "0.1.0"
 extensions = [
     "breathe",
     "exhale",
-    "myst_parser",          # Markdown support
+    "sphinx.ext.autodoc",       # Python API reference (analysis/ package)
+    "sphinx.ext.autosummary",
+    "sphinx.ext.napoleon",      # numpydoc-style docstring rendering
+    "sphinx.ext.mathjax",       # .. math:: rendering for docs/math/*
+    "myst_parser",              # Markdown support
     "sphinx.ext.intersphinx",
     "sphinx.ext.viewcode",
     "sphinx.ext.autosectionlabel",
@@ -93,6 +103,60 @@ exhale_args = {
 }
 
 # ---------------------------------------------------------------------------
+# Napoleon — render numpydoc-style docstrings (analysis/ package)
+# ---------------------------------------------------------------------------
+napoleon_google_docstring         = False
+napoleon_numpy_docstring          = True
+napoleon_include_init_with_doc    = True
+napoleon_include_private_with_doc = False
+napoleon_include_special_with_doc = False
+napoleon_use_param                = True
+napoleon_use_rtype                = True
+napoleon_use_ivar                 = False
+napoleon_attr_annotations         = True
+
+# ---------------------------------------------------------------------------
+# Autodoc / Autosummary — Python analysis/ API reference (docs/analysis_api.rst)
+# ---------------------------------------------------------------------------
+autodoc_typehints    = "description"   # keep signatures short, types in the body
+autodoc_member_order = "bysource"
+autosummary_generate = True
+autosummary_generate_overwrite = True
+
+# analysis/ imports heavy/optional ML deps at module level (cv2, mediapipe,
+# torch, ...) — mocked so autodoc can import every module for docstring
+# introspection WITHOUT installing the full ML stack in the docs venv.
+# numpy is deliberately NOT mocked: it's small/CPU-only/fast to install, and
+# nearly every analysis/ signature involves np.ndarray — mocking it would
+# render every such type as a fake MagicMock instead of a real,
+# intersphinx-linked numpy.ndarray.
+autodoc_mock_imports = [
+    "cv2",
+    "mediapipe",
+    "ultralytics",
+    "torch",
+    "torchvision",
+    "pyannote",
+    "pyannote.audio",
+    "onnxruntime",
+    "faster_whisper",
+    "scipy",
+    "h5py",
+    "pandas",
+    "matplotlib",
+    "matplotlib.pyplot",
+]
+
+# ---------------------------------------------------------------------------
+# MathJax — .. math:: rendering for docs/math/*
+# ---------------------------------------------------------------------------
+mathjax3_config = {
+    "tex": {
+        "tags": "ams",   # numbered \tag{}/equation environments, AMS-style
+    },
+}
+
+# ---------------------------------------------------------------------------
 # MyST — Markdown options
 # ---------------------------------------------------------------------------
 myst_enable_extensions = [
@@ -106,14 +170,20 @@ myst_heading_anchors = 3
 # ---------------------------------------------------------------------------
 # Theme — pydata-sphinx-theme (NumPy / SciPy / pandas / matplotlib standard)
 # ---------------------------------------------------------------------------
-html_theme = "pydata-sphinx-theme"
+html_theme = "pydata_sphinx_theme"
 
 html_title       = "MOSAIC"
 html_short_title = "MOSAIC"
 
 html_theme_options = {
     "logo": {
+        # Matches the diamond mark painted in BrandingPanel::paintEvent()
+        # (src/ui/auth/login_dialog.cpp) — see docs/_static/logo-{light,dark}.svg's
+        # own comment for the geometry/color correspondence.
+        "image_light": "_static/logo-light.svg",
+        "image_dark":  "_static/logo-dark.svg",
         "text": "MOSAIC",
+        "alt_text": "MOSAIC — Multi-camera Observatory for Social & Activity Interaction Capture",
     },
     "navbar_align":  "left",
     "show_nav_level": 2,
@@ -140,7 +210,7 @@ html_theme_options = {
 
 html_static_path   = ["_static"]
 html_css_files     = ["custom.css"]
-html_favicon       = None
+html_favicon       = "_static/logo-light.svg"
 html_show_sphinx   = False
 html_show_sourcelink = True
 
@@ -149,13 +219,16 @@ html_show_sourcelink = True
 # ---------------------------------------------------------------------------
 intersphinx_mapping = {
     "python": ("https://docs.python.org/3", None),
+    "numpy":  ("https://numpy.org/doc/stable/", None),
+    "scipy":  ("https://docs.scipy.org/doc/scipy/", None),
+    "pandas": ("https://pandas.pydata.org/docs/", None),
 }
 
 # ---------------------------------------------------------------------------
 # General
 # ---------------------------------------------------------------------------
-exclude_patterns  = ["_build", "Thumbs.db", ".DS_Store"]
-source_suffix     = {".rst": "restructuredtext", ".md": "myst_parser"}
+exclude_patterns  = ["_build", ".venv", "Thumbs.db", ".DS_Store"]
+source_suffix     = {".rst": "restructuredtext", ".md": "markdown"}
 master_doc        = "index"
 language          = "en"
 pygments_style    = "monokai"

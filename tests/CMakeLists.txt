@@ -9,6 +9,7 @@ add_executable(mosaic_tests
     test_sync_manifest.cpp
     test_camera_persistence.cpp
     test_param_mapping.cpp
+    test_gige_action_command.cpp
     test_pose_analysis_result.cpp
     test_pose_kinematics.cpp
     test_transcript_result.cpp
@@ -16,6 +17,7 @@ add_executable(mosaic_tests
     test_room_frame_solver.cpp
     test_gaze_fusion_result.cpp
     test_skeleton3d_result.cpp
+    "${CMAKE_SOURCE_DIR}/src/video/gige_action_command.cpp"
     "${CMAKE_SOURCE_DIR}/src/analysis/sync_manifest.cpp"
     "${CMAKE_SOURCE_DIR}/src/calibration/room_frame_solver.cpp"
     "${CMAKE_SOURCE_DIR}/src/analysis/gaze_fusion_result.cpp"

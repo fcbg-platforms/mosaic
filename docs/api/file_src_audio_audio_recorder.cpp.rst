@@ -4,7 +4,7 @@
 File audio_recorder.cpp
 =======================
 
-|exhale_lsh| :ref:`Parent directory <dir_src_audio>` (``src/audio``)
+|exhale_lsh| :ref:`Parent directory <dir_src_audio>` (``src\audio``)
 
 .. |exhale_lsh| unicode:: U+021B0 .. UPWARDS ARROW WITH TIP LEFTWARDS
 
@@ -13,7 +13,7 @@ File audio_recorder.cpp
    :local:
    :backlinks: none
 
-Definition (``src/audio/audio_recorder.cpp``)
+Definition (``src\audio\audio_recorder.cpp``)
 ---------------------------------------------
 
 
@@ -34,13 +34,13 @@ Includes
 
 - ``QMediaDevices``
 
-- ``audio/audio_recorder.hpp`` (:ref:`file_src_audio_audio_recorder.hpp`)
+- ``audio/audio_recorder.hpp``
 
 - ``cmath``
 
 - ``cstdint``
 
-- ``utils/logger.hpp`` (:ref:`file_src_utils_logger.hpp`)
+- ``utils/logger.hpp``
 
 
 

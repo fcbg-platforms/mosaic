@@ -22,14 +22,18 @@ is expected and acceptable.
 """
 from __future__ import annotations
 
+#: The 7 basic-emotion categories this heuristic classifies into, in
+#: argmax tie-break order (``"Neutral"`` listed first — see
+#: :func:`classify_expression`'s Notes).
 CATEGORIES: list[str] = [
     "Neutral", "Happy", "Sad", "Surprised", "Angry", "Disgusted", "Fearful",
 ]
 
-# {category: {blendshape_name: weight}}. Weighted MEAN (not sum) is taken
-# per category at classification time, so a category listing 6 blendshapes
-# isn't unfairly favored over one listing 2 — every category's score stays
-# comparable in [0, 1] regardless of how many shapes it references.
+#: ``{category: {blendshape_name: weight}}``. Weighted MEAN (not sum) is
+#: taken per category at classification time, so a category listing 6
+#: blendshapes isn't unfairly favored over one listing 2 — every category's
+#: score stays comparable in ``[0, 1]`` regardless of how many shapes it
+#: references.
 CATEGORY_WEIGHTS: dict[str, dict[str, float]] = {
     "Neutral": {
         "_neutral": 1.0,
@@ -76,18 +80,37 @@ _MIN_ACTIVATION = 0.15
 
 def classify_expression(blendshape_names: list[str],
                          blendshape_scores: list[float]) -> tuple[str, float]:
-    """Picks the dominant basic-emotion category from a parallel
-    (blendshape_names, blendshape_scores) pair. Unknown/missing blendshape
-    names default to 0.0 (robust to a caller passing a truncated array).
+    """Pick the dominant basic-emotion category from blendshape scores.
 
-    Tie-break: CATEGORIES lists "Neutral" first, and Python's max() keeps
-    the first-seen maximum on an exact tie among the 7 categories — a
-    deliberate "when in doubt, don't overclaim an emotion" default,
-    consistent with diarize's assign_speakers() leaving speaker=None on a
-    zero-overlap tie.
+    Parameters
+    ----------
+    blendshape_names : list of str
+        MediaPipe blendshape category names, parallel to
+        ``blendshape_scores`` (see :data:`~expression.detector.BLENDSHAPE_NAMES`).
+    blendshape_scores : list of float
+        Activation score in ``[0, 1]`` for each name. A name referenced
+        by :data:`CATEGORY_WEIGHTS` but missing here defaults to ``0.0``
+        (robust to a caller passing a truncated array).
 
-    Returns (dominant_expression, dominant_score); score is always in
-    [0, 1].
+    Returns
+    -------
+    tuple of (str, float)
+        ``(dominant_expression, dominant_score)``; ``dominant_expression``
+        is one of :data:`CATEGORIES`, ``dominant_score`` always in
+        ``[0, 1]``.
+
+    Notes
+    -----
+    Each category's score is the weighted **mean** (not sum) of its
+    FACS-Action-Unit-derived blendshape weights, so a category listing
+    many blendshapes isn't unfairly favored over one listing few. Falls
+    back to ``"Neutral"`` when the winning score is below
+    :data:`_MIN_ACTIVATION`. Ties keep the first-seen category in
+    :data:`CATEGORIES` (``"Neutral"`` listed first) — a deliberate "when
+    in doubt, don't overclaim an emotion" default, consistent with
+    :func:`~diarize.pipeline.assign_speakers` leaving ``speaker=None`` on
+    a zero-overlap tie. See :doc:`/math/facial_expression` for the
+    formula.
     """
     lookup = dict(zip(blendshape_names, blendshape_scores))
 

@@ -110,6 +110,8 @@ qt_add_executable(mosaic MACOSX_BUNDLE
     video/frame_timestamp_writer.hpp
     video/frame_timestamp_writer.cpp
     video/param_mapping.hpp
+    video/gige_action_command.hpp
+    video/gige_action_command.cpp
     video/video_grabber.hpp
     video/video_grabber.cpp
     video/video_encoder.hpp

@@ -17,7 +17,6 @@ from __future__ import annotations
 import math
 from collections import deque
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Tuple
 
 import cv2
 import numpy as np
@@ -27,6 +26,26 @@ import numpy as np
 
 @dataclass
 class Track:
+    """One tracked animal's recent position/area history.
+
+    Attributes
+    ----------
+    id : int
+        Stable track ID, assigned once at creation.
+    positions : collections.deque
+        Recent ``(cx, cy)`` centroid history, most recent last, capped to
+        the last 90 frames.
+    timestamps_ns : collections.deque
+        Recent per-frame timestamps (ns), parallel to ``positions``.
+    areas : collections.deque
+        Recent per-frame contour areas (px²), parallel to ``positions``.
+    last_frame : int, default 0
+        Internal frame index this track was last updated at.
+    lost_count : int, default 0
+        Consecutive frames since this track was last matched to a
+        detection; pruned once this exceeds
+        :attr:`CentroidTracker.max_lost`.
+    """
     id: int
     positions: deque = field(default_factory=lambda: deque(maxlen=90))
     timestamps_ns: deque = field(default_factory=lambda: deque(maxlen=90))
@@ -35,21 +54,45 @@ class Track:
     lost_count: int = 0
 
     @property
-    def position(self) -> Tuple[float, float]:
+    def position(self) -> tuple[float, float]:
+        """tuple of float: Most recent ``(cx, cy)`` centroid, or ``(0.0, 0.0)`` if none yet."""
         return self.positions[-1] if self.positions else (0.0, 0.0)
 
     @property
     def velocity_px_per_frame(self) -> float:
+        """float: Euclidean distance between the last two centroids, px/frame."""
         if len(self.positions) < 2:
             return 0.0
         p1, p2 = self.positions[-2], self.positions[-1]
         return math.hypot(p2[0] - p1[0], p2[1] - p1[1])
 
     def velocity_mm_per_s(self, mm_per_px: float, fps: float) -> float:
+        """Convert :attr:`velocity_px_per_frame` to a real-world speed.
+
+        Parameters
+        ----------
+        mm_per_px : float
+            Manual pixel-to-real-world scale factor.
+        fps : float
+            Assumed nominal frame rate.
+
+        Returns
+        -------
+        float
+            Speed in mm/s.
+
+        Notes
+        -----
+        Uses a fixed nominal ``fps`` rather than each sample's real
+        elapsed time, unlike the more careful real-Δt derivative in
+        :doc:`/math/pose_kinematics`. See :doc:`/math/motion_tracking`
+        for the contrast.
+        """
         return self.velocity_px_per_frame * mm_per_px * fps
 
     @property
     def mean_area(self) -> float:
+        """float: Mean contour area (px²) over this track's recent history."""
         return float(np.mean(self.areas)) if self.areas else 0.0
 
 
@@ -57,40 +100,57 @@ class Track:
 
 @dataclass
 class Detection:
+    """One per-frame foreground blob, before track assignment.
+
+    Attributes
+    ----------
+    cx, cy : float
+        Blob centroid (image moments), px.
+    area : float
+        Contour area, px².
+    bbox : tuple of int
+        Bounding rect, ``(x, y, w, h)`` px.
+    contour : numpy.ndarray
+        The raw OpenCV contour this detection was built from.
+    """
     cx: float
     cy: float
     area: float
-    bbox: Tuple[int, int, int, int]  # x, y, w, h
+    bbox: tuple[int, int, int, int]  # x, y, w, h
     contour: np.ndarray
 
 
 # ── CentroidTracker ────────────────────────────────────────────────────────
 
 class CentroidTracker:
-    """
+    """Greedy nearest-neighbour multi-object tracker over MOG2 foreground blobs.
+
+    See the module docstring for the full 7-step pipeline.
+
     Parameters
     ----------
-    min_area, max_area
-        Contour area thresholds (px²).  Tune to your arena / camera height.
-        Typical mouse at ~40 cm camera height: 500–6000 px².
-    max_distance
+    min_area, max_area : int
+        Contour area thresholds (px²). Tune to your arena / camera
+        height. Typical mouse at ~40 cm camera height: 500-6000 px².
+    max_distance : float, default 80.0
         Maximum centroid movement between frames (px) for assignment.
-    max_lost
+        See :doc:`/math/motion_tracking` for the assignment rule.
+    max_lost : int, default 20
         Frames a track can be missing before deletion.
-    learning_rate
-        MOG2 learning rate (-1 = automatic).
-    close_kernel, open_kernel
+    learning_rate : float, default -1
+        MOG2 learning rate (``-1`` = automatic).
+    close_kernel, open_kernel : int
         Morphological structuring element sizes (px).
-    history
-        MOG2 frame history for background model.
-    var_threshold
+    history : int, default 500
+        MOG2 frame history for the background model.
+    var_threshold : float, default 16.0
         MOG2 Mahalanobis distance threshold (lower = more sensitive).
-    mm_per_px
-        Scale factor.  Calibrate from arena dimensions.
-        Default 1.0 means outputs are in pixels.
-    n_animals
-        Expected number of animals.  Limits track creation to prevent
-        phantom tracks from lighting artefacts.  0 = unlimited.
+    mm_per_px : float, default 1.0
+        Manual pixel-to-real-world scale factor, calibrated from arena
+        dimensions. ``1.0`` means outputs stay in pixels.
+    n_animals : int, default 0
+        Expected number of animals. Limits track creation to prevent
+        phantom tracks from lighting artefacts. ``0`` = unlimited.
     """
 
     def __init__(
@@ -123,7 +183,7 @@ class CentroidTracker:
             detectShadows=True,
         )
         self._next_id: int = 0
-        self._tracks: Dict[int, Track] = {}
+        self._tracks: dict[int, Track] = {}
         self._frame_idx: int = 0
 
         # Pre-build kernels once
@@ -139,18 +199,23 @@ class CentroidTracker:
         frame: np.ndarray,
         timestamp_ns: int = 0,
         fps: float = 30.0,
-    ) -> List[Track]:
-        """
-        Process one frame and return a list of currently active tracks.
+    ) -> list[Track]:
+        """Process one frame and return the currently active tracks.
 
         Parameters
         ----------
-        frame
+        frame : numpy.ndarray
             BGR or grayscale frame from OpenCV.
-        timestamp_ns
+        timestamp_ns : int, default 0
             Wall-clock nanoseconds for velocity computation.
-        fps
+        fps : float, default 30.0
             Frames per second (used only for velocity in mm/s).
+
+        Returns
+        -------
+        list of Track
+            Every currently active (not-yet-pruned) track, including
+            ones not matched this frame.
         """
         detections = self._detect(frame)
         self._assign(detections, timestamp_ns, fps)
@@ -159,10 +224,11 @@ class CentroidTracker:
         return list(self._tracks.values())
 
     @property
-    def tracks(self) -> Dict[int, Track]:
+    def tracks(self) -> dict[int, Track]:
         return self._tracks
 
     def reset(self) -> None:
+        """Clear all tracks and rebuild the background model from scratch."""
         self._tracks.clear()
         self._next_id = 0
         self._frame_idx = 0
@@ -170,15 +236,19 @@ class CentroidTracker:
             history=500, varThreshold=16.0, detectShadows=True)
 
     def set_roi(self, mask: np.ndarray) -> None:
-        """
-        Restrict detection to an ROI.  ``mask`` is a binary uint8 array
-        (255 = keep, 0 = ignore) of the same size as the input frame.
+        """Restrict detection to a region of interest.
+
+        Parameters
+        ----------
+        mask : numpy.ndarray
+            Binary ``uint8`` array (255 = keep, 0 = ignore), the same
+            size as the input frame.
         """
         self._roi_mask = mask
 
     # ── Internal ────────────────────────────────────────────────────────────
 
-    def _detect(self, frame: np.ndarray) -> List[Detection]:
+    def _detect(self, frame: np.ndarray) -> list[Detection]:
         gray = frame if frame.ndim == 2 else cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
         # Background subtraction; shadow pixels = 127 → threshold to 0
@@ -195,7 +265,7 @@ class CentroidTracker:
 
         contours, _ = cv2.findContours(fg, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
-        detections: List[Detection] = []
+        detections: list[Detection] = []
         for cnt in contours:
             area = cv2.contourArea(cnt)
             if area < self.min_area or area > self.max_area:
@@ -220,7 +290,7 @@ class CentroidTracker:
 
     def _assign(
         self,
-        detections: List[Detection],
+        detections: list[Detection],
         timestamp_ns: int,
         fps: float,
     ) -> None:
@@ -303,12 +373,33 @@ class CentroidTracker:
 
 def draw_tracks(
     frame: np.ndarray,
-    tracks: List[Track],
+    tracks: list[Track],
     trail_length: int = 30,
     mm_per_px: float = 1.0,
     fps: float = 30.0,
 ) -> np.ndarray:
-    """Overlay tracks, centroids, IDs and velocity on a BGR frame (in-place)."""
+    """Overlay tracks, centroids, IDs, and velocity on a BGR frame.
+
+    Parameters
+    ----------
+    frame : numpy.ndarray
+        BGR frame; not modified — a copy is drawn on and returned.
+    tracks : list of Track
+        Tracks to draw, e.g. from :meth:`CentroidTracker.update`.
+    trail_length : int, default 30
+        Number of recent positions to draw as a fading trail per track.
+    mm_per_px : float, default 1.0
+        Forwarded to :meth:`Track.velocity_mm_per_s` for the on-frame
+        velocity label.
+    fps : float, default 30.0
+        Forwarded to :meth:`Track.velocity_mm_per_s` for the on-frame
+        velocity label.
+
+    Returns
+    -------
+    numpy.ndarray
+        A new BGR frame (copy of ``frame``) with tracks overlaid.
+    """
     PALETTE = [
         (255, 80,  80),
         (80, 255,  80),

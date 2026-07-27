@@ -4,7 +4,7 @@
 File trigger_recorder.hpp
 =========================
 
-|exhale_lsh| :ref:`Parent directory <dir_src_trigger>` (``src/trigger``)
+|exhale_lsh| :ref:`Parent directory <dir_src_trigger>` (``src\trigger``)
 
 .. |exhale_lsh| unicode:: U+021B0 .. UPWARDS ARROW WITH TIP LEFTWARDS
 
@@ -13,7 +13,7 @@ File trigger_recorder.hpp
    :local:
    :backlinks: none
 
-Definition (``src/trigger/trigger_recorder.hpp``)
+Definition (``src\trigger\trigger_recorder.hpp``)
 -------------------------------------------------
 
 
@@ -34,7 +34,7 @@ Includes
 
 - ``memory``
 
-- ``trigger/trigger_types.hpp`` (:ref:`file_src_trigger_trigger_types.hpp`)
+- ``trigger/trigger_types.hpp``
 
 
 

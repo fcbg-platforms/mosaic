@@ -4,7 +4,7 @@
 File calibration_manager.cpp
 ============================
 
-|exhale_lsh| :ref:`Parent directory <dir_src_calibration>` (``src/calibration``)
+|exhale_lsh| :ref:`Parent directory <dir_src_calibration>` (``src\calibration``)
 
 .. |exhale_lsh| unicode:: U+021B0 .. UPWARDS ARROW WITH TIP LEFTWARDS
 
@@ -13,7 +13,7 @@ File calibration_manager.cpp
    :local:
    :backlinks: none
 
-Definition (``src/calibration/calibration_manager.cpp``)
+Definition (``src\calibration\calibration_manager.cpp``)
 --------------------------------------------------------
 
 
@@ -34,13 +34,13 @@ Includes
 
 - ``QThread``
 
-- ``calibration/calibration_manager.hpp`` (:ref:`file_src_calibration_calibration_manager.hpp`)
+- ``calibration/calibration_manager.hpp``
 
 - ``opencv2/calib3d.hpp``
 
 - ``opencv2/imgproc.hpp``
 
-- ``utils/logger.hpp`` (:ref:`file_src_utils_logger.hpp`)
+- ``utils/logger.hpp``
 
 - ``vector``
 

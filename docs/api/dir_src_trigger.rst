@@ -10,7 +10,7 @@ Directory trigger
 .. |exhale_lsh| unicode:: U+021B0 .. UPWARDS ARROW WITH TIP LEFTWARDS
 
 
-*Directory path:* ``src/trigger``
+*Directory path:* ``src\trigger``
 
 
 Files
@@ -24,6 +24,8 @@ Files
 - :ref:`file_src_trigger_lsl_outlet.hpp`
 - :ref:`file_src_trigger_parallel_port_trigger.cpp`
 - :ref:`file_src_trigger_parallel_port_trigger.hpp`
+- :ref:`file_src_trigger_serial_trigger.cpp`
+- :ref:`file_src_trigger_serial_trigger.hpp`
 - :ref:`file_src_trigger_trigger_manager.cpp`
 - :ref:`file_src_trigger_trigger_manager.hpp`
 - :ref:`file_src_trigger_trigger_recorder.cpp`

@@ -4,7 +4,7 @@
 File frame_timestamp_writer.hpp
 ===============================
 
-|exhale_lsh| :ref:`Parent directory <dir_src_video>` (``src/video``)
+|exhale_lsh| :ref:`Parent directory <dir_src_video>` (``src\video``)
 
 .. |exhale_lsh| unicode:: U+021B0 .. UPWARDS ARROW WITH TIP LEFTWARDS
 
@@ -13,7 +13,7 @@ File frame_timestamp_writer.hpp
    :local:
    :backlinks: none
 
-Definition (``src/video/frame_timestamp_writer.hpp``)
+Definition (``src\video\frame_timestamp_writer.hpp``)
 -----------------------------------------------------
 
 
