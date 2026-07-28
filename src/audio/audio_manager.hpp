@@ -84,6 +84,12 @@ signals:
     /// @param rms       Normalised RMS level in the range [0.0, 1.0].
     void level_rms_changed(int micIndex, float rms);
 
+    /// Same cadence as level_rms_changed(), for a bipolar waveform display.
+    /// @param micIndex   Zero-based index into the active microphone list.
+    /// @param minSample  Most negative sample in the buffer, normalised [-1, 0].
+    /// @param maxSample  Most positive sample in the buffer, normalised [0, 1].
+    void envelope_changed(int micIndex, float minSample, float maxSample);
+
     /// Emitted when a recorder encounters a device error.
     /// @param micIndex  Zero-based index of the failing recorder.
     /// @param message   Human-readable error string.

@@ -151,8 +151,8 @@ Key capabilities
        hardware trigger control; test-pattern stub for development without hardware.
 
    * - **Synchronised audio**
-     - Per-microphone WAV recording via ``QAudioSource`` with real-time RMS
-       waveform display.
+     - Per-microphone WAV recording via ``QAudioSource`` with a real-time
+       bipolar waveform display and an adjustable scale control.
 
    * - **Precise timestamps**
      - Every video frame carries a monotonic ``elapsed_ns`` and wall-clock

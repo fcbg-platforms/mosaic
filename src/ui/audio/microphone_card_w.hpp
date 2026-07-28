@@ -21,6 +21,12 @@ public:
     // Drive the VU meter from AudioManager::level_rms_changed (0.0–1.0).
     void set_level(float rms);
 
+    // Shared display-gain multiplier — see AudioWaveformW::set_scale(), the
+    // same value AudioSettingsW's "Scale" control pushes to both the
+    // waveform widget and every MicrophoneCardW, so the VU meter and the
+    // waveform always agree on how "hot" a given RMS level looks.
+    void set_scale(float scale);
+
     void set_connected(bool connected);
     void set_index(int index);
 
@@ -36,6 +42,7 @@ private:
     MicrophoneParameters& m_params;
     int   m_index;
     bool  m_expanded{true};
+    float m_scale{6.0f};   // matches AudioWaveformW::kDefaultScale
 
     QWidget*      m_body{nullptr};
     QWidget*      m_statusDot{nullptr};

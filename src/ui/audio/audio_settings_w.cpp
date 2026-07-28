@@ -1,7 +1,9 @@
 #include "ui/audio/audio_settings_w.hpp"
 #include "ui/audio/audio_waveform_w.hpp"
 #include "ui/audio/microphone_card_w.hpp"
+#include "utils/logger.hpp"
 #include <QComboBox>
+#include <QDoubleSpinBox>
 #include <QFrame>
 #include <QGroupBox>
 #include <QHBoxLayout>
@@ -13,10 +15,12 @@
 namespace mosaic {
 
 struct AudioSettingsW::Impl {
-    AudioManager*   audioMgr     = nullptr;
-    QComboBox*      codecCombo   = nullptr;
-    QVBoxLayout*    microphonesLay = nullptr;
-    AudioWaveformW* waveform     = nullptr;
+    AudioManager*    audioMgr     = nullptr;
+    QComboBox*       codecCombo   = nullptr;
+    QVBoxLayout*     microphonesLay = nullptr;
+    AudioWaveformW*  waveform     = nullptr;
+    QDoubleSpinBox*  scaleSpin    = nullptr;
+    float            currentScale = AudioWaveformW::kDefaultScale;
     QVector<MicrophoneCardW*> cards;
 };
 
@@ -49,26 +53,33 @@ AudioSettingsW::AudioSettingsW(AudioSettings& settings,
     scroll->setWidget(content);
     outerLay->addWidget(scroll);
 
-    m_settings.microphones.reserve(16);
+    m_settings.microphones.reserve(AudioSettings::kMaxMicrophones);
 
     // Create cards for existing microphones WITHOUT pushing them again.
     for (int i = 0; i < static_cast<int>(m_settings.microphones.size()); ++i) {
         auto* card = new MicrophoneCardW(m_settings.microphones[i], i, this);
+        card->set_scale(d->currentScale);
         connect(card, &MicrophoneCardW::params_changed,   this, &AudioSettingsW::settings_changed);
         connect(card, &MicrophoneCardW::remove_requested, this, &AudioSettingsW::remove_microphone);
         d->microphonesLay->addWidget(card);
         d->cards.append(card);
     }
 
-    // Route AudioManager level signals to mic cards AND the waveform widget.
+    // Route AudioManager level signals to mic cards (RMS, drives the VU
+    // meter) and the waveform widget (signed envelope, drives the bipolar
+    // trace) separately — they're two independent signals now, not one
+    // value shared between two displays.
     if (d->audioMgr) {
         connect(d->audioMgr, &AudioManager::level_rms_changed, this,
                 [this](int micIndex, float rms) {
             if (micIndex >= 0 && micIndex < d->cards.size()) {
                 d->cards[micIndex]->set_level(rms);
             }
+        }, Qt::QueuedConnection);
+        connect(d->audioMgr, &AudioManager::envelope_changed, this,
+                [this](int micIndex, float lo, float hi) {
             if (d->waveform) {
-                d->waveform->push_level(micIndex, rms);
+                d->waveform->push_envelope(micIndex, lo, hi);
             }
         }, Qt::QueuedConnection);
     }
@@ -142,10 +153,20 @@ void AudioSettingsW::build_microphones_section(QVBoxLayout* parent) {
 }
 
 void AudioSettingsW::add_microphone(MicrophoneParameters params) {
+    // Refuse past kMaxMicrophones rather than push_back()ing past the
+    // capacity every already-open AudioRecorder/MicrophoneCardW's
+    // MicrophoneParameters& reference depends on staying stable — see
+    // AudioSettings::kMaxMicrophones's doc comment (settings.hpp).
+    if (m_settings.microphones.size() >= static_cast<size_t>(AudioSettings::kMaxMicrophones)) {
+        log_error(QString("[AudioSettingsW] add_microphone: already at the %1-microphone "
+                           "limit — refusing to add another.").arg(AudioSettings::kMaxMicrophones));
+        return;
+    }
     m_settings.microphones.push_back(std::move(params));
     const int idx = static_cast<int>(m_settings.microphones.size()) - 1;
 
     auto* card = new MicrophoneCardW(m_settings.microphones[idx], idx, this);
+    card->set_scale(d->currentScale);
     connect(card, &MicrophoneCardW::params_changed,   this, &AudioSettingsW::settings_changed);
     connect(card, &MicrophoneCardW::remove_requested, this, &AudioSettingsW::remove_microphone);
 
@@ -180,18 +201,41 @@ void AudioSettingsW::build_waveform_section(QVBoxLayout* parent) {
     auto* lay = new QVBoxLayout(box);
     lay->setContentsMargins(4, 6, 4, 6);
 
+    auto* controlsRow = new QHBoxLayout;
+    controlsRow->addWidget(new QLabel("Scale:"));
+    d->scaleSpin = new QDoubleSpinBox;
+    d->scaleSpin->setRange(AudioWaveformW::kMinScale, AudioWaveformW::kMaxScale);
+    d->scaleSpin->setSingleStep(0.5);
+    d->scaleSpin->setDecimals(1);
+    d->scaleSpin->setValue(AudioWaveformW::kDefaultScale);
+    d->scaleSpin->setSuffix("×");
+    d->scaleSpin->setFixedWidth(80);
+    d->scaleSpin->setToolTip("Zooms the vertical amplitude of the waveform and VU meters below. "
+                              "Display-only — never affects the recorded audio.");
+    controlsRow->addWidget(d->scaleSpin);
+    controlsRow->addStretch();
+    lay->addLayout(controlsRow);
+
     d->waveform = new AudioWaveformW;
     d->waveform->set_channel_count(
         qMax(1, static_cast<int>(m_settings.microphones.size())));
+    d->waveform->set_scale(AudioWaveformW::kDefaultScale);
 
-    auto* hint = new QLabel("Rolling 8-second RMS level per channel.  "
-                             "Levels update during recording.");
+    auto* hint = new QLabel("Rolling 8-second bipolar waveform per channel. "
+                             "Scale zooms the vertical amplitude for display only — "
+                             "it does not affect the recorded audio.");
     hint->setWordWrap(true);
     hint->setProperty("role", "muted");
 
     lay->addWidget(d->waveform);
     lay->addWidget(hint);
     parent->addWidget(box);
+
+    connect(d->scaleSpin, qOverload<double>(&QDoubleSpinBox::valueChanged), this, [this](double v){
+        d->currentScale = static_cast<float>(v);
+        d->waveform->set_scale(d->currentScale);
+        for (auto* card : d->cards) { card->set_scale(d->currentScale); }
+    });
 }
 
 } // namespace mosaic

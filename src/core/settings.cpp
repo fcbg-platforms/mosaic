@@ -199,6 +199,9 @@ std::optional<AudioSettings> AudioSettings::from_json(const QJsonObject& o) {
     AudioSettings s;
     if (o.contains("codec")) s.codec = o["codec"].toString(s.codec);
     if (o.contains("microphones")) {
+        // Reserve up front — see AudioSettings::kMaxMicrophones's doc
+        // comment (mirrors VideoSettings::from_json()'s identical fix).
+        s.microphones.reserve(AudioSettings::kMaxMicrophones);
         for (const auto& v : o["microphones"].toArray()) {
             if (auto m = MicrophoneParameters::from_json(v.toObject()))
                 s.microphones.push_back(std::move(*m));
