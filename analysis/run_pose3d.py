@@ -116,11 +116,15 @@ def main() -> None:
 
     frames_by_camera: dict[int, list[_AnalysedFrame]] = {}
     for idx, info in cameras.items():
-        pose_json = session_dir / info["video_file"]
-        pose_json = pose_json.with_suffix(".pose.json")
+        # Pose's own sidecar output moved to a dedicated session_dir/pose/
+        # subfolder (see AnalysisTabW::pose_json_path_for()) — build the
+        # same path here instead of assuming the sidecar sits beside the
+        # video with only its suffix swapped (stale: that was only ever
+        # true before the pose/ subfolder migration).
+        pose_json = session_dir / "pose" / f"{Path(info['video_file']).stem}.pose.json"
         if not pose_json.exists():
             continue
-        frames_by_camera[idx] = _load_pose_json(pose_json, session_dir / info["video_file"])
+        frames_by_camera[idx] = _load_pose_json(pose_json, session_dir / info["video_file"], idx)
 
     n_with_pose = sum(1 for v in frames_by_camera.values() if v)
     if n_with_pose == 0:
@@ -181,22 +185,29 @@ def _resolve_cameras(meta: dict, manifest: dict) -> dict:
 
 # ── Per-camera .pose.json loading ────────────────────────────────────────────
 
-def _load_pose_json(pose_json_path: Path, video_path: Path) -> list[_AnalysedFrame]:
+def _load_pose_json(pose_json_path: Path, video_path: Path,
+                     camera_index: int) -> list[_AnalysedFrame]:
     """Loads a .pose.json sidecar (written by analysis/run_pose.py) and
     keys each frame by its real hardware frame_id, read from
     timestamps_camN.csv — NOT the .pose.json's own "frame_index" (which,
     per run_pose.py's frame-skip convention, is the analysed frame's
-    position among analysed frames, not the source video's decode index),
-    and NOT the .pose.json's "camera_index" field (confirmed always 0
-    regardless of which camera produced the file — a known quirk of
-    HumanPoseEstimator.infer()'s default argument, camera identity here
-    comes from the file's PATH, matching sync_manifest.json's own
-    video_file-keyed camera list)."""
+    position among analysed frames, not the source video's decode index).
+    camera_index comes from the caller (the file's PATH / sync_manifest.json
+    entry), not the .pose.json's own "camera_index" field — run_pose.py now
+    writes that field correctly, but this script has never depended on it."""
     data = _load_json(pose_json_path)
     if not data:
         return []
 
-    ts_csv = video_path.with_name(video_path.stem.replace("video", "timestamps_cam") + ".csv")
+    # Built directly from camera_index rather than a naive "video" ->
+    # "timestamps_cam" substring-replace on the video's own stem — that
+    # substitution turns "video_0" into "timestamps_cam_0.csv" (stray
+    # underscore), which never matches the real "timestamps_cam0.csv" file,
+    # silently falling back to frame_index+1 for frame_id and reintroducing
+    # exactly the dropped-frame misalignment bug item 19's own review caught
+    # and fixed once already for gaze fusion (same bug run_pose.py/
+    # run_expression.py/run_gaze_fusion.py already found and fixed).
+    ts_csv = video_path.with_name(f"timestamps_cam{camera_index}.csv")
     frame_ids_by_index: dict = {}
     if ts_csv.exists():
         with ts_csv.open() as f:

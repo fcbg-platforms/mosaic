@@ -79,10 +79,11 @@ bool export_csv(QWidget* parent, const QString& dialogTitle, const QString& sugg
     return true;
 }
 
-// Shared by pose_json_path_for()/transcript_json_path_for()/
-// expression_json_path_for() — all three sidecar conventions are "truncate
-// at the last dot, append a fixed suffix"; a 3rd near-identical copy was
-// the point to stop repeating it.
+// Used by transcript_json_path_for() — "truncate at the last dot, append a
+// fixed suffix" for a sidecar living right beside its source file. Pose and
+// Expression output moved to their own dedicated subfolders (pose_dir/
+// expression_dir) and no longer use this convention — see
+// pose_json_path_for()/expression_json_path_for() below.
 QString sidecar_path_for(const QString& relPath, const QString& suffix) {
     QString base = relPath;
     const int dot = base.lastIndexOf('.');
@@ -267,8 +268,20 @@ public:
     // Clears xSeries_/ySeries_ so Position mode's two-line plot doesn't
     // linger underneath. seriesName (shown in the legend) defaults to
     // yAxisLabel when not given.
+    //
+    // minDurationMs: the X axis always extends at least this far, even past
+    // the last plotted point. Needed because a caller's points can stop
+    // short of the actual analyzed range — e.g. Facial Expression only
+    // plots frames where a face was detected, but the video (and the
+    // analysis) continues past wherever detection happens to drop out —
+    // without this floor the axis silently truncated at the last detection
+    // instead of spanning the video's real analyzed duration, visibly
+    // mismatching the player's own duration/scrubber. Ignored when points
+    // is empty (that "no data at all" case already resets to a clean (0,1)
+    // default below and shouldn't be forced into a wide, data-less range).
     void set_single_series(const QVector<QPointF>& points, const QString& yAxisLabel,
-                            const QString& seriesName = QString()) {
+                            const QString& seriesName = QString(),
+                            double minDurationMs = 0.0) {
         clear_all_series();
         axisY_->setTitleText(yAxisLabel);
         valueSeries_->setName(seriesName.isEmpty() ? yAxisLabel : seriesName);
@@ -283,7 +296,7 @@ public:
 
         double minY = std::numeric_limits<double>::max();
         double maxY = std::numeric_limits<double>::lowest();
-        double maxT = 0.0;
+        double maxT = std::max(0.0, minDurationMs) / 1000.0;
 
         for (const auto& p : points) {
             const double tSec = p.x() / 1000.0;
@@ -1463,12 +1476,12 @@ void AnalysisTabW::select_plugin(int index) {
 // ── Analysis lifecycle ───────────────────────────────────────────────────
 
 QString AnalysisTabW::pose_json_path_for(const QString& videoRelPath) const {
-    // Own subfolder, not a sidecar beside the video (unlike expression/
-    // transcript below) — see analysis/run_pose.py::process_session()'s
-    // matching pose_dir. Forward-only: sessions analyzed before this
-    // change have their .pose.json under video/ instead and won't be
-    // found here until re-run, matching this project's established
-    // no-migration convention for directory-layout changes (item 13).
+    // Own subfolder, not a sidecar beside the video (unlike transcript
+    // below) — see analysis/run_pose.py::process_session()'s matching
+    // pose_dir. Forward-only: sessions analyzed before this change have
+    // their .pose.json under video/ instead and won't be found here until
+    // re-run, matching this project's established no-migration convention
+    // for directory-layout changes (item 13).
     return "pose/" + QFileInfo(videoRelPath).completeBaseName() + ".pose.json";
 }
 
@@ -1481,7 +1494,11 @@ QString AnalysisTabW::transcript_json_path_for(const QString& audioRelPath) cons
 }
 
 QString AnalysisTabW::expression_json_path_for(const QString& videoRelPath) const {
-    return sidecar_path_for(videoRelPath, ".expression.json");
+    // Own subfolder, not a sidecar beside the video — mirrors
+    // pose_json_path_for()'s exact convention, see
+    // analysis/run_expression.py::process_session()'s matching
+    // expression_dir. Same forward-only caveat as pose_json_path_for().
+    return "expression/" + QFileInfo(videoRelPath).completeBaseName() + ".expression.json";
 }
 
 bool AnalysisTabW::is_pose_plugin() const {
@@ -1708,6 +1725,10 @@ void AnalysisTabW::reload_current_camera_result() {
         if (!exprResult.is_valid() || exprResult.frames().isEmpty()) {
             d->statusLbl->setText("No analysis yet for this camera — click Run.");
             d->statusLbl->setStyleSheet("color:#6060a0; font-size:15px; font-weight:600;");
+        } else if (!exprResult.has_any_detections()) {
+            d->statusLbl->setText("Expression ran, but no face was detected in this camera's "
+                                   "footage — try a different camera, or check its framing/lighting.");
+            d->statusLbl->setStyleSheet("color:#ddaa33; font-size:15px; font-weight:600;");
         }
         return;
     }
@@ -1960,8 +1981,15 @@ void AnalysisTabW::update_expression_view() {
         ++totalWithSubject;
     }
 
+    // Floors the axis at the last ANALYZED frame's time (regardless of
+    // whether a face was detected there), not just the last PLOTTED point —
+    // see set_single_series()'s minDurationMs doc comment for why this
+    // matters whenever detection drops out before the video ends.
+    const double lastAnalyzedMs = frames.isEmpty() ? 0.0
+        : static_cast<double>(frames.last().timestampNs - t0) / 1e6;
     d->chart->set_single_series(points, "Score (0–1)",
-                                 blendshapeName.isEmpty() ? "Blendshape score" : blendshapeName);
+                                 blendshapeName.isEmpty() ? "Blendshape score" : blendshapeName,
+                                 lastAnalyzedMs);
     d->chart->set_title(blendshapeName.isEmpty() ? "Facial expression" : blendshapeName);
     d->chart->set_playhead_ms(d->player->position_ms());
 

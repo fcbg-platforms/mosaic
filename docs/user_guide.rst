@@ -160,20 +160,49 @@ sitting alongside **Live**. The workflow is always the same shape:
    .. tab-item:: Facial Expression
 
       **What it does**: detects faces (MediaPipe FaceLandmarker) and
-      classifies each into a dominant emotion, per frame.
+      classifies each into a dominant emotion, per frame, writing one
+      ``<session>/expression/video_N.expression.json`` file per camera (see
+      :doc:`recording` for the full session layout).
 
-      **Controls**: a classifier backend (**Heuristic** — transparent,
-      weighted-blendshape rule table, zero extra download; **FER+** — a
-      pretrained 8-class ONNX CNN, adds "Contempt"), max-faces, minimum
-      detection confidence, and a frame-skip spinbox.
+      **Controls**:
+
+      - **Backend** — **Heuristic** (default): a transparent, weighted
+        blendshape-scoring rule table with zero extra download or model —
+        see :doc:`math/facial_expression` for the exact formula. **FER+**: a
+        pretrained 8-class ONNX CNN (downloads an extra ~34MB model on first
+        use), generally more accurate and the only backend that can report
+        "Contempt," at the cost of being a less transparent black box than
+        the heuristic. Blendshape scores themselves are always computed and
+        stored regardless of which backend is selected — only the
+        *dominant-expression* label/score differs.
+      - **Max faces** (default 5) — the most faces detected simultaneously
+        in one frame. Raise it for a session with more people in frame at
+        once; extra faces beyond this cap are simply not detected, they
+        don't error out.
+      - **Min confidence** (default 0.5) — the detection/presence threshold
+        a candidate face must clear to count as detected. Lower it if real
+        faces at odd angles or partial occlusion are being missed; raise it
+        if the detector is picking up false positives. This is unrelated to
+        the *classification* confidence shown per detected face — it only
+        gates whether a face is detected at all.
+      - **Skip** (default 1 = every frame) — analyzes every Nth frame
+        instead of every frame, the same trade-off as Pose's skip control:
+        skipped frames get no expression data at all (not interpolated),
+        and both the video overlay and the chart fall back to the nearest
+        analyzed frame for them. Raising it speeds up long recordings at
+        the cost of missing brief expression changes between analyzed
+        frames — keep it at 1 for the most complete result.
 
       **Reading the output**: the selected camera's video plays with a
       bounding box + dominant-expression label per detected face. A
       **Blendshape** dropdown drives a chart of that blendshape's score over
-      time, and a stats readout shows the %-breakdown across expression
-      categories for the run. See :doc:`math/facial_expression` for the
-      scoring/softmax formulas. Like Pose kinematics, subject identity isn't
-      tracked frame-to-frame.
+      time — the chart's time axis always spans the full analyzed range of
+      the video, even for stretches where no face was detected (those
+      simply show a gap in the plotted line, not a shortened axis) — and a
+      stats readout shows the %-breakdown across expression categories for
+      the run. See :doc:`math/facial_expression` for the scoring/softmax
+      formulas. Like Pose kinematics, subject identity isn't tracked
+      frame-to-frame.
 
    .. tab-item:: Multi-Camera Gaze Fusion
 

@@ -51,6 +51,17 @@ public:
     [[nodiscard]] const QStringList& blendshape_names() const { return blendshapeNames_; }
     [[nodiscard]] const QVector<ExpressionFrame>& frames() const { return frames_; }
 
+    // True if at least one frame has at least one detected face. Distinct
+    // from is_valid() (which only means "the JSON parsed"): a result can be
+    // valid but empty if no face was detected in this camera's footage for
+    // the whole session — mirrors PoseAnalysisResult::has_any_detections().
+    [[nodiscard]] bool has_any_detections() const {
+        for (const auto& f : frames_) {
+            if (!f.subjects.isEmpty()) { return true; }
+        }
+        return false;
+    }
+
     // Nearest-frame lookup by frame_index estimate, identical body to
     // PoseAnalysisResult::nearest_frame() — frames() is stored in the
     // ascending frame_index order run_expression.py writes them in, so this
