@@ -31,24 +31,26 @@ AudioRecorder::~AudioRecorder() { stop(); }
 bool AudioRecorder::start(const QString& filePath) {
     m_monitorOnly = filePath.isEmpty();
 
-    // 1. Open WAV file first — fail early before touching hardware.
-    //    In monitor-only mode (empty filePath), skip file creation.
-    if (!m_monitorOnly) {
-        if (!m_writer.open(filePath, m_params.sampleRate, m_params.channels, 16)) {
-            const QString msg = QString("Cannot create WAV file: %1").arg(filePath);
-            log_error(msg);
-            emit error_occurred(msg);
-            return false;
-        }
-    }
-
-    // 2. Find device and build format.
+    // 1. Find device and resolve the actual capture format FIRST — pure
+    //    queries (isFormatSupported()/preferredFormat()), no hardware
+    //    stream opened yet. Device fallback below can change
+    //    sampleRate/channelCount, not just bit depth (see
+    //    m_captureFormat's doc comment) — the WAV file is opened further
+    //    down using the RESOLVED fmt, not m_params, specifically so its
+    //    header can never disagree with what's actually captured. It used
+    //    to be opened here, before format negotiation, using the
+    //    originally-requested m_params.sampleRate/channels — a device
+    //    falling back to a different rate/channel count (e.g. 48000 Hz
+    //    mono when 44100 Hz stereo was requested) still wrote a header
+    //    claiming the original values, producing a .wav that plays at the
+    //    wrong speed/pitch with channels misinterpreted, even though
+    //    on_data_ready() already correctly bit-depth-converts every
+    //    sample to match the header's declared 16-bit PCM.
     const QAudioDevice device = find_device(m_params.deviceId);
     if (device.isNull()) {
         const QString msg = "No audio input device available.";
         log_error(msg);
         emit error_occurred(msg);
-        m_writer.close();
         return false;
     }
 
@@ -59,7 +61,7 @@ bool AudioRecorder::start(const QString& filePath) {
 
     // Fall back if the exact requested format isn't supported.
     // compute_rms()/compute_envelope() (audio_envelope.hpp) and WavWriter
-    // (opened with a hardcoded 16-bit depth above) both need 16-bit signed
+    // (opened with a hardcoded 16-bit depth below) both need 16-bit signed
     // PCM — but some devices (many professional/USB Audio Class 2.0
     // interfaces) don't support 16-bit PCM capture AT ALL, only 32-bit
     // float or 32-bit int. Rather than either (a) silently accepting
@@ -96,11 +98,25 @@ bool AudioRecorder::start(const QString& filePath) {
                                      .arg(device.description());
             log_error(msg);
             emit error_occurred(msg);
-            if (!m_monitorOnly) m_writer.close();
             return false;
         }
     }
     m_captureFormat = fmt.sampleFormat();
+
+    // 2. Open WAV file now that the real capture format is known — still
+    //    fails early before touching hardware (QAudioSource isn't created
+    //    until step 3). In monitor-only mode (empty filePath), skip file
+    //    creation. Always 16-bit PCM on disk regardless of the device's
+    //    native capture format — on_data_ready() converts every buffer to
+    //    match before writing.
+    if (!m_monitorOnly) {
+        if (!m_writer.open(filePath, fmt.sampleRate(), fmt.channelCount(), 16)) {
+            const QString msg = QString("Cannot create WAV file: %1").arg(filePath);
+            log_error(msg);
+            emit error_occurred(msg);
+            return false;
+        }
+    }
 
     // 3. Create and start QAudioSource.
     m_source = std::make_unique<QAudioSource>(device, fmt, this);
