@@ -156,9 +156,10 @@ public:
         chart->addSeries(valueSeries_);
         chart->addSeries(playheadSeries_);
 
-        for (auto* marker : chart->legend()->markers(playheadSeries_)) {
-            marker->setVisible(false);
-        }
+        // setChart() above already ran, so chart() is safe to use here —
+        // reuses the same helper set_data()/set_single_series() call
+        // instead of a second copy of the same marker-hiding loop.
+        set_series_marker_visible(playheadSeries_, false);
 
         axisX_ = new QValueAxis();
         axisX_->setLabelFormat("%.1f");
@@ -338,7 +339,12 @@ private:
     // to a new, unrelated unit.
     void apply_ranges(bool hasRange, double minY, double maxY, double maxT) {
         if (!hasRange) {
-            axisX_->setRange(0, 1000);
+            // Matches the constructor's own default (0, 1) — this was
+            // (0, 1000) before the axis was converted from milliseconds to
+            // seconds, left stale and never updated, producing a
+            // ~16.6-minute-wide empty axis for any no-data state (e.g. a
+            // freshly-selected camera with no analysis yet).
+            axisX_->setRange(0, 1);
             axisY_->setRange(0, 1);
             return;
         }

@@ -23,6 +23,7 @@ from __future__ import annotations
 import argparse
 import base64
 import json
+import re
 import sys
 import time
 from dataclasses import asdict
@@ -61,6 +62,26 @@ def parse_args() -> argparse.Namespace:
 
 # ── Session mode ─────────────────────────────────────────────────────────────
 
+def _camera_index_from_filename(video_path: Path) -> int:
+    """Parses the real camera index from a MOSAIC-recorded video's own
+    filename (e.g. "video_2.mp4" -> 2), instead of trusting a video list's
+    positional loop index. VideoManager preserves gaps in camera indices
+    when an earlier camera fails to open during recording (see
+    VideoManager::open()'s configIndex handling) — e.g. only video_0.mp4
+    and video_2.mp4 exist if camera 1 failed — so a plain enumerate() over
+    a sorted file list would silently assign the wrong index to video_2.mp4
+    (1 instead of 2), mismatching its timestamp CSV lookup and writing the
+    wrong camera_index into its .pose.json (later read by run_pose3d.py to
+    pick per-camera calibration). Falls back to 0 with a stderr warning if
+    the filename doesn't match the expected "video_N.<ext>" pattern.
+    """
+    m = re.search(r"video_(\d+)", video_path.stem)
+    if not m:
+        print(f"[run_pose] Warning: could not parse a camera index from "
+              f"{video_path.name}, defaulting to 0", file=sys.stderr)
+        return 0
+    return int(m.group(1))
+
 def process_session(session_dir: Path, estimator: HumanPoseEstimator,
                     skip: int = 1, out_format: str = "json") -> None:
     videos = sorted((session_dir / "video").glob("*.mp4"))
@@ -75,11 +96,15 @@ def process_session(session_dir: Path, estimator: HumanPoseEstimator,
     pose_dir = session_dir / "pose"
 
     print(f"[run_pose] Found {len(videos)} video(s) in {session_dir / 'video'}", flush=True)
-    for camera_index, video_path in enumerate(videos):
+    for position, video_path in enumerate(videos, start=1):
+        camera_index = _camera_index_from_filename(video_path)
         # Distinct, easily-regexed format ("Camera N/M:") — parsed by
         # AnalysisTabW's camera-progress bar, separate from the per-frame
-        # "NN.N% (a/b)" progress lines process_video() prints below.
-        print(f"[run_pose] Camera {camera_index + 1}/{len(videos)}: {video_path.name}", flush=True)
+        # "NN.N% (a/b)" progress lines process_video() prints below. Uses
+        # `position` (this video's place in the loop), not `camera_index`
+        # (which can have gaps) — the progress bar cares about "how many of
+        # the M videos in this run have we processed," not the raw index.
+        print(f"[run_pose] Camera {position}/{len(videos)}: {video_path.name}", flush=True)
         process_video(video_path, estimator, skip=skip, out_format=out_format,
                       camera_index=camera_index, output_dir=pose_dir)
 
@@ -274,8 +299,15 @@ def main() -> None:
         process_session(Path(args.session), estimator,
                         skip=args.skip, out_format=args.out_format)
     elif args.video:
-        process_video(Path(args.video), estimator,
-                      skip=args.skip, out_format=args.out_format)
+        video_path = Path(args.video)
+        # Same real-filename-based index used by process_session() — the
+        # previous default of camera_index=0 silently loaded camera 0's
+        # timestamp CSV (if one happened to exist alongside a *different*
+        # camera's video) instead of the correct one, or the correct one
+        # not at all.
+        process_video(video_path, estimator, skip=args.skip,
+                      out_format=args.out_format,
+                      camera_index=_camera_index_from_filename(video_path))
 
 
 if __name__ == "__main__":
