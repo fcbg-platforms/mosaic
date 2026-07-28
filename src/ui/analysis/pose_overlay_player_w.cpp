@@ -45,7 +45,13 @@ public:
         setStyleSheet("background:transparent;");
     }
 
-    void set_native_size(QSize size) { nativeSize_ = size; }
+    // update() matters here, not just bookkeeping: set_frame()/etc. are
+    // typically called before the video's first decoded frame arrives (size
+    // still unknown), so paintEvent() bails out with nothing drawn. Without
+    // this repaint, the overlay stays blank until something else (e.g.
+    // playback) calls set_frame() again — a user who loads a camera and
+    // looks at the paused first frame would see no markers at all.
+    void set_native_size(QSize size) { nativeSize_ = size; update(); }
 
     void set_frame(const PoseFrame* frame, QVector<QPair<int, int>> skeletonEdges) {
         frame_          = frame;
@@ -371,6 +377,17 @@ PoseOverlayPlayerW::PoseOverlayPlayerW(QWidget* parent)
 
     d->overlay = new SkeletonOverlayW;
     stack->addWidget(d->overlay);
+
+    // QStackedLayout::addWidget() only sets currentIndex on the FIRST widget
+    // added (when there was none yet) — d->display, added above, silently
+    // stayed "current" forever. In StackAll mode the current widget is the
+    // one raised to the top of the z-order, so without this the overlay
+    // was compositing BEHIND the opaque video label: painted correctly
+    // (confirmed by direct code read), just never visible. This is the
+    // actual root cause of "no markers ever show" — a real bug, not just
+    // the SkeletonOverlayW::set_native_size() repaint gap fixed earlier
+    // (that fix was still correct/needed, just not sufficient alone).
+    stack->setCurrentWidget(d->overlay);
 
     outer->addWidget(videoContainer, 1);
 

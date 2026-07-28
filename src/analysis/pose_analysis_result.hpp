@@ -57,6 +57,17 @@ public:
     static PoseAnalysisResult load(const QString& jsonPath);
 
     [[nodiscard]] bool is_valid() const { return valid_; }
+
+    // True if at least one frame has at least one detected subject.
+    // Distinct from is_valid() (which only means "the JSON parsed"): a
+    // result can be valid but empty if the pose model detected nobody in
+    // this camera's footage for the whole session — callers use this to
+    // tell that case apart from "hasn't been analyzed yet".
+    [[nodiscard]] bool has_any_detections() const {
+        for (const auto& f : frames_) { if (!f.subjects.isEmpty()) { return true; } }
+        return false;
+    }
+
     [[nodiscard]] const QString& source_video() const { return sourceVideo_; }
     [[nodiscard]] const QStringList& keypoint_names() const { return keypointNames_; }
     [[nodiscard]] const QVector<QPair<int, int>>& skeleton_edges() const { return skeletonEdges_; }

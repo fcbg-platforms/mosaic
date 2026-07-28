@@ -112,15 +112,16 @@ struct SessionInfo {
             info.audioCodec  = rec["audio_codec"].toString();
         }
 
-        // Video/audio recordings live under video/ and audio/ subfolders;
-        // per-video pose/motion output (written beside its source video by
-        // the analysis scripts) lands in video/ too, while session-level
-        // aggregate motion output (motion_results.*, motion_heatmap.png,
-        // …) stays at the session root — so analysis files are scanned in
-        // both places. Entries are stored as paths relative to the session
-        // dir (e.g. "video/video_0.mp4") so callers can join them onto
-        // `path` directly without needing to know which subfolder a given
-        // file lives in.
+        // Video/audio recordings live under video/ and audio/ subfolders.
+        // Pose output has its own pose/ subfolder (analysis/run_pose.py's
+        // pose_dir); per-video motion output still lands beside its source
+        // video in video/; session-level aggregate motion output
+        // (motion_results.*, motion_heatmap.png, …) stays at the session
+        // root — so analysis files are scanned across all four locations.
+        // Entries are stored as paths relative to the session dir (e.g.
+        // "video/video_0.mp4", "pose/video_0.pose.json") so callers can
+        // join them onto `path` directly without needing to know which
+        // subfolder a given file lives in.
         const auto classify = [&info](const QDir& scanDir, const QString& prefix) {
             if (!scanDir.exists()) { return; }
             for (const auto& fi : scanDir.entryInfoList(QDir::Files, QDir::Name)) {
@@ -148,6 +149,7 @@ struct SessionInfo {
         classify(QDir(dir), "");
         classify(QDir(dir + "/video"), "video/");
         classify(QDir(dir + "/audio"), "audio/");
+        classify(QDir(dir + "/pose"), "pose/");
 
         // Approximate duration: video file mtime vs session start
         if (info.startUtc.isValid()) {
