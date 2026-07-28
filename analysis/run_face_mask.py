@@ -66,7 +66,11 @@ def process_session(session_dir: Path, backend: str, model: Optional[str],
     out_dir.mkdir(parents=True, exist_ok=True)
 
     failures = 0
-    for video_path in videos:
+    # "Camera N/M:" banner — distinct, easily-regexed format matching
+    # run_pose.py's own convention — drives AnalysisTabW's coarser,
+    # session-wide progress bar (parsed alongside the finer per-frame one).
+    for position, video_path in enumerate(videos, start=1):
+        print(f"[run_face_mask] Camera {position}/{len(videos)}: {video_path.name}", flush=True)
         if not process_video(video_path, detector, out_dir / video_path.name, style, skip):
             failures += 1
 
@@ -91,6 +95,15 @@ def process_video(video_path: Path, detector, out_path: Path, style: str, skip: 
     print(f"[run_face_mask] Processing {video_path.name}  ({total} frames @ {fps:.1f} fps)",
           flush=True)
 
+    # Scales to the video's own length instead of a fixed 100-frame stride
+    # (matches run_pose.py's identical fix): short session videos (~141
+    # frames is typical) get a progress update every frame instead of one
+    # single jump near the end, while long videos are capped at ~200 total
+    # prints. Consumed by AnalysisTabW's progress-bar regex, not dumped into
+    # the visible log, so there's no "avoid spamming the log" reason to keep
+    # the interval coarse.
+    progress_interval = max(1, total // 200)
+
     writer = _open_writer(out_path, fps, (width, height))
     if writer is None:
         print(f"[run_face_mask] Could not open a video writer for {out_path}", file=sys.stderr)
@@ -99,6 +112,7 @@ def process_video(video_path: Path, detector, out_path: Path, style: str, skip: 
 
     frame_idx    = 0
     total_faces  = 0
+    error_frames = 0
     last_boxes: list = []
     t_start = time.perf_counter()
 
@@ -107,19 +121,38 @@ def process_video(video_path: Path, detector, out_path: Path, style: str, skip: 
         if not ok:
             break
 
-        if frame_idx % skip == 0:
-            raw_boxes = detector.detect(frame)
-            last_boxes = [
-                expand_and_clip(box, _MARGIN_FRAC, width, height)
-                for box in raw_boxes
-            ]
-            total_faces += len(last_boxes)
+        # A single frame's detection/masking can fail on a frame-content-
+        # dependent edge case without meaning the whole video is
+        # unrecoverable — catch here so one bad frame doesn't abort this
+        # video (and, since process_session() calls this function once per
+        # camera, doesn't abort the other cameras in the same session
+        # either). apply_mask() modifies `frame` in place box-by-box, so an
+        # exception partway through could leave some faces masked and
+        # others not — rather than risk writing a partially- or
+        # un-masked frame (a real privacy leak in a tool whose whole job is
+        # anonymization), blank the entire frame to solid black on any
+        # failure instead of trying to salvage whatever partial state it's
+        # in.
+        try:
+            if frame_idx % skip == 0:
+                raw_boxes = detector.detect(frame)
+                last_boxes = [
+                    expand_and_clip(box, _MARGIN_FRAC, width, height)
+                    for box in raw_boxes
+                ]
+                total_faces += len(last_boxes)
 
-        apply_mask(frame, last_boxes, style)
+            apply_mask(frame, last_boxes, style)
+        except Exception as exc:  # noqa: BLE001 — must not let one frame kill the run
+            error_frames += 1
+            frame[:] = 0
+            print(f"[run_face_mask] {video_path.name}: frame {frame_idx} failed ({exc}) "
+                  f"— writing a blacked-out frame instead", file=sys.stderr, flush=True)
+
         writer.write(frame)
 
         frame_idx += 1
-        if frame_idx % 100 == 0:
+        if frame_idx % progress_interval == 0:
             elapsed = time.perf_counter() - t_start
             pct = frame_idx / max(total, 1) * 100
             print(f"  {pct:5.1f}%  ({frame_idx}/{total})  {elapsed:.1f}s elapsed", flush=True)
@@ -134,8 +167,9 @@ def process_video(video_path: Path, detector, out_path: Path, style: str, skip: 
         return False
 
     elapsed = time.perf_counter() - t_start
+    suffix = f", {error_frames} frame(s) had errors (see above)" if error_frames else ""
     print(f"[run_face_mask] Done. {frame_idx} frames, {total_faces} face detection(s) "
-          f"in {elapsed:.1f}s → {out_path}", flush=True)
+          f"in {elapsed:.1f}s → {out_path}{suffix}", flush=True)
     return True
 
 def _open_writer(out_path: Path, fps: float, size: tuple[int, int]):

@@ -17,15 +17,16 @@ Backends (selectable in the UI, "mediapipe" is the default):
               Ultralytics-official face weights file (unlike yolov8n-pose.pt),
               so this downloads a named community checkpoint on first use.
               Pass --model /path/to/local.pt to supply your own instead.
-  opencv    — cv2.dnn res10 SSD Caffe face detector (official OpenCV-hosted
-              model/prototxt). No new ML framework dependency, weakest recall
-              of the three on extreme angles.
+  opencv    — cv2.FaceDetectorYN (YuNet), OpenCV's own currently-maintained
+              ONNX face detector (official opencv/opencv_zoo model). No new
+              ML framework dependency.
 
 Each backend caches its downloaded model file(s) under models/ next to this
 file (gitignored, same treatment as auto-downloaded yolov8n-pose.pt).
 """
 from __future__ import annotations
 
+import hashlib
 import urllib.request
 from pathlib import Path
 from typing import Optional, Protocol
@@ -126,10 +127,12 @@ class MediaPipeFaceDetector:
 
 # Community-maintained checkpoints (not hosted/affiliated with Ultralytics) —
 # see https://github.com/akanametov/yolo-face. Only used when --model isn't
-# given a local path explicitly.
+# given a local path explicitly. Release tag confirmed current 2026-07-28 —
+# the upstream repo previously tagged these "v0.0.0" (now gone entirely,
+# returns a 404) and re-released the same filenames under "1.0.0".
 _YOLO_FACE_URLS = {
-    "yolov8n-face.pt": "https://github.com/akanametov/yolo-face/releases/download/v0.0.0/yolov8n-face.pt",
-    "yolov8m-face.pt": "https://github.com/akanametov/yolo-face/releases/download/v0.0.0/yolov8m-face.pt",
+    "yolov8n-face.pt": "https://github.com/akanametov/yolo-face/releases/download/1.0.0/yolov8n-face.pt",
+    "yolov8m-face.pt": "https://github.com/akanametov/yolo-face/releases/download/1.0.0/yolov8m-face.pt",
 }
 
 
@@ -185,24 +188,34 @@ class YoloFaceDetector:
         return boxes
 
 
-# ── OpenCV DNN (res10 SSD) ───────────────────────────────────────────────────
+# ── OpenCV DNN (YuNet ONNX face detector) ────────────────────────────────────
 
-_OPENCV_PROTOTXT_URL = (
-    "https://raw.githubusercontent.com/opencv/opencv/master/samples/dnn/face_detector/deploy.prototxt"
+_YUNET_URL = (
+    "https://media.githubusercontent.com/media/opencv/opencv_zoo/main/"
+    "models/face_detection_yunet/face_detection_yunet_2023mar.onnx"
 )
-_OPENCV_MODEL_URL = (
-    "https://raw.githubusercontent.com/opencv/opencv_3rdparty/"
-    "dnn_samples_face_detector_20170830/res10_300x300_ssd_iter_140000.caffemodel"
-)
+# Verified 2026-07-28 (sha256 matches the file's own GitHub-reported ETag).
+# media.githubusercontent.com is required, NOT raw.githubusercontent.com —
+# same Git-LFS-pointer-stub trap already documented in
+# analysis/expression/ferplus.py for the FER+ model: the raw URL serves a
+# 131-byte pointer instead of the real 232,589-byte binary.
+_YUNET_SHA256 = "8f2383e4dd3cfbb4553ea8718107fc0423210dc964f9f4280604804ed2552fa4"
 
 
 class OpenCVDnnFaceDetector:
-    """``cv2.dnn`` res10 SSD Caffe face detector.
+    """``cv2.FaceDetectorYN`` (YuNet) ONNX face detector.
 
-    No new ML framework dependency beyond ``opencv-python``, but the
-    weakest recall of the three backends on extreme head angles.
-    Downloads the official OpenCV-hosted prototxt/caffemodel to
-    ``models/`` on first use.
+    Replaces an earlier Caffe-based res10 SSD detector, which broke outright
+    once OpenCV 5.0 removed ``cv2.dnn.readNetFromCaffe`` (and every other
+    non-ONNX/TensorFlow DNN importer) — this project's
+    ``opencv-python>=4.8`` constraint (``analysis/pyproject.toml``) has no
+    upper bound, so a fresh ``uv sync`` now always resolves to 5.x. YuNet is
+    OpenCV's own currently-maintained face-detection model
+    (``opencv/opencv_zoo``), ONNX-based (works with any OpenCV DNN build),
+    and a real accuracy upgrade over the retired res10 model, not just a
+    compatibility shim. No new ML framework dependency beyond
+    ``opencv-python``. Downloads the official OpenCV-hosted, sha256-verified
+    ONNX model to ``models/`` on first use.
 
     Parameters
     ----------
@@ -211,29 +224,30 @@ class OpenCVDnnFaceDetector:
     """
 
     def __init__(self, conf_threshold: float = 0.5) -> None:
-        prototxt = _ensure_download(_MODELS_DIR / "deploy.prototxt", _OPENCV_PROTOTXT_URL)
-        caffemodel = _ensure_download(
-            _MODELS_DIR / "res10_300x300_ssd_iter_140000.caffemodel", _OPENCV_MODEL_URL)
-        self._net = cv2.dnn.readNetFromCaffe(str(prototxt), str(caffemodel))
-        self._conf = conf_threshold
+        model_path = _ensure_download_verified(
+            _MODELS_DIR / "face_detection_yunet_2023mar.onnx", _YUNET_URL, _YUNET_SHA256)
+        # (320, 320) is just a placeholder construction-time size — detect()
+        # below calls setInputSize() with each frame's real dimensions
+        # before every inference, since YuNet's input size must match the
+        # frame (unlike blobFromImage-based detectors, which resize
+        # internally).
+        self._detector = cv2.FaceDetectorYN_create(
+            str(model_path), "", (320, 320), score_threshold=conf_threshold)
+        self._last_size: Optional[tuple[int, int]] = None
 
     def detect(self, frame_bgr: np.ndarray) -> list[Box]:
         """See :meth:`FaceDetector.detect`."""
         h, w = frame_bgr.shape[:2]
-        # blobFromImage already resizes to the given size — no need to
-        # cv2.resize() first too.
-        blob = cv2.dnn.blobFromImage(frame_bgr, 1.0, (300, 300), (104.0, 177.0, 123.0))
-        self._net.setInput(blob)
-        detections = self._net.forward()
+        if self._last_size != (w, h):
+            self._detector.setInputSize((w, h))
+            self._last_size = (w, h)
 
+        _, faces = self._detector.detect(frame_bgr)
         boxes: list[Box] = []
-        for i in range(detections.shape[2]):
-            conf = float(detections[0, 0, i, 2])
-            if conf < self._conf:
-                continue
-            box = detections[0, 0, i, 3:7] * np.array([w, h, w, h])
-            x1, y1, x2, y2 = box.tolist()
-            boxes.append((x1, y1, x2, y2))
+        if faces is not None:
+            for face in faces:
+                x, y, bw, bh = face[:4]
+                boxes.append((float(x), float(y), float(x + bw), float(y + bh)))
         return boxes
 
 
@@ -260,6 +274,63 @@ def _ensure_download(dest: Path, url: str) -> Path:
         urllib.request.urlretrieve(url, dest)
         print(f"[facemask] Downloaded to {dest}", flush=True)
     return dest
+
+
+def _ensure_download_verified(dest: Path, url: str, expected_sha256: str) -> Path:
+    """Like :func:`_ensure_download`, but sha256-verifies the file (own or
+    cached) against ``expected_sha256`` — see
+    ``analysis/expression/ferplus.py``'s identical helper, whose docstring
+    explains why: a truncated/corrupted download must never be silently
+    cached and reused, since it could produce garbage detections with no
+    visible symptom.
+
+    Parameters
+    ----------
+    dest : pathlib.Path
+        Destination file path; parent directories are created as needed.
+    url : str
+        Source URL.
+    expected_sha256 : str
+        Expected hex-digest sha256 of the downloaded file.
+
+    Returns
+    -------
+    pathlib.Path
+        ``dest``, unchanged.
+
+    Raises
+    ------
+    RuntimeError
+        If the downloaded file's sha256 doesn't match ``expected_sha256``
+        — the bad download is deleted rather than cached.
+    """
+    if dest.exists() and _sha256_of(dest) == expected_sha256:
+        return dest
+
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    print(f"[facemask] Downloading {dest.name} …", flush=True)
+    urllib.request.urlretrieve(url, dest)
+
+    actual = _sha256_of(dest)
+    if actual != expected_sha256:
+        dest.unlink(missing_ok=True)
+        raise RuntimeError(
+            f"Downloaded {dest.name} but its sha256 ({actual}) doesn't match the "
+            f"expected {expected_sha256} — the download may have been truncated, "
+            f"corrupted, or (if the model is ever re-exported upstream) the pinned "
+            f"hash in detectors.py needs updating. Deleted the bad download; not "
+            f"caching a file that might produce garbage detections."
+        )
+    print(f"[facemask] Downloaded to {dest}", flush=True)
+    return dest
+
+
+def _sha256_of(path: Path) -> str:
+    h = hashlib.sha256()
+    with path.open("rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
 
 
 # ── Factory ───────────────────────────────────────────────────────────────────

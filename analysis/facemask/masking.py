@@ -88,10 +88,27 @@ def apply_mask(frame: np.ndarray, boxes: list[Box], style: str) -> np.ndarray:
             cv2.rectangle(frame, (ix1, iy1), (ix2, iy2), (20, 20, 20), thickness=-1)
             continue
 
-        region = frame[iy1:iy2, ix1:ix2]
+        region_w, region_h = ix2 - ix1, iy2 - iy1
+        # A region clipped to a thin sliver near the frame edge (a real,
+        # observed case — expand_and_clip() clamps to frame bounds, so an
+        # edge-adjacent detection can legitimately produce one) can be
+        # smaller than a size-proportional kernel would need — cv2.GaussianBlur
+        # throws if ksize exceeds the region's own dimensions. Fall back to
+        # the same solid fill as the "box" style rather than risk leaving a
+        # face unmasked or crashing the whole run.
+        if min(region_w, region_h) < 3:
+            cv2.rectangle(frame, (ix1, iy1), (ix2, iy2), (20, 20, 20), thickness=-1)
+            continue
+
+        def _largest_odd_leq(n: int) -> int:
+            return n if n % 2 == 1 else n - 1
+
         # Kernel scaled to region size (must be odd and >= 3) so small/distant
-        # faces and large/close faces both get proportionally strong blur.
-        k = max(3, (min(ix2 - ix1, iy2 - iy1) // 3) | 1)
+        # faces and large/close faces both get proportionally strong blur —
+        # then clamped to fit both of the region's actual dimensions.
+        k = max(3, (min(region_w, region_h) // 3) | 1)
+        k = min(k, _largest_odd_leq(region_w), _largest_odd_leq(region_h))
+        region = frame[iy1:iy2, ix1:ix2]
         frame[iy1:iy2, ix1:ix2] = cv2.GaussianBlur(region, (k, k), 0)
 
     return frame

@@ -220,13 +220,24 @@ void AnalysisManager::launch(const QString& sessionPath, const QString& scriptRe
     // child's entire environment if called, so starting from
     // systemEnvironment() rather than the (possibly empty) `env` itself is
     // required to keep PATH and everything else the interpreter needs.
-    if (!env.isEmpty()) {
-        QProcessEnvironment fullEnv = QProcessEnvironment::systemEnvironment();
-        for (const QString& key : env.keys()) {
-            fullEnv.insert(key, env.value(key));
-        }
-        d->process->setProcessEnvironment(fullEnv);
+    //
+    // PYTHONIOENCODING is always forced to utf-8, unconditionally (every
+    // plugin script needs this, not just callers that pass extra env vars):
+    // every analysis script prints Unicode characters (arrows, em-dashes)
+    // in its progress/completion messages, and since this stdout/stderr is
+    // always piped (never a real console), CPython on Windows falls back to
+    // locale.getpreferredencoding() for the stream encoding — often a
+    // legacy ANSI codepage (e.g. cp1252) that can't encode them, crashing
+    // with an uncaught UnicodeEncodeError on an otherwise fully successful
+    // run (confirmed: this is exactly what was silently killing
+    // run_face_mask.py's own "Done." print once the real stderr became
+    // visible via the on_stderr_ready() channel fix above).
+    QProcessEnvironment fullEnv = QProcessEnvironment::systemEnvironment();
+    fullEnv.insert("PYTHONIOENCODING", "utf-8");
+    for (const QString& key : env.keys()) {
+        fullEnv.insert(key, env.value(key));
     }
+    d->process->setProcessEnvironment(fullEnv);
 
     connect(d->process, &QProcess::readyReadStandardOutput,
             this, &AnalysisManager::on_stdout_ready);
@@ -258,6 +269,13 @@ void AnalysisManager::launch(const QString& sessionPath, const QString& scriptRe
 
 void AnalysisManager::on_stdout_ready() {
     if (!d->process) { return; }
+    // QProcess::canReadLine()/readLine() with no channel argument operate on
+    // whichever channel is currently "selected" — shared, mutable state on
+    // the QProcess object, not implicit per-caller. Without this, once
+    // on_stderr_ready() below switches the channel to StandardError, every
+    // subsequent call here (readyReadStandardOutput can fire again later)
+    // would silently read stderr instead of stdout.
+    d->process->setReadChannel(QProcess::StandardOutput);
     while (d->process->canReadLine()) {
         const QString line = QString::fromUtf8(d->process->readLine()).trimmed();
         if (!line.isEmpty()) {
@@ -268,6 +286,7 @@ void AnalysisManager::on_stdout_ready() {
 
 void AnalysisManager::on_stderr_ready() {
     if (!d->process) { return; }
+    d->process->setReadChannel(QProcess::StandardError);
     while (d->process->canReadLine()) {
         const QString line = QString::fromUtf8(d->process->readLine()).trimmed();
         if (!line.isEmpty()) {

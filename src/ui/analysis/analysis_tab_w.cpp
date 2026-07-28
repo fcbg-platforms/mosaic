@@ -644,14 +644,17 @@ AnalysisTabW::AnalysisTabW(AppSettings& settings, AnalysisManager* analysisMgr, 
     connect(analysisMgr, &AnalysisManager::output_received, this, [this](const QString& line) {
         if (!d->jobIsMine) { return; }
 
-        // Multi-camera session runs (Pose plugin's process_session()) print
-        // one "Camera N/M: <file>" banner before each camera's own per-frame
-        // ticker starts — a coarser, session-wide sibling to progressRe
-        // below. Still falls through to the log (infrequent — once per
-        // camera, not per frame — so no spam concern), unlike the per-frame
-        // match which replaces the log line entirely.
+        // Multi-camera session runs print one "Camera N/M: <file>" banner
+        // before each camera's own per-frame ticker starts — a coarser,
+        // session-wide sibling to progressRe below. Matches any plugin's own
+        // "[run_X]" tag (run_pose.py and run_face_mask.py both print this
+        // shape; any future per-camera plugin script gets it for free by
+        // following the same convention) rather than hardcoding one script's
+        // tag. Still falls through to the log (infrequent — once per camera,
+        // not per frame — so no spam concern), unlike the per-frame match
+        // which replaces the log line entirely.
         static const QRegularExpression cameraRe(
-            QStringLiteral(R"(^\[run_pose\] Camera (\d+)/(\d+):)"));
+            QStringLiteral(R"(^\[run_\w+\] Camera (\d+)/(\d+):)"));
         const auto cameraMatch = cameraRe.match(line);
         if (cameraMatch.hasMatch()) {
             const int camIdx   = cameraMatch.captured(1).toInt();
@@ -1034,12 +1037,13 @@ void AnalysisTabW::build_ui() {
     d->cameraProgressBar->setRange(0, 1);
     d->cameraProgressBar->setTextVisible(true);
     d->cameraProgressBar->setFormat("Camera");
-    d->cameraProgressBar->setFixedHeight(20);
+    d->cameraProgressBar->setFixedHeight(22);
     d->cameraProgressBar->setVisible(false);
     d->cameraProgressBar->setStyleSheet(
-        "QProgressBar { background:#0a0a1a; border:1px solid #252545; border-radius:4px;"
-        " text-align:center; color:#c8c8e0; font-size:12px; }"
-        "QProgressBar::chunk { background:#4488ff; border-radius:3px; }");
+        "QProgressBar { background:#0a0a1a; border:1px solid #2a3a6a; border-radius:5px;"
+        " text-align:center; color:#dde4ff; font-size:12px; font-weight:600; }"
+        "QProgressBar::chunk { background: qlineargradient(x1:0, y1:0, x2:1, y2:0,"
+        "    stop:0 #2f5cc0, stop:1 #4d7fe0); border-radius:4px; }");
     runLay->addWidget(d->cameraProgressBar);
 
     // tqdm-style progress display for the per-frame ticker every plugin
@@ -1050,20 +1054,21 @@ void AnalysisTabW::build_ui() {
     d->progressBar->setRange(0, 1000);   // per-mille, for one-decimal percent resolution
     d->progressBar->setTextVisible(true);
     d->progressBar->setFormat("%p%");
-    d->progressBar->setFixedHeight(20);
+    d->progressBar->setFixedHeight(22);
     d->progressBar->setVisible(false);
     d->progressBar->setStyleSheet(
-        "QProgressBar { background:#0a0a1a; border:1px solid #252545; border-radius:4px;"
-        " text-align:center; color:#c8c8e0; font-size:12px; }"
-        "QProgressBar::chunk { background:#44aa66; border-radius:3px; }");
+        "QProgressBar { background:#0a0a1a; border:1px solid #1e3a28; border-radius:5px;"
+        " text-align:center; color:#dde4ff; font-size:12px; font-weight:600; }"
+        "QProgressBar::chunk { background: qlineargradient(x1:0, y1:0, x2:1, y2:0,"
+        "    stop:0 #229944, stop:1 #44aa66); border-radius:4px; }");
     runLay->addWidget(d->progressBar);
 
     d->logView = new QTextEdit;
     d->logView->setReadOnly(true);
-    d->logView->setMaximumHeight(90);
+    d->logView->setMaximumHeight(110);
     d->logView->setStyleSheet(
-        "QTextEdit { background:#060810; color:#44aa66; font-family:'Courier New',monospace;"
-        " font-size:10px; border:1px solid #1a2a1a; border-radius:4px; padding:4px; }");
+        "QTextEdit { background:#060810; color:#55cc7a; font-family:'Consolas','Courier New',monospace;"
+        " font-size:13px; border:1px solid #1e3a28; border-radius:6px; padding:8px; }");
     runLay->addWidget(d->logView);
 
     rightLay->addWidget(runBox);

@@ -1,4 +1,5 @@
 #include "ui/analysis/pose_overlay_player_w.hpp"
+#include <QCursor>
 #include <QFontMetrics>
 #include <QHBoxLayout>
 #include <QLabel>
@@ -393,15 +394,43 @@ PoseOverlayPlayerW::PoseOverlayPlayerW(QWidget* parent)
 
     // ── Transport controls ──────────────────────────────────────────────
     auto* transport = new QHBoxLayout;
+    transport->setSpacing(10);
+
     d->playBtn = new QPushButton("▶");
-    d->playBtn->setFixedWidth(32);
+    d->playBtn->setFixedSize(40, 40);
+    d->playBtn->setCursor(Qt::PointingHandCursor);
+    // Circular "media control" look, blue accent family — deliberately
+    // distinct from runBtn's green "action" gradient (analysis_tab_w.cpp)
+    // so the two read as different button categories at a glance. Same
+    // recipe as runBtn (QSS gradient + hover/pressed pseudo-states, no
+    // extra animation machinery) since that one already reads well.
+    d->playBtn->setStyleSheet(
+        "QPushButton { background: qlineargradient(x1:0, y1:0, x2:0, y2:1,"
+        "    stop:0 #4d7fe0, stop:1 #2f5cc0);"
+        "  border: 1px solid #6690ee; border-radius: 20px;"
+        "  color: #ffffff; font-size: 16px; }"
+        "QPushButton:hover { background: qlineargradient(x1:0, y1:0, x2:0, y2:1,"
+        "    stop:0 #5f91f2, stop:1 #3d6ad4); border-color: #88aaff; }"
+        "QPushButton:pressed { background: qlineargradient(x1:0, y1:0, x2:0, y2:1,"
+        "    stop:0 #294f9e, stop:1 #1f3f80); }");
     transport->addWidget(d->playBtn);
 
     d->scrubber = new QSlider(Qt::Horizontal);
+    d->scrubber->setCursor(Qt::PointingHandCursor);
+    d->scrubber->setStyleSheet(
+        "QSlider::groove:horizontal { height: 6px; background: #14142a; border-radius: 3px; }"
+        "QSlider::sub-page:horizontal { background: qlineargradient(x1:0, y1:0, x2:1, y2:0,"
+        "    stop:0 #2f5cc0, stop:1 #4d7fe0); border-radius: 3px; }"
+        "QSlider::add-page:horizontal { background: #14142a; border-radius: 3px; }"
+        "QSlider::handle:horizontal { width: 14px; height: 14px; margin: -5px 0;"
+        "  background: #ffffff; border: 2px solid #4d7fe0; border-radius: 8px; }"
+        "QSlider::handle:horizontal:hover { border-color: #88aaff; }");
     transport->addWidget(d->scrubber, 1);
 
     d->timeLbl = new QLabel("0:00 / 0:00");
-    d->timeLbl->setStyleSheet("color:#8888aa; font-size:11px;");
+    d->timeLbl->setStyleSheet(
+        "color:#a8b8ea; font-size:12px; font-weight:600;"
+        " font-family:'Consolas','Courier New',monospace;");
     transport->addWidget(d->timeLbl);
     outer->addLayout(transport);
 
