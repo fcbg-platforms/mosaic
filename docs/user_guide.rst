@@ -68,17 +68,39 @@ sitting alongside **Live**. The workflow is always the same shape:
    .. tab-item:: Pose (YOLOv8)
 
       **What it does**: runs a YOLOv8-pose model over every camera's video,
-      writing per-frame keypoints to a ``.pose.json`` sidecar next to each
-      video.
+      one camera at a time, writing per-frame keypoints to a
+      ``<session>/pose/video_N.pose.json`` file per camera (see
+      :doc:`recording` for the full session layout).
 
       **Controls**: a model-size dropdown (shared with the Performance
-      tab's own model picker) and a frame-skip spinbox (process every Nth
-      frame).
+      tab's own model picker) and a **skip** spinbox — analyzes every Nth
+      frame instead of every frame. Skipped frames get *no* pose data at
+      all (not interpolated); the overlay and chart simply fall back to
+      the nearest analyzed frame for them. Higher values trade temporal
+      resolution for speed on long recordings — keep it at 1 (the default)
+      for the most complete result.
+
+      **While it's running**: two progress bars track the run — a blue
+      "Camera N/M" bar for overall session progress across cameras, and a
+      green per-frame ``%`` bar underneath it for progress within the
+      camera currently being processed.
 
       **Reading the output**: pick a camera, then a keypoint, in the
-      results row. The video plays with a skeleton overlay, and a chart
-      plots that keypoint's position over time with a playback-synced,
-      click-to-seek playhead.
+      results row. The video plays with a skeleton overlay — small dots at
+      each detected landmark (nose, eyes, shoulders, elbows, wrists, hips,
+      knees, ankles — 17 COCO keypoints), connected by lines into a
+      skeleton — synced to playback. If a camera genuinely has no detected
+      person anywhere in its footage (a framing/angle issue, not a bug), a
+      status message says so explicitly instead of silently showing an
+      empty video and chart.
+
+      The chart alongside the video plots the selected keypoint's X/Y
+      pixel position against elapsed time (seconds), with a chart title
+      naming what's plotted, a legend distinguishing the two lines, and a
+      hover tooltip on the curve for reading off an exact value. Clicking
+      anywhere on the chart seeks the video to that point in time, and a
+      dashed playhead line tracks the video's current position as it
+      plays.
 
       **Speed / Acceleration**: switch the **Metric** dropdown from
       Position to Speed or Acceleration to see derived kinematics for the

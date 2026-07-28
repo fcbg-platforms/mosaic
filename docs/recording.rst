@@ -50,14 +50,16 @@ Session folder layout:
    ├── sync_manifest.json         # written after recording stops
    ├── audio/
    │   └── audio_0.wav
-   └── video/
-       ├── video_0.mp4
-       ├── timestamps_cam0.csv
-       └── video_0.pose.json      # written alongside its video by run_pose.py, if run
+   ├── video/
+   │   ├── video_0.mp4
+   │   └── timestamps_cam0.csv
+   └── pose/
+       └── video_0.pose.json      # written by run_pose.py, if run
 
 Media is split into ``audio/`` and ``video/`` subfolders so a session directory listing isn't
-dominated by per-camera files; everything session-level (metadata, trigger log, sync manifest,
-annotations) stays at the session root.
+dominated by per-camera files; ``pose/`` holds the Pose plugin's own per-camera output, kept out
+of ``video/`` rather than sitting alongside the source ``.mp4`` files; everything session-level
+(metadata, trigger log, sync manifest, annotations) stays at the session root.
 
 .. _session metadata:
 

@@ -16,6 +16,7 @@
 #include <QChart>
 #include <QChartView>
 #include <QComboBox>
+#include <QCursor>
 #include <QDesktopServices>
 #include <QDoubleSpinBox>
 #include <QFile>
@@ -26,6 +27,7 @@
 #include <QHeaderView>
 #include <QLabel>
 #include <QLegend>
+#include <QLegendMarker>
 #include <QLineEdit>
 #include <QLineSeries>
 #include <QEasingCurve>
@@ -34,7 +36,9 @@
 #include <QMouseEvent>
 #include <QPainter>
 #include <QPersistentModelIndex>
+#include <QProgressBar>
 #include <QPushButton>
+#include <QRegularExpression>
 #include <QSpinBox>
 #include <QSplitter>
 #include <QStackedWidget>
@@ -42,6 +46,7 @@
 #include <QTableWidget>
 #include <QTextEdit>
 #include <QTextStream>
+#include <QToolTip>
 #include <QUrl>
 #include <QValueAxis>
 #include <QVariantAnimation>
@@ -101,24 +106,48 @@ public:
 
     explicit MetricsChartW(QWidget* parent = nullptr) : QChartView(parent) {
         auto* chart = new QChart();
-        chart->setBackgroundBrush(QColor("#0a0a1a"));
-        chart->setBackgroundPen(Qt::NoPen);
-        chart->legend()->setVisible(false);
-        chart->setMargins(QMargins(6, 6, 6, 6));
+        chart->setBackgroundBrush(QColor("#0e0e22"));
+        chart->setBackgroundPen(QPen(QColor("#252545"), 1));
+        chart->setBackgroundRoundness(10);
+        chart->setMargins(QMargins(10, 10, 10, 6));
+        chart->setAnimationOptions(QChart::SeriesAnimations);
+
+        chart->legend()->setVisible(true);
+        chart->legend()->setAlignment(Qt::AlignBottom);
+        chart->legend()->setBackgroundVisible(false);
+        chart->legend()->setLabelColor(QColor("#a0a0c8"));
+        QFont legendFont;
+        legendFont.setPointSize(10);
+        chart->legend()->setFont(legendFont);
+
+        QFont chartTitleFont;
+        chartTitleFont.setPointSize(13);
+        chartTitleFont.setBold(true);
+        chart->setTitleFont(chartTitleFont);
+        chart->setTitleBrush(QColor("#d8d8f0"));
+        chart->setTitle("Select a session and camera to begin");
+
         setChart(chart);
         setRenderHint(QPainter::Antialiasing);
-        setStyleSheet("background: #0a0a1a; border: none;");
+        setStyleSheet("background: transparent; border: none;");
 
         xSeries_ = new QLineSeries();
+        xSeries_->setName("X position");
         xSeries_->setPen(QPen(QColor("#44aaff"), 2));
         ySeries_ = new QLineSeries();
+        ySeries_->setName("Y position");
         ySeries_->setPen(QPen(QColor("#ffaa44"), 2));
-        // Single-metric series (Speed/Acceleration) — kept separate from
-        // xSeries_/ySeries_ rather than repurposing one of them, so Position
-        // mode's two-line plot and single-metric mode's one-line plot never
-        // fight over which series is "the x-position line".
+        // Single-metric series (Speed/Acceleration/Score) — kept separate
+        // from xSeries_/ySeries_ rather than repurposing one of them, so
+        // Position mode's two-line plot and single-metric mode's one-line
+        // plot never fight over which series is "the x-position line". Name
+        // is set dynamically per call (set_single_series()) since it stands
+        // for a different metric depending on which plugin/mode is active.
         valueSeries_ = new QLineSeries();
-        valueSeries_->setPen(QPen(QColor("#44aaff"), 2));
+        valueSeries_->setPen(QPen(QColor("#44e0aa"), 2));
+        // Deliberately excluded from the legend (see the marker-hiding loop
+        // below) — a dashed vertical line at "the current playback time" is
+        // self-explanatory on sight and doesn't need a legend entry.
         playheadSeries_ = new QLineSeries();
         playheadSeries_->setPen(QPen(QColor("#ff4466"), 1, Qt::DashLine));
 
@@ -127,20 +156,44 @@ public:
         chart->addSeries(valueSeries_);
         chart->addSeries(playheadSeries_);
 
+        for (auto* marker : chart->legend()->markers(playheadSeries_)) {
+            marker->setVisible(false);
+        }
+
         axisX_ = new QValueAxis();
-        axisX_->setLabelFormat("%d");
-        axisX_->setTitleText("ms");
+        axisX_->setLabelFormat("%.1f");
+        axisX_->setTitleText("Time (s)");
         axisX_->setLabelsColor(QColor("#7070a0"));
         axisX_->setTitleBrush(QColor("#7070a0"));
         axisX_->setGridLineColor(QColor("#181838"));
-        axisX_->setRange(0, 1000);
+        axisX_->setRange(0, 1);
 
         axisY_ = new QValueAxis();
-        axisY_->setTitleText("px");
+        axisY_->setTitleText("Position (px)");
         axisY_->setLabelsColor(QColor("#7070a0"));
         axisY_->setTitleBrush(QColor("#7070a0"));
         axisY_->setGridLineColor(QColor("#181838"));
         axisY_->setRange(0, 1080);
+
+        // Readability pass: Qt Charts' built-in axis font/line defaults are
+        // small and unstyled — set an explicit, larger tick/title font and
+        // a visibly thicker spine (matching the app's panel-border color
+        // used everywhere else, #252545) instead of leaving the axis line
+        // unset with only the grid lines colored.
+        QFont tickFont;
+        tickFont.setPointSize(11);
+        axisX_->setLabelsFont(tickFont);
+        axisY_->setLabelsFont(tickFont);
+
+        QFont titleFont;
+        titleFont.setPointSize(12);
+        titleFont.setBold(true);
+        axisX_->setTitleFont(titleFont);
+        axisY_->setTitleFont(titleFont);
+
+        const QPen spinePen(QColor("#252545"), 3);
+        axisX_->setLinePen(spinePen);
+        axisY_->setLinePen(spinePen);
 
         chart->addAxis(axisX_, Qt::AlignBottom);
         chart->addAxis(axisY_, Qt::AlignLeft);
@@ -148,15 +201,35 @@ public:
             series->attachAxis(axisX_);
             series->attachAxis(axisY_);
         }
+
+        // Hover tooltip on each data series — lets a user read an exact
+        // value off the curve without needing to click-seek to that exact
+        // frame first.
+        for (auto* series : {xSeries_, ySeries_, valueSeries_}) {
+            connect(series, &QLineSeries::hovered, this,
+                    [series](const QPointF& point, bool state) {
+                if (!state) { QToolTip::hideText(); return; }
+                QToolTip::showText(QCursor::pos(),
+                    QString("%1s, %2").arg(point.x(), 0, 'f', 2).arg(point.y(), 0, 'f', 1));
+            });
+        }
     }
 
     void set_seek_callback(SeekCb cb) { seekCb_ = std::move(cb); }
+
+    // Shown above the plot area — callers build something like
+    // "nose — Speed" or a blendshape name so the plot is self-explanatory
+    // without needing to cross-reference the controls above it.
+    void set_title(const QString& text) { chart()->setTitle(text); }
 
     // subjectIndex picks which detected subject to plot when a frame has
     // more than one (0 = first/primary subject — the common case).
     void set_data(const PoseAnalysisResult& result, int keypointIndex, int subjectIndex = 0) {
         clear_all_series();
-        axisY_->setTitleText("px");
+        axisY_->setTitleText("Position (px)");
+        set_series_marker_visible(xSeries_, true);
+        set_series_marker_visible(ySeries_, true);
+        set_series_marker_visible(valueSeries_, false);
 
         if (!result.is_valid() || result.frames().isEmpty() || keypointIndex < 0) {
             apply_ranges(false, 0.0, 0.0, 0.0);
@@ -173,12 +246,12 @@ public:
             const auto& subject = frame.subjects[subjectIndex];
             if (keypointIndex >= subject.keypoints.size()) { continue; }
 
-            const double tMs = (frame.timestampNs - t0) / 1e6;
-            const auto&  kp  = subject.keypoints[keypointIndex];
-            xSeries_->append(tMs, kp.x());
-            ySeries_->append(tMs, kp.y());
+            const double tSec = (frame.timestampNs - t0) / 1e9;
+            const auto&  kp   = subject.keypoints[keypointIndex];
+            xSeries_->append(tSec, kp.x());
+            ySeries_->append(tSec, kp.y());
 
-            maxT = std::max(maxT, tMs);
+            maxT = std::max(maxT, tSec);
             minY = std::min({minY, kp.x(), kp.y()});
             maxY = std::max({maxY, kp.x(), kp.y()});
         }
@@ -186,14 +259,21 @@ public:
         apply_ranges(minY <= maxY, minY, maxY, maxT);
     }
 
-    // Single-metric mode (Speed/Acceleration): points are (ms-since-start,
-    // value), pre-filtered by the caller to drop NaN entries (a NaN plotted
-    // point would otherwise break QLineSeries' range calculation). Clears
-    // xSeries_/ySeries_ so Position mode's two-line plot doesn't linger
-    // underneath.
-    void set_single_series(const QVector<QPointF>& points, const QString& yAxisLabel) {
+    // Single-metric mode (Speed/Acceleration/expression score/…): points
+    // are (ms-since-start, value), pre-filtered by the caller to drop NaN
+    // entries (a NaN plotted point would otherwise break QLineSeries' range
+    // calculation) — converted to seconds internally to match axisX_.
+    // Clears xSeries_/ySeries_ so Position mode's two-line plot doesn't
+    // linger underneath. seriesName (shown in the legend) defaults to
+    // yAxisLabel when not given.
+    void set_single_series(const QVector<QPointF>& points, const QString& yAxisLabel,
+                            const QString& seriesName = QString()) {
         clear_all_series();
         axisY_->setTitleText(yAxisLabel);
+        valueSeries_->setName(seriesName.isEmpty() ? yAxisLabel : seriesName);
+        set_series_marker_visible(xSeries_, false);
+        set_series_marker_visible(ySeries_, false);
+        set_series_marker_visible(valueSeries_, true);
 
         if (points.isEmpty()) {
             apply_ranges(false, 0.0, 0.0, 0.0);
@@ -205,8 +285,9 @@ public:
         double maxT = 0.0;
 
         for (const auto& p : points) {
-            valueSeries_->append(p);
-            maxT = std::max(maxT, p.x());
+            const double tSec = p.x() / 1000.0;
+            valueSeries_->append(tSec, p.y());
+            maxT = std::max(maxT, tSec);
             minY = std::min(minY, p.y());
             maxY = std::max(maxY, p.y());
         }
@@ -215,9 +296,10 @@ public:
     }
 
     void set_playhead_ms(int64_t ms) {
+        const double tSec = ms / 1000.0;
         playheadSeries_->clear();
-        playheadSeries_->append(static_cast<double>(ms), axisY_->min());
-        playheadSeries_->append(static_cast<double>(ms), axisY_->max());
+        playheadSeries_->append(tSec, axisY_->min());
+        playheadSeries_->append(tSec, axisY_->max());
     }
 
 protected:
@@ -227,7 +309,7 @@ protected:
             const QPointF chartPos = chart()->mapFromScene(scenePos);
             const QPointF value    = chart()->mapToValue(chartPos, xSeries_);
             const int64_t ms = static_cast<int64_t>(
-                std::clamp(value.x(), axisX_->min(), axisX_->max()));
+                std::clamp(value.x(), axisX_->min(), axisX_->max()) * 1000.0);
             seekCb_(ms);
         }
         QChartView::mousePressEvent(event);
@@ -239,6 +321,12 @@ private:
         ySeries_->clear();
         valueSeries_->clear();
         playheadSeries_->clear();
+    }
+
+    void set_series_marker_visible(QLineSeries* series, bool visible) {
+        for (auto* marker : chart()->legend()->markers(series)) {
+            marker->setVisible(visible);
+        }
     }
 
     // Shared by set_data()/set_single_series() so both modes' axis-range
@@ -386,19 +474,34 @@ struct AnalysisTabW::Impl {
     QDoubleSpinBox*  maxReprojectionErrorSpin  = nullptr;   // pose3d
     QSpinBox*        pose3dSkipSpin            = nullptr;   // pose3d
 
-    QPushButton* runBtn      = nullptr;
-    QLabel*      statusLbl   = nullptr;
-    QTextEdit*   logView     = nullptr;
+    QPushButton*  runBtn       = nullptr;
+    QLabel*       statusLbl    = nullptr;
+    // cameraProgressBar (coarse: which camera out of N, Pose plugin's
+    // multi-camera session runs only) sits above progressBar (fine:
+    // per-frame % within the camera currently being processed) — both
+    // parsed out of output_received, see the "Camera N/M:" vs "NN.N% (a/b)"
+    // regexes there.
+    QProgressBar* cameraProgressBar = nullptr;
+    QProgressBar* progressBar  = nullptr;   // per-frame progress, parsed out of output_received
+    QTextEdit*    logView      = nullptr;
 
     // Source-picker rows: sourceRowW (Camera/Keypoint, pose+face_mask) and
     // micRowW (Mic, diarize) are mutually exclusive — select_plugin() shows
     // exactly one, mirroring how kinematicsRowW is toggled.
     QWidget*             sourceRowW    = nullptr;
     QComboBox*          cameraCombo   = nullptr;   // pose + face_mask + expression + gaze_fusion + pose3d
-    QComboBox*          keypointCombo = nullptr;   // pose only
-    QComboBox*          blendshapeCombo = nullptr; // expression only
-    QComboBox*          trackCombo    = nullptr;   // pose3d only — filters the CSV export;
-                                                    // the 3D room view always shows every track
+    // Each combo's own "Label:" is a separate sibling widget in resultsRow,
+    // not something select_plugin() can toggle via the combo pointer alone
+    // — these *FieldW containers pair each up so one setVisible() call
+    // hides both together, matching this file's established
+    // own-container-widget convention (kinematicsRowW etc).
+    QWidget*            keypointFieldW    = nullptr;
+    QComboBox*          keypointCombo     = nullptr;   // pose only
+    QWidget*            blendshapeFieldW  = nullptr;
+    QComboBox*          blendshapeCombo   = nullptr;    // expression only
+    QWidget*            trackFieldW       = nullptr;
+    QComboBox*          trackCombo        = nullptr;    // pose3d only — filters the CSV export;
+                                                          // the 3D room view always shows every track
     PoseOverlayPlayerW*  player       = nullptr;   // shared: video (pose/face_mask/expression),
                                                     // or audio (diarize)
     MetricsChartW*       chart        = nullptr;   // pose + expression
@@ -505,6 +608,18 @@ AnalysisTabW::AnalysisTabW(AppSettings& settings, AnalysisManager* analysisMgr, 
     : QWidget(parent), d(std::make_unique<Impl>(settings, analysisMgr))
 {
     build_ui();
+    // pluginCombo's first addItem() (build_ui(), "Pose (YOLOv8)") fires its
+    // own currentIndexChanged(0) synchronously, before the connect() to
+    // select_plugin() a few lines later even runs — so select_plugin() was
+    // never actually invoked for the startup-default plugin. Every
+    // plugin-specific control that relies solely on select_plugin() to
+    // hide it (blendshapeCombo, trackCombo, expressionRowW, gazeFusionRowW,
+    // pose3dRowW — everything except micRowW, which has an explicit
+    // construction-time setVisible(false)) was left at its default
+    // QWidget-visible state: Blendshape/Track combos and 3 unrelated
+    // "Export CSV" buttons all showing at once alongside the real Pose
+    // controls. Call it explicitly now that every widget it touches exists.
+    select_plugin(d->pluginCombo->currentIndex());
     rebuild_session_list();
 
     connect(analysisMgr, &AnalysisManager::analysis_started, this, [this](const QString& path) {
@@ -512,23 +627,72 @@ AnalysisTabW::AnalysisTabW(AppSettings& settings, AnalysisManager* analysisMgr, 
         d->runBtn->setEnabled(false);   // AnalysisManager only runs one job at a time either way
         if (!d->jobIsMine) { return; }
         d->statusLbl->setText("Running…");
-        d->statusLbl->setStyleSheet("color:#ddaa33; font-size:11px;");
+        d->statusLbl->setStyleSheet("color:#ddaa33; font-size:15px; font-weight:600;");
         d->logView->clear();
+        d->progressBar->setValue(0);
+        d->progressBar->setFormat("%p%");
+        d->progressBar->setVisible(false);
+        d->cameraProgressBar->setValue(0);
+        d->cameraProgressBar->setVisible(false);
     });
     connect(analysisMgr, &AnalysisManager::output_received, this, [this](const QString& line) {
         if (!d->jobIsMine) { return; }
+
+        // Multi-camera session runs (Pose plugin's process_session()) print
+        // one "Camera N/M: <file>" banner before each camera's own per-frame
+        // ticker starts — a coarser, session-wide sibling to progressRe
+        // below. Still falls through to the log (infrequent — once per
+        // camera, not per frame — so no spam concern), unlike the per-frame
+        // match which replaces the log line entirely.
+        static const QRegularExpression cameraRe(
+            QStringLiteral(R"(^\[run_pose\] Camera (\d+)/(\d+):)"));
+        const auto cameraMatch = cameraRe.match(line);
+        if (cameraMatch.hasMatch()) {
+            const int camIdx   = cameraMatch.captured(1).toInt();
+            const int camTotal = cameraMatch.captured(2).toInt();
+            d->cameraProgressBar->setVisible(true);
+            d->cameraProgressBar->setRange(0, camTotal);
+            d->cameraProgressBar->setValue(camIdx);
+            d->cameraProgressBar->setFormat(QString("Camera %1/%2").arg(camIdx).arg(camTotal));
+            // Each new camera restarts its own per-frame progress at 0 —
+            // avoids the bar briefly showing the previous camera's leftover
+            // percentage before its first "NN.N% (a/b)" line arrives.
+            d->progressBar->setValue(0);
+        }
+
+        // Every plugin script prints its per-frame ticker in this same
+        // shape (run_pose.py's "  42.7%  (1200/2810)  18.3s elapsed", and
+        // sibling scripts that copied its progress-print convention) —
+        // route it to the progress bar instead of the log view, so a run
+        // shows one live-updating bar instead of a wall of tiny scrolling
+        // text. Anything else (start/done/error banners) still goes to the
+        // log unchanged.
+        static const QRegularExpression progressRe(
+            QStringLiteral(R"(^\s*(\d+(?:\.\d+)?)%\s+\((\d+)/(\d+)\))"));
+        const auto match = progressRe.match(line);
+        if (match.hasMatch()) {
+            const double pct = match.captured(1).toDouble();
+            d->progressBar->setVisible(true);
+            d->progressBar->setValue(static_cast<int>(pct * 10.0));
+            d->progressBar->setFormat(QString("%1%  (%2/%3)")
+                                           .arg(pct, 0, 'f', 1)
+                                           .arg(match.captured(2), match.captured(3)));
+            return;
+        }
         d->logView->append(line);
     });
     connect(analysisMgr, &AnalysisManager::setup_error, this, [this](const QString& msg) {
         // No session/path info on this signal — always surface it rather
         // than risk hiding a failure of the user's own just-clicked Run.
         d->statusLbl->setText("Error: " + msg);
-        d->statusLbl->setStyleSheet("color:#cc4444; font-size:11px;");
+        d->statusLbl->setStyleSheet("color:#cc4444; font-size:15px; font-weight:600;");
         d->runBtn->setEnabled(true);
     });
     connect(analysisMgr, &AnalysisManager::analysis_finished, this,
             [this](const QString& path, bool success) {
         d->runBtn->setEnabled(true);
+        d->progressBar->setVisible(false);
+        d->cameraProgressBar->setVisible(false);
         if (!d->jobIsMine) { return; }
         // Only touch the status text if the user hasn't switched plugins
         // since starting this job — otherwise "Done."/"Failed" would land
@@ -537,7 +701,8 @@ AnalysisTabW::AnalysisTabW(AppSettings& settings, AnalysisManager* analysisMgr, 
         if (d->pluginCombo->currentData().toString() == d->jobPlugin) {
             d->statusLbl->setText(success ? "Done." : "Failed — see log.");
             d->statusLbl->setStyleSheet(success
-                ? "color:#44cc66; font-size:11px;" : "color:#cc4444; font-size:11px;");
+                ? "color:#44cc66; font-size:15px; font-weight:600;"
+                : "color:#cc4444; font-size:15px; font-weight:600;");
         }
         if (success && path == d->currentSessionPath) {
             rebuild_session_list();
@@ -609,6 +774,12 @@ void AnalysisTabW::build_ui() {
     d->skipSpin->setRange(1, 30);
     d->skipSpin->setValue(1);
     d->skipSpin->setPrefix("skip ");
+    d->skipSpin->setToolTip(
+        "Runs pose detection on every Nth frame instead of every frame. "
+        "Skipped frames get no data at all (not interpolated) — the video "
+        "overlay and chart fall back to the nearest analyzed frame for "
+        "them. Higher values analyze long recordings faster at the cost "
+        "of temporal resolution. Keep at 1 for the most complete result.");
     poseLay->addWidget(d->skipSpin);
     d->controlsStack->addWidget(posePage);
 
@@ -823,13 +994,63 @@ void AnalysisTabW::build_ui() {
     controlsRow->addWidget(d->controlsStack, 1);
 
     d->runBtn = new QPushButton("▶  Run");
+    d->runBtn->setFixedHeight(34);
+    d->runBtn->setCursor(Qt::PointingHandCursor);
+    // Same green "go" convention as AdminPanelDialog::launchBtn (also a
+    // "▶ …" primary action) — a glossy gradient here specifically per the
+    // user's ask for something more colorful than the plain default
+    // QPushButton style every other button in this tab still uses.
+    d->runBtn->setStyleSheet(
+        "QPushButton { background: qlineargradient(x1:0, y1:0, x2:0, y2:1,"
+        "    stop:0 #33bb66, stop:1 #229944);"
+        "  border: 1px solid #33aa55; border-radius: 6px;"
+        "  padding: 6px 22px; color: #ffffff; font-size: 13px; font-weight: bold; }"
+        "QPushButton:hover { background: qlineargradient(x1:0, y1:0, x2:0, y2:1,"
+        "    stop:0 #3fd479, stop:1 #28b552); border-color: #55ee88; }"
+        "QPushButton:pressed { background: qlineargradient(x1:0, y1:0, x2:0, y2:1,"
+        "    stop:0 #1f8a44, stop:1 #186e35); }"
+        "QPushButton:disabled { background: #12251a; border-color: #1e3a28; color: #4a6a55; }");
     connect(d->runBtn, &QPushButton::clicked, this, &AnalysisTabW::run_analysis);
     controlsRow->addWidget(d->runBtn);
     runLay->addLayout(controlsRow);
 
     d->statusLbl = new QLabel("Select a session to begin.");
-    d->statusLbl->setStyleSheet("color:#6060a0; font-size:11px;");
+    d->statusLbl->setStyleSheet("color:#6060a0; font-size:15px; font-weight:600;");
     runLay->addWidget(d->statusLbl);
+
+    // Coarse, session-wide sibling of progressBar below — which camera out
+    // of N is currently being processed (Pose plugin's multi-camera
+    // process_session() runs only; stays hidden and inert for every other
+    // plugin, since only run_pose.py prints the "Camera N/M:" line this
+    // parses). Distinct accent color (blue vs. progressBar's green) so the
+    // two are visually distinguishable when both are visible at once.
+    d->cameraProgressBar = new QProgressBar;
+    d->cameraProgressBar->setRange(0, 1);
+    d->cameraProgressBar->setTextVisible(true);
+    d->cameraProgressBar->setFormat("Camera");
+    d->cameraProgressBar->setFixedHeight(20);
+    d->cameraProgressBar->setVisible(false);
+    d->cameraProgressBar->setStyleSheet(
+        "QProgressBar { background:#0a0a1a; border:1px solid #252545; border-radius:4px;"
+        " text-align:center; color:#c8c8e0; font-size:12px; }"
+        "QProgressBar::chunk { background:#4488ff; border-radius:3px; }");
+    runLay->addWidget(d->cameraProgressBar);
+
+    // tqdm-style progress display for the per-frame ticker every plugin
+    // script prints ("  42.7%  (1200/2810)  18.3s elapsed") — parsed out of
+    // output_received() below instead of scrolling by as tiny log text.
+    // Hidden outside an active run.
+    d->progressBar = new QProgressBar;
+    d->progressBar->setRange(0, 1000);   // per-mille, for one-decimal percent resolution
+    d->progressBar->setTextVisible(true);
+    d->progressBar->setFormat("%p%");
+    d->progressBar->setFixedHeight(20);
+    d->progressBar->setVisible(false);
+    d->progressBar->setStyleSheet(
+        "QProgressBar { background:#0a0a1a; border:1px solid #252545; border-radius:4px;"
+        " text-align:center; color:#c8c8e0; font-size:12px; }"
+        "QProgressBar::chunk { background:#44aa66; border-radius:3px; }");
+    runLay->addWidget(d->progressBar);
 
     d->logView = new QTextEdit;
     d->logView->setReadOnly(true);
@@ -852,15 +1073,29 @@ void AnalysisTabW::build_ui() {
     resultsRow->addWidget(d->cameraCombo);
     connect(d->cameraCombo, &QComboBox::currentIndexChanged, this, &AnalysisTabW::select_camera);
 
+    // Pairs a label with its combo in one container so select_plugin() can
+    // hide both together with a single setVisible() call — a bare
+    // resultsRow->addWidget(new QLabel(...)) has no stored pointer, so
+    // without this the label would stay visible even once its combo (the
+    // only thing select_plugin() could otherwise toggle) is hidden.
+    auto make_field = [&](const QString& labelText, QComboBox* combo) {
+        auto* field = new QWidget;
+        auto* lay = new QHBoxLayout(field);
+        lay->setContentsMargins(0, 0, 0, 0);
+        lay->addWidget(new QLabel(labelText));
+        lay->addWidget(combo, 1);
+        resultsRow->addWidget(field, 1);
+        return field;
+    };
+
     d->keypointCombo = new QComboBox;
-    resultsRow->addWidget(new QLabel("Keypoint:"));
-    resultsRow->addWidget(d->keypointCombo, 1);
+    d->keypointFieldW = make_field("Keypoint:", d->keypointCombo);
     connect(d->keypointCombo, &QComboBox::currentIndexChanged, this,
             &AnalysisTabW::update_kinematics_chart);
 
     d->blendshapeCombo = new QComboBox;
-    resultsRow->addWidget(new QLabel("Blendshape:"));
-    resultsRow->addWidget(d->blendshapeCombo, 1);
+    d->blendshapeFieldW = make_field("Blendshape:", d->blendshapeCombo);
+    d->blendshapeFieldW->setVisible(false);   // shown only for the expression plugin
     connect(d->blendshapeCombo, &QComboBox::currentIndexChanged, this,
             &AnalysisTabW::update_expression_view);
 
@@ -868,8 +1103,8 @@ void AnalysisTabW::build_ui() {
     d->trackCombo->setToolTip(
         "Filters the stats/CSV export to one reconstructed person. The 3D room "
         "view always shows every tracked person regardless of this selection.");
-    resultsRow->addWidget(new QLabel("Track:"));
-    resultsRow->addWidget(d->trackCombo, 1);
+    d->trackFieldW = make_field("Track:", d->trackCombo);
+    d->trackFieldW->setVisible(false);   // shown only for the pose3d plugin
     connect(d->trackCombo, &QComboBox::currentIndexChanged, this,
             &AnalysisTabW::update_pose3d_view);
 
@@ -991,6 +1226,7 @@ void AnalysisTabW::build_ui() {
             &AnalysisTabW::export_expression_csv);
     expressionRow->addWidget(d->exportExpressionBtn);
 
+    d->expressionRowW->setVisible(false);   // shown only for the expression plugin
     rightLay->addWidget(d->expressionRowW);
 
     // ── Gaze-fusion view controls: fit-quality stats + CSV export. Gaze
@@ -1013,6 +1249,7 @@ void AnalysisTabW::build_ui() {
     connect(d->exportGazeBtn, &QPushButton::clicked, this, &AnalysisTabW::export_gaze_csv);
     gazeFusionRow->addWidget(d->exportGazeBtn);
 
+    d->gazeFusionRowW->setVisible(false);   // shown only for the gaze_fusion plugin
     rightLay->addWidget(d->gazeFusionRowW);
 
     // ── 3D Pose Reconstruction view controls: reconstruction-quality stats
@@ -1034,6 +1271,7 @@ void AnalysisTabW::build_ui() {
     connect(d->exportPose3dBtn, &QPushButton::clicked, this, &AnalysisTabW::export_skeleton3d_csv);
     pose3dRow->addWidget(d->exportPose3dBtn);
 
+    d->pose3dRowW->setVisible(false);   // shown only for the pose3d plugin
     rightLay->addWidget(d->pose3dRowW);
 
     auto* resultsSplitter = new QSplitter(Qt::Horizontal);
@@ -1157,7 +1395,7 @@ void AnalysisTabW::select_session(const QString& path) {
     d->micCombo->blockSignals(false);
 
     d->statusLbl->setText(info ? "Ready." : "Session not found.");
-    d->statusLbl->setStyleSheet("color:#6060a0; font-size:11px;");
+    d->statusLbl->setStyleSheet("color:#6060a0; font-size:15px; font-weight:600;");
 
     select_camera(d->cameraCombo->currentIndex());
 }
@@ -1188,9 +1426,9 @@ void AnalysisTabW::select_plugin(int index) {
         w->setVisible(visible);
         if (visible) { anim::fade_in_widget(w, 130); }
     };
-    set_visible_animated(d->keypointCombo, isPose);
-    set_visible_animated(d->blendshapeCombo, isExpression);
-    set_visible_animated(d->trackCombo, isPose3D);
+    set_visible_animated(d->keypointFieldW, isPose);
+    set_visible_animated(d->blendshapeFieldW, isExpression);
+    set_visible_animated(d->trackFieldW, isPose3D);
     set_visible_animated(d->chart, isPose || isExpression);
     set_visible_animated(d->kinematicsRowW, isPose);
     set_visible_animated(d->expressionRowW, isExpression);
@@ -1214,7 +1452,13 @@ void AnalysisTabW::select_plugin(int index) {
 // ── Analysis lifecycle ───────────────────────────────────────────────────
 
 QString AnalysisTabW::pose_json_path_for(const QString& videoRelPath) const {
-    return sidecar_path_for(videoRelPath, ".pose.json");
+    // Own subfolder, not a sidecar beside the video (unlike expression/
+    // transcript below) — see analysis/run_pose.py::process_session()'s
+    // matching pose_dir. Forward-only: sessions analyzed before this
+    // change have their .pose.json under video/ instead and won't be
+    // found here until re-run, matching this project's established
+    // no-migration convention for directory-layout changes (item 13).
+    return "pose/" + QFileInfo(videoRelPath).completeBaseName() + ".pose.json";
 }
 
 QString AnalysisTabW::anonymized_video_path_for(const QString& videoRelPath) const {
@@ -1288,7 +1532,7 @@ void AnalysisTabW::reload_current_camera_result() {
 
         if (!d->currentGazeFusion.is_valid()) {
             d->statusLbl->setText("No gaze fusion result yet for this session — click Run.");
-            d->statusLbl->setStyleSheet("color:#6060a0; font-size:11px;");
+            d->statusLbl->setStyleSheet("color:#6060a0; font-size:15px; font-weight:600;");
         }
         return;
     }
@@ -1339,7 +1583,7 @@ void AnalysisTabW::reload_current_camera_result() {
 
         if (!d->currentSkeleton3D.is_valid()) {
             d->statusLbl->setText("No 3D reconstruction yet for this session — click Run.");
-            d->statusLbl->setStyleSheet("color:#6060a0; font-size:11px;");
+            d->statusLbl->setStyleSheet("color:#6060a0; font-size:15px; font-weight:600;");
         }
         return;
     }
@@ -1364,11 +1608,11 @@ void AnalysisTabW::reload_current_camera_result() {
 
         if (!d->currentTranscript.is_valid()) {
             d->statusLbl->setText("No transcript yet for this mic — click Run.");
-            d->statusLbl->setStyleSheet("color:#6060a0; font-size:11px;");
+            d->statusLbl->setStyleSheet("color:#6060a0; font-size:15px; font-weight:600;");
         } else if (!d->currentTranscript.has_diarization()) {
             d->statusLbl->setText(
                 "Transcript loaded (no speaker labels — diarization was skipped or unavailable).");
-            d->statusLbl->setStyleSheet("color:#6060a0; font-size:11px;");
+            d->statusLbl->setStyleSheet("color:#6060a0; font-size:15px; font-weight:600;");
         }
         return;
     }
@@ -1409,14 +1653,20 @@ void AnalysisTabW::reload_current_camera_result() {
 
         update_kinematics_chart();
 
-        // Only overwrite statusLbl for the "nothing to show yet" case — a
-        // valid result leaves whatever's already there alone, so a "Done."
-        // set by the analysis_finished handler right before this runs (via
-        // rebuild_session_list()) isn't immediately clobbered back to a
-        // generic "Ready." in the same call stack.
+        // Only overwrite statusLbl for the "nothing to show yet" cases — a
+        // valid result WITH detections leaves whatever's already there
+        // alone, so a "Done." set by the analysis_finished handler right
+        // before this runs (via rebuild_session_list()) isn't immediately
+        // clobbered back to a generic "Ready." in the same call stack. A
+        // valid result with zero detections is different: that's more
+        // useful information than "Done." on its own, so it does overwrite.
         if (!d->currentResult.is_valid()) {
             d->statusLbl->setText("No analysis yet for this camera — click Run.");
-            d->statusLbl->setStyleSheet("color:#6060a0; font-size:11px;");
+            d->statusLbl->setStyleSheet("color:#6060a0; font-size:15px; font-weight:600;");
+        } else if (!d->currentResult.has_any_detections()) {
+            d->statusLbl->setText("Pose ran, but no person was detected in this camera's "
+                                   "footage — try a different camera, or check its framing/lighting.");
+            d->statusLbl->setStyleSheet("color:#ddaa33; font-size:15px; font-weight:600;");
         }
         return;
     }
@@ -1446,7 +1696,7 @@ void AnalysisTabW::reload_current_camera_result() {
         const auto& exprResult = d->currentExpressionResult;
         if (!exprResult.is_valid() || exprResult.frames().isEmpty()) {
             d->statusLbl->setText("No analysis yet for this camera — click Run.");
-            d->statusLbl->setStyleSheet("color:#6060a0; font-size:11px;");
+            d->statusLbl->setStyleSheet("color:#6060a0; font-size:15px; font-weight:600;");
         }
         return;
     }
@@ -1464,10 +1714,10 @@ void AnalysisTabW::reload_current_camera_result() {
 
         if (hasOutput) {
             d->statusLbl->setText("Showing anonymized output.");
-            d->statusLbl->setStyleSheet("color:#44cc66; font-size:11px;");
+            d->statusLbl->setStyleSheet("color:#44cc66; font-size:15px; font-weight:600;");
         } else {
             d->statusLbl->setText("Not yet anonymized (showing original) — click Run.");
-            d->statusLbl->setStyleSheet("color:#6060a0; font-size:11px;");
+            d->statusLbl->setStyleSheet("color:#6060a0; font-size:15px; font-weight:600;");
         }
         return;
     }
@@ -1477,7 +1727,7 @@ void AnalysisTabW::reload_current_camera_result() {
     // face-mask's view for any future unmatched plugin id — the same
     // "leftover = face_mask" gap run_analysis() was fixed to avoid.
     d->statusLbl->setText("Error: unknown plugin selected.");
-    d->statusLbl->setStyleSheet("color:#cc4444; font-size:11px;");
+    d->statusLbl->setStyleSheet("color:#cc4444; font-size:15px; font-weight:600;");
 }
 
 // ── Kinematics view ──────────────────────────────────────────────────────
@@ -1485,9 +1735,12 @@ void AnalysisTabW::reload_current_camera_result() {
 void AnalysisTabW::update_kinematics_chart() {
     const int keypointIndex = d->keypointCombo->currentIndex();
     const QString metric = d->metricCombo->currentData().toString();
+    const QString keypointName = keypointIndex >= 0 ? d->keypointCombo->currentText() : QString();
 
     if (metric == "position" || keypointIndex < 0) {
         d->chart->set_data(d->currentResult, keypointIndex);
+        d->chart->set_title(keypointName.isEmpty()
+            ? "No keypoint selected" : keypointName + " — Position");
         d->kinematicsStatsLbl->clear();
         d->chart->set_playhead_ms(d->player->position_ms());
         return;
@@ -1498,6 +1751,7 @@ void AnalysisTabW::update_kinematics_chart() {
                                             /*subjectIndex=*/0, d->smoothingSpin->value());
     const double scale = d->scaleSpin->value();  // mm/px, 1.0 = raw pixels
     const bool   isMm  = scale != 1.0;
+    const QString metricName = isSpeed ? "Speed" : "Acceleration";
     const QString unit = isSpeed ? (isMm ? "mm/s" : "px/s") : (isMm ? "mm/s²" : "px/s²");
 
     QVector<QPointF> points;
@@ -1510,7 +1764,8 @@ void AnalysisTabW::update_kinematics_chart() {
         points.append(QPointF(tMs, value * scale));
     }
 
-    d->chart->set_single_series(points, unit);
+    d->chart->set_single_series(points, QString("%1 (%2)").arg(metricName, unit), metricName);
+    d->chart->set_title(keypointName + " — " + metricName);
     d->chart->set_playhead_ms(d->player->position_ms());
 
     if (std::isnan(series.stats.avgSpeedPxPerS)) {
@@ -1658,7 +1913,8 @@ void AnalysisTabW::export_transcript_csv() {
 
 void AnalysisTabW::update_expression_view() {
     if (!d->currentExpressionResult.is_valid()) {
-        d->chart->set_single_series({}, "score");
+        d->chart->set_single_series({}, "Score (0–1)", "Blendshape score");
+        d->chart->set_title("No analysis yet");
         d->expressionStatsLbl->clear();
         d->chart->set_playhead_ms(d->player->position_ms());
         return;
@@ -1669,6 +1925,8 @@ void AnalysisTabW::update_expression_view() {
     // blendshapeCombo (e.g. a result with no blendshape_names) still gets a
     // populated stats label, just an empty chart.
     const int blendshapeIndex = d->blendshapeCombo->currentIndex();
+    const QString blendshapeName = blendshapeIndex >= 0 ? d->blendshapeCombo->currentText()
+                                                          : QString();
 
     QVector<QPointF> points;
     const auto& frames = d->currentExpressionResult.frames();
@@ -1691,7 +1949,9 @@ void AnalysisTabW::update_expression_view() {
         ++totalWithSubject;
     }
 
-    d->chart->set_single_series(points, "score (0-1)");
+    d->chart->set_single_series(points, "Score (0–1)",
+                                 blendshapeName.isEmpty() ? "Blendshape score" : blendshapeName);
+    d->chart->set_title(blendshapeName.isEmpty() ? "Facial expression" : blendshapeName);
     d->chart->set_playhead_ms(d->player->position_ms());
 
     if (totalWithSubject == 0) {
@@ -1895,7 +2155,7 @@ void AnalysisTabW::run_analysis() {
         const int maxSpeakers = d->maxSpeakersSpin->value();
         if (minSpeakers > 0 && maxSpeakers > 0 && minSpeakers > maxSpeakers) {
             d->statusLbl->setText("Error: Min speakers can't exceed Max speakers.");
-            d->statusLbl->setStyleSheet("color:#cc4444; font-size:11px;");
+            d->statusLbl->setStyleSheet("color:#cc4444; font-size:15px; font-weight:600;");
             return;
         }
     }
@@ -1918,7 +2178,7 @@ void AnalysisTabW::run_analysis() {
         if (nWithPose < 2) {
             d->statusLbl->setText(
                 "Error: run the Pose plugin on at least 2 cameras in this session first.");
-            d->statusLbl->setStyleSheet("color:#cc4444; font-size:11px;");
+            d->statusLbl->setStyleSheet("color:#cc4444; font-size:15px; font-weight:600;");
             return;
         }
     }
@@ -1962,7 +2222,7 @@ void AnalysisTabW::run_analysis() {
         // a silent fallthrough here would otherwise launch face-masking with
         // whatever plugin's controls happen to be on screen.
         d->statusLbl->setText("Error: unknown plugin selected.");
-        d->statusLbl->setStyleSheet("color:#cc4444; font-size:11px;");
+        d->statusLbl->setStyleSheet("color:#cc4444; font-size:15px; font-weight:600;");
     }
 }
 

@@ -49,11 +49,36 @@ const char* kFixtureJson = R"JSON(
 }
 )JSON";
 
+// Same schema, but every frame has zero detected subjects — models a
+// camera whose footage the pose model never detected anyone in for the
+// whole session (a real, confirmed-on-hardware case, not hypothetical).
+const char* kNoDetectionsFixtureJson = R"JSON(
+{
+  "source_video": "video_0.mp4",
+  "keypoint_names": ["nose", "left_eye", "right_eye"],
+  "skeleton_edges": [[0, 1], [0, 2]],
+  "frames": [
+    { "frame_index": 0, "timestamp_ns": 1000000000, "camera_index": 0,
+      "inference_ms": 5.0, "backend": "yolov8", "subjects": [] },
+    { "frame_index": 1, "timestamp_ns": 1040000000, "camera_index": 0,
+      "inference_ms": 5.0, "backend": "yolov8", "subjects": [] }
+  ]
+}
+)JSON";
+
 QString write_fixture(const QString& dirPath) {
     const QString path = dirPath + "/video_0.pose.json";
     QFile f(path);
     EXPECT_TRUE(f.open(QIODevice::WriteOnly | QIODevice::Text));
     f.write(kFixtureJson);
+    return path;
+}
+
+QString write_no_detections_fixture(const QString& dirPath) {
+    const QString path = dirPath + "/video_0.pose.json";
+    QFile f(path);
+    EXPECT_TRUE(f.open(QIODevice::WriteOnly | QIODevice::Text));
+    f.write(kNoDetectionsFixtureJson);
     return path;
 }
 
@@ -123,4 +148,25 @@ TEST(PoseAnalysisResult, NearestFrameHandlesGapsAndBoundaries) {
 TEST(PoseAnalysisResult, NearestFrameOnEmptyResultReturnsNull) {
     const PoseAnalysisResult result;
     EXPECT_EQ(result.nearest_frame(0), nullptr);
+}
+
+TEST(PoseAnalysisResult, HasAnyDetectionsIsTrueWhenSomeFrameHasASubject) {
+    QTemporaryDir dir;
+    ASSERT_TRUE(dir.isValid());
+    const auto result = PoseAnalysisResult::load(write_fixture(dir.path()));
+    ASSERT_TRUE(result.is_valid());
+    EXPECT_TRUE(result.has_any_detections());
+}
+
+TEST(PoseAnalysisResult, HasAnyDetectionsIsFalseWhenNoFrameHasASubject) {
+    QTemporaryDir dir;
+    ASSERT_TRUE(dir.isValid());
+    const auto result = PoseAnalysisResult::load(write_no_detections_fixture(dir.path()));
+    ASSERT_TRUE(result.is_valid());
+    EXPECT_FALSE(result.has_any_detections());
+}
+
+TEST(PoseAnalysisResult, HasAnyDetectionsIsFalseOnDefaultConstructedResult) {
+    const PoseAnalysisResult result;
+    EXPECT_FALSE(result.has_any_detections());
 }
