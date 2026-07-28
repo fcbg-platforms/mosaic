@@ -164,7 +164,7 @@ protected:
 
         // ── MOSAIC wordmark ──────────────────────────────────────────────
         QFont wordFont;
-        wordFont.setPointSize(26);
+        wordFont.setPointSize(29);
         wordFont.setBold(true);
         wordFont.setLetterSpacing(QFont::AbsoluteSpacing, 5);
         p.setFont(wordFont);
@@ -191,7 +191,7 @@ protected:
 
         // ── Subtitle text ─────────────────────────────────────────────────
         QFont subFont;
-        subFont.setPointSize(8);
+        subFont.setPointSize(10);
         p.setFont(subFont);
         p.setPen(QColor("#555588"));
         const QRectF subRect(20, sepY + 14, width() - 40, 80);
@@ -201,7 +201,7 @@ protected:
 
         // ── Version chip at bottom ────────────────────────────────────────
         QFont verFont;
-        verFont.setPointSize(7);
+        verFont.setPointSize(9);
         p.setFont(verFont);
         p.setPen(QColor("#2a2a4a"));
         p.drawText(QRectF(0, height() - 28, width(), 20),
@@ -517,12 +517,12 @@ LoginDialog::LoginDialog(ProfileManager& profileMgr, QWidget* parent)
         QLineEdit {
             background: #0a0a1f; border: 1px solid #252545;
             border-radius: 5px; padding: 8px 12px;
-            color: #c8c8e0; font-size: 13px;
+            color: #c8c8e0; font-size: 16px;
         }
         QLineEdit:focus { border-color: #6060ee; background: #0d0d25; }
         QPushButton[role="primary"] {
             background: #2828a0; border: 1px solid #4444cc; border-radius: 5px;
-            padding: 9px 26px; color: #c8c8ff; font-size: 13px; font-weight: bold;
+            padding: 9px 26px; color: #c8c8ff; font-size: 16px; font-weight: bold;
         }
         QPushButton[role="primary"]:hover  { background: #3030b8; border-color: #6060ee; }
         QPushButton[role="primary"]:pressed { background: #1c1c70; }
@@ -531,10 +531,10 @@ LoginDialog::LoginDialog(ProfileManager& profileMgr, QWidget* parent)
         }
         QPushButton[role="ghost"] {
             background: transparent; border: 1px solid #252545; border-radius: 5px;
-            padding: 9px 18px; color: #6666aa; font-size: 12px;
+            padding: 9px 18px; color: #6666aa; font-size: 15px;
         }
         QPushButton[role="ghost"]:hover { border-color: #44446a; color: #9999cc; background: #0d0d22; }
-        QCheckBox { spacing: 8px; color: #8888aa; font-size: 12px; }
+        QCheckBox { spacing: 8px; color: #8888aa; font-size: 14px; }
         QCheckBox::indicator { width: 16px; height: 16px; border: 1px solid #333355;
             border-radius: 3px; background: #0a0a1f; }
         QCheckBox::indicator:checked { background: #4444aa; border-color: #6666cc; }
@@ -579,7 +579,7 @@ void LoginDialog::build_ui() {
 
     // Section label
     auto* whoLbl = new QLabel("SELECT YOUR RESEARCH GROUP");
-    whoLbl->setStyleSheet("color: #38387a; font-size: 9px; font-weight: bold; letter-spacing: 2px;");
+    whoLbl->setStyleSheet("color: #38387a; font-size: 11px; font-weight: bold; letter-spacing: 2px;");
     authLay->addWidget(whoLbl);
 
     authLay->addSpacing(14);
@@ -610,7 +610,7 @@ void LoginDialog::build_ui() {
 
     // Selected profile label
     d->selectedLabel = new QLabel("Click a profile to select it");
-    d->selectedLabel->setStyleSheet("color: #44446a; font-size: 11px;");
+    d->selectedLabel->setStyleSheet("color: #44446a; font-size: 14px;");
     authLay->addWidget(d->selectedLabel);
 
     authLay->addSpacing(10);
@@ -634,7 +634,7 @@ void LoginDialog::build_ui() {
 
     // Error label
     d->errorLabel = new QLabel;
-    d->errorLabel->setStyleSheet("color: #dd4444; font-size: 11px;");
+    d->errorLabel->setStyleSheet("color: #dd4444; font-size: 13px;");
     d->errorLabel->setVisible(false);
     authLay->addWidget(d->errorLabel);
 
@@ -674,7 +674,7 @@ void LoginDialog::build_ui() {
         auto* adminLink = new QPushButton("⚙  Set up admin account…");
         adminLink->setStyleSheet(
             "QPushButton { background: transparent; border: none; "
-            "color: #333358; font-size: 10px; text-decoration: underline; }"
+            "color: #333358; font-size: 12px; text-decoration: underline; }"
             "QPushButton:hover { color: #555588; }");
         adminLink->setFlat(true);
         connect(adminLink, &QPushButton::clicked, this, [this] {
@@ -705,12 +705,12 @@ void LoginDialog::build_ui() {
     regLay->setSpacing(0);
 
     auto* regTitle = new QLabel("Create a new research-group profile");
-    regTitle->setStyleSheet("color: #c8c8e0; font-size: 15px; font-weight: bold;");
+    regTitle->setStyleSheet("color: #c8c8e0; font-size: 19px; font-weight: bold;");
     regLay->addWidget(regTitle);
 
     regLay->addSpacing(6);
     auto* regSub = new QLabel("Each group gets its own camera configuration and recording settings.");
-    regSub->setStyleSheet("color: #38386a; font-size: 11px;");
+    regSub->setStyleSheet("color: #38386a; font-size: 13px;");
     regSub->setWordWrap(true);
     regLay->addWidget(regSub);
 
@@ -726,7 +726,7 @@ void LoginDialog::build_ui() {
     auto make_row = [&](const QString& label, QLineEdit* field) {
         auto* row = new QHBoxLayout;
         auto* lbl = new QLabel(label);
-        lbl->setStyleSheet("color: #7070a0; font-size: 11px;");
+        lbl->setStyleSheet("color: #7070a0; font-size: 13px; font-weight: 600;");
         lbl->setFixedWidth(100);
         lbl->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
         row->addWidget(lbl);
@@ -761,7 +761,7 @@ void LoginDialog::build_ui() {
     regLay->addSpacing(6);
 
     d->regError = new QLabel;
-    d->regError->setStyleSheet("color: #dd4444; font-size: 11px;");
+    d->regError->setStyleSheet("color: #dd4444; font-size: 13px;");
     d->regError->setVisible(false);
     regLay->addWidget(d->regError);
 
@@ -786,7 +786,7 @@ void LoginDialog::build_ui() {
     auto* createBtn = new QPushButton("Create profile  ▶");
     createBtn->setStyleSheet(
         "QPushButton { background: #1a5a28; border: 1px solid #33aa55; border-radius: 5px;"
-        "  padding: 9px 24px; color: #88ffaa; font-size: 13px; font-weight: bold; }"
+        "  padding: 9px 24px; color: #88ffaa; font-size: 16px; font-weight: bold; }"
         "QPushButton:hover { background: #22703a; border-color: #44cc66; }"
         "QPushButton:pressed { background: #124020; }");
     connect(createBtn, &QPushButton::clicked, this, &LoginDialog::on_register_clicked);
@@ -886,7 +886,7 @@ void LoginDialog::on_card_selected(const QString& username) {
             .arg(prof->institution.toHtmlEscaped());
     }
     if (prof->is_admin()) {
-        label += "  <span style='color:#ffcc00; font-size:10px;'>♚ Admin</span>";
+        label += "  <span style='color:#ffcc00; font-size:12px;'>♚ Admin</span>";
     }
     d->selectedLabel->setText(label);
 
