@@ -131,8 +131,8 @@ public:
 
     /// @brief Detect faces and classify a dominant basic-emotion label per
     /// face in all .mp4 files in @p sessionPath, writing a
-    /// "<name>.expression.json" sidecar next to each one — originals are
-    /// never modified.
+    /// "<name>.expression.json" file per camera into the session's own
+    /// expression/ subfolder — originals are never modified.
     ///
     /// Always runs when called directly, exactly like analyze_session(). If a
     /// previous analysis is still running, this queues the new job.

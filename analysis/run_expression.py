@@ -2,9 +2,10 @@
 MOSAIC facial-expression analysis runner — detects faces with MediaPipe
 FaceLandmarker (blendshapes enabled) and classifies a dominant basic-emotion
 label per face, using either a rule-based blendshape heuristic (default) or
-a dedicated pretrained FER+ ONNX model. Writes a sidecar
-"<name>.expression.json" next to each source video — originals are never
-modified.
+a dedicated pretrained FER+ ONNX model. In --session mode, writes one
+"<name>.expression.json" per camera into the session's own expression/
+subfolder; in standalone --video mode, writes it beside the source video.
+Originals are never modified.
 
     python analysis/run_expression.py --session /path/to/session_2026-06-07_14-30
     python analysis/run_expression.py --video /path/to/video/video_0.mp4 --backend ferplus
@@ -15,6 +16,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 import time
 from pathlib import Path
@@ -76,6 +78,22 @@ def _make_classify_fn(backend: str) -> ClassifyFn:
 
 # ── Session mode ─────────────────────────────────────────────────────────────
 
+def _camera_index_from_filename(video_path: Path) -> int:
+    """Parses the real camera index from a MOSAIC-recorded video's own
+    filename (e.g. "video_2.mp4" -> 2), instead of trusting a video list's
+    positional loop index — mirrors run_pose.py's identical helper/rationale
+    (VideoManager preserves gaps in camera indices when an earlier camera
+    fails to open during recording, so a plain enumerate() over a sorted
+    file list can silently assign the wrong index). Falls back to 0 with a
+    stderr warning if the filename doesn't match "video_N.<ext>"."""
+    m = re.search(r"video_(\d+)", video_path.stem)
+    if not m:
+        print(f"[run_expression] Warning: could not parse a camera index from "
+              f"{video_path.name}, defaulting to 0", file=sys.stderr)
+        return 0
+    return int(m.group(1))
+
+
 def process_session(session_dir: Path, backend: str, max_faces: int,
                      min_confidence: float, skip: int) -> None:
     videos = sorted((session_dir / "video").glob("*.mp4"))
@@ -85,6 +103,14 @@ def process_session(session_dir: Path, backend: str, max_faces: int,
 
     print(f"[run_expression] Found {len(videos)} video(s) in {session_dir / 'video'}", flush=True)
 
+    # Own subfolder, not a sidecar beside the video — mirrors run_pose.py's
+    # pose_dir / run_face_mask.py's anonymized/ folder convention, keeping
+    # video/ from being cluttered with per-camera analysis sidecars.
+    # Forward-only: sessions analyzed before this change have their
+    # .expression.json under video/ instead and won't be found here until
+    # re-run (this project's established no-migration convention, item 13).
+    expression_dir = session_dir / "expression"
+
     # Detector + classifier are built once and reused across every video in
     # the session — a fresh MediaPipeExpressionDetector/FerPlusClassifier
     # per file would reload model weights once per camera instead of once
@@ -93,12 +119,21 @@ def process_session(session_dir: Path, backend: str, max_faces: int,
     detector = MediaPipeExpressionDetector(max_faces=max_faces, min_confidence=min_confidence)
     classify_fn = _make_classify_fn(backend)
 
-    for video_path in videos:
-        process_video(video_path, detector, classify_fn, backend, skip=skip)
+    # "Camera N/M:" banner — distinct, easily-regexed format matching
+    # run_pose.py's/run_face_mask.py's own convention — drives AnalysisTabW's
+    # coarser, session-wide progress bar (parsed alongside the finer
+    # per-frame one). Uses `position` (this video's place in the loop), not
+    # camera_index (which can have gaps).
+    for position, video_path in enumerate(videos, start=1):
+        camera_index = _camera_index_from_filename(video_path)
+        print(f"[run_expression] Camera {position}/{len(videos)}: {video_path.name}", flush=True)
+        process_video(video_path, detector, classify_fn, backend, skip=skip,
+                      camera_index=camera_index, output_dir=expression_dir)
 
 
 def process_video(video_path: Path, detector: MediaPipeExpressionDetector,
-                   classify_fn: ClassifyFn, backend: str, skip: int = 1) -> None:
+                   classify_fn: ClassifyFn, backend: str, skip: int = 1,
+                   camera_index: int = 0, output_dir: Optional[Path] = None) -> None:
     skip = max(1, skip)   # --skip 0 would divide-by-zero on frame_idx % skip below
     cap = cv2.VideoCapture(str(video_path))
     if not cap.isOpened():
@@ -110,9 +145,21 @@ def process_video(video_path: Path, detector: MediaPipeExpressionDetector,
     print(f"[run_expression] Processing {video_path.name}  ({total} frames @ {fps:.1f} fps, "
           f"backend={backend})", flush=True)
 
-    # Same timestamp-CSV lookup convention as run_pose.py.
-    ts_csv = video_path.with_name(
-        video_path.stem.replace("video", "timestamps_cam") + ".csv")
+    # Scales to the video's own length instead of a fixed 100-frame stride
+    # (matches run_pose.py's/run_face_mask.py's identical fix): short
+    # session videos get a progress update every frame, long videos are
+    # capped at ~200 total prints.
+    progress_interval = max(1, total // 200)
+
+    # Built directly from camera_index (not a naive "video" -> "timestamps_cam"
+    # substring-replace on the video's own stem) — that substitution turns
+    # "video_0" into "timestamps_cam_0.csv" (stray underscore), which never
+    # matches the real "timestamps_cam0.csv" file, silently leaving every
+    # frame's timestamp at 0 and collapsing the whole Analysis-tab chart onto
+    # a single point at ms=0. Same bug run_pose.py already found and fixed;
+    # see this session's plan notes for the other 2 sibling scripts it was
+    # also found and fixed in.
+    ts_csv = video_path.with_name(f"timestamps_cam{camera_index}.csv")
     timestamps: list[int] = []
     if ts_csv.exists():
         import csv
@@ -139,10 +186,10 @@ def process_video(video_path: Path, detector: MediaPipeExpressionDetector,
         if frame_idx % skip == 0:
             ts_ns = timestamps[frame_idx] if frame_idx < len(timestamps) else 0
             faces = detector.detect(frame)
-            results.append(_frame_to_dict(frame_idx, ts_ns, 0, faces, frame, classify_fn))
+            results.append(_frame_to_dict(frame_idx, ts_ns, camera_index, faces, frame, classify_fn))
 
         frame_idx += 1
-        if frame_idx % 100 == 0:
+        if frame_idx % progress_interval == 0:
             elapsed = time.perf_counter() - t_start
             pct = frame_idx / max(total, 1) * 100
             print(f"  {pct:5.1f}%  ({frame_idx}/{total})  {elapsed:.1f}s elapsed", flush=True)
@@ -152,7 +199,7 @@ def process_video(video_path: Path, detector: MediaPipeExpressionDetector,
     print(f"[run_expression] Done. {frame_idx} frames in {elapsed:.1f}s "
           f"({frame_idx / max(elapsed, 1e-9):.1f} fps throughput)", flush=True)
 
-    _write_results(video_path, results, backend)
+    _write_results(video_path, results, backend, output_dir)
 
 
 def _frame_to_dict(frame_idx: int, ts_ns: int, camera_index: int,
@@ -175,9 +222,16 @@ def _frame_to_dict(frame_idx: int, ts_ns: int, camera_index: int,
             "camera_index": camera_index, "subjects": subjects}
 
 
-def _write_results(video_path: Path, results: list[dict], backend: str) -> None:
-    base = video_path.with_suffix("")
-    out_path = base.with_suffix(".expression.json")
+def _write_results(video_path: Path, results: list[dict], backend: str,
+                    output_dir: Optional[Path] = None) -> None:
+    if output_dir is not None:
+        output_dir.mkdir(parents=True, exist_ok=True)
+        out_path = output_dir / f"{video_path.stem}.expression.json"
+    else:
+        # Standalone --video CLI mode has no session/expression-folder
+        # concept to hang a subfolder off — keep today's beside-the-video
+        # behavior unchanged, matching run_pose.py's identical fallback.
+        out_path = video_path.with_suffix("").with_suffix(".expression.json")
     out_path.write_text(json.dumps({
         "source_video": video_path.name,
         "backend": backend,
@@ -198,7 +252,9 @@ def main() -> None:
         detector = MediaPipeExpressionDetector(
             max_faces=args.max_faces, min_confidence=args.min_confidence)
         classify_fn = _make_classify_fn(args.backend)
-        process_video(Path(args.video), detector, classify_fn, args.backend, skip=args.skip)
+        video_path = Path(args.video)
+        process_video(video_path, detector, classify_fn, args.backend, skip=args.skip,
+                      camera_index=_camera_index_from_filename(video_path))
 
 
 if __name__ == "__main__":

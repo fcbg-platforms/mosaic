@@ -54,6 +54,29 @@ QString write_fixture(const QString& dirPath) {
     return path;
 }
 
+// Every frame has an empty "subjects" array — a valid result (parses fine)
+// but with no face ever detected in this camera's footage, distinguishing
+// has_any_detections() from is_valid().
+const char* kNoDetectionsFixtureJson = R"JSON(
+{
+  "source_video": "video_1.mp4",
+  "backend": "heuristic",
+  "blendshape_names": ["_neutral", "mouthSmileLeft"],
+  "frames": [
+    { "frame_index": 0, "timestamp_ns": 1000000000, "camera_index": 1, "subjects": [] },
+    { "frame_index": 1, "timestamp_ns": 1040000000, "camera_index": 1, "subjects": [] }
+  ]
+}
+)JSON";
+
+QString write_no_detections_fixture(const QString& dirPath) {
+    const QString path = dirPath + "/video_1.expression.json";
+    QFile f(path);
+    EXPECT_TRUE(f.open(QIODevice::WriteOnly | QIODevice::Text));
+    f.write(kNoDetectionsFixtureJson);
+    return path;
+}
+
 } // namespace
 
 TEST(ExpressionResult, LoadsValidFileWithFullSchema) {
@@ -120,4 +143,25 @@ TEST(ExpressionResult, NearestFrameHandlesGapsAndBoundaries) {
 TEST(ExpressionResult, NearestFrameOnEmptyResultReturnsNull) {
     const ExpressionResult result;
     EXPECT_EQ(result.nearest_frame(0), nullptr);
+}
+
+TEST(ExpressionResult, HasAnyDetectionsIsTrueWhenSomeFrameHasASubject) {
+    QTemporaryDir dir;
+    ASSERT_TRUE(dir.isValid());
+    const auto result = ExpressionResult::load(write_fixture(dir.path()));
+    ASSERT_TRUE(result.is_valid());
+    EXPECT_TRUE(result.has_any_detections());
+}
+
+TEST(ExpressionResult, HasAnyDetectionsIsFalseWhenNoFrameHasASubject) {
+    QTemporaryDir dir;
+    ASSERT_TRUE(dir.isValid());
+    const auto result = ExpressionResult::load(write_no_detections_fixture(dir.path()));
+    ASSERT_TRUE(result.is_valid());
+    EXPECT_FALSE(result.has_any_detections());
+}
+
+TEST(ExpressionResult, HasAnyDetectionsIsFalseOnDefaultConstructedResult) {
+    const ExpressionResult result;
+    EXPECT_FALSE(result.has_any_detections());
 }

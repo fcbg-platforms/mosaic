@@ -172,8 +172,13 @@ def _analyse_video(video_path: Path, cam: _CameraInfo,
                     detector: MediaPipeGazeEstimator3D, skip: int) -> list[_AnalysedFrame]:
     # Same timestamp-CSV lookup convention as run_pose.py/run_expression.py,
     # extended to also read "frame_id" (see _AnalysedFrame.frame_id's doc
-    # comment for why this must come from the CSV, not be assumed).
-    ts_csv = video_path.with_name(video_path.stem.replace("video", "timestamps_cam") + ".csv")
+    # comment for why this must come from the CSV, not be assumed). Built
+    # directly from cam.index rather than a naive "video" -> "timestamps_cam"
+    # substring-replace on the video's own stem — that substitution turns
+    # "video_0" into "timestamps_cam_0.csv" (stray underscore), which never
+    # matches the real "timestamps_cam0.csv" file (same bug run_pose.py/
+    # run_expression.py already found and fixed).
+    ts_csv = video_path.with_name(f"timestamps_cam{cam.index}.csv")
     timestamps: list[int] = []
     frame_ids: list[int] = []
     if ts_csv.exists():
