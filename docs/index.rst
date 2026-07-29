@@ -44,6 +44,28 @@ MOSAIC Documentation
      </p>
    </div>
 
+.. raw:: html
+
+   <div style="
+     background: #f5f5fb;
+     border: 1px solid #e2e2f0;
+     border-radius: 10px;
+     padding: 20px 28px;
+     margin-bottom: 28px;
+     display: flex;
+     align-items: center;
+     flex-wrap: wrap;
+     gap: 24px;
+   ">
+     <span style="font-size: 0.85rem; color: #5a5a7a; font-weight: 600; letter-spacing: 0.02em;">
+       Developed at
+     </span>
+     <img src="_static/fcbg-logo.png" alt="Fondation Campus Biotech Geneva"
+          style="height:48px; width:auto; display:block;">
+     <img src="_static/neuro-logo.png" alt="Neuro"
+          style="height:48px; width:auto; display:block;">
+   </div>
+
 .. grid:: 2
    :gutter: 3
 
