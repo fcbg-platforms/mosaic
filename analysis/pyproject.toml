@@ -6,6 +6,11 @@ requires-python = ">=3.10"
 dependencies = [
     "numpy>=1.24",
     "opencv-python>=4.8",
+    # >=8.0 covers the YOLOv8-pose models; the Pose plugin's depth-estimation
+    # option (yolo26n/s/m-depth.pt, see analysis/pose/depth_estimator.py)
+    # needs a recent-enough release to ship the "depth" task at all — a
+    # fresh `uv sync` already resolves to the latest release, so this is
+    # just a note, not a version bump.
     "ultralytics>=8.0",
     "mediapipe>=0.10.14",
     "pandas>=2.0",
