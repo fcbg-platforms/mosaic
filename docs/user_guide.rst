@@ -22,9 +22,9 @@ Recording a session
 3. Click **● Record** (or press ``Ctrl+R``). A new timestamped session
    folder is created immediately and the elapsed-time display starts
    counting.
-4. Trigger events (keyboard bindings, LSL inlets, parallel-port edges) are
-   logged automatically to that session's ``trigger.csv`` for the whole
-   duration.
+4. Trigger events (keyboard bindings, serial bytes, parallel-port edges —
+   e.g. an EEG amplifier's trigger-out cable) are logged automatically to
+   that session's ``trigger.csv`` for the whole duration.
 5. Click **■ Stop** (or ``Ctrl+R`` again) to end the session.
 
 See :doc:`recording` for exactly what gets written (``session_meta.json``,

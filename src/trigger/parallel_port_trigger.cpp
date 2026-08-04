@@ -70,6 +70,21 @@ struct ParallelPortTrigger::Impl {
 #endif
     }
 
+    // Writes the Control register (portAddr+2) — physically separate pins
+    // from the Data register read() above, so no bus-contention risk.
+    // Wholesale write (not read-modify-write): safe today since nothing else
+    // in this codebase uses any other Control-register bit; would need a
+    // read-modify-write if a second Control-register consumer is ever added.
+    void write_control_bit([[maybe_unused]] bool high) {
+#if defined(MOSAIC_HAVE_PARALLEL_PORT) && defined(Q_OS_WIN)
+        if (!driver.out32) { return; }
+        constexpr short kInitBit = 1 << 2;   // Control-register bit 2 = INIT
+                                              // (pin 16) — not historically
+                                              // inverted, unlike bits 0/1/3.
+        driver.out32(static_cast<short>(portAddr + 2), high ? kInitBit : 0);
+#endif
+    }
+
     uint8_t effective_byte(uint8_t raw) const {
         return config.invertLogic ? static_cast<uint8_t>(~raw) : raw;
     }
@@ -155,5 +170,12 @@ bool ParallelPortTrigger::is_active()    const { return d->active; }
 int  ParallelPortTrigger::events_fired() const {
     return d->eventCount.load();
 }
+
+void ParallelPortTrigger::set_recording_marker(bool active) {
+    if (!d->active) { return; }   // port never opened successfully
+    d->write_control_bit(active);
+}
+
+const ParallelPortConfig& ParallelPortTrigger::config() const { return d->config; }
 
 } // namespace mosaic

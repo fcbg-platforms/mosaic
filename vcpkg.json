@@ -10,13 +10,5 @@
       "name": "ffmpeg",
       "features": ["x264", "nvcodec"]
     }
-  ],
-  "features": {
-    "lsl": {
-      "description": "Lab Streaming Layer support for neuroscience data synchronisation",
-      "dependencies": [
-        "liblsl"
-      ]
-    }
-  }
+  ]
 }

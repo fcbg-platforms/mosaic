@@ -246,11 +246,12 @@ std::optional<SerialTriggerConfig> SerialTriggerConfig::from_json(const QJsonObj
 
 QJsonObject ParallelPortConfig::to_json() const {
     return {
-        {"port_address",  portAddress},
-        {"poll_rate_ms",  pollRateMs},
-        {"enabled",       enabled},
-        {"invert_logic",  invertLogic},
-        {"action",        trigger_action_label(action)},
+        {"port_address",          portAddress},
+        {"poll_rate_ms",          pollRateMs},
+        {"enabled",               enabled},
+        {"invert_logic",          invertLogic},
+        {"action",                trigger_action_label(action)},
+        {"send_recording_marker", sendRecordingMarker},
     };
 }
 
@@ -261,6 +262,9 @@ std::optional<ParallelPortConfig> ParallelPortConfig::from_json(const QJsonObjec
     if (o.contains("enabled"))      { c.enabled     = o["enabled"].toBool(c.enabled);             }
     if (o.contains("invert_logic")) { c.invertLogic = o["invert_logic"].toBool(c.invertLogic);   }
     if (o.contains("action"))       { c.action      = trigger_action_from_label(o["action"].toString()); }
+    if (o.contains("send_recording_marker")) {
+        c.sendRecordingMarker = o["send_recording_marker"].toBool(c.sendRecordingMarker);
+    }
     return c;
 }
 
@@ -280,40 +284,17 @@ std::optional<KeyTriggerConfig> KeyTriggerConfig::from_json(const QJsonObject& o
     return c;
 }
 
-// ── LslInletConfig ─────────────────────────────────────────────────────────
-
-QJsonObject LslInletConfig::to_json() const {
-    return {{"name", name}, {"stream_name", streamName},
-            {"stream_type", streamType}, {"enabled", enabled},
-            {"action", trigger_action_label(action)}};
-}
-
-std::optional<LslInletConfig> LslInletConfig::from_json(const QJsonObject& o) {
-    LslInletConfig c;
-    if (o.contains("name"))        c.name       = o["name"].toString(c.name);
-    if (o.contains("stream_name")) c.streamName = o["stream_name"].toString(c.streamName);
-    if (o.contains("stream_type")) c.streamType = o["stream_type"].toString(c.streamType);
-    if (o.contains("enabled"))     c.enabled    = o["enabled"].toBool(c.enabled);
-    if (o.contains("action"))      c.action     = trigger_action_from_label(o["action"].toString());
-    return c;
-}
-
 // ── TriggerSettings ────────────────────────────────────────────────────────
 
 QJsonObject TriggerSettings::to_json() const {
-    QJsonArray keys, serials, lsls, ports;
+    QJsonArray keys, serials, ports;
     for (const auto& k : keyboardTriggers) { keys.append(k.to_json()); }
     for (const auto& s : serialTriggers)   { serials.append(s.to_json()); }
-    for (const auto& l : lslInlets)        { lsls.append(l.to_json()); }
     for (const auto& p : parallelPorts)    { ports.append(p.to_json()); }
     return {
         {"receive_enabled",    receiveEnabled},
-        {"lsl_outlet_enabled", lslOutletEnabled},
-        {"lsl_outlet_name",    lslOutletName},
-        {"lsl_outlet_rate",    lslOutletRate},
         {"keyboard_triggers",  keys},
         {"serial_triggers",    serials},
-        {"lsl_inlets",         lsls},
         {"parallel_ports",     ports},
     };
 }
@@ -321,9 +302,6 @@ QJsonObject TriggerSettings::to_json() const {
 std::optional<TriggerSettings> TriggerSettings::from_json(const QJsonObject& o) {
     TriggerSettings s;
     if (o.contains("receive_enabled"))    { s.receiveEnabled   = o["receive_enabled"].toBool(s.receiveEnabled);       }
-    if (o.contains("lsl_outlet_enabled")) { s.lslOutletEnabled = o["lsl_outlet_enabled"].toBool(s.lslOutletEnabled); }
-    if (o.contains("lsl_outlet_name"))    { s.lslOutletName    = o["lsl_outlet_name"].toString(s.lslOutletName);     }
-    if (o.contains("lsl_outlet_rate"))    { s.lslOutletRate    = o["lsl_outlet_rate"].toDouble(s.lslOutletRate);     }
     if (o.contains("keyboard_triggers")) {
         for (const auto& v : o["keyboard_triggers"].toArray()) {
             if (auto c = KeyTriggerConfig::from_json(v.toObject())) { s.keyboardTriggers.push_back(std::move(*c)); }
@@ -332,11 +310,6 @@ std::optional<TriggerSettings> TriggerSettings::from_json(const QJsonObject& o) 
     if (o.contains("serial_triggers")) {
         for (const auto& v : o["serial_triggers"].toArray()) {
             if (auto c = SerialTriggerConfig::from_json(v.toObject())) { s.serialTriggers.push_back(std::move(*c)); }
-        }
-    }
-    if (o.contains("lsl_inlets")) {
-        for (const auto& v : o["lsl_inlets"].toArray()) {
-            if (auto c = LslInletConfig::from_json(v.toObject())) { s.lslInlets.push_back(std::move(*c)); }
         }
     }
     if (o.contains("parallel_ports")) {

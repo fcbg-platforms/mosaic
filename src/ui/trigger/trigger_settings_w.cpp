@@ -1,5 +1,6 @@
 #include "ui/trigger/trigger_settings_w.hpp"
 #include "ui/trigger/keyboard_card_w.hpp"
+#include "ui/trigger/parallel_port_card_w.hpp"
 #ifdef MOSAIC_HAVE_SERIAL
 #include "ui/trigger/serial_card_w.hpp"
 #include "trigger/serial_trigger.hpp"
@@ -11,7 +12,6 @@
 #include <QGroupBox>
 #include <QHBoxLayout>
 #include <QLabel>
-#include <QLineEdit>
 #include <QPushButton>
 #include <QScrollArea>
 #include <QTextEdit>
@@ -20,10 +20,8 @@
 namespace mosaic {
 
 struct TriggerSettingsW::Impl {
-    // Master / LSL outlet controls
+    // Master toggle
     QCheckBox* masterCk      = nullptr;
-    QCheckBox* lslOutletCk   = nullptr;
-    QLineEdit* lslNameEdit   = nullptr;
 
     // Keyboard cards
     QVBoxLayout*             keyboardLayout = nullptr;
@@ -35,8 +33,9 @@ struct TriggerSettingsW::Impl {
     QVector<SerialCardW*>    serialCards;
 #endif
 
-    // LSL inlet placeholder
-    QWidget* lslInletPlaceholder = nullptr;
+    // Parallel port cards
+    QVBoxLayout*                  parallelLayout = nullptr;
+    QVector<ParallelPortCardW*>   parallelCards;
 
     // Live event log
     QTextEdit* eventLog = nullptr;
@@ -67,10 +66,9 @@ TriggerSettingsW::TriggerSettingsW(TriggerSettings& settings,
     contentLay->setSpacing(10);
 
     build_master_section(contentLay);
-    build_lsl_outlet_section(contentLay);
     build_keyboard_section(contentLay);
     build_serial_section(contentLay);
-    build_lsl_inlet_section(contentLay);
+    build_parallel_port_section(contentLay);
     build_event_log(contentLay);
     contentLay->addStretch();
 
@@ -80,8 +78,9 @@ TriggerSettingsW::TriggerSettingsW(TriggerSettings& settings,
     // Pre-reserve so references stay valid
     m_settings.keyboardTriggers.reserve(32);
     m_settings.serialTriggers.reserve(16);
+    m_settings.parallelPorts.reserve(8);
 
-    // Create cards for existing keyboard and serial triggers
+    // Create cards for existing keyboard, serial, and parallel-port triggers
     for (int i = 0; i < static_cast<int>(m_settings.keyboardTriggers.size()); ++i) {
         make_keyboard_card(i);
     }
@@ -90,6 +89,9 @@ TriggerSettingsW::TriggerSettingsW(TriggerSettings& settings,
         make_serial_card(i);
     }
 #endif
+    for (int i = 0; i < static_cast<int>(m_settings.parallelPorts.size()); ++i) {
+        make_parallel_port_card(i);
+    }
 
     // Connect to live event feed
     if (m_manager) {
@@ -125,51 +127,6 @@ void TriggerSettingsW::build_master_section(QVBoxLayout* parent) {
     connect(d->masterCk, &QCheckBox::toggled, this, [this](bool v){
         m_settings.receiveEnabled = v;
         reload_manager();
-        emit settings_changed();
-    });
-
-    parent->addWidget(box);
-}
-
-// ── LSL outlet ─────────────────────────────────────────────────────────────
-
-void TriggerSettingsW::build_lsl_outlet_section(QVBoxLayout* parent) {
-    auto* box = new QGroupBox("LSL Outlet  (frame timestamp publisher)");
-    auto* lay = new QVBoxLayout(box);
-    lay->setSpacing(8);
-
-    d->lslOutletCk = new QCheckBox("Publish frame timestamps via LSL");
-    d->lslOutletCk->setChecked(m_settings.lslOutletEnabled);
-    lay->addWidget(d->lslOutletCk);
-
-    auto* nameRow = new QHBoxLayout;
-    auto* nameLbl = new QLabel("Stream name:");
-    nameLbl->setFixedWidth(95);
-    nameLbl->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
-    d->lslNameEdit = new QLineEdit(m_settings.lslOutletName);
-    d->lslNameEdit->setEnabled(m_settings.lslOutletEnabled);
-    nameRow->addWidget(nameLbl);
-    nameRow->addWidget(d->lslNameEdit, 1);
-    lay->addLayout(nameRow);
-
-#ifndef MOSAIC_HAVE_LSL
-    auto* noLsl = new QLabel(
-        "⚠  liblsl not found. Configure with -DMOSAIC_ENABLE_LSL=ON "
-        "and set LSL_ROOT to enable. Keyboard triggers still work.");
-    noLsl->setWordWrap(true);
-    noLsl->setStyleSheet("color: #aa8833; font-size: 11px;");
-    lay->addWidget(noLsl);
-    d->lslOutletCk->setEnabled(false);
-    d->lslNameEdit->setEnabled(false);
-#endif
-
-    connect(d->lslOutletCk, &QCheckBox::toggled, this, [this](bool v){
-        m_settings.lslOutletEnabled = v;
-        d->lslNameEdit->setEnabled(v);
-        emit settings_changed();
-    });
-    connect(d->lslNameEdit, &QLineEdit::textEdited, this, [this](const QString& v){
-        m_settings.lslOutletName = v;
         emit settings_changed();
     });
 
@@ -336,32 +293,74 @@ void TriggerSettingsW::add_serial_trigger(SerialTriggerConfig) {}
 void TriggerSettingsW::remove_serial_trigger(int) {}
 #endif
 
-// ── LSL inlets ─────────────────────────────────────────────────────────────
+// ── Parallel port triggers ─────────────────────────────────────────────────
 
-void TriggerSettingsW::build_lsl_inlet_section(QVBoxLayout* parent) {
+void TriggerSettingsW::build_parallel_port_section(QVBoxLayout* parent) {
     auto* headerRow = new QHBoxLayout;
-    auto* lbl = new QLabel("LSL Inlets  (receive markers from other devices)");
+    auto* lbl = new QLabel("Parallel Port Triggers");
     lbl->setProperty("role", "section");
     headerRow->addWidget(lbl);
     headerRow->addStretch();
+
+    auto* addBtn = new QPushButton("+ Add parallel port");
+    addBtn->setFixedHeight(26);
+    connect(addBtn, &QPushButton::clicked, this, [this]{
+        add_parallel_port({});
+    });
+    headerRow->addWidget(addBtn);
     parent->addLayout(headerRow);
 
-#ifdef MOSAIC_HAVE_LSL
-    auto* addBtn = new QPushButton("+ Add LSL inlet");
-    addBtn->setFixedHeight(26);
-    // TODO: implement LSL inlet cards in the next iteration
-    headerRow->addWidget(addBtn);
-#else
-    auto* note = new QLabel(
-        "LSL inlets require liblsl. Once installed and configured "
-        "with -DMOSAIC_ENABLE_LSL=ON, EEG amplifiers, eye trackers, "
-        "and any LSL-compatible device will appear here.");
-    note->setWordWrap(true);
-    note->setStyleSheet("color: #555577; font-size: 11px;"
+    auto* cardsWidget = new QWidget;
+    d->parallelLayout = new QVBoxLayout(cardsWidget);
+    d->parallelLayout->setContentsMargins(0, 0, 0, 0);
+    d->parallelLayout->setSpacing(6);
+    parent->addWidget(cardsWidget);
+
+    auto* hint = new QLabel(
+        "Receive bit-edge triggers on an LPT data register (e.g. an EEG "
+        "amplifier's trigger-out cable), and optionally send a recording "
+        "start/stop marker back out on the same port's Control register.");
+    hint->setWordWrap(true);
+    hint->setStyleSheet("color: #555577; font-size: 11px;"
                         " background: #0d0d1e; border: 1px solid #1e1e3a;"
                         " border-radius: 4px; padding: 8px;");
-    parent->addWidget(note);
-#endif
+    parent->addWidget(hint);
+}
+
+void TriggerSettingsW::make_parallel_port_card(int index) {
+    auto* card = new ParallelPortCardW(m_settings.parallelPorts[index], index, this);
+    connect(card, &ParallelPortCardW::config_changed, this, [this]{
+        reload_manager();
+        emit settings_changed();
+    });
+    connect(card, &ParallelPortCardW::remove_requested,
+            this, &TriggerSettingsW::remove_parallel_port);
+    d->parallelLayout->addWidget(card);
+    d->parallelCards.append(card);
+}
+
+void TriggerSettingsW::add_parallel_port(ParallelPortConfig cfg) {
+    m_settings.parallelPorts.push_back(std::move(cfg));
+    reload_manager();
+    make_parallel_port_card(static_cast<int>(m_settings.parallelPorts.size()) - 1);
+    emit settings_changed();
+}
+
+void TriggerSettingsW::remove_parallel_port(int index) {
+    if (index < 0 || index >= d->parallelCards.size()) { return; }
+
+    auto* card = d->parallelCards[index];
+    d->parallelLayout->removeWidget(card);
+    card->deleteLater();
+    d->parallelCards.remove(index);
+    m_settings.parallelPorts.erase(m_settings.parallelPorts.begin() + index);
+
+    reload_manager();
+
+    for (int i = index; i < d->parallelCards.size(); ++i) {
+        d->parallelCards[i]->set_index(i);
+    }
+    emit settings_changed();
 }
 
 // ── Live event log ─────────────────────────────────────────────────────────
@@ -410,7 +409,6 @@ void TriggerSettingsW::on_event_received(const TriggerEvent& event) {
 
     // Color by source
     QString color = "#44cc44";     // keyboard → green
-    if (event.source == "lsl")    color = "#44aaff";
     if (event.source == "serial") color = "#ccaa44";
 
     const QString line = QString(

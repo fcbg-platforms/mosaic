@@ -20,10 +20,9 @@ signals:
 
 private:
     void build_master_section(QVBoxLayout* parent);
-    void build_lsl_outlet_section(QVBoxLayout* parent);
     void build_keyboard_section(QVBoxLayout* parent);
     void build_serial_section(QVBoxLayout* parent);
-    void build_lsl_inlet_section(QVBoxLayout* parent);
+    void build_parallel_port_section(QVBoxLayout* parent);
     void build_event_log(QVBoxLayout* parent);
 
     void add_keyboard_trigger(KeyTriggerConfig cfg = {});
@@ -33,6 +32,10 @@ private:
     void add_serial_trigger(SerialTriggerConfig cfg = {});
     void remove_serial_trigger(int index);
     void make_serial_card(int index);
+
+    void add_parallel_port(ParallelPortConfig cfg = {});
+    void remove_parallel_port(int index);
+    void make_parallel_port_card(int index);
 
     void on_event_received(const TriggerEvent& event);
     void reload_manager();

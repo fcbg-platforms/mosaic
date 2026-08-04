@@ -11,8 +11,6 @@
 
 namespace mosaic {
 
-class TriggerManager;
-
 // One physically-connected camera found by VideoGrabber::enumerate_devices().
 struct DiscoveredCamera {
     QString serialNumber;
@@ -35,14 +33,10 @@ struct DiscoveredCamera {
 class VideoGrabber : public QThread {
     Q_OBJECT
 public:
-    // frameBuffer must outlive this object. triggerMgr, if non-null, must
-    // outlive this object too — used to publish one LSL frame marker per
-    // captured frame (see TriggerManager::publish_frame_marker()); pass
-    // nullptr to skip this (e.g. when LSL support isn't built in).
+    // frameBuffer must outlive this object.
     explicit VideoGrabber(int                                      cameraIndex,
                           const CameraParameters&                  params,
                           RingBuffer<std::shared_ptr<VideoFrame>>& frameBuffer,
-                          TriggerManager*                          triggerMgr = nullptr,
                           QObject*                                 parent = nullptr);
     ~VideoGrabber() override;
 

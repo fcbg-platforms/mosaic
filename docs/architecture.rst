@@ -23,7 +23,7 @@ MOSAIC is built on **Qt 6 / C++23** and organised into five layers:
      </div>
      <div class="mosaic-layer worker">
        <div class="mosaic-layer-title">Workers<span class="mosaic-layer-sub">background threads</span></div>
-       <div class="mosaic-layer-items">VideoGrabber · VideoEncoder · LslInlet · (audio: QAudioSource)</div>
+       <div class="mosaic-layer-items">VideoGrabber · VideoEncoder · ParallelPortTrigger · (audio: QAudioSource)</div>
      </div>
      <div class="mosaic-layer core">
        <div class="mosaic-layer-title">Core<span class="mosaic-layer-sub">settings, auth, logging</span></div>
@@ -189,8 +189,6 @@ runs on any developer machine without lab hardware:
      - NVIDIA NVENC codec selection
    * - ``MOSAIC_HAVE_VIDEOTOOLBOX``
      - Apple VideoToolbox codec selection
-   * - ``MOSAIC_HAVE_LSL``
-     - ``LslOutlet`` / ``LslInlet`` using liblsl
    * - ``MOSAIC_HAVE_OPENCV``
      - Calibration in ``CalibrationManager``
    * - ``MOSAIC_HAVE_PARALLEL_PORT``

@@ -82,12 +82,9 @@ void RecordManager::write_session_meta() const {
     }
 
     // Trigger sources
-    QJsonArray keys, lslInlets, ports;
+    QJsonArray keys, ports;
     for (const auto& k : d->settings.trigger.keyboardTriggers) {
         keys.append(QJsonObject{{"name", k.name}, {"key_seq", k.keySeq}});
-    }
-    for (const auto& l : d->settings.trigger.lslInlets) {
-        lslInlets.append(QJsonObject{{"name", l.name}, {"stream_name", l.streamName}});
     }
     for (const auto& p : d->settings.trigger.parallelPorts) {
         ports.append(QJsonObject{{"port_address", p.portAddress}});
@@ -105,9 +102,7 @@ void RecordManager::write_session_meta() const {
         {"room",                  d->settings.room.to_json()},
         {"trigger_sources",       QJsonObject{
             {"keyboard",          keys},
-            {"lsl_inlets",        lslInlets},
             {"parallel_ports",    ports},
-            {"lsl_outlet_name",   d->settings.trigger.lslOutletName},
         }},
         {"recording",             QJsonObject{
             {"video_enabled",    d->settings.record.enableVideo},

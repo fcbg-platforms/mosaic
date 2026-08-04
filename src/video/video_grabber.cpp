@@ -1,5 +1,4 @@
 #include "video/video_grabber.hpp"
-#include "trigger/trigger_manager.hpp"
 #include "video/gige_action_command.hpp"
 #include "video/param_mapping.hpp"
 #include "utils/logger.hpp"
@@ -33,7 +32,6 @@ struct VideoGrabber::Impl {
     // edit can reach here.
     const CameraParameters&                  params;
     RingBuffer<std::shared_ptr<VideoFrame>>& frameBuffer;
-    TriggerManager*                          triggerMgr;  // not owned, may be null
 
     std::atomic<bool>    deviceOpen        {false};
     std::atomic<bool>    closeCalled       {false};
@@ -98,18 +96,16 @@ struct VideoGrabber::Impl {
 
     explicit Impl(int idx,
                   const CameraParameters& p,
-                  RingBuffer<std::shared_ptr<VideoFrame>>& buf,
-                  TriggerManager* tm)
-        : cameraIndex(idx), params(p), frameBuffer(buf), triggerMgr(tm) {}
+                  RingBuffer<std::shared_ptr<VideoFrame>>& buf)
+        : cameraIndex(idx), params(p), frameBuffer(buf) {}
 };
 
 VideoGrabber::VideoGrabber(int                                      cameraIndex,
                             const CameraParameters&                  params,
                             RingBuffer<std::shared_ptr<VideoFrame>>& frameBuffer,
-                            TriggerManager*                          triggerMgr,
                             QObject*                                 parent)
     : QThread(parent)
-    , d(std::make_unique<Impl>(cameraIndex, params, frameBuffer, triggerMgr))
+    , d(std::make_unique<Impl>(cameraIndex, params, frameBuffer))
 {}
 
 VideoGrabber::~VideoGrabber() { stop_grabbing(); close(); }
@@ -818,9 +814,6 @@ void VideoGrabber::run_pylon_loop() {
             const int64_t frameId = d->frameCounter.fetch_add(1) + 1;
             const int64_t tsNs    = elapsed_ns();
             const int64_t wallNs  = wall_clock_ns();
-            if (d->triggerMgr) {
-                d->triggerMgr->publish_frame_marker(d->cameraIndex, frameId, tsNs);
-            }
             d->lastFrameElapsedNs.store(tsNs);
 
             // Camera-hardware timestamp (GevTimestamp chunk), converted from
@@ -991,9 +984,6 @@ void VideoGrabber::run_stub_loop() {
         frame->data        = pattern;   // copy of pre-built pattern
 
         d->lastFrameElapsedNs.store(frame->elapsedNs);
-        if (d->triggerMgr) {
-            d->triggerMgr->publish_frame_marker(d->cameraIndex, frameId, frame->elapsedNs);
-        }
 
         // Stamp a small white rectangle top-left so frame ordering is visible.
         const int stampH = std::min(20, height);

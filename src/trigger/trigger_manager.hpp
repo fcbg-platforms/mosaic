@@ -13,11 +13,10 @@ namespace mosaic {
 /// It manages:
 /// - **Keyboard triggers** — application-level event filters that fire on
 ///   configured key sequences.
-/// - **LSL inlets** — background threads receiving string markers from
-///   external LSL streams (EEG amplifiers, eye-trackers, etc.)
-/// - **LSL outlet** — publishes one sample per video frame so external tools
-///   can align to MOSAIC's camera timeline.
-/// - **Parallel port triggers** — InpOut32-based bit-edge detection (Windows).
+/// - **Parallel port triggers** — InpOut32-based bit-edge detection (Windows),
+///   receiving external pulses (e.g. an EEG amplifier's trigger-out cable),
+///   and optionally sending a recording start/stop marker back out on the
+///   same port's Control register (see ParallelPortConfig::sendRecordingMarker).
 /// - **TriggerRecorder** — writes every TriggerEvent to @c trigger.csv.
 ///
 /// Call reload() whenever TriggerSettings change (e.g. the user edits key
@@ -25,14 +24,13 @@ namespace mosaic {
 ///
 /// @par Thread safety
 /// event_received() and on_trigger_fired() are always invoked on the **main
-/// thread** (keyboard filters and LSL inlets use Qt::QueuedConnection).
-/// publish_frame_marker() is safe to call from **any thread**.
+/// thread** (keyboard filters use Qt::QueuedConnection).
 ///
-/// @see TriggerEvent, KeyboardTrigger, LslOutlet, LslInlet, ParallelPortTrigger
+/// @see TriggerEvent, KeyboardTrigger, ParallelPortTrigger
 class TriggerManager : public QObject {
     Q_OBJECT
 public:
-    /// @param settings  Trigger settings (key bindings, LSL config, parallel ports).
+    /// @param settings  Trigger settings (key bindings, serial/parallel ports).
     ///                  Held by reference — must outlive this object.
     /// @param parent    Qt parent object.
     explicit TriggerManager(TriggerSettings& settings, QObject* parent = nullptr);
@@ -40,36 +38,31 @@ public:
 
     /// @brief Rebuilds all trigger sources to match the current TriggerSettings.
     ///
-    /// Tears down existing sources, then re-creates keyboard triggers, LSL
-    /// inlets/outlet, and parallel-port pollers from the current state of
-    /// TriggerSettings.  Call this after the user changes key bindings or LSL
+    /// Tears down existing sources, then re-creates keyboard triggers and
+    /// parallel-port pollers from the current state of TriggerSettings. Call
+    /// this after the user changes key bindings or parallel-port
     /// configuration in the settings UI.
     void reload();
 
     /// @brief Opens the CSV output file and starts recording trigger events.
     ///
-    /// Also sends a @c SESSION_START marker to the LSL event outlet.
+    /// Also drives high any parallel port configured with
+    /// ParallelPortConfig::sendRecordingMarker, so an EEG amplifier (or any
+    /// other device listening on that port's Control-register INIT pin) sees
+    /// a rising edge marking the start of this recording.
     ///
     /// @param csvPath  Absolute path for the output @c trigger.csv.
     void start_recording(const QString& csvPath);
 
     /// @brief Flushes and closes the CSV file.
     ///
-    /// Also sends a @c SESSION_STOP marker to the LSL event outlet.
+    /// Also drives low any parallel port configured with
+    /// ParallelPortConfig::sendRecordingMarker (falling edge marking the end
+    /// of this recording).
     void stop_recording();
 
     /// @returns @c true while the CSV output file is open.
     [[nodiscard]] bool is_recording() const;
-
-    /// @brief Publishes a video-frame timing marker to the LSL outlet.
-    ///
-    /// Call this from the VideoGrabber thread each time a frame is captured.
-    /// This method is thread-safe — the underlying liblsl push is lock-free.
-    ///
-    /// @param cameraIndex  Camera index (0-based).
-    /// @param frameId      Monotonic frame counter for this camera.
-    /// @param elapsedNs    Value of elapsed_ns() at grab time.
-    void publish_frame_marker(int cameraIndex, int64_t frameId, int64_t elapsedNs);
 
     /// @returns The number of active keyboard trigger event filters.
     [[nodiscard]] int keyboard_trigger_count() const;
