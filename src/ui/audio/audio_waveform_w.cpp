@@ -32,6 +32,15 @@ struct AudioWaveformW::Impl {
     // stored here, so it can be changed live without re-pushing history.
     std::vector<std::deque<std::pair<float, float>>> history;
 
+    // Static mode (see set_static_envelope()): a whole clip's envelope drawn
+    // across the full widget width with a movable playhead, instead of the
+    // live rolling window above. Mutually exclusive with the live-mode
+    // history — staticMode picks which paintEvent() branch runs.
+    bool                              staticMode{false};
+    std::vector<std::pair<float, float>> staticSamples;
+    qint64                           staticDurationMs{0};
+    qint64                           playheadMs{0};
+
     void ensure_channels(int count) {
         if (count < 1) { count = 1; }
         if (count > 8) { count = 8; }
@@ -74,6 +83,32 @@ void AudioWaveformW::set_scale(float scale) {
 
 float AudioWaveformW::scale() const { return d->scale; }
 
+// ── Static mode ────────────────────────────────────────────────────────────
+
+void AudioWaveformW::set_static_envelope(const QVector<QPair<float, float>>& envelope,
+                                          qint64 durationMs) {
+    d->staticMode      = true;
+    d->staticDurationMs = std::max<qint64>(0, durationMs);
+    d->playheadMs      = 0;
+    d->staticSamples.clear();
+    d->staticSamples.reserve(static_cast<size_t>(envelope.size()));
+    for (const auto& s : envelope) { d->staticSamples.push_back({s.first, s.second}); }
+    update();
+}
+
+void AudioWaveformW::set_playhead_ms(qint64 ms) {
+    d->playheadMs = std::clamp<qint64>(ms, 0, d->staticDurationMs);
+    if (d->staticMode) { update(); }
+}
+
+void AudioWaveformW::clear_static_envelope() {
+    d->staticMode = false;
+    d->staticSamples.clear();
+    d->staticDurationMs = 0;
+    d->playheadMs = 0;
+    update();
+}
+
 // ── Data ingestion ─────────────────────────────────────────────────────────
 
 void AudioWaveformW::push_envelope(int channelIndex, float minSample, float maxSample) {
@@ -107,6 +142,62 @@ void AudioWaveformW::paintEvent(QPaintEvent* /*event*/) {
     for (int i = 1; i < gridLines; ++i) {
         const int y = rc.height() * i / gridLines;
         p.drawLine(0, y, rc.width(), y);
+    }
+
+    if (d->staticMode) {
+        const int n = static_cast<int>(d->staticSamples.size());
+        if (n >= 2) {
+            const int topY = 4;
+            const int botY = rc.height() - 4;
+            const int midY = (topY + botY) / 2;
+            const int ampH = (botY - topY) / 2;
+            const QColor clr = k_channel_colors[0];
+
+            const float xStep = static_cast<float>(rc.width()) / static_cast<float>(n - 1);
+            auto yOf = [&](float v) {
+                const float clamped = std::clamp(v * d->scale, -1.0f, 1.0f);
+                return static_cast<qreal>(midY)
+                     - static_cast<qreal>(clamped) * static_cast<qreal>(ampH);
+            };
+
+            QPainterPath fill;
+            fill.moveTo(0.0, yOf(d->staticSamples[0].second));
+            for (int i = 1; i < n; ++i) {
+                fill.lineTo(static_cast<qreal>(i) * xStep, yOf(d->staticSamples[static_cast<size_t>(i)].second));
+            }
+            for (int i = n - 1; i >= 0; --i) {
+                fill.lineTo(static_cast<qreal>(i) * xStep, yOf(d->staticSamples[static_cast<size_t>(i)].first));
+            }
+            fill.closeSubpath();
+
+            QColor fillClr = clr;
+            fillClr.setAlpha(50);
+            p.fillPath(fill, fillClr);
+
+            QPen tracePen(clr, 1.3f);
+            p.setPen(tracePen);
+            QPainterPath topLine, botLine;
+            topLine.moveTo(0.0, yOf(d->staticSamples[0].second));
+            botLine.moveTo(0.0, yOf(d->staticSamples[0].first));
+            for (int i = 1; i < n; ++i) {
+                topLine.lineTo(static_cast<qreal>(i) * xStep, yOf(d->staticSamples[static_cast<size_t>(i)].second));
+                botLine.lineTo(static_cast<qreal>(i) * xStep, yOf(d->staticSamples[static_cast<size_t>(i)].first));
+            }
+            p.drawPath(topLine);
+            p.drawPath(botLine);
+
+            // Playhead: bright vertical line at the current position, in
+            // place of live mode's fixed right-edge "now" indicator.
+            if (d->staticDurationMs > 0) {
+                const qreal frac = std::clamp<qreal>(
+                    static_cast<qreal>(d->playheadMs) / static_cast<qreal>(d->staticDurationMs),
+                    0.0, 1.0);
+                const qreal x = frac * rc.width();
+                p.setPen(QPen(QColor(0xff, 0xdd, 0x55), 2));
+                p.drawLine(QPointF(x, 0), QPointF(x, rc.height()));
+            }
+        }
+        return;
     }
 
     // Channel height: divide evenly, with a small gap

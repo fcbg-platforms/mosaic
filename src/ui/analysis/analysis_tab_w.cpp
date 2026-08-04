@@ -7,11 +7,13 @@
 #include "analysis/skeleton3d_result.hpp"
 #include "analysis/transcript_result.hpp"
 #include "analysis/trigger_frame_map.hpp"
+#include "audio/audio_envelope.hpp"
 #include "session/session_info.hpp"
 #include "ui/analysis/gaze_room_view_w.hpp"
 #include "ui/analysis/pose_overlay_player_w.hpp"
 #include "ui/analysis/skeleton3d_room_view_w.hpp"
 #include "ui/anim_utils.hpp"
+#include "ui/audio/audio_waveform_w.hpp"
 #include <QAbstractItemView>
 #include <QCheckBox>
 #include <QChart>
@@ -91,6 +93,82 @@ QString sidecar_path_for(const QString& relPath, const QString& suffix) {
     const int dot = base.lastIndexOf('.');
     if (dot >= 0) { base.truncate(dot); }
     return base + suffix;
+}
+
+// Reads a WAV file's PCM data (16-bit only — the only format WavWriter ever
+// produces) and reduces it to `numColumns` (min, max) envelope pairs spanning
+// the whole clip, for AudioWaveformW::set_static_envelope(). Streams the file
+// one column's worth of bytes at a time via compute_envelope() rather than
+// loading the whole clip into memory. Returns an empty result (durationMs=0,
+// columns empty) for anything that isn't a well-formed 16-bit PCM WAV.
+struct WavEnvelopeResult {
+    QVector<QPair<float, float>> columns;
+    qint64 durationMs = 0;
+};
+
+WavEnvelopeResult load_wav_envelope(const QString& wavPath, int numColumns) {
+    WavEnvelopeResult result;
+    QFile f(wavPath);
+    if (!f.open(QIODevice::ReadOnly)) { return result; }
+
+    const QByteArray riffHeader = f.read(12);
+    if (riffHeader.size() != 12 || riffHeader.mid(0, 4) != "RIFF" || riffHeader.mid(8, 4) != "WAVE") {
+        return result;
+    }
+
+    int    channels      = 0;
+    int    sampleRate    = 0;
+    int    bitsPerSample = 0;
+    qint64 dataOffset    = -1;
+    qint64 dataSize      = 0;
+
+    while (!f.atEnd()) {
+        const QByteArray chunkId   = f.read(4);
+        const QByteArray sizeBytes = f.read(4);
+        if (chunkId.size() != 4 || sizeBytes.size() != 4) { break; }
+        const quint32 chunkSize = quint8(sizeBytes[0]) | (quint8(sizeBytes[1]) << 8)
+                                | (quint8(sizeBytes[2]) << 16) | (quint32(quint8(sizeBytes[3])) << 24);
+        const qint64 chunkDataStart = f.pos();
+
+        if (chunkId == "fmt " && chunkSize >= 16) {
+            const QByteArray fmt = f.read(16);
+            if (fmt.size() < 16) { return result; }
+            channels      = quint8(fmt[2]) | (quint8(fmt[3]) << 8);
+            sampleRate    = quint8(fmt[4]) | (quint8(fmt[5]) << 8)
+                          | (quint8(fmt[6]) << 16) | (quint32(quint8(fmt[7])) << 24);
+            bitsPerSample = quint8(fmt[14]) | (quint8(fmt[15]) << 8);
+        } else if (chunkId == "data") {
+            dataOffset = chunkDataStart;
+            dataSize   = chunkSize;
+        }
+        // RIFF chunks are word-aligned — an odd-sized chunk has one pad byte.
+        if (!f.seek(chunkDataStart + chunkSize + (chunkSize % 2))) { break; }
+    }
+
+    if (dataOffset < 0 || channels <= 0 || sampleRate <= 0 || bitsPerSample != 16 || dataSize <= 0) {
+        return result;
+    }
+
+    const qint64 frameSize   = 2 * channels;
+    const qint64 totalFrames = dataSize / frameSize;
+    if (totalFrames <= 0) { return result; }
+    result.durationMs = totalFrames * 1000 / sampleRate;
+
+    numColumns = std::max(1, numColumns);
+    const qint64 framesPerColumn = std::max<qint64>(1, totalFrames / numColumns);
+    const qint64 bytesPerColumn  = framesPerColumn * frameSize;
+
+    f.seek(dataOffset);
+    qint64 remaining = dataSize;
+    result.columns.reserve(numColumns);
+    while (remaining > 0 && result.columns.size() < numColumns) {
+        const QByteArray chunk = f.read(std::min(bytesPerColumn, remaining));
+        if (chunk.isEmpty()) { break; }
+        const AudioEnvelope env = compute_envelope(chunk.constData(), chunk.size());
+        result.columns.append({env.minSample, env.maxSample});
+        remaining -= chunk.size();
+    }
+    return result;
 }
 
 } // namespace
@@ -533,6 +611,9 @@ struct AnalysisTabW::Impl {
     QLabel*      transcriptStatsLbl = nullptr;   // diarize only
     QPushButton* exportTranscriptBtn= nullptr;   // diarize only
     QTableWidget* transcriptTable   = nullptr;   // diarize only
+    AudioWaveformW* diarizeWaveform = nullptr;   // diarize only — whole-clip static waveform,
+                                                  // playhead-synced to d->player, same visual
+                                                  // style as the Audio settings tab's live view
 
     // Expression view controls — mirrors kinematicsRowW's own-container
     // pattern so select_plugin() can hide the whole row with one call.
@@ -709,7 +790,7 @@ AnalysisTabW::AnalysisTabW(AppSettings& settings, AnalysisManager* analysisMgr, 
             const double pct = match.captured(1).toDouble();
             d->progressBar->setVisible(true);
             d->progressBar->setValue(static_cast<int>(pct * 10.0));
-            d->progressBar->setFormat(QString("%1%  (%2/%3)")
+            d->progressBar->setFormat(QString("%1%  (%2/%3 frames)")
                                            .arg(pct, 0, 'f', 1)
                                            .arg(match.captured(2), match.captured(3)));
             return;
@@ -803,6 +884,16 @@ void AnalysisTabW::build_ui() {
     for (const auto& [label, value] : pose_model_options()) {
         d->modelCombo->addItem(label, value);
     }
+    d->modelCombo->insertSeparator(d->modelCombo->count());
+    for (const auto& [label, value] : pose_depth_model_options()) {
+        d->modelCombo->addItem(label, value);
+    }
+    d->modelCombo->setToolTip(
+        "Pose models produce a keypoint skeleton (overlay + metrics chart). "
+        "Depth models produce a colorized per-pixel depth-map video instead — "
+        "a completely different output, shown as plain video playback.");
+    connect(d->modelCombo, &QComboBox::currentIndexChanged, this,
+            &AnalysisTabW::on_pose_model_changed);
     poseLay->addWidget(new QLabel("Model:"));
     poseLay->addWidget(d->modelCombo, 1);
 
@@ -832,7 +923,7 @@ void AnalysisTabW::build_ui() {
     d->backendCombo->setItemData(1,
         "Community-maintained checkpoint — not officially hosted by Ultralytics.",
         Qt::ToolTipRole);
-    d->backendCombo->addItem("OpenCV DNN", "opencv");
+    d->backendCombo->addItem("OpenCV DNN (Recommended)", "opencv");
     d->backendCombo->setItemData(2,
         "No extra ML framework, but weaker recall on extreme head angles.", Qt::ToolTipRole);
     faceMaskLay->addWidget(new QLabel("Backend:"));
@@ -1192,6 +1283,17 @@ void AnalysisTabW::build_ui() {
     d->micRowW->setVisible(false);   // shown only for the diarize plugin
     rightLay->addWidget(d->micRowW);
 
+    // Whole-clip waveform, same bipolar-envelope visual style as the Audio
+    // settings tab's live monitor — static mode (see AudioWaveformW::
+    // set_static_envelope()) with a playhead synced to d->player instead of
+    // a live rolling history.
+    d->diarizeWaveform = new AudioWaveformW;
+    d->diarizeWaveform->setMinimumHeight(100);   // sizeHint()'s per-channel formula assumes the
+                                                  // Audio tab's multi-mic monitor; one prominent
+                                                  // trace here reads better taller.
+    d->diarizeWaveform->setVisible(false);   // shown only for the diarize plugin
+    rightLay->addWidget(d->diarizeWaveform);
+
     // ── Kinematics view controls: reshape how the current keypoint's data
     //    is plotted (Position/Speed/Acceleration), not what gets launched.
     //    Pose only — wrapped in a container widget so select_plugin() can
@@ -1415,6 +1517,7 @@ void AnalysisTabW::build_ui() {
         highlight_active_transcript_row(ms);
         if (is_gaze_fusion_plugin()) { d->roomView->set_position_ms(ms); }
         if (is_pose3d_plugin()) { d->skeleton3dRoomView->set_position_ms(ms); }
+        if (is_diarize_plugin()) { d->diarizeWaveform->set_playhead_ms(ms); }
     });
 
     splitter->addWidget(rightPanel);
@@ -1510,6 +1613,10 @@ void AnalysisTabW::select_plugin(int index) {
     const bool isGazeFusion  = is_gaze_fusion_plugin();
     const bool isPose3D      = is_pose3d_plugin();
     const bool isTriggerSync = is_trigger_sync_plugin();
+    // A depth model selected within the Pose plugin produces a colorized
+    // video, not keypoints — the keypoint/chart controls below need to stay
+    // hidden for it, same as they are for every non-pose plugin.
+    const bool isPoseKeypoints = isPose && !is_pose_depth_selected();
 
     // These are independent sibling widgets with overlapping visibility
     // rules, not QStackedWidget pages, so they aren't crossfaded as a group
@@ -1522,11 +1629,11 @@ void AnalysisTabW::select_plugin(int index) {
         w->setVisible(visible);
         if (visible) { anim::fade_in_widget(w, 130); }
     };
-    set_visible_animated(d->keypointFieldW, isPose);
+    set_visible_animated(d->keypointFieldW, isPoseKeypoints);
     set_visible_animated(d->blendshapeFieldW, isExpression);
     set_visible_animated(d->trackFieldW, isPose3D);
-    set_visible_animated(d->chart, isPose || isExpression);
-    set_visible_animated(d->kinematicsRowW, isPose);
+    set_visible_animated(d->chart, isPoseKeypoints || isExpression);
+    set_visible_animated(d->kinematicsRowW, isPoseKeypoints);
     set_visible_animated(d->expressionRowW, isExpression);
     set_visible_animated(d->gazeFusionRowW, isGazeFusion);
     set_visible_animated(d->roomView, isGazeFusion);
@@ -1534,10 +1641,11 @@ void AnalysisTabW::select_plugin(int index) {
     set_visible_animated(d->skeleton3dRoomView, isPose3D);
     set_visible_animated(d->triggerSyncRowW, isTriggerSync);
     set_visible_animated(d->triggerSyncTable, isTriggerSync);
-    set_visible_animated(d->openFolderBtn, isFaceMask);
+    set_visible_animated(d->openFolderBtn, isFaceMask || is_pose_depth_selected());
     set_visible_animated(d->sourceRowW, !isDiarize);
     set_visible_animated(d->micRowW, isDiarize);
     set_visible_animated(d->transcriptTable, isDiarize);
+    set_visible_animated(d->diarizeWaveform, isDiarize);
 
     // controlsStack's own crossfade defers reload_current_camera_result()
     // until the new page is actually current (right as the fade-in phase
@@ -1545,6 +1653,21 @@ void AnalysisTabW::select_plugin(int index) {
     // pattern of deferring a focus() call behind its own crossfade.
     anim::crossfade_stacked_widget(d->controlsStack, index, 130,
                                     [this] { reload_current_camera_result(); });
+}
+
+// Switching between a pose (keypoint) model and a depth model within the
+// same Pose plugin page needs the same visibility reshaping select_plugin()
+// already does for a *plugin* change. Reuses select_plugin() for that (it's
+// idempotent — set_visible_animated() checks isVisible() first) rather than
+// duplicating the toggle list here, but calls reload_current_camera_result()
+// explicitly afterward: crossfade_stacked_widget() no-ops (and skips its
+// onComplete callback) when the controlsStack page itself isn't changing —
+// true here, since the plugin combo didn't move — so select_plugin() alone
+// would leave the results view showing the previous model's stale output.
+void AnalysisTabW::on_pose_model_changed() {
+    if (!is_pose_plugin()) { return; }
+    select_plugin(d->pluginCombo->currentIndex());
+    reload_current_camera_result();
 }
 
 // ── Analysis lifecycle ───────────────────────────────────────────────────
@@ -1561,6 +1684,12 @@ QString AnalysisTabW::pose_json_path_for(const QString& videoRelPath) const {
 
 QString AnalysisTabW::anonymized_video_path_for(const QString& videoRelPath) const {
     return "anonymized/" + QFileInfo(videoRelPath).fileName();
+}
+
+QString AnalysisTabW::depth_video_path_for(const QString& videoRelPath) const {
+    // Mirrors anonymized_video_path_for()'s own-subfolder convention — see
+    // analysis/run_pose.py::process_session_depth()'s matching depth_dir.
+    return "depth/" + QFileInfo(videoRelPath).fileName();
 }
 
 QString AnalysisTabW::transcript_json_path_for(const QString& audioRelPath) const {
@@ -1601,6 +1730,10 @@ bool AnalysisTabW::is_pose3d_plugin() const {
 
 bool AnalysisTabW::is_trigger_sync_plugin() const {
     return d->pluginCombo->currentData().toString() == "trigger_sync";
+}
+
+bool AnalysisTabW::is_pose_depth_selected() const {
+    return is_pose_plugin() && is_depth_model(d->modelCombo->currentData().toString());
 }
 
 void AnalysisTabW::reload_current_camera_result() {
@@ -1730,6 +1863,7 @@ void AnalysisTabW::reload_current_camera_result() {
         if (!info || d->micCombo->currentIndex() < 0) {
             d->player->set_video(QString());   // stop/clear any previously-loaded audio
             d->player->set_pose_result(d->currentResult);
+            d->diarizeWaveform->clear_static_envelope();
             update_transcript_table();
             return;
         }
@@ -1738,6 +1872,15 @@ void AnalysisTabW::reload_current_camera_result() {
         const QString audioAbs = info->path + "/" + audioRel;
         d->player->set_video(audioAbs);
         d->player->set_pose_result(d->currentResult);
+
+        // Whole-clip envelope for the waveform strip, spanning the full
+        // duration — a nicer, more informative view alongside the transcript
+        // than the bare player controls alone. 600 columns is plenty of
+        // horizontal resolution for this widget's typical width and cheap to
+        // compute even for a long recording (streamed one column at a time,
+        // never the whole file in memory at once).
+        const auto wav = load_wav_envelope(audioAbs, 600);
+        d->diarizeWaveform->set_static_envelope(wav.columns, wav.durationMs);
 
         const QString transcriptAbs = info->path + "/" + transcript_json_path_for(audioRel);
         d->currentTranscript = QFileInfo::exists(transcriptAbs)
@@ -1775,6 +1918,27 @@ void AnalysisTabW::reload_current_camera_result() {
     const QString videoAbs = info->path + "/" + videoRel;
 
     if (is_pose_plugin()) {
+        if (is_pose_depth_selected()) {
+            // Depth mode: plain video playback of the colorized depth-map
+            // output, no keypoint overlay/chart — mirrors the Face Masking
+            // plugin's anonymized-video branch below exactly, just against
+            // a sibling depth/ folder instead of anonymized/.
+            const QString depthAbs = info->path + "/" + depth_video_path_for(videoRel);
+            const bool hasOutput = QFileInfo::exists(depthAbs);
+            d->player->set_video(hasOutput ? depthAbs : videoAbs);
+            d->player->set_pose_result(PoseAnalysisResult());   // no overlay in depth mode
+            d->openFolderBtn->setEnabled(hasOutput);
+
+            if (hasOutput) {
+                d->statusLbl->setText("Showing depth-map output.");
+                d->statusLbl->setStyleSheet("color:#44cc66; font-size:15px; font-weight:600;");
+            } else {
+                d->statusLbl->setText("Not yet computed (showing original) — click Run.");
+                d->statusLbl->setStyleSheet("color:#6060a0; font-size:15px; font-weight:600;");
+            }
+            return;
+        }
+
         d->player->set_video(videoAbs);
 
         const QString poseAbs = info->path + "/" + pose_json_path_for(videoRel);
@@ -2470,7 +2634,8 @@ void AnalysisTabW::run_analysis() {
 void AnalysisTabW::open_output_folder() {
     const auto* info = d->current_session();
     if (!info) { return; }
-    QDesktopServices::openUrl(QUrl::fromLocalFile(info->path + "/anonymized"));
+    const QString folder = is_pose_depth_selected() ? "depth" : "anonymized";
+    QDesktopServices::openUrl(QUrl::fromLocalFile(info->path + "/" + folder));
 }
 
 } // namespace mosaic
