@@ -33,7 +33,7 @@ from expression.detector import (
     crop_bbox,
 )
 
-ClassifyFn = Callable[[FaceExpression, np.ndarray], tuple[str, float]]
+ClassifyFn = Callable[[FaceExpression, np.ndarray], tuple[str, float, Optional[dict[str, float]]]]
 
 # ── CLI ───────────────────────────────────────────────────────────────────────
 
@@ -45,10 +45,13 @@ def parse_args() -> argparse.Namespace:
     group.add_argument("--video",   metavar="FILE",
                         help="Process a single video file")
 
-    parser.add_argument("--backend", choices=["heuristic", "ferplus"], default="heuristic",
+    parser.add_argument("--backend", choices=["heuristic", "ferplus", "pyfeat"], default="heuristic",
                          help="Expression classifier: rule-based blendshape heuristic (fast, "
-                              "transparent, default) or a pretrained FER+ ONNX model "
-                              "(more validated, downloads an extra ~34MB model)")
+                              "transparent, default), a pretrained FER+ ONNX model (more "
+                              "validated, downloads an extra ~34MB model), or py-feat's "
+                              "Detectorv1 (adds 20 FACS Action Unit scores alongside the "
+                              "emotion label, but is notably slower — roughly 0.1-0.8s/frame "
+                              "on CPU)")
     parser.add_argument("--max-faces", type=int, default=5,
                          help="Maximum simultaneous faces to detect (default: 5)")
     parser.add_argument("--min-confidence", type=float, default=0.5,
@@ -60,17 +63,29 @@ def parse_args() -> argparse.Namespace:
 
 def _make_classify_fn(backend: str) -> ClassifyFn:
     if backend == "heuristic":
-        return lambda face, frame: classify_expression(BLENDSHAPE_NAMES, face.blendshape_scores)
+        return lambda face, frame: (*classify_expression(BLENDSHAPE_NAMES, face.blendshape_scores), None)
 
     if backend == "ferplus":
         from expression.ferplus import FerPlusClassifier
         ferplus = FerPlusClassifier()   # loads the ONNX session once, reused for every frame
 
-        def _classify(face: FaceExpression, frame: np.ndarray) -> tuple[str, float]:
+        def _classify(face: FaceExpression, frame: np.ndarray) -> tuple[str, float, None]:
             crop = crop_bbox(frame, face.bbox_xyxy)
             if crop.size == 0:
-                return "Neutral", 0.0   # degenerate/out-of-frame box — don't crash the run
-            return ferplus.classify(crop)
+                return "Neutral", 0.0, None   # degenerate/out-of-frame box — don't crash the run
+            return (*ferplus.classify(crop), None)
+
+        return _classify
+
+    if backend == "pyfeat":
+        from expression.pyfeat import PyFeatClassifier
+        pyfeat = PyFeatClassifier()   # loads Detectorv1 once, reused for every frame
+
+        def _classify(face: FaceExpression, frame: np.ndarray) -> tuple[str, float, dict]:
+            crop = crop_bbox(frame, face.bbox_xyxy)
+            if crop.size == 0:
+                return "Neutral", 0.0, {}   # degenerate/out-of-frame box — don't crash the run
+            return pyfeat.detect(crop)
 
         return _classify
 
@@ -209,15 +224,21 @@ def _frame_to_dict(frame_idx: int, ts_ns: int, camera_index: int,
     # subject_id is plain per-frame enumerate order — no cross-frame
     # identity tracking, same caveat as PoseSubject.subjectId.
     for subject_id, face in enumerate(faces):
-        dominant, score = classify_fn(face, frame_bgr)
-        subjects.append({
+        dominant, score, aus = classify_fn(face, frame_bgr)
+        subject = {
             "subject_id": subject_id,
             "confidence": round(face.confidence, 3),
             "bbox_xyxy": [round(v, 1) for v in face.bbox_xyxy],
             "blendshape_scores": [round(v, 4) for v in face.blendshape_scores],
             "dominant_expression": dominant,
             "dominant_score": round(score, 3),
-        })
+        }
+        # Only the pyfeat backend produces AU data — the key is entirely
+        # absent (not null) for the other 2 backends, keeping their JSON
+        # output byte-for-byte unchanged.
+        if aus is not None:
+            subject["action_units"] = aus
+        subjects.append(subject)
     return {"frame_index": frame_idx, "timestamp_ns": ts_ns,
             "camera_index": camera_index, "subjects": subjects}
 
@@ -232,12 +253,16 @@ def _write_results(video_path: Path, results: list[dict], backend: str,
         # concept to hang a subfolder off — keep today's beside-the-video
         # behavior unchanged, matching run_pose.py's identical fallback.
         out_path = video_path.with_suffix("").with_suffix(".expression.json")
-    out_path.write_text(json.dumps({
+    doc = {
         "source_video": video_path.name,
         "backend": backend,
         "blendshape_names": BLENDSHAPE_NAMES,
         "frames": results,
-    }, indent=2))
+    }
+    if backend == "pyfeat":
+        from expression.pyfeat import AU_NAMES
+        doc["au_names"] = AU_NAMES
+    out_path.write_text(json.dumps(doc, indent=2))
     print(f"[run_expression] Expression data → {out_path}", flush=True)
 
 # ── Entry point ───────────────────────────────────────────────────────────────

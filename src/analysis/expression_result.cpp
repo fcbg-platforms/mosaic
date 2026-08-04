@@ -27,6 +27,10 @@ ExpressionResult ExpressionResult::load(const QString& jsonPath) {
         result.blendshapeNames_ << name.toString();
     }
 
+    for (const auto& name : root["au_names"].toArray()) {
+        result.auNames_ << name.toString();
+    }
+
     for (const auto& frameVal : root["frames"].toArray()) {
         const QJsonObject frameObj = frameVal.toObject();
 
@@ -54,6 +58,20 @@ ExpressionResult ExpressionResult::load(const QString& jsonPath) {
 
             subject.dominantExpression = subjObj["dominant_expression"].toString();
             subject.dominantScore      = subjObj["dominant_score"].toDouble();
+
+            // Name-keyed on the wire (matches the plan's stated schema),
+            // built into a parallel array ordered by result.auNames_ here —
+            // same "always look up by name, never trust positional order"
+            // discipline BLENDSHAPE_NAMES lookups already rely on. A
+            // missing/unrecognized name defaults to 0.0 via
+            // QJsonValue::Undefined.toDouble(), and this loop is simply
+            // empty (leaving actionUnits empty) for any file with no
+            // "au_names" at all — no special-casing needed for backward
+            // compatibility.
+            const QJsonObject auObj = subjObj["action_units"].toObject();
+            for (const auto& auName : result.auNames_) {
+                subject.actionUnits << auObj[auName].toDouble();
+            }
 
             frame.subjects << subject;
         }

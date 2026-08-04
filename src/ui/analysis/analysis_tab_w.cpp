@@ -1015,6 +1015,13 @@ void AnalysisTabW::build_ui() {
     d->expressionBackendCombo->setItemData(1,
         "Microsoft's FER+ ONNX model (MIT-licensed) — more validated, adds a 'Contempt' "
         "category, downloads an extra ~34MB model on first use.", Qt::ToolTipRole);
+    d->expressionBackendCombo->addItem("py-feat (Action Units + emotion)", "pyfeat");
+    d->expressionBackendCombo->setItemData(2,
+        "py-feat's Detectorv1 — 20 FACS Action Units plus a 7-class emotion score, the most "
+        "detailed of the 3 backends. Uses only the non-commercially-restricted default AU/"
+        "emotion models (the alternate Detectorv2 model is research-only and not used here). "
+        "Noticeably slower than the other backends — roughly 0.1-0.8s per frame on CPU, so "
+        "expect longer analysis runs.", Qt::ToolTipRole);
     expressionLay->addWidget(new QLabel("Backend:"));
     expressionLay->addWidget(d->expressionBackendCombo);
 
@@ -2185,6 +2192,11 @@ void AnalysisTabW::export_expression_csv() {
         ts << "timestamp_ms,subject_id,confidence,bbox_x1,bbox_y1,bbox_x2,bbox_y2,"
               "dominant_expression,dominant_score";
         for (const auto& n : names) { ts << "," << n; }
+        // AU columns only exist for the py-feat backend — au_names() is
+        // empty for heuristic/FER+ results, so this loop (and the matching
+        // per-row loop below) is a pure no-op for those, keeping their
+        // exported CSV byte-identical to before this field existed.
+        for (const auto& n : d->currentExpressionResult.au_names()) { ts << "," << n; }
         ts << "\n";
         for (const auto& frame : frames) {
             const int64_t tMs = (frame.timestampNs - t0) / 1000000;
@@ -2194,6 +2206,7 @@ void AnalysisTabW::export_expression_csv() {
                    << s.bbox.right() << "," << s.bbox.bottom() << ","
                    << s.dominantExpression << "," << s.dominantScore;
                 for (double v : s.blendshapeScores) { ts << "," << v; }
+                for (double v : s.actionUnits) { ts << "," << v; }
                 ts << "\n";
             }
         }

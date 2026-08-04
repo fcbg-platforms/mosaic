@@ -77,6 +77,42 @@ QString write_no_detections_fixture(const QString& dirPath) {
     return path;
 }
 
+// py-feat backend fixture — a small 3-name AU subset is enough to exercise
+// the parsing (no need to enumerate all 20 real AU names). Subject 0
+// deliberately omits "AU02" (tests the default-to-0.0 path) and includes an
+// unrecognized "AU99" key (tests it's silently ignored, mirroring the
+// BLENDSHAPE_NAMES lookup-by-name tolerance).
+const char* kPyfeatFixtureJson = R"JSON(
+{
+  "source_video": "video_2.mp4",
+  "backend": "pyfeat",
+  "blendshape_names": [],
+  "au_names": ["AU01", "AU02", "AU06"],
+  "frames": [
+    {
+      "frame_index": 0, "timestamp_ns": 1000000000, "camera_index": 2,
+      "subjects": [
+        {
+          "subject_id": 0, "confidence": 1.0,
+          "bbox_xyxy": [5.0, 5.0, 50.0, 50.0],
+          "blendshape_scores": [],
+          "dominant_expression": "Happiness", "dominant_score": 0.81,
+          "action_units": {"AU01": 0.12, "AU06": 0.9, "AU99": 0.5}
+        }
+      ]
+    }
+  ]
+}
+)JSON";
+
+QString write_pyfeat_fixture(const QString& dirPath) {
+    const QString path = dirPath + "/video_2.expression.json";
+    QFile f(path);
+    EXPECT_TRUE(f.open(QIODevice::WriteOnly | QIODevice::Text));
+    f.write(kPyfeatFixtureJson);
+    return path;
+}
+
 } // namespace
 
 TEST(ExpressionResult, LoadsValidFileWithFullSchema) {
@@ -164,4 +200,40 @@ TEST(ExpressionResult, HasAnyDetectionsIsFalseWhenNoFrameHasASubject) {
 TEST(ExpressionResult, HasAnyDetectionsIsFalseOnDefaultConstructedResult) {
     const ExpressionResult result;
     EXPECT_FALSE(result.has_any_detections());
+}
+
+TEST(ExpressionResult, LoadsAuNamesAndActionUnitsForPyfeatBackend) {
+    QTemporaryDir dir;
+    ASSERT_TRUE(dir.isValid());
+    const auto result = ExpressionResult::load(write_pyfeat_fixture(dir.path()));
+
+    ASSERT_TRUE(result.is_valid());
+    EXPECT_EQ(result.backend(), "pyfeat");
+    EXPECT_TRUE(result.has_action_units());
+    EXPECT_EQ(result.au_names(), QStringList({"AU01", "AU02", "AU06"}));
+
+    ASSERT_EQ(result.frames().size(), 1);
+    ASSERT_EQ(result.frames()[0].subjects.size(), 1);
+    const auto& actionUnits = result.frames()[0].subjects[0].actionUnits;
+    ASSERT_EQ(actionUnits.size(), 3);   // parallel to au_names(), not to the JSON object's own keys
+    EXPECT_DOUBLE_EQ(actionUnits[0], 0.12);   // AU01, present
+    EXPECT_DOUBLE_EQ(actionUnits[1], 0.0);    // AU02, absent from the JSON -> defaults to 0.0
+    EXPECT_DOUBLE_EQ(actionUnits[2], 0.9);    // AU06, present
+    // AU99 (unrecognized, not in au_names()) contributes nothing — the
+    // parallel array's size is always au_names().size(), never larger.
+}
+
+TEST(ExpressionResult, HasActionUnitsIsFalseForOlderFilesWithoutAuFields) {
+    QTemporaryDir dir;
+    ASSERT_TRUE(dir.isValid());
+    const auto result = ExpressionResult::load(write_fixture(dir.path()));   // heuristic fixture
+
+    ASSERT_TRUE(result.is_valid());
+    EXPECT_FALSE(result.has_action_units());
+    EXPECT_TRUE(result.au_names().isEmpty());
+    for (const auto& frame : result.frames()) {
+        for (const auto& subject : frame.subjects) {
+            EXPECT_TRUE(subject.actionUnits.isEmpty());
+        }
+    }
 }
