@@ -33,6 +33,7 @@ from typing import Optional
 import cv2
 import numpy as np
 
+from pose.depth_estimator import DepthEstimator
 from pose.human_pose import HumanPoseEstimator
 from pose.keypoints import COCO_KEYPOINTS, COCO_SKELETON, PoseResult
 
@@ -49,7 +50,9 @@ def parse_args() -> argparse.Namespace:
                        help="Process a single video file")
 
     parser.add_argument("--model",   default="yolov8n-pose.pt",
-                        help="YOLOv8 model weights (default: yolov8n-pose.pt)")
+                        help="YOLOv8-pose weights, or a YOLO26-depth checkpoint "
+                             "(e.g. yolo26n-depth.pt) for a colorized depth-map video "
+                             "instead of keypoints (default: yolov8n-pose.pt)")
     parser.add_argument("--device",  default=None,
                         help="Inference device: cpu / cuda:0 / mps (auto-detected if omitted)")
     parser.add_argument("--conf",    type=float, default=0.40,
@@ -228,6 +231,112 @@ def _write_results(video_path: Path, results: list[dict], out_format: str,
             hf.create_dataset("frame_index", data=frame_ids)
         print(f"[run_pose] Keypoints → {out_path}", flush=True)
 
+# ── Depth mode ────────────────────────────────────────────────────────────────
+#
+# A `--model` value containing "depth" (e.g. "yolo26n-depth.pt") selects a
+# completely different output shape from pose estimation — a dense per-pixel
+# depth map, not keypoints — so it gets its own session/video processing
+# functions rather than reusing process_session()/process_video() above.
+# Mirrors run_face_mask.py's "write a processed video into its own session
+# subfolder" pattern (here: depth/ instead of anonymized/) rather than
+# writing a JSON sidecar, since there's no keypoint/skeleton data to record.
+
+def process_session_depth(session_dir: Path, estimator: DepthEstimator, skip: int = 1) -> None:
+    videos = sorted((session_dir / "video").glob("*.mp4"))
+    if not videos:
+        print(f"[run_pose] No .mp4 files found in {session_dir / 'video'}", file=sys.stderr)
+        sys.exit(1)
+
+    depth_dir = session_dir / "depth"
+    print(f"[run_pose] Found {len(videos)} video(s) in {session_dir / 'video'}", flush=True)
+    for position, video_path in enumerate(videos, start=1):
+        # Same "Camera N/M:" banner format run_pose.py's own keypoint path
+        # prints above — AnalysisTabW's camera-progress bar regex matches
+        # any "[run_X] Camera N/M:" line, not just this specific call site.
+        print(f"[run_pose] Camera {position}/{len(videos)}: {video_path.name}", flush=True)
+        process_video_depth(video_path, estimator, skip=skip, output_dir=depth_dir)
+
+def process_video_depth(video_path: Path, estimator: DepthEstimator,
+                         skip: int = 1, output_dir: Optional[Path] = None) -> None:
+    cap = cv2.VideoCapture(str(video_path))
+    if not cap.isOpened():
+        print(f"[run_pose] Cannot open {video_path}", file=sys.stderr)
+        return
+
+    fps    = cap.get(cv2.CAP_PROP_FPS) or 30.0
+    width  = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    total  = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    print(f"[run_pose] Processing {video_path.name}  ({total} frames @ {fps:.1f} fps)", flush=True)
+
+    output_dir = output_dir or video_path.parent
+    output_dir.mkdir(parents=True, exist_ok=True)
+    out_path = output_dir / video_path.name
+
+    writer = _open_video_writer(out_path, fps, (width, height))
+    if writer is None:
+        print(f"[run_pose] Could not open a video writer for {out_path}", file=sys.stderr)
+        cap.release()
+        return
+
+    # Same scales-to-video-length progress cadence as process_video() above.
+    progress_interval = max(1, total // 200)
+
+    frame_idx = 0
+    last_colorized: Optional[np.ndarray] = None
+    t_start = time.perf_counter()
+
+    while True:
+        ok, frame = cap.read()
+        if not ok:
+            break
+
+        # A single frame's depth inference failing shouldn't abort the whole
+        # video (or, since process_session_depth() calls this once per
+        # camera, the other cameras in the session) — fall back to writing
+        # the original frame unprocessed rather than a blacked-out one (no
+        # privacy concern here, unlike run_face_mask.py's equivalent guard).
+        try:
+            if frame_idx % skip == 0:
+                last_colorized = estimator.infer_colorized(frame)
+            writer.write(last_colorized if last_colorized is not None else frame)
+        except Exception as exc:  # noqa: BLE001
+            print(f"[run_pose] {video_path.name}: frame {frame_idx} failed ({exc}) "
+                  f"— writing the original frame instead", file=sys.stderr, flush=True)
+            writer.write(frame)
+
+        frame_idx += 1
+        if frame_idx % progress_interval == 0:
+            elapsed = time.perf_counter() - t_start
+            pct = frame_idx / max(total, 1) * 100
+            print(f"  {pct:5.1f}%  ({frame_idx}/{total})  {elapsed:.1f}s elapsed", flush=True)
+
+    cap.release()
+    writer.release()
+
+    if frame_idx == 0:
+        print(f"[run_pose] {video_path.name}: 0 frames read — removing empty output",
+              file=sys.stderr)
+        out_path.unlink(missing_ok=True)
+        return
+
+    elapsed = time.perf_counter() - t_start
+    print(f"[run_pose] Done. {frame_idx} frames in {elapsed:.1f}s "
+          f"({frame_idx/elapsed:.1f} fps throughput) → {out_path}", flush=True)
+
+def _open_video_writer(out_path: Path, fps: float, size: tuple[int, int]):
+    # Same avc1-then-mp4v fallback as run_face_mask.py's _open_writer() —
+    # avc1 (H.264) plays back more reliably in Qt/Windows Media Foundation
+    # than mp4v, but isn't always available depending on the OpenCV build's
+    # bundled FFmpeg.
+    for fourcc_name in ("avc1", "mp4v"):
+        fourcc = cv2.VideoWriter_fourcc(*fourcc_name)
+        writer = cv2.VideoWriter(str(out_path), fourcc, fps, size)
+        if writer.isOpened():
+            return writer
+        writer.release()
+    return None
+
 # ── Pipe mode ─────────────────────────────────────────────────────────────────
 
 def run_pipe(estimator: HumanPoseEstimator) -> None:
@@ -286,6 +395,30 @@ def _result_to_dict(result: PoseResult) -> dict:
 
 def main() -> None:
     args = parse_args()
+
+    # A depth checkpoint (e.g. "yolo26n-depth.pt") is a different task shape
+    # entirely (dense per-pixel depth, no keypoints) — dispatched here,
+    # before HumanPoseEstimator is ever constructed, so the two paths never
+    # share an estimator instance/type.
+    if "depth" in args.model:
+        depth_estimator = DepthEstimator(model_name=args.model, device=args.device)
+        if args.session:
+            process_session_depth(Path(args.session), depth_estimator, skip=args.skip)
+        elif args.video:
+            video_path = Path(args.video)
+            # Same "write beside the session's video/ folder, into a sibling
+            # depth/ folder" convention run_face_mask.py's --video mode uses
+            # for anonymized/, so AnalysisTabW's depth_video_path_for()
+            # lookup finds it either way this script was invoked.
+            session_root = (video_path.parent.parent if video_path.parent.name == "video"
+                             else video_path.parent)
+            process_video_depth(video_path, depth_estimator, skip=args.skip,
+                                 output_dir=session_root / "depth")
+        elif args.pipe:
+            print("[run_pose] --pipe mode is not supported for depth models",
+                  file=sys.stderr)
+            sys.exit(1)
+        return
 
     estimator = HumanPoseEstimator(
         model_name=args.model,

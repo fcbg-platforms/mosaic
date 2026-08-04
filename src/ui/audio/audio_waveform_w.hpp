@@ -1,4 +1,6 @@
 #pragma once
+#include <QPair>
+#include <QVector>
 #include <QWidget>
 #include <memory>
 
@@ -59,6 +61,22 @@ public:
 
     /// @returns Current display amplitude scale.
     [[nodiscard]] float scale() const;
+
+    /// Switches into static mode and displays a whole pre-recorded clip's
+    /// envelope across the full widget width, instead of the live rolling
+    /// history used by the Audio settings tab — used by the Analysis tab's
+    /// Speaker Diarization results view. @p envelope is one (min, max) pair
+    /// per display column, each in [-1, 1], spanning the entire clip; @p
+    /// durationMs is the clip's total duration, used by set_playhead_ms() to
+    /// place the moving playhead line.
+    void set_static_envelope(const QVector<QPair<float, float>>& envelope, qint64 durationMs);
+
+    /// Moves the static-mode playhead line (ignored in live mode, i.e.
+    /// before set_static_envelope() has been called).
+    void set_playhead_ms(qint64 ms);
+
+    /// Clears static-mode data and returns to live rolling mode.
+    void clear_static_envelope();
 
 public slots:
     /// Append one (min, max) envelope pair for @p channelIndex (0-based),

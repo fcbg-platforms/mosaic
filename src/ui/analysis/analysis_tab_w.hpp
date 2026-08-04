@@ -49,6 +49,7 @@ private:
     void select_session(const QString& path);
     void select_camera(int index);
     void select_plugin(int index);
+    void on_pose_model_changed();
     void run_analysis();
     void reload_current_camera_result();
     void update_kinematics_chart();
@@ -69,7 +70,9 @@ private:
     [[nodiscard]] bool is_face_mask_plugin() const;
     [[nodiscard]] bool is_gaze_fusion_plugin() const;
     [[nodiscard]] bool is_pose3d_plugin() const;
+    [[nodiscard]] bool is_pose_depth_selected() const;
     [[nodiscard]] QString pose_json_path_for(const QString& videoRelPath) const;
+    [[nodiscard]] QString depth_video_path_for(const QString& videoRelPath) const;
     [[nodiscard]] QString anonymized_video_path_for(const QString& videoRelPath) const;
     [[nodiscard]] QString transcript_json_path_for(const QString& audioRelPath) const;
     [[nodiscard]] QString expression_json_path_for(const QString& videoRelPath) const;
