@@ -5,6 +5,7 @@
 #include "ui/calibration/calibration_w.hpp"
 #include "ui/logger/logger_panel_w.hpp"
 #include "ui/monitor_bridge.hpp"
+#include "ui/realtime/realtime_tab_w.hpp"
 #include "ui/record/record_settings_w.hpp"
 #include "ui/session/session_browser_w.hpp"
 #include "ui/trigger/trigger_event_panel_w.hpp"
@@ -55,6 +56,7 @@ struct MainWindow::Impl {
     LoggerPanelW*   loggerPanel   = nullptr;
     QLabel*         statusLabel   = nullptr;
     PoseWorker*     poseWorker    = nullptr;
+    RealtimeTabW*   realtimeTab   = nullptr;
     AnalysisTabW*   analysisTab   = nullptr;
     VideoSettingsW* videoSettingsW = nullptr;
 
@@ -159,6 +161,7 @@ void MainWindow::build_menu_bar() {
         // available height is the window height minus the tab bar itself.
         const int tabBarH = d->topTabs ? d->topTabs->tabBar()->height() : 0;
         d->rightSplitter->setSizes({height() - tabBarH - 200, 200});
+        if (d->realtimeTab) { d->realtimeTab->reset_layout(); }
     });
     view->addSeparator();
 
@@ -372,11 +375,32 @@ void MainWindow::build_central_widget() {
                             this, [this, ts](int camIdx, QImage frame) {
                         if (!d->poseWorker || !d->poseWorker->is_running()) return;
                         if (camIdx < 0 || camIdx >= static_cast<int>(ts->size())) return;
+                        // Per-camera opt-out (Real-time tab's "Analyze"
+                        // checkbox) — separate from PoseWorker::is_paused()
+                        // below: this is a per-camera user preference, that
+                        // is a global recording-in-progress resource policy;
+                        // neither should be able to stomp the other.
+                        if (camIdx < static_cast<int>(d->settings.video.cameras.size()) &&
+                            !d->settings.video.cameras[static_cast<size_t>(camIdx)].liveAnalysisEnabled) {
+                            return;
+                        }
                         const qint64 nowMs = QDateTime::currentMSecsSinceEpoch();
                         if (nowMs - (*ts)[camIdx] < 500) return;   // 2 fps per camera
                         (*ts)[camIdx] = nowMs;
                         d->poseWorker->submit_frame(camIdx, frame);
                     }, Qt::QueuedConnection);
+                }
+                if (d->recordMgr) {
+                    // Auto-pause pose/gaze inference while recording is
+                    // active, freeing CPU for the 6-camera grab/encode
+                    // pipeline — a global resource policy, wired here (not
+                    // inside RealtimeTabW) so it holds regardless of which
+                    // tab is open. The subprocess itself is never torn
+                    // down; it just idles.
+                    connect(d->recordMgr, &RecordManager::recording_started, d->poseWorker,
+                            [this](const QString&) { d->poseWorker->set_paused(true); });
+                    connect(d->recordMgr, &RecordManager::recording_stopped, d->poseWorker,
+                            [this](const QString&, int) { d->poseWorker->set_paused(false); });
                 }
                 log_info("Pose worker started — real-time pose overlay active.");
             }
@@ -401,6 +425,10 @@ void MainWindow::build_central_widget() {
     d->mainSplitter->setSizes({380, 1300});
 
     d->topTabs->addTab(d->mainSplitter, "Live");
+
+    d->realtimeTab = new RealtimeTabW(d->settings, d->videoMgr, d->audioMgr,
+                                       d->recordMgr, d->poseWorker);
+    d->topTabs->addTab(d->realtimeTab, "Real-time");
 
     d->analysisTab = new AnalysisTabW(d->settings, d->analysisMgr);
     d->topTabs->addTab(d->analysisTab, "Analysis");

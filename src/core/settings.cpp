@@ -82,6 +82,7 @@ QJsonObject CameraParameters::to_json() const {
         {"hw_trigger_enabled",       hwTriggerEnabled},
         {"hw_trigger_source",        hwTriggerSource},
         {"hw_trigger_delay_us",      hwTriggerDelayUs},
+        {"live_analysis_enabled",    liveAnalysisEnabled},
         {"test_pattern",             testPattern},
         {"calibration",              calibration.to_json()},
     };
@@ -119,6 +120,7 @@ std::optional<CameraParameters> CameraParameters::from_json(const QJsonObject& o
     if (o.contains("hw_trigger_enabled"))       c.hwTriggerEnabled    = o["hw_trigger_enabled"].toBool(c.hwTriggerEnabled);
     if (o.contains("hw_trigger_source"))        c.hwTriggerSource     = o["hw_trigger_source"].toString(c.hwTriggerSource);
     if (o.contains("hw_trigger_delay_us"))      c.hwTriggerDelayUs    = o["hw_trigger_delay_us"].toDouble(c.hwTriggerDelayUs);
+    if (o.contains("live_analysis_enabled"))    c.liveAnalysisEnabled = o["live_analysis_enabled"].toBool(c.liveAnalysisEnabled);
     if (o.contains("test_pattern"))             c.testPattern         = o["test_pattern"].toString(c.testPattern);
     if (o.contains("calibration")) {
         if (auto cal = CalibrationData::from_json(o["calibration"].toObject())) {
@@ -409,6 +411,27 @@ std::optional<RoomSettings> RoomSettings::from_json(const QJsonObject& o) {
     return s;
 }
 
+// ── RealtimeSettings ───────────────────────────────────────────────────────
+
+QJsonObject RealtimeSettings::to_json() const {
+    return {
+        {"enabled",                     enabled},
+        {"auto_pause_during_recording", autoPauseDuringRecording},
+        {"detection_window_buckets",    detectionWindowBuckets},
+    };
+}
+
+std::optional<RealtimeSettings> RealtimeSettings::from_json(const QJsonObject& o) {
+    RealtimeSettings s;
+    if (o.contains("enabled"))
+        s.enabled = o["enabled"].toBool(s.enabled);
+    if (o.contains("auto_pause_during_recording"))
+        s.autoPauseDuringRecording = o["auto_pause_during_recording"].toBool(s.autoPauseDuringRecording);
+    if (o.contains("detection_window_buckets"))
+        s.detectionWindowBuckets = o["detection_window_buckets"].toInt(s.detectionWindowBuckets);
+    return s;
+}
+
 // ── AppSettings ────────────────────────────────────────────────────────────
 
 bool AppSettings::save(const QString& path) const {
@@ -420,6 +443,7 @@ bool AppSettings::save(const QString& path) const {
         {"record",         record.to_json()},
         {"analysis",       analysis.to_json()},
         {"room",           room.to_json()},
+        {"realtime",       realtime.to_json()},
     };
 
     if (!QDir().mkpath(QFileInfo(path).absolutePath())) {
@@ -466,6 +490,8 @@ std::optional<AppSettings> AppSettings::load(const QString& path) {
         s.analysis = AnalysisSettings::from_json(root["analysis"].toObject()).value_or(s.analysis);
     if (root.contains("room"))
         s.room    = RoomSettings::from_json(root["room"].toObject()).value_or(s.room);
+    if (root.contains("realtime"))
+        s.realtime = RealtimeSettings::from_json(root["realtime"].toObject()).value_or(s.realtime);
 
     log_info(QString("Settings loaded ← %1").arg(path));
     return s;

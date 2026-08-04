@@ -25,6 +25,14 @@ public:
     void stop();
     [[nodiscard]] bool is_running() const;
 
+    // Pausing does NOT tear down the subprocess — it just makes submit_frame()
+    // a no-op, so the process idles on a blocking stdin read (free) instead of
+    // paying subprocess-restart cost every time recording starts/stops. Used
+    // to free up CPU for the 6-camera grab/encode pipeline while a real
+    // recording is in progress (see MainWindow's RecordManager wiring).
+    void set_paused(bool paused);
+    [[nodiscard]] bool is_paused() const;
+
 public slots:
     void submit_frame(int cameraIndex, QImage frame);
 
@@ -35,6 +43,7 @@ signals:
     //                              right_iris:{x,y}, gaze_dx, gaze_dy}
     void gaze_ready(int cameraIndex, QVariantMap gazeData);
     void process_error(QString message);
+    void paused_changed(bool paused);
 
 private:
     struct Impl;
