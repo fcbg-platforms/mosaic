@@ -15,6 +15,8 @@ qt_add_executable(mosaic MACOSX_BUNDLE
     analysis/analysis_manager.cpp
     analysis/pose_worker.hpp
     analysis/pose_worker.cpp
+    analysis/realtime_metrics.hpp
+    analysis/realtime_metrics.cpp
     analysis/pose_models.hpp
     analysis/pose_analysis_result.hpp
     analysis/pose_analysis_result.cpp
@@ -63,6 +65,13 @@ qt_add_executable(mosaic MACOSX_BUNDLE
     ui/video/camera_card_w.cpp
     ui/video/performance_monitor_w.hpp
     ui/video/performance_monitor_w.cpp
+
+    # ── Real-time analytics tab ────────────────────────────────────────────
+    ui/realtime/realtime_tab_w.hpp
+    ui/realtime/realtime_tab_w.cpp
+    ui/realtime/realtime_camera_tile_w.hpp
+    ui/realtime/realtime_camera_tile_w.cpp
+    ui/realtime/pose_skeleton_edges.hpp
 
     # ── Audio settings panel ──────────────────────────────────────────────
     ui/audio/audio_settings_w.hpp

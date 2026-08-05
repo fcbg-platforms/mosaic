@@ -22,6 +22,7 @@ add_executable(mosaic_tests
     test_skeleton3d_result.cpp
     test_audio_envelope.cpp
     test_audio_persistence.cpp
+    test_realtime_metrics.cpp
     "${CMAKE_SOURCE_DIR}/src/video/gige_action_command.cpp"
     "${CMAKE_SOURCE_DIR}/src/calibration/rms_quality.cpp"
     "${CMAKE_SOURCE_DIR}/src/audio/audio_envelope.cpp"
@@ -35,6 +36,7 @@ add_executable(mosaic_tests
     "${CMAKE_SOURCE_DIR}/src/analysis/pose_kinematics.cpp"
     "${CMAKE_SOURCE_DIR}/src/analysis/transcript_result.cpp"
     "${CMAKE_SOURCE_DIR}/src/analysis/expression_result.cpp"
+    "${CMAKE_SOURCE_DIR}/src/analysis/realtime_metrics.cpp"
     "${CMAKE_SOURCE_DIR}/src/utils/logger.cpp"
     "${CMAKE_SOURCE_DIR}/src/core/settings.cpp"
     "${CMAKE_SOURCE_DIR}/src/auth/profile_manager.cpp"

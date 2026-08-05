@@ -94,6 +94,13 @@ struct CameraParameters {
     QString hwTriggerSource  = "Action1";   // "Line1" | "Line2" | "Line3" | "Software" | "Action1"
     double  hwTriggerDelayUs = 0.0;         // microseconds
 
+    // Live pose/gaze analysis (Real-time tab) opt-out for this camera. The
+    // live pipeline shares one MediaPipe subprocess across every camera at a
+    // fixed ~2fps/camera budget (see MainWindow's throttle lambda) — turning
+    // this off for a camera the user doesn't care about live frees up that
+    // camera's slice of the shared budget without touching recording at all.
+    bool    liveAnalysisEnabled = true;
+
     // Test pattern — shown in monitor when no real camera is connected
     QString testPattern      = "Off";       // "Off" | "ColorBars" | "Horizontal" | "Vertical"
 
@@ -286,6 +293,19 @@ struct RoomSettings {
     [[nodiscard]] static std::optional<RoomSettings> from_json(const QJsonObject&);
 };
 
+// ── Real-time tab settings ──────────────────────────────────────────────────
+// Preferences for the live pose/gaze analytics dashboard (Real-time tab).
+// Per-camera opt-out lives on CameraParameters::liveAnalysisEnabled instead
+// of a field here, so it travels correctly with its camera on reorder/removal.
+struct RealtimeSettings {
+    bool enabled                  = true;   // show live analysis in the tab at all
+    bool autoPauseDuringRecording = true;   // pause pose/gaze inference while recording
+    int  detectionWindowBuckets   = 24;     // sparkline rolling-window bucket count (~2min @ 5s/bucket)
+
+    [[nodiscard]] QJsonObject                     to_json()   const;
+    [[nodiscard]] static std::optional<RealtimeSettings> from_json(const QJsonObject&);
+};
+
 // ── Application aggregate ──────────────────────────────────────────────────
 struct AppSettings {
     static constexpr int k_schema_version = 1;
@@ -296,6 +316,7 @@ struct AppSettings {
     RecordSettings   record;
     AnalysisSettings analysis;
     RoomSettings     room;
+    RealtimeSettings realtime;
 
     // Persist to / restore from a JSON file.
     // save() returns false only on I/O error (not on validation issues).

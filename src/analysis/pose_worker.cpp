@@ -14,6 +14,7 @@ struct PoseWorker::Impl {
     std::unique_ptr<QProcess> proc;
     QTimer*                   readTimer{nullptr};
     QByteArray                readBuf;
+    bool                      paused{false};
 };
 
 PoseWorker::PoseWorker(QObject* parent)
@@ -114,8 +115,16 @@ bool PoseWorker::is_running() const {
     return d->proc && d->proc->state() == QProcess::Running;
 }
 
+void PoseWorker::set_paused(bool paused) {
+    if (d->paused == paused) return;
+    d->paused = paused;
+    emit paused_changed(paused);
+}
+
+bool PoseWorker::is_paused() const { return d->paused; }
+
 void PoseWorker::submit_frame(int cameraIndex, QImage frame) {
-    if (!is_running()) return;
+    if (!is_running() || d->paused) return;
 
     // Convert to BGR888 for the Python script.
     const QImage bgr = frame.convertToFormat(QImage::Format_BGR888);
