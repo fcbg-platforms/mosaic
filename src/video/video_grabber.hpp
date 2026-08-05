@@ -119,10 +119,23 @@ public:
     // threaded through start_preview() (which doesn't take one).
     [[nodiscard]] double configured_fps() const;
 
-    // The camera's real, measured ResultingFrameRate from open() time — may
-    // be lower than configured_fps() if GigE bandwidth/exposure/ROI can't
+    // The camera's real, measured ResultingFrameRate — refreshed at open()
+    // time, after every apply_live_params() call, and periodically (every
+    // ~2s) while grabbing (see refresh_achievable_fps()), so it keeps
+    // improving over the life of a session rather than staying pinned at
+    // whatever was measured first. A reading is only trusted once the
+    // camera has been genuinely grabbing for a little while (see
+    // is_achievable_fps_measurement_warmed_up() in gige_action_command.hpp)
+    // — not filtered by its own magnitude, since real room-11 data showed a
+    // magnitude floor can't tell a premature reading apart from a real,
+    // stable, but disappointingly low one (e.g. auto-exposure converged
+    // near its ceiling in a dim room). So this can still be -1.0 (never yet
+    // measured) for a few seconds after open() even though
+    // refresh_achievable_fps() already ran — expected, not a bug; a
+    // trustworthy reading lands as soon as the warm-up window passes. May be
+    // lower than configured_fps() if GigE bandwidth/exposure/ROI can't
     // sustain the requested rate (see the "Requested X fps but the camera
-    // can only sustain ~Y fps" warning in open()). Preferred over
+    // can only sustain ~Y fps" warning). Preferred over
     // configured_fps() when picking a shared Action Command firing rate, so
     // the ticker doesn't trigger a camera faster than it can actually
     // process — that would reproduce the same GigE packet-loss failure mode
@@ -171,6 +184,13 @@ private:
     // Shared by open() (initial configuration) and apply_live_params()
     // (re-applying after a UI edit) so the node-writing logic exists once.
     void apply_image_params();
+
+    // Re-reads d->resultingFps and re-checks the "requested fps not
+    // achievable" warning — see the .cpp definition's doc comment for why
+    // this must run again after a live parameter change, not just at
+    // open() time. Called from open() and from run_pylon_loop()'s
+    // live-apply branch, right after apply_image_params().
+    void refresh_achievable_fps();
 
     void run_pylon_loop();
     void run_stub_loop();

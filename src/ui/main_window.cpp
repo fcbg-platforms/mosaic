@@ -3,6 +3,7 @@
 #include "ui/analysis/analysis_tab_w.hpp"
 #include "ui/audio/audio_settings_w.hpp"
 #include "ui/calibration/calibration_w.hpp"
+#include "ui/help_dialog.hpp"
 #include "ui/logger/logger_panel_w.hpp"
 #include "ui/monitor_bridge.hpp"
 #include "ui/realtime/realtime_tab_w.hpp"
@@ -24,7 +25,6 @@
 #include <QFileInfo>
 #include <QLabel>
 #include <QMenuBar>
-#include <QMessageBox>
 #include <QQmlContext>
 #include <QQuickWidget>
 #include <QSet>
@@ -191,10 +191,8 @@ void MainWindow::build_menu_bar() {
 
     auto* help = menuBar()->addMenu("&Help");
     help->addAction("&About MOSAIC…", this, [this] {
-        QMessageBox::about(this, "About MOSAIC",
-            "<b>MOSAIC</b> v" + QCoreApplication::applicationVersion() +
-            "<br>Multi-camera Observatory for Social &amp; Activity Interaction Capture"
-            "<br><br>CSRU Lab");
+        HelpDialog dlg(this);
+        dlg.exec();
     });
 }
 

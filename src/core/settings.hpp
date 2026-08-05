@@ -48,6 +48,11 @@ struct CameraParameters {
     int     offsetX         = 0;
     int     offsetY         = 0;
     bool    reverseX        = false;
+    // No longer offered in CameraCardW — confirmed on real room-11
+    // hardware that this camera generation's ReverseY node exists but
+    // rejects writes outright ("Node is not writable", every camera, every
+    // session). Field kept so an already-persisted value round-trips
+    // rather than silently vanishing on next save.
     bool    reverseY        = false;
     QString pixelFormat     = "BGR8";
     bool    specifyFps      = true;
@@ -70,7 +75,10 @@ struct CameraParameters {
     // node — manual/"Off" gain is a silent no-op here (see the "Gain" write
     // in video_grabber.cpp's apply_image_params(), which only fires when
     // gainAuto=="Off" and simply skips if the modern node isn't present).
-    QString gainAuto        = "Once";       // "Off" | "Once" | "Continuous"
+    // CameraCardW no longer offers "Off" or a manual gainDb field for
+    // exactly this reason — gainDb is kept so an already-persisted value
+    // round-trips, but has no effect on this hardware.
+    QString gainAuto        = "Once";       // "Off" | "Once" | "Continuous" (UI: Once/Continuous only)
     double  gainDb          = 0.0;
     double  gainAutoLowerDb = 0.0;
     double  gainAutoUpperDb = 24.0;
@@ -79,6 +87,10 @@ struct CameraParameters {
     double  gamma            = 1.0;
     double  blackLevel       = 0.0;
     QString balanceWhiteAuto = "Once";      // "Off" | "Once" | "Continuous"
+    // Saturation/contrast/brightness have no GenICam node on this camera
+    // generation at all (no on-camera ISP) — CameraCardW no longer offers
+    // them. Fields kept for persistence/forward-compat only (a future
+    // camera model might expose the matching node).
     double  saturation       = 1.0;         // 0.0–2.0
     double  contrast         = 1.0;         // 0.0–2.0
     double  brightness       = 0.5;         // 0.0–1.0

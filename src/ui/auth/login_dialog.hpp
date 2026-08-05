@@ -13,8 +13,10 @@ namespace mosaic {
 //   • If the selected profile has a password a password field slides in.
 //   • "Continue" logs in; "Guest session" skips auth entirely.
 //   • Clicking the ＋ card switches to the Register form.
-//   • Escape and the window close button are disabled — the user must
-//     choose a session before the main window opens.
+//   • The window is frameless (no OS titlebar) and Escape is disabled, so
+//     the only way to leave without picking a profile is the small ✕
+//     button in the top-right corner, which quits the app outright rather
+//     than falling through to the main window.
 //
 // After exec() returns QDialog::Accepted, read active_username() to
 // find which profile was chosen ("guest" = guest session).
@@ -30,6 +32,7 @@ public:
 protected:
     void keyPressEvent(QKeyEvent* event) override;  // disable Escape
     void showEvent(QShowEvent* event) override;      // gentle fade-in on first show
+    void resizeEvent(QResizeEvent* event) override;  // keep the close button pinned top-right
 
 private slots:
     void on_card_selected(const QString& username);

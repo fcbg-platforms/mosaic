@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <cmath>
 
 namespace mosaic {
 
@@ -119,6 +120,45 @@ protected:
                                             .arg(m_targets[i].cameraIndex)
                                             .arg(ticksFired).arg(captured).arg(missed));
                         }
+                    }
+
+                    // Self-correct the firing period as each camera's
+                    // achievable_fps() measurement improves over time (see
+                    // VideoGrabber::run_pylon_loop()'s own periodic
+                    // refresh). Real room-11 testing (2026-08-05) showed a
+                    // group armed before any camera had a plausible
+                    // measurement yet falls back to configured_fps(), which
+                    // can be well above every camera's real triggered-
+                    // acquisition ceiling — causing severe (>80%) trigger
+                    // loss across the WHOLE group, indefinitely, since
+                    // nothing previously ever re-checked once the ticker
+                    // was already running. Recomputing here — the exact
+                    // same achievable_fps()-preferred-over-configured_fps()
+                    // rule arm_and_fire_action_commands() used at arm time
+                    // — lets the ticker adapt down to reality within one
+                    // diagnostic cycle instead of staying pinned at a rate
+                    // none of these cameras can actually sustain for the
+                    // rest of the session.
+                    std::vector<double> freshTargetFps;
+                    freshTargetFps.reserve(m_grabbers.size());
+                    for (auto* g : m_grabbers) {
+                        if (!g) { continue; }
+                        const double achievable = g->achievable_fps();
+                        freshTargetFps.push_back(achievable > 0.0 ? achievable : g->configured_fps());
+                    }
+                    const auto newPeriod = std::chrono::duration<double, std::milli>(
+                        action_command_period_ms(freshTargetFps));
+                    // Only act on a materially different period — floating-
+                    // point noise or sub-percent jitter in a repeated
+                    // measurement shouldn't restart the tick cadence every
+                    // 5 seconds for the whole session.
+                    if (std::abs(newPeriod.count() - m_period.count()) > m_period.count() * 0.05) {
+                        log_info(QString("[VideoManager] ActionCommandTicker: adjusting firing "
+                                         "period %1 ms -> %2 ms as camera achievable-fps "
+                                         "measurements converge.")
+                                     .arg(m_period.count(), 0, 'f', 1)
+                                     .arg(newPeriod.count(), 0, 'f', 1));
+                        m_period = newPeriod;
                     }
                 }
             }

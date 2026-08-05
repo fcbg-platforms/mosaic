@@ -51,6 +51,8 @@ qt_add_executable(mosaic MACOSX_BUNDLE
     ui/style.hpp
     ui/anim_utils.hpp
     ui/anim_utils.cpp
+    ui/help_dialog.hpp
+    ui/help_dialog.cpp
     ui/main_window.hpp
     ui/main_window.cpp
 

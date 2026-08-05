@@ -49,6 +49,13 @@ double action_command_period_ms(const std::vector<double>& targetFps, double mar
     return 1000.0 / (minFps * marginFactor);
 }
 
+bool is_achievable_fps_measurement_warmed_up(double secondsSinceGrabbingStarted,
+                                              double warmupSeconds) {
+    if (secondsSinceGrabbingStarted < 0.0) { return false; }
+    if (!(warmupSeconds > 0.0)) { return true; }
+    return secondsSinceGrabbingStarted >= warmupSeconds;
+}
+
 #if defined(MOSAIC_HAVE_CAMERAS)
 struct ActionCommandSession::Impl {
     Pylon::ITransportLayer*     tl     = nullptr;

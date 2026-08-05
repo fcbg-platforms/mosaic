@@ -4,15 +4,6 @@
 
 [![CI](https://github.com/fcbg-platforms/mosaic/actions/workflows/ci.yml/badge.svg)](https://github.com/fcbg-platforms/mosaic/actions/workflows/ci.yml)
 
-<p align="center">
-  <img src="docs/_static/fcbg-logo.png" alt="Fondation Campus Biotech Geneva" height="72">
-  &nbsp;&nbsp;&nbsp;&nbsp;
-  <img src="docs/_static/neuro-logo.png" alt="Neuro" height="72">
-</p>
-<p align="center">
-  <sub>Developed at CSRU Lab · Fondation Campus Biotech Geneva</sub>
-</p>
-
 A synchronized multi-camera + audio recording suite for research labs, built around Basler
 GigE cameras, with live pose/gaze preview, post-recording analysis, and parallel-port/serial
 trigger integration for syncing with external systems (e.g. EEG amplifiers).
@@ -165,3 +156,14 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) — every PR needs a test, and CI must pa
 ## License
 
 [MIT](LICENSE)
+
+---
+
+<p align="center">
+  <img src="docs/_static/fcbg-logo.png" alt="Fondation Campus Biotech Geneva" height="96">
+  &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+  <img src="docs/_static/neuro-logo.png" alt="Neuro" height="96">
+</p>
+<p align="center">
+  <sub>Developed by <strong>Payam S. Shabestari</strong></sub>
+</p>
