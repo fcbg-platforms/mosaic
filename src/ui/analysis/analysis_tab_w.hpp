@@ -10,7 +10,7 @@ namespace mosaic {
 // Top-level "Analysis" tab: pick a recorded session, run a post-hoc analysis
 // plugin, and review the result in-app.
 //
-// Six plugins today, selected via a combo box: Pose (YOLOv8) — a
+// Seven plugins today, selected via a combo box: Pose (YOLOv8) — a
 // synchronised video+skeleton-overlay player alongside a per-keypoint
 // metrics plot; Face Masking — plain playback of an anonymized output video
 // written to a sibling "anonymized/" folder, never touching the original
@@ -29,11 +29,17 @@ namespace mosaic {
 // cross-camera person association (multi-person capable, unlike Gaze
 // Fusion's single-subject design), shown as a per-camera reprojected
 // skeleton overlay plus an interactive, orbit-rotatable 3D room view
-// (Skeleton3DRoomViewW). AnalysisManager (analysis/analysis_manager.hpp)
-// runs each plugin's script through the same shared subprocess queue. For
-// Pose, the metrics plot can show raw Position (x/y) or, entirely computed
-// client-side from the already-loaded result (no extra Python run needed —
-// see analysis/pose_kinematics.hpp), derived Speed/Acceleration with
+// (Skeleton3DRoomViewW); and EEG/Trigger ↔ Frame Sync — resolves every event
+// in the session's trigger.csv (e.g. an EEG amplifier's parallel-port trigger
+// cable) to its nearest frame in every camera (analysis/trigger_frame_map.hpp),
+// shown as a click-to-seek table, computed synchronously in C++ (no
+// subprocess — unlike every other plugin here, this is pure fast CSV-to-CSV
+// arithmetic with no ML dependency, the same shape as SyncManifest's own
+// synchronous generate()). AnalysisManager (analysis/analysis_manager.hpp)
+// runs each ML-backed plugin's script through the same shared subprocess
+// queue. For Pose, the metrics plot can show raw Position (x/y) or, entirely
+// computed client-side from the already-loaded result (no extra Python run
+// needed — see analysis/pose_kinematics.hpp), derived Speed/Acceleration with
 // optional smoothing and an optional manual px-to-mm scale.
 class AnalysisTabW : public QWidget {
     Q_OBJECT
@@ -64,12 +70,15 @@ private:
     void export_gaze_csv();
     void update_pose3d_view();
     void export_skeleton3d_csv();
+    void update_trigger_sync_view();
+    void export_trigger_sync_csv();
     [[nodiscard]] bool is_pose_plugin() const;
     [[nodiscard]] bool is_diarize_plugin() const;
     [[nodiscard]] bool is_expression_plugin() const;
     [[nodiscard]] bool is_face_mask_plugin() const;
     [[nodiscard]] bool is_gaze_fusion_plugin() const;
     [[nodiscard]] bool is_pose3d_plugin() const;
+    [[nodiscard]] bool is_trigger_sync_plugin() const;
     [[nodiscard]] bool is_pose_depth_selected() const;
     [[nodiscard]] QString pose_json_path_for(const QString& videoRelPath) const;
     [[nodiscard]] QString depth_video_path_for(const QString& videoRelPath) const;

@@ -19,7 +19,6 @@ Prerequisites
 
          # Optional extras
          brew install ffmpeg opencv   # for video encoding / calibration
-         # liblsl from https://github.com/sccn/liblsl/releases
 
    .. tab-item:: Windows
 
@@ -48,8 +47,8 @@ Building
 
          cmake --build build/Debug --parallel
 
-         # With LSL + OpenCV calibration
-         ./scripts/configure.sh Debug --lsl --opencv
+         # With OpenCV calibration
+         ./scripts/configure.sh Debug --opencv
          cmake --build build/Debug --parallel
 
    .. tab-item:: Windows
@@ -62,8 +61,8 @@ Building
          # Basic build (all hardware off, tests included)
          .\scripts\configure.ps1
 
-         # Full build (cameras + NVENC + LSL + calibration)
-         .\scripts\configure.ps1 -EnableCameras -EnableNvenc -EnableLsl -EnableOpenCV
+         # Full build (cameras + NVENC + calibration)
+         .\scripts\configure.ps1 -EnableCameras -EnableNvenc -EnableOpenCV
 
          cmake --build build\Release --parallel
 
@@ -91,9 +90,6 @@ Pass these to CMake to enable optional subsystems:
    * - ``MOSAIC_ENABLE_NVENC``
      - OFF
      - FFMPEG + CUDA + NVIDIA driver
-   * - ``MOSAIC_ENABLE_LSL``
-     - OFF
-     - liblsl (vcpkg feature ``lsl``)
    * - ``MOSAIC_ENABLE_OPENCV``
      - OFF
      - OpenCV 4.x

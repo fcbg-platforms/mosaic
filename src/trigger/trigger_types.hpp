@@ -6,7 +6,7 @@ namespace mosaic {
 
 /// @brief The action a trigger performs when it fires.
 ///
-/// Every trigger configuration (keyboard, serial, parallel port, LSL inlet)
+/// Every trigger configuration (keyboard, serial, parallel port)
 /// carries one of these values.  The TriggerManager dispatches an
 /// @c action_requested() signal for Start/Stop; @c Log is the default
 /// "record and display" behaviour.
@@ -38,17 +38,20 @@ enum class TriggerAction : uint8_t {
 /// @brief A single timestamped event from any trigger source.
 ///
 /// TriggerEvent is the common currency passed between trigger sources
-/// (KeyboardTrigger, LslInlet, ParallelPortTrigger), TriggerManager,
+/// (KeyboardTrigger, SerialTrigger, ParallelPortTrigger), TriggerManager,
 /// and TriggerRecorder.  It is also emitted by TriggerManager::event_received()
 /// so the UI or any downstream consumer can react in real time.
 ///
 /// @par CSV columns
-/// TriggerRecorder writes one row per event:
+/// TriggerRecorder writes one row per event. @c elapsed_ns is the raw,
+/// unmodified value shared with @c timestamps_camN.csv (both come from the
+/// same process-wide elapsed_ns() origin — see utils/timestamp.hpp);
+/// @c elapsed_ms is recording-relative (zeroed at TriggerRecorder::start())
+/// and is display-only, NOT safe to compare against timestamps_camN.csv:
 /// @code
-/// elapsed_ms,wall_clock,source,label,value
-/// 1523,14:32:06.645,keyboard,Event A,0
-/// 2100,14:32:07.222,lsl,Stimulus/S1,1
-/// 4910,14:32:09.032,parallel_port,D3_RISE,1
+/// elapsed_ms,elapsed_ns,wall_clock,source,label,value
+/// 1523.004,1523004112000,14:32:06.645,keyboard,Event A,0
+/// 4910.331,4910331889000,14:32:09.032,parallel_port,D3_RISE,1
 /// @endcode
 struct TriggerEvent {
     /// Monotonic nanosecond timestamp from elapsed_ns() at the moment the
@@ -57,20 +60,17 @@ struct TriggerEvent {
 
     /// Where the event originated.  One of:
     /// - @c "keyboard"       — a KeyboardTrigger event filter.
-    /// - @c "lsl"            — a received LSL marker.
     /// - @c "parallel_port"  — a bit-edge on the LPT data register.
     QString source;
 
     /// Human-readable event name.
     /// - Keyboard: the user-configured binding name, e.g. @c "Event A".
-    /// - LSL:      the received string sample, e.g. @c "Stimulus/S1".
     /// - Parallel: bit and edge, e.g. @c "D3_RISE" or @c "D3_FALL".
     QString label;
 
     /// Optional numeric payload.
     /// - Keyboard / parallel rising edge: @c 1.0.
     /// - Parallel falling edge:           @c 0.0.
-    /// - LSL:                             @c 0.0 (string-only inlet).
     double  value = 0.0;
 
     /// The action dispatched by this event.  Set by TriggerManager when routing.

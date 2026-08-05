@@ -96,10 +96,8 @@ succeeds later.  Fields:
        { "index": 0, "name": "RODE NT-USB", "sample_rate": 44100, "channels": 2 }
      ],
      "trigger_sources": {
-       "keyboard":    [ { "name": "Event A", "key_seq": "F1" } ],
-       "lsl_inlets":  [ { "name": "EEG Markers", "stream_name": "BrainAmp" } ],
-       "parallel_ports": [],
-       "lsl_outlet_name": "MOSAIC"
+       "keyboard":       [ { "name": "Event A", "key_seq": "F1" } ],
+       "parallel_ports": [ { "port_address": "0xAEFC" } ]
      }
    }
 
@@ -263,19 +261,37 @@ step toward something tighter.
 Trigger CSV
 -----------
 
-Every trigger event (keyboard, LSL marker, parallel port edge) is appended to
-``trigger.csv``:
+Every trigger event (keyboard, serial byte, parallel port edge — e.g. an EEG
+amplifier's trigger-out cable) is appended to ``trigger.csv``:
 
 .. code-block:: text
 
-   elapsed_ms,wall_clock,source,label,value
-   1523,14:32:06.645,keyboard,Event A,0
-   2100,14:32:07.222,lsl,Stimulus/S1,1
+   elapsed_ms,elapsed_ns,wall_clock,source,label,value
+   1523.004,1523004112000,14:32:06.645,keyboard,Event A,0
+   4910.331,4910331889000,14:32:09.032,parallel_port,D3_RISE,1
+
+- **``elapsed_ns``** — the raw, unmodified value from the same ``elapsed_ns()``
+  origin as ``timestamps_camN.csv``'s own ``elapsed_ns`` column. **Use this
+  column** for any cross-file alignment — it needs no reconstruction.
+- **``elapsed_ms``** — recording-relative (zeroed when the recording started,
+  not when the app launched). Convenient for skimming a session by eye, but
+  **not** safe to compare directly against ``timestamps_camN.csv`` — it uses
+  a different zero-point.
+
+.. note::
+
+   Sessions recorded before Mosaic added the ``elapsed_ns`` column only have
+   the older 5-column schema (no reliable cross-file alignment is possible
+   for those — the original zero-point offset was never persisted anywhere).
 
 Aligning streams in Python
 --------------------------
 
-A minimal alignment example:
+The Analysis tab's **"EEG/Trigger ↔ Frame Sync"** plugin does this
+automatically — it resolves every trigger event to its nearest frame in
+every camera, shows the result in a click-to-seek table, and exports it as
+CSV/JSON (:cpp:class:`mosaic::TriggerFrameMap`). The manual equivalent, for
+scripting against a session directly:
 
 .. code-block:: python
 
@@ -291,12 +307,12 @@ A minimal alignment example:
    # Trigger events
    triggers = pd.read_csv(session / "trigger.csv")
 
-   # Align: find the nearest frame for each trigger
+   # Align: find the nearest frame for each trigger, using the raw
+   # elapsed_ns column directly — no offset reconstruction needed, since
+   # both files share the same elapsed_ns() clock origin.
    def nearest_frame(elapsed_ns):
        idx = (frames["elapsed_ns"] - elapsed_ns).abs().idxmin()
        return frames.loc[idx, "frame_id"]
 
-   triggers["frame_id"] = triggers["elapsed_ms"].apply(
-       lambda ms: nearest_frame(ms * 1_000_000)
-   )
+   triggers["frame_id"] = triggers["elapsed_ns"].apply(nearest_frame)
    print(triggers[["label", "frame_id"]].head())

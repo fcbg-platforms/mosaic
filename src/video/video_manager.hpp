@@ -7,8 +7,6 @@
 
 namespace mosaic {
 
-class TriggerManager;
-
 /// @brief Orchestrates one VideoGrabber + VideoEncoder pair per configured camera.
 ///
 /// VideoManager owns the complete video pipeline for a session.  It matches
@@ -41,10 +39,7 @@ class TriggerManager;
 class VideoManager : public QObject {
     Q_OBJECT
 public:
-    // triggerMgr, if non-null, must outlive this object — passed down to
-    // every VideoGrabber opened by open() so each captured frame can be
-    // published as an LSL marker (see TriggerManager::publish_frame_marker()).
-    explicit VideoManager(TriggerManager* triggerMgr = nullptr, QObject* parent = nullptr);
+    explicit VideoManager(QObject* parent = nullptr);
     ~VideoManager() override;
 
     /// @brief Opens camera devices (or stub generators) for all configured cameras.

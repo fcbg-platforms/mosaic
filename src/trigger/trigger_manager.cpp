@@ -1,7 +1,5 @@
 #include "trigger/trigger_manager.hpp"
 #include "trigger/keyboard_trigger.hpp"
-#include "trigger/lsl_inlet.hpp"
-#include "trigger/lsl_outlet.hpp"
 #include "trigger/parallel_port_trigger.hpp"
 #ifdef MOSAIC_HAVE_SERIAL
 #include "trigger/serial_trigger.hpp"
@@ -18,14 +16,11 @@ struct TriggerManager::Impl {
 #ifdef MOSAIC_HAVE_SERIAL
     std::vector<std::unique_ptr<SerialTrigger>>        serialTriggers;
 #endif
-    std::vector<std::unique_ptr<LslInlet>>             lslInlets;
     std::vector<std::unique_ptr<ParallelPortTrigger>>  portTriggers;
-    std::unique_ptr<LslOutlet>                         lslOutlet;
     std::unique_ptr<TriggerRecorder>                   recorder;
 
     explicit Impl(TriggerSettings& s)
         : settings(s)
-        , lslOutlet(std::make_unique<LslOutlet>())
         , recorder(std::make_unique<TriggerRecorder>())
     {}
 };
@@ -47,13 +42,11 @@ void TriggerManager::reload() {
     for (auto& st : d->serialTriggers) { st->close(); }
 #endif
     for (auto& pp : d->portTriggers)   { pp->stop(); }
-    for (auto& li : d->lslInlets)      { li->disconnect(); }
     d->keyTriggers.clear();
 #ifdef MOSAIC_HAVE_SERIAL
     d->serialTriggers.clear();
 #endif
     d->portTriggers.clear();
-    d->lslInlets.clear();
 
     if (!d->settings.receiveEnabled) {
         log_info("[TriggerManager] Trigger receive disabled.");
@@ -89,25 +82,6 @@ void TriggerManager::reload() {
     }
 #endif
 
-    // ── LSL inlets ─────────────────────────────────────────────────────────
-    for (auto& cfg : d->settings.lslInlets) {
-        if (!cfg.enabled) { continue; }
-        auto inlet = std::make_unique<LslInlet>(cfg, this);
-        connect(inlet.get(), &LslInlet::received,
-                this,         &TriggerManager::on_trigger_fired, Qt::QueuedConnection);
-        connect(inlet.get(), &LslInlet::connection_lost, this,
-                [](const QString& name) {
-                    log_warning(QString("[TriggerManager] LSL inlet '%1' disconnected.").arg(name));
-                });
-        // Non-blocking resolve — if the stream is not up yet the inlet is silent.
-        const bool connected = inlet->connect(0.5);
-        if (!connected) {
-            log_info(QString("[TriggerManager] LSL inlet '%1' not yet available — will retry.")
-                         .arg(cfg.streamName));
-        }
-        d->lslInlets.push_back(std::move(inlet));
-    }
-
     // ── Parallel port triggers ─────────────────────────────────────────────
     for (auto& cfg : d->settings.parallelPorts) {
         if (!cfg.enabled) { continue; }
@@ -126,25 +100,14 @@ void TriggerManager::reload() {
         d->portTriggers.push_back(std::move(ppt));
     }
 
-    // ── LSL outlet ─────────────────────────────────────────────────────────
-    d->lslOutlet->close();
-    if (d->settings.lslOutletEnabled) {
-        [[maybe_unused]] const bool opened =
-            d->lslOutlet->open(d->settings.lslOutletName,
-                                d->settings.lslOutletRate);
-    }
-
-    log_info(QString("[TriggerManager] Reloaded: %1 keyboard, %2 serial, %3 LSL inlet(s), "
-                     "%4 parallel port(s). LSL outlet: %5.")
+    log_info(QString("[TriggerManager] Reloaded: %1 keyboard, %2 serial, %3 parallel port(s).")
                  .arg(d->keyTriggers.size())
 #ifdef MOSAIC_HAVE_SERIAL
                  .arg(d->serialTriggers.size())
 #else
                  .arg(0)
 #endif
-                 .arg(d->lslInlets.size())
-                 .arg(d->portTriggers.size())
-                 .arg(d->lslOutlet->is_open() ? "on" : "off"));
+                 .arg(d->portTriggers.size()));
 }
 
 // ── Action lookup ──────────────────────────────────────────────────────────
@@ -161,10 +124,6 @@ static TriggerAction lookup_action(const TriggerSettings& settings,
         }
     } else if (ev.source == "parallel_port") {
         if (!settings.parallelPorts.empty()) { return settings.parallelPorts[0].action; }
-    } else if (ev.source == "lsl") {
-        for (const auto& cfg : settings.lslInlets) {
-            if (cfg.enabled) { return cfg.action; }
-        }
     }
     return TriggerAction::Log;
 }
@@ -185,14 +144,6 @@ void TriggerManager::on_trigger_fired(TriggerEvent event) {
     }
 }
 
-// ── LSL frame marker ───────────────────────────────────────────────────────
-
-void TriggerManager::publish_frame_marker(int cameraIndex,
-                                           int64_t frameId,
-                                           int64_t elapsedNs) {
-    d->lslOutlet->push_frame(cameraIndex, frameId, elapsedNs);
-}
-
 // ── Recording lifecycle ────────────────────────────────────────────────────
 
 void TriggerManager::start_recording(const QString& csvPath) {
@@ -200,13 +151,16 @@ void TriggerManager::start_recording(const QString& csvPath) {
         log_error(QString("[TriggerManager] Cannot open trigger log: %1").arg(csvPath));
     } else {
         log_info(QString("[TriggerManager] Trigger recorder started → %1").arg(csvPath));
-        // Stamp session start in the LSL event outlet.
-        d->lslOutlet->push_event("SESSION_START");
+        for (auto& pp : d->portTriggers) {
+            if (pp->config().sendRecordingMarker) { pp->set_recording_marker(true); }
+        }
     }
 }
 
 void TriggerManager::stop_recording() {
-    d->lslOutlet->push_event("SESSION_STOP");
+    for (auto& pp : d->portTriggers) {
+        if (pp->config().sendRecordingMarker) { pp->set_recording_marker(false); }
+    }
     d->recorder->stop();
     log_info("[TriggerManager] Trigger recorder stopped.");
 }

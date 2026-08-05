@@ -4,18 +4,16 @@
 #   ./scripts/configure.sh                         → Debug build
 #   ./scripts/configure.sh Release                 → Release build
 #   ./scripts/configure.sh Debug --tests           → Debug + unit tests
-#   ./scripts/configure.sh Debug --lsl --opencv    → Debug + LSL + calibration
+#   ./scripts/configure.sh Debug --opencv          → Debug + calibration
 
 set -euo pipefail
 
 BUILD_TYPE="${1:-Debug}"
 BUILD_TESTS=OFF
-ENABLE_LSL=OFF
 ENABLE_OPENCV=OFF
 ENABLE_FFMPEG=OFF
 for arg in "$@"; do
     [[ "$arg" == "--tests" ]]  && BUILD_TESTS=ON
-    [[ "$arg" == "--lsl" ]]    && ENABLE_LSL=ON
     [[ "$arg" == "--opencv" ]] && ENABLE_OPENCV=ON
     [[ "$arg" == "--ffmpeg" ]] && ENABLE_FFMPEG=ON
 done
@@ -66,7 +64,6 @@ cmake -S "$ROOT" -B "$BUILD_DIR" \
     -DMOSAIC_ENABLE_NVENC=OFF \
     -DMOSAIC_ENABLE_FFMPEG="$ENABLE_FFMPEG" \
     -DMOSAIC_ENABLE_PARALLEL_PORT=OFF \
-    -DMOSAIC_ENABLE_LSL="$ENABLE_LSL" \
     -DMOSAIC_ENABLE_OPENCV="$ENABLE_OPENCV"
 
 # Symlink compile_commands.json to the root so clangd / VS Code can find it.

@@ -1,7 +1,7 @@
 # Configure MOSAIC for Windows (PowerShell).
 # Usage:
 #   .\scripts\configure.ps1
-#   .\scripts\configure.ps1 -BuildType Release -EnableCameras -EnableNvenc -EnableLsl
+#   .\scripts\configure.ps1 -BuildType Release -EnableCameras -EnableNvenc
 #
 # Prerequisites:
 #   • Visual Studio 2022 with "Desktop development with C++" workload
@@ -10,7 +10,6 @@
 #   • Basler Pylon SDK 7.x at %PYLON_ROOT%   (only needed with -EnableCameras)
 #   • CUDA Toolkit + driver                   (only needed with -EnableNvenc)
 #   • InpOut32.dll next to mosaic.exe         (only needed with -EnableParallelPort)
-#   • liblsl from vcpkg or %LSL_ROOT%         (only needed with -EnableLsl)
 
 param(
     [ValidateSet("Debug","Release","RelWithDebInfo")]
@@ -20,7 +19,6 @@ param(
     [switch]$EnableNvenc,
     [switch]$EnableFfmpeg,
     [switch]$EnableParallelPort,
-    [switch]$EnableLsl,
     [switch]$EnableOpenCV,
     [switch]$BuildTests
 )
@@ -66,7 +64,6 @@ $cmakeArgs = @(
     "-DMOSAIC_ENABLE_NVENC=$(if ($EnableNvenc) { 'ON' } else { 'OFF' })",
     "-DMOSAIC_ENABLE_FFMPEG=$(if ($EnableFfmpeg -or $EnableNvenc) { 'ON' } else { 'OFF' })",
     "-DMOSAIC_ENABLE_PARALLEL_PORT=$(if ($EnableParallelPort) { 'ON' } else { 'OFF' })",
-    "-DMOSAIC_ENABLE_LSL=$(if ($EnableLsl) { 'ON' } else { 'OFF' })",
     "-DMOSAIC_ENABLE_OPENCV=$(if ($EnableOpenCV) { 'ON' } else { 'OFF' })"
 )
 

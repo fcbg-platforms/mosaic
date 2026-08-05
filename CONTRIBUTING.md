@@ -4,7 +4,7 @@
 
 - All changes land via a pull request against `main` — no direct pushes to `main` except for
   initial repository setup.
-- Branch naming: short, descriptive (e.g. `fix/camera-live-apply`, `feat/lsl-frame-markers`).
+- Branch naming: short, descriptive (e.g. `fix/camera-live-apply`, `feat/eeg-trigger-sync`).
 - Keep PRs scoped to one roadmap item or bug where practical; large items should be split into
   reviewable stages rather than one sweeping PR.
 
@@ -16,9 +16,9 @@
 - [ ] Run the local build with `MOSAIC_BUILD_TESTS=ON` and confirm `ctest --output-on-failure`
       passes.
 - [ ] CI (`.github/workflows/ci.yml`) builds the hardware-free configuration
-      (`MOSAIC_ENABLE_CAMERAS=OFF`, `MOSAIC_ENABLE_FFMPEG=OFF`, `MOSAIC_ENABLE_LSL=OFF`) — it
-      cannot exercise camera, encoding, or LSL hardware paths. Changes touching those areas need
-      a manual note in the PR description describing how they were verified locally
+      (`MOSAIC_ENABLE_CAMERAS=OFF`, `MOSAIC_ENABLE_FFMPEG=OFF`) — it cannot exercise camera,
+      encoding, or parallel-port hardware paths. Changes touching those areas need a manual note
+      in the PR description describing how they were verified locally
       (e.g. "tested live against 6 physical cameras in room 11").
 - [ ] Python changes (`python/`, `analysis/`, `docs/`) pass `ruff check` / `ruff format` (shared
       config at repo-root `ruff.toml`; each directory is its own uv project — see README's

@@ -32,7 +32,6 @@ static QColor source_color(const QString& source) {
     if (source == "keyboard")      { return QColor(0x44, 0xcc, 0x66); }
     if (source == "serial")        { return QColor(0xcc, 0xaa, 0x44); }
     if (source == "parallel_port") { return QColor(0xaa, 0x44, 0xcc); }
-    if (source == "lsl")           { return QColor(0x44, 0xaa, 0xff); }
     return QColor(0x88, 0x88, 0xaa);
 }
 
@@ -40,7 +39,6 @@ static QString source_abbrev(const QString& source) {
     if (source == "keyboard")      { return "KBD"; }
     if (source == "serial")        { return "SER"; }
     if (source == "parallel_port") { return "LPT"; }
-    if (source == "lsl")           { return "LSL"; }
     return source.left(3).toUpper();
 }
 
@@ -103,7 +101,6 @@ void TriggerEventPanelW::build_filter_bar() {
     d->sourceFilter->addItem("⌨  Keyboard", "keyboard");
     d->sourceFilter->addItem("⎋  Serial",   "serial");
     d->sourceFilter->addItem("▪  Parallel",  "parallel_port");
-    d->sourceFilter->addItem("〜 LSL",       "lsl");
     row->addWidget(new QLabel("Source:"));
     row->addWidget(d->sourceFilter);
 

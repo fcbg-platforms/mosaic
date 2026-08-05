@@ -14,8 +14,8 @@
 </p>
 
 A synchronized multi-camera + audio recording suite for research labs, built around Basler
-GigE cameras, with live pose/gaze preview, post-recording analysis, and Lab Streaming Layer
-(LSL) integration for syncing with external systems (e.g. EEG).
+GigE cameras, with live pose/gaze preview, post-recording analysis, and parallel-port/serial
+trigger integration for syncing with external systems (e.g. EEG amplifiers).
 
 ## Capabilities
 
@@ -24,9 +24,10 @@ GigE cameras, with live pose/gaze preview, post-recording analysis, and Lab Stre
 - Multi-microphone audio recording alongside video
 - Post-hoc frame-accurate cross-camera sync (`sync_manifest.json`), with per-camera and
   per-frame timestamp logs
-- Optional Lab Streaming Layer (LSL) outlet/inlet for syncing with external hardware (e.g. EEG
-  amplifiers) via a shared event/marker stream
-- Keyboard, serial, and parallel-port trigger sources, with a session-wide trigger event log
+- Keyboard, serial, and parallel-port trigger sources, with a session-wide trigger event log —
+  parallel ports can also send a recording start/stop marker back out to an external device (e.g.
+  an EEG amplifier's trigger channel)
+- Post-hoc EEG-trigger-to-camera-frame lookup (Analysis tab's "EEG/Trigger ↔ Frame Sync" plugin)
 - Live in-app pose & gaze preview (MediaPipe, CPU) during acquisition
 - Post-recording batch pose/motion analysis (`analysis/`: YOLOv8-pose, centroid tracking,
   heatmaps)
@@ -44,11 +45,10 @@ opt-in `MOSAIC_ENABLE_*` flag — see [Feature flags](#feature-flags) below.
 | CMake | ≥ 3.25 | always |
 | C++ compiler | MSVC 2022 / GCC 13 / Clang 17 (C++23) | always |
 | Qt | 6.4+ (Core, Gui, Widgets, Network, Multimedia, Quick, QuickWidgets) | always |
-| vcpkg | — | GTest, OpenCV, FFmpeg, liblsl |
+| vcpkg | — | GTest, OpenCV, FFmpeg |
 | Basler Pylon SDK | 7.x | `-EnableCameras` |
 | FFmpeg | via vcpkg (`x264` feature) | `-EnableFfmpeg` |
 | OpenCV | 4.x via vcpkg | `-EnableOpenCV` (calibration) |
-| liblsl | via vcpkg (`lsl` feature) | `-EnableLsl` |
 | CUDA + NVIDIA driver | — | `-EnableNvenc` |
 
 All optional features compile with stub fallbacks when disabled — you can develop and test the
@@ -68,8 +68,8 @@ vcpkg install
 .\scripts\configure.ps1 -BuildType Release -BuildTests
 cmake --build build\Release --parallel
 
-# Full build with cameras + FFmpeg + LSL + calibration
-.\scripts\configure.ps1 -BuildType Release -EnableCameras -EnableFfmpeg -EnableLsl -EnableOpenCV
+# Full build with cameras + FFmpeg + calibration
+.\scripts\configure.ps1 -BuildType Release -EnableCameras -EnableFfmpeg -EnableOpenCV
 cmake --build build\Release --parallel
 
 # Deploy Qt DLLs so the .exe runs on other machines
@@ -91,7 +91,6 @@ ctest --output-on-failure
 | `MOSAIC_ENABLE_CAMERAS` | OFF | Basler Pylon SDK at `%PYLON_ROOT%` |
 | `MOSAIC_ENABLE_FFMPEG` | OFF | FFmpeg (vcpkg, `x264` feature) |
 | `MOSAIC_ENABLE_NVENC` | OFF | FFmpeg + CUDA + NVIDIA driver |
-| `MOSAIC_ENABLE_LSL` | OFF | liblsl (vcpkg feature `lsl`) |
 | `MOSAIC_ENABLE_OPENCV` | OFF | OpenCV 4.x (vcpkg) |
 | `MOSAIC_ENABLE_PARALLEL_PORT` | OFF | Windows + `InpOut32.dll` next to the exe |
 | `MOSAIC_ENABLE_SERIAL` | ON | Qt SerialPort (auto-detected) |
@@ -99,8 +98,8 @@ ctest --output-on-failure
 | `MOSAIC_BUILD_DOCS` | OFF | Doxygen + Sphinx (see [Python environments](#python-environments)) |
 
 CI (`.github/workflows/ci.yml`) builds and tests the hardware-free configuration only — Pylon is
-a licensed vendor SDK not fetchable via vcpkg, and no camera/LSL hardware exists on hosted
-runners. Camera/FFmpeg/LSL-touching changes need manual verification against real hardware; note
+a licensed vendor SDK not fetchable via vcpkg, and no camera hardware exists on hosted
+runners. Camera/FFmpeg-touching changes need manual verification against real hardware; note
 how you tested in the PR description.
 
 ### Python environments
@@ -137,7 +136,7 @@ mosaic/
 │   ├── auth/         # Login profiles, per-profile settings isolation
 │   ├── video/         # Camera grabber (Pylon), encoder (FFmpeg), ring buffer feed
 │   ├── audio/         # Microphone recorder, WAV writer
-│   ├── trigger/       # Keyboard / serial / parallel-port triggers, LSL outlet & inlet
+│   ├── trigger/       # Keyboard / serial / parallel-port triggers
 │   ├── record/        # Session recording orchestration
 │   ├── session/        # Session metadata
 │   ├── analysis/       # Sync manifest, real-time pose/gaze worker, post-recording analysis launcher
@@ -155,7 +154,7 @@ mosaic/
 
 ## Documentation
 
-Full docs (architecture, quickstart, calibration, LSL setup, recording layout, profiles) live
+Full docs (architecture, quickstart, calibration, recording layout, profiles) live
 under `docs/` — build them with `MOSAIC_BUILD_DOCS=ON` (see the table above), or start with
 `docs/quickstart.rst` directly.
 

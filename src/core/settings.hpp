@@ -215,35 +215,24 @@ struct ParallelPortConfig {
     bool          invertLogic = false;     // true = active-low (common in TTL circuits)
     TriggerAction action      = TriggerAction::Log;
 
+    // Drives the Control register's INIT pin (bit 2, portAddr+2 — physically
+    // separate from the Data register this class reads, so no conflict) high
+    // when a recording starts and low when it stops, so an external device
+    // listening on that pin (e.g. an EEG amplifier) logs a marker for
+    // MOSAIC's own recording start/stop. See ParallelPortTrigger::
+    // set_recording_marker().
+    bool          sendRecordingMarker = false;
+
     [[nodiscard]] QJsonObject to_json() const;
     [[nodiscard]] static std::optional<ParallelPortConfig> from_json(const QJsonObject&);
-};
-
-// ── Per-LSL-inlet configuration ────────────────────────────────────────────
-struct LslInletConfig {
-    QString       name       = "LSL Inlet";
-    QString       streamName = "Markers";
-    QString       streamType = "Markers";
-    bool          enabled    = true;
-    TriggerAction action     = TriggerAction::Log;
-
-    [[nodiscard]] QJsonObject to_json() const;
-    [[nodiscard]] static std::optional<LslInletConfig> from_json(const QJsonObject&);
 };
 
 // ── Trigger ────────────────────────────────────────────────────────────────
 struct TriggerSettings {
     bool    receiveEnabled   = true;
 
-    // LSL outlet — publishes one sample per video frame so other tools can
-    // align their data to MOSAIC's timeline.
-    bool    lslOutletEnabled = true;
-    QString lslOutletName    = "MOSAIC";
-    double  lslOutletRate    = 30.0;  // nominal sample rate published to LSL
-
     std::vector<KeyTriggerConfig>      keyboardTriggers;
     std::vector<SerialTriggerConfig>   serialTriggers;
-    std::vector<LslInletConfig>        lslInlets;
     std::vector<ParallelPortConfig>    parallelPorts;
 
     [[nodiscard]] QJsonObject                        to_json()               const;

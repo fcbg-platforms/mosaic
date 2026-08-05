@@ -157,6 +157,22 @@ ParallelPortCardW::ParallelPortCardW(ParallelPortConfig& config,
     });
     form->addWidget(invertCk);
 
+    // ── Send recording marker ────────────────────────────────────────────
+    auto* markerCk = new QCheckBox(
+        "Send recording start/stop marker on this port (Control-register INIT pin)");
+    markerCk->setChecked(config.sendRecordingMarker);
+    markerCk->setToolTip(
+        "Drives pin 16 (Control register, INIT) high when a recording starts "
+        "and low when it stops — physically separate pins from the Data "
+        "register above, which keeps reading incoming triggers with no "
+        "conflict. Lets an external device (e.g. an EEG amplifier) log "
+        "Mosaic's own recording start/stop in its own trigger channel.");
+    connect(markerCk, &QCheckBox::toggled, this, [this](bool val) {
+        d->config.sendRecordingMarker = val;
+        emit config_changed();
+    });
+    form->addWidget(markerCk);
+
     // ── Platform note ─────────────────────────────────────────────────────
     auto* noteLbl = new QLabel(
         "Requires InpOut32.dll in the application directory (Windows only).");

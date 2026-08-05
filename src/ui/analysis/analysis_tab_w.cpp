@@ -6,6 +6,7 @@
 #include "analysis/pose_models.hpp"
 #include "analysis/skeleton3d_result.hpp"
 #include "analysis/transcript_result.hpp"
+#include "analysis/trigger_frame_map.hpp"
 #include "audio/audio_envelope.hpp"
 #include "session/session_info.hpp"
 #include "ui/analysis/gaze_room_view_w.hpp"
@@ -17,6 +18,7 @@
 #include <QCheckBox>
 #include <QChart>
 #include <QChartView>
+#include <QColor>
 #include <QComboBox>
 #include <QCursor>
 #include <QDesktopServices>
@@ -638,6 +640,15 @@ struct AnalysisTabW::Impl {
     QPushButton*         exportPose3dBtn = nullptr;   // pose3d only
     Skeleton3DRoomViewW* skeleton3dRoomView = nullptr; // pose3d only
 
+    // EEG/Trigger sync view controls — mirrors pose3dRowW's own-container
+    // pattern. No model/backend/skip controls page exists for this plugin
+    // (nothing to tune — it's a deterministic CSV-to-CSV lookup), so its
+    // controlsStack page is just an informational label.
+    QWidget*       triggerSyncRowW      = nullptr;   // trigger_sync only
+    QTableWidget*  triggerSyncTable     = nullptr;   // trigger_sync only
+    QLabel*        triggerSyncStatsLbl  = nullptr;   // trigger_sync only
+    QPushButton*   exportTriggerSyncBtn = nullptr;   // trigger_sync only
+
     // Kinematics view controls — reshape how the already-loaded
     // currentResult is displayed, not what gets launched (unlike runBox's
     // model/skip controls), so they live in their own row. Pose only —
@@ -656,6 +667,7 @@ struct AnalysisTabW::Impl {
     ExpressionResult      currentExpressionResult;   // expression only
     GazeFusionResult      currentGazeFusion;         // gaze_fusion only
     Skeleton3DResult      currentSkeleton3D;         // pose3d only
+    TriggerFrameMap       currentTriggerFrameMap;    // trigger_sync only
 
     // AnalysisManager is a single shared instance (also used by
     // SessionBrowserW's "Run Pose" button and PerformanceMonitorW's
@@ -699,6 +711,7 @@ struct AnalysisTabW::Impl {
         currentTranscript       = TranscriptResult();
         currentGazeFusion       = GazeFusionResult();
         currentSkeleton3D       = Skeleton3DResult();
+        currentTriggerFrameMap  = TriggerFrameMap();
     }
 };
 
@@ -855,6 +868,7 @@ void AnalysisTabW::build_ui() {
     d->pluginCombo->addItem("Facial Expression", "expression");
     d->pluginCombo->addItem("Multi-Camera Gaze Fusion", "gaze_fusion");
     d->pluginCombo->addItem("3D Pose Reconstruction", "pose3d");
+    d->pluginCombo->addItem("EEG/Trigger ↔ Frame Sync", "trigger_sync");
     controlsRow->addWidget(new QLabel("Plugin:"));
     controlsRow->addWidget(d->pluginCombo);
     connect(d->pluginCombo, &QComboBox::currentIndexChanged, this, &AnalysisTabW::select_plugin);
@@ -1103,6 +1117,22 @@ void AnalysisTabW::build_ui() {
     d->pose3dSkipSpin->setPrefix("skip ");
     pose3dCtlLay->addWidget(d->pose3dSkipSpin);
     d->controlsStack->addWidget(pose3dPage);
+
+    // ── EEG/Trigger ↔ Frame Sync controls page ──────────────────────────
+    // No model/backend/skip controls — this plugin has nothing to tune, it's
+    // a deterministic nearest-timestamp lookup between trigger.csv and every
+    // camera's timestamps_camN.csv, computed synchronously in C++.
+    auto* triggerSyncPage = new QWidget;
+    auto* triggerSyncCtlLay = new QHBoxLayout(triggerSyncPage);
+    triggerSyncCtlLay->setContentsMargins(0, 0, 0, 0);
+    auto* triggerSyncHint = new QLabel(
+        "Resolves every event in this session's trigger.csv (e.g. an EEG "
+        "amplifier's parallel-port trigger cable) to its nearest frame in "
+        "every camera. Nothing to configure — click Run.");
+    triggerSyncHint->setWordWrap(true);
+    triggerSyncHint->setProperty("role", "muted");
+    triggerSyncCtlLay->addWidget(triggerSyncHint, 1);
+    d->controlsStack->addWidget(triggerSyncPage);
 
     controlsRow->addWidget(d->controlsStack, 1);
 
@@ -1400,6 +1430,29 @@ void AnalysisTabW::build_ui() {
     d->pose3dRowW->setVisible(false);   // shown only for the pose3d plugin
     rightLay->addWidget(d->pose3dRowW);
 
+    // ── EEG/Trigger sync view controls: resolved-trigger count + CSV
+    //    export. trigger_sync only — own container so select_plugin() can
+    //    hide the whole row with one call, mirroring pose3dRowW.
+    d->triggerSyncRowW = new QWidget;
+    auto* triggerSyncRow = new QHBoxLayout(d->triggerSyncRowW);
+    triggerSyncRow->setContentsMargins(0, 0, 0, 0);
+
+    d->triggerSyncStatsLbl = new QLabel;
+    d->triggerSyncStatsLbl->setStyleSheet("color:#7070a0; font-size:11px;");
+    triggerSyncRow->addWidget(d->triggerSyncStatsLbl, 1);
+
+    d->exportTriggerSyncBtn = new QPushButton("Export CSV");
+    d->exportTriggerSyncBtn->setToolTip(
+        "Exports every trigger event with its resolved nearest frame_id/timing "
+        "error per camera as CSV, for use with MNE-Python or another external "
+        "EEG-analysis pipeline.");
+    connect(d->exportTriggerSyncBtn, &QPushButton::clicked, this,
+            &AnalysisTabW::export_trigger_sync_csv);
+    triggerSyncRow->addWidget(d->exportTriggerSyncBtn);
+
+    d->triggerSyncRowW->setVisible(false);   // shown only for the trigger_sync plugin
+    rightLay->addWidget(d->triggerSyncRowW);
+
     auto* resultsSplitter = new QSplitter(Qt::Horizontal);
     d->player = new PoseOverlayPlayerW;   // reused for audio-only playback in diarize mode too —
     resultsSplitter->addWidget(d->player); // set_video() just calls QMediaPlayer::setSource(),
@@ -1433,11 +1486,29 @@ void AnalysisTabW::build_ui() {
     d->skeleton3dRoomView->setVisible(false);
     resultsSplitter->addWidget(d->skeleton3dRoomView);
 
+    d->triggerSyncTable = new QTableWidget(0, 6);   // 6 fixed cols; camera cols added dynamically
+    d->triggerSyncTable->setHorizontalHeaderLabels({"Row", "Elapsed (ms)", "Wall clock", "Source", "Label", "Value"});
+    d->triggerSyncTable->horizontalHeader()->setStretchLastSection(true);
+    d->triggerSyncTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    d->triggerSyncTable->setSelectionBehavior(QAbstractItemView::SelectRows);
+    d->triggerSyncTable->setSelectionMode(QAbstractItemView::SingleSelection);
+    d->triggerSyncTable->setVisible(false);   // shown only for the trigger_sync plugin
+    connect(d->triggerSyncTable, &QTableWidget::cellClicked, this, [this](int row, int) {
+        if (row < 0 || row >= d->currentTriggerFrameMap.trigger_count()) { return; }
+        const int camIdx = d->cameraCombo->currentIndex();
+        const auto& hits = d->currentTriggerFrameMap.row(row).frames;
+        if (camIdx < 0 || camIdx >= hits.size()) { return; }
+        const int64_t posMs = hits[camIdx].videoPositionMs;
+        if (posMs >= 0) { d->player->seek(posMs); }
+    });
+    resultsSplitter->addWidget(d->triggerSyncTable);
+
     resultsSplitter->setStretchFactor(0, 1);
     resultsSplitter->setStretchFactor(1, 1);
     resultsSplitter->setStretchFactor(2, 1);
     resultsSplitter->setStretchFactor(3, 1);
     resultsSplitter->setStretchFactor(4, 1);
+    resultsSplitter->setStretchFactor(5, 1);
     rightLay->addWidget(resultsSplitter, 1);
 
     d->chart->set_seek_callback([this](int64_t ms) { d->player->seek(ms); });
@@ -1535,12 +1606,13 @@ void AnalysisTabW::select_camera(int index) {
 void AnalysisTabW::select_plugin(int index) {
     if (index < 0) { return; }
 
-    const bool isPose       = is_pose_plugin();
-    const bool isDiarize    = is_diarize_plugin();
-    const bool isExpression = is_expression_plugin();
-    const bool isFaceMask   = is_face_mask_plugin();
-    const bool isGazeFusion = is_gaze_fusion_plugin();
-    const bool isPose3D     = is_pose3d_plugin();
+    const bool isPose        = is_pose_plugin();
+    const bool isDiarize     = is_diarize_plugin();
+    const bool isExpression  = is_expression_plugin();
+    const bool isFaceMask    = is_face_mask_plugin();
+    const bool isGazeFusion  = is_gaze_fusion_plugin();
+    const bool isPose3D      = is_pose3d_plugin();
+    const bool isTriggerSync = is_trigger_sync_plugin();
     // A depth model selected within the Pose plugin produces a colorized
     // video, not keypoints — the keypoint/chart controls below need to stay
     // hidden for it, same as they are for every non-pose plugin.
@@ -1567,6 +1639,8 @@ void AnalysisTabW::select_plugin(int index) {
     set_visible_animated(d->roomView, isGazeFusion);
     set_visible_animated(d->pose3dRowW, isPose3D);
     set_visible_animated(d->skeleton3dRoomView, isPose3D);
+    set_visible_animated(d->triggerSyncRowW, isTriggerSync);
+    set_visible_animated(d->triggerSyncTable, isTriggerSync);
     set_visible_animated(d->openFolderBtn, isFaceMask || is_pose_depth_selected());
     set_visible_animated(d->sourceRowW, !isDiarize);
     set_visible_animated(d->micRowW, isDiarize);
@@ -1652,6 +1726,10 @@ bool AnalysisTabW::is_gaze_fusion_plugin() const {
 
 bool AnalysisTabW::is_pose3d_plugin() const {
     return d->pluginCombo->currentData().toString() == "pose3d";
+}
+
+bool AnalysisTabW::is_trigger_sync_plugin() const {
+    return d->pluginCombo->currentData().toString() == "trigger_sync";
 }
 
 bool AnalysisTabW::is_pose_depth_selected() const {
@@ -1744,6 +1822,38 @@ void AnalysisTabW::reload_current_camera_result() {
 
         if (!d->currentSkeleton3D.is_valid()) {
             d->statusLbl->setText("No 3D reconstruction yet for this session — click Run.");
+            d->statusLbl->setStyleSheet("color:#6060a0; font-size:15px; font-weight:600;");
+        }
+        return;
+    }
+
+    if (is_trigger_sync_plugin()) {
+        // Session-level result (trigger.csv/timestamps_camN.csv are read
+        // together across the whole session), so it loads regardless of
+        // whether a camera is selected — only the player's plain-video
+        // playback (no overlay — nothing to draw) needs cameraCombo's
+        // current selection, mirroring face_mask's plain-playback pattern.
+        if (!info) {
+            d->player->set_video(QString());
+            d->player->set_pose_result(d->currentResult);
+            update_trigger_sync_view();
+            return;
+        }
+
+        d->currentTriggerFrameMap = TriggerFrameMap::load(info->path);
+
+        if (d->cameraCombo->currentIndex() >= 0) {
+            const QString videoRel = d->cameraCombo->currentData().toString();
+            d->player->set_video(info->path + "/" + videoRel);
+        } else {
+            d->player->set_video(QString());
+        }
+        d->player->set_pose_result(d->currentResult);   // no overlay for this plugin
+
+        update_trigger_sync_view();
+
+        if (!d->currentTriggerFrameMap.is_valid()) {
+            d->statusLbl->setText("No trigger/frame sync yet for this session — click Run.");
             d->statusLbl->setStyleSheet("color:#6060a0; font-size:15px; font-weight:600;");
         }
         return;
@@ -2348,10 +2458,102 @@ void AnalysisTabW::export_skeleton3d_csv() {
     });
 }
 
+void AnalysisTabW::update_trigger_sync_view() {
+    const auto& m = d->currentTriggerFrameMap;
+    const int nCams = m.camera_count();
+
+    d->triggerSyncTable->setColumnCount(6 + 2 * nCams);
+    QStringList headers = {"Row", "Elapsed (ms)", "Wall clock", "Source", "Label", "Value"};
+    for (int c = 0; c < nCams; ++c) {
+        headers << QString("Cam%1 Frame").arg(c) << QString("Cam%1 Δms").arg(c);
+    }
+    d->triggerSyncTable->setHorizontalHeaderLabels(headers);
+
+    const auto& rows = m.rows();
+    d->triggerSyncTable->setRowCount(rows.size());
+    for (int i = 0; i < rows.size(); ++i) {
+        const auto& row = rows[i];
+
+        auto set_cell = [this, i](int col, const QString& text) {
+            auto* item = new QTableWidgetItem(text);
+            item->setFlags(item->flags() & ~Qt::ItemIsEditable);
+            d->triggerSyncTable->setItem(i, col, item);
+        };
+
+        set_cell(0, QString::number(row.rowIndex));
+        set_cell(1, QString::number(row.elapsedMs, 'f', 1));
+        set_cell(2, row.wallClock);
+        set_cell(3, row.source);
+        set_cell(4, row.label);
+        set_cell(5, QString::number(row.value, 'f', 3));
+
+        for (int c = 0; c < row.frames.size(); ++c) {
+            const auto& hit = row.frames[c];
+            set_cell(6 + 2 * c, hit.frameId >= 0 ? QString::number(hit.frameId) : QString("—"));
+
+            // Flag large timing errors visibly rather than presenting an
+            // extrapolated clamp (a trigger before the first frame or after
+            // the last) as if it were a true nearest neighbor — 100ms is a
+            // generous bound above any realistic single-camera nearest-frame
+            // delta at typical 15-30fps (33-66ms frame periods).
+            auto* deltaItem = new QTableWidgetItem(QString::number(hit.deltaMs, 'f', 1));
+            deltaItem->setFlags(deltaItem->flags() & ~Qt::ItemIsEditable);
+            if (hit.frameId >= 0 && std::abs(hit.deltaMs) > 100.0) {
+                deltaItem->setForeground(QColor("#cc4444"));
+            }
+            d->triggerSyncTable->setItem(i, 7 + 2 * c, deltaItem);
+        }
+    }
+
+    if (!m.is_valid()) {
+        d->triggerSyncStatsLbl->clear();
+        return;
+    }
+    d->triggerSyncStatsLbl->setText(
+        QString("%1 trigger(s) resolved across %2 camera(s).")
+            .arg(m.trigger_count()).arg(nCams));
+}
+
+void AnalysisTabW::export_trigger_sync_csv() {
+    const auto* info = d->current_session();
+    if (!info || !d->currentTriggerFrameMap.is_valid()) { return; }
+
+    const QString dst = QFileDialog::getSaveFileName(
+        this, "Export Trigger/Frame Sync", info->path + "/trigger_frame_map.csv",
+        "CSV files (*.csv)");
+    if (dst.isEmpty()) { return; }
+    d->currentTriggerFrameMap.export_csv(dst);
+}
+
 void AnalysisTabW::run_analysis() {
     if (d->currentSessionPath.isEmpty()) { return; }
 
     const QString plugin = d->pluginCombo->currentData().toString();
+
+    if (plugin == "trigger_sync") {
+        // Computed synchronously in C++ — no AnalysisManager subprocess job,
+        // no progress bar, no analysis_started/finished signal dance; the
+        // whole operation completes within this call (see
+        // TriggerFrameMap's own doc comment for why this plugin is the one
+        // exception to every other plugin's Python-subprocess pattern —
+        // it's fast, deterministic CSV-to-CSV arithmetic with no ML
+        // dependency, the same shape as SyncManifest's own synchronous
+        // generate()).
+        d->currentTriggerFrameMap = TriggerFrameMap::generate(d->currentSessionPath);
+        if (d->currentTriggerFrameMap.is_valid()) {
+            d->currentTriggerFrameMap.save(d->currentSessionPath);
+            d->statusLbl->setText(QString("Done — %1 trigger(s) resolved across %2 camera(s).")
+                .arg(d->currentTriggerFrameMap.trigger_count())
+                .arg(d->currentTriggerFrameMap.camera_count()));
+            d->statusLbl->setStyleSheet("color:#44cc66; font-size:15px; font-weight:600;");
+            update_trigger_sync_view();
+        } else {
+            d->statusLbl->setText(
+                "Error: no trigger.csv with elapsed_ns, or no timestamps_camN.csv found.");
+            d->statusLbl->setStyleSheet("color:#cc4444; font-size:15px; font-weight:600;");
+        }
+        return;
+    }
 
     if (plugin == "diarize") {
         const int minSpeakers = d->minSpeakersSpin->value();

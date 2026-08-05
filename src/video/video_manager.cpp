@@ -160,7 +160,6 @@ struct VideoManager::Impl {
     bool                    previewing{false};
     std::atomic<int>        stoppedCount{0};
     int                     cameraCount{0};
-    TriggerManager*         triggerMgr{nullptr};  // not owned, may be null
 
     std::atomic<int64_t>    totalEncoded{0};
     std::atomic<int64_t>    totalDropped{0};
@@ -172,9 +171,8 @@ struct VideoManager::Impl {
     std::unique_ptr<ActionCommandTicker> actionTicker;
 };
 
-VideoManager::VideoManager(TriggerManager* triggerMgr, QObject* parent)
+VideoManager::VideoManager(QObject* parent)
     : QObject(parent), d(std::make_unique<Impl>()) {
-    d->triggerMgr = triggerMgr;
 }
 
 VideoManager::~VideoManager() { stop(); close(); }
@@ -229,7 +227,7 @@ int VideoManager::open(const VideoSettings& settings) {
         auto unit       = CameraUnit{};
         unit.configIndex = i;
         unit.buffer  = std::make_unique<RingBuffer<std::shared_ptr<VideoFrame>>>(k_ring_capacity);
-        unit.grabber = std::make_unique<VideoGrabber>(i, cam, *unit.buffer, d->triggerMgr);
+        unit.grabber = std::make_unique<VideoGrabber>(i, cam, *unit.buffer);
 
         connect(unit.grabber.get(), &VideoGrabber::opened,
                 this,               &VideoManager::camera_opened,   Qt::QueuedConnection);

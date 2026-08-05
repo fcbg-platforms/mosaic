@@ -7,6 +7,8 @@ add_executable(mosaic_tests
     test_ring_buffer.cpp
     test_timestamp.cpp
     test_sync_manifest.cpp
+    test_trigger_frame_map.cpp
+    test_trigger_recorder.cpp
     test_camera_persistence.cpp
     test_param_mapping.cpp
     test_gige_action_command.cpp
@@ -24,6 +26,8 @@ add_executable(mosaic_tests
     "${CMAKE_SOURCE_DIR}/src/calibration/rms_quality.cpp"
     "${CMAKE_SOURCE_DIR}/src/audio/audio_envelope.cpp"
     "${CMAKE_SOURCE_DIR}/src/analysis/sync_manifest.cpp"
+    "${CMAKE_SOURCE_DIR}/src/analysis/trigger_frame_map.cpp"
+    "${CMAKE_SOURCE_DIR}/src/trigger/trigger_recorder.cpp"
     "${CMAKE_SOURCE_DIR}/src/calibration/room_frame_solver.cpp"
     "${CMAKE_SOURCE_DIR}/src/analysis/gaze_fusion_result.cpp"
     "${CMAKE_SOURCE_DIR}/src/analysis/skeleton3d_result.cpp"

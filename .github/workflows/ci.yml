@@ -10,9 +10,9 @@ permissions:
   contents: read
 
 # NOTE: this builds only the hardware-free configuration
-# (MOSAIC_ENABLE_CAMERAS=OFF, MOSAIC_ENABLE_FFMPEG=OFF, MOSAIC_ENABLE_LSL=OFF).
+# (MOSAIC_ENABLE_CAMERAS=OFF, MOSAIC_ENABLE_FFMPEG=OFF).
 # Basler Pylon is a licensed vendor SDK (not fetchable via vcpkg) and
-# camera/LSL hardware isn't available on hosted runners, so those flags
+# camera hardware isn't available on hosted runners, so that flag
 # can't be exercised here — only local/lab builds cover that surface.
 jobs:
   build-and-test:
@@ -41,7 +41,6 @@ jobs:
           -DMOSAIC_BUILD_TESTS=ON
           -DMOSAIC_ENABLE_CAMERAS=OFF
           -DMOSAIC_ENABLE_FFMPEG=OFF
-          -DMOSAIC_ENABLE_LSL=OFF
 
       - name: Build
         run: cmake --build build --config Release --parallel

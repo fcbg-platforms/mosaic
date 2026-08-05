@@ -10,7 +10,6 @@ MOSAIC Documentation
    recording
    camera_settings
    calibration
-   lsl
    profiles
    user_guide
    analysis_api
@@ -40,7 +39,7 @@ MOSAIC Documentation
        &nbsp;·&nbsp; <em>Multi-camera Observatory for Social &amp; Activity Interaction Capture</em>
      </p>
      <p style="font-size: 0.92rem; color: #6666aa; margin: 0;">
-       Qt 6 · C++23 · Basler Pylon · OpenCV · Lab Streaming Layer
+       Qt 6 · C++23 · Basler Pylon · OpenCV
      </p>
    </div>
 
@@ -109,14 +108,6 @@ MOSAIC Documentation
       Checkerboard intrinsic calibration with OpenCV; results stored
       per-camera and per-profile.
 
-   .. grid-item-card:: ⚡  LSL integration
-      :link: lsl
-      :link-type: doc
-      :class-card: sd-border-0
-
-      Sync MOSAIC with EEG, eye-trackers, and other physiological
-      recorders via Lab Streaming Layer.
-
    .. grid-item-card:: 👤  Profiles
       :link: profiles
       :link-type: doc
@@ -181,12 +172,13 @@ Key capabilities
        ``wall_ns``; written to ``timestamps_camN.csv`` alongside the MP4.
 
    * - **Trigger logging**
-     - Keyboard bindings, LSL inlets, parallel-port TTL edges — all written
-       to a CSV with nanosecond resolution.
+     - Keyboard bindings, serial bytes, parallel-port TTL edges — all written
+       to a CSV with nanosecond resolution, on the same clock as camera frames.
 
-   * - **LSL outlet**
-     - One sample per frame published so downstream recorders (EEG, eye-tracker)
-       can align to MOSAIC's timeline with sample-level accuracy.
+   * - **EEG/trigger frame sync**
+     - Post-hoc lookup of which camera frame corresponds to each parallel-port
+       trigger event (e.g. an EEG amplifier's trigger-out cable); parallel
+       ports can also send a recording start/stop marker back to the EEG.
 
    * - **Camera calibration**
      - OpenCV checkerboard intrinsic calibration; results stored per camera in

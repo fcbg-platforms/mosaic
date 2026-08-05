@@ -26,6 +26,8 @@ qt_add_executable(mosaic MACOSX_BUNDLE
     analysis/expression_result.cpp
     analysis/sync_manifest.hpp
     analysis/sync_manifest.cpp
+    analysis/trigger_frame_map.hpp
+    analysis/trigger_frame_map.cpp
     analysis/gaze_fusion_result.hpp
     analysis/gaze_fusion_result.cpp
     analysis/skeleton3d_result.hpp
@@ -82,10 +84,6 @@ qt_add_executable(mosaic MACOSX_BUNDLE
     trigger/trigger_recorder.cpp
     trigger/trigger_manager.hpp
     trigger/trigger_manager.cpp
-    trigger/lsl_outlet.hpp
-    trigger/lsl_outlet.cpp
-    trigger/lsl_inlet.hpp
-    trigger/lsl_inlet.cpp
     trigger/parallel_port_trigger.hpp
     trigger/parallel_port_trigger.cpp
 
@@ -236,10 +234,6 @@ if(MOSAIC_ENABLE_PARALLEL_PORT)
     target_compile_definitions(mosaic PRIVATE MOSAIC_HAVE_PARALLEL_PORT)
 endif()
 
-if(MOSAIC_ENABLE_LSL)
-    target_link_libraries(mosaic PRIVATE LSL::lsl)
-    target_compile_definitions(mosaic PRIVATE MOSAIC_HAVE_LSL)
-endif()
 
 if(MOSAIC_ENABLE_OPENCV)
     target_link_libraries(mosaic PRIVATE
