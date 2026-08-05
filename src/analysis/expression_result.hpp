@@ -17,6 +17,10 @@ struct ExpressionSubject {
     QVector<double> blendshapeScores;          // parallel to ExpressionResult::blendshape_names()
     QString         dominantExpression;
     double          dominantScore = 0.0;
+    // FACS Action Unit intensities (py-feat backend only), each in [0,1],
+    // parallel to ExpressionResult::au_names(). Empty for the heuristic/
+    // FER+ backends and for any session analyzed before this field existed.
+    QVector<double> actionUnits;
 };
 
 // One analysed frame. Mirrors run_expression.py's per-frame JSON object.
@@ -51,6 +55,11 @@ public:
     [[nodiscard]] const QStringList& blendshape_names() const { return blendshapeNames_; }
     [[nodiscard]] const QVector<ExpressionFrame>& frames() const { return frames_; }
 
+    // Action Unit names (py-feat backend only) — empty for the heuristic/
+    // FER+ backends and for older files with no "au_names" field at all.
+    [[nodiscard]] const QStringList& au_names() const { return auNames_; }
+    [[nodiscard]] bool has_action_units() const { return !auNames_.isEmpty(); }
+
     // True if at least one frame has at least one detected face. Distinct
     // from is_valid() (which only means "the JSON parsed"): a result can be
     // valid but empty if no face was detected in this camera's footage for
@@ -74,6 +83,7 @@ private:
     QString                  sourceVideo_;
     QString                  backend_;
     QStringList              blendshapeNames_;
+    QStringList              auNames_;
     QVector<ExpressionFrame> frames_;
 };
 

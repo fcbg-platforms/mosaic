@@ -18,9 +18,11 @@ namespace mosaic {
 // (when a Hugging Face token is available) pyannote.audio speaker labeling
 // of each session's audio, shown as a playback-synced transcript table;
 // Facial Expression — MediaPipe FaceLandmarker blendshapes classified into a
-// dominant basic-emotion label per detected face (via a rule-based heuristic
-// or a pretrained FER+ ONNX model), shown as a bbox+label video overlay plus
-// a per-blendshape score-over-time plot; Multi-Camera Gaze Fusion —
+// dominant basic-emotion label per detected face, via one of three
+// backends: a rule-based heuristic, a pretrained FER+ ONNX model, or
+// py-feat's Detectorv1 (which additionally reports 20 FACS Action Unit
+// intensities), shown as a bbox+label video overlay plus a per-blendshape
+// score-over-time plot; Multi-Camera Gaze Fusion —
 // per-camera 3D gaze rays (analysis/gaze) triangulated across whichever
 // cameras have both intrinsic and extrinsic (room) calibration, shown as a
 // per-camera bbox+direction-arrow video overlay plus a top-down 3D room

@@ -20,6 +20,7 @@ dependencies = [
     "faster-whisper>=1.0",
     "pyannote.audio>=3.1",
     "onnxruntime>=1.17",
+    "py-feat>=2.1.0",
 ]
 
 [tool.uv]
@@ -31,6 +32,21 @@ dev-dependencies = [
 # package, not onnxruntime-gpu — the emotion-ferplus model is a tiny 64x64
 # grayscale-input CNN, fast enough on CPU that a GPU variant isn't worth the
 # extra CUDA-wheel complexity already noted below for the torch-based deps.
+#
+# py-feat (3rd facial-expression backend, Detectorv1) pulls in torch/
+# torchvision (already present transitively via ultralytics/pyannote.audio,
+# so not a new *class* of dependency) plus torchcodec, which is imported
+# unconditionally at `import feat` time and needs a torchcodec-compatible
+# system FFmpeg discoverable on PATH at runtime — unrelated to and separate
+# from this project's own vcpkg-managed C++-side FFmpeg. If the pyfeat
+# backend fails to construct, check `where ffmpeg` first; the failure
+# surfaces as an FFmpeg-discovery RuntimeError from torchcodec, not a plain
+# ImportError. py-feat also caches its downloaded model weights into its
+# own installed package directory (site-packages/feat/resources) rather
+# than a project-local models/ dir — unlike the other 2 expression
+# backends, there is nothing to add to .gitignore for this one, and the
+# cache location cannot be redirected via HF_HOME/HUGGINGFACE_HUB_CACHE
+# (py-feat hardcodes its own cache_dir on every download).
 #
 # GPU acceleration (NVIDIA only): ultralytics, faster-whisper (via ctranslate2),
 # and pyannote.audio (via torch/torchaudio) all pull in CPU-only wheels from
