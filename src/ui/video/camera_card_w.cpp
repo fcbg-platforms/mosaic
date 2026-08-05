@@ -247,12 +247,14 @@ void CameraCardW::build_image_tab(QWidget* tab) {
     add_separator(form);
     add_section(form, "Orientation");
 
+    // Reverse Y is intentionally not offered here — confirmed on real
+    // room-11 hardware (mosaic.log: "[Camera N] Skipping 'ReverseY': Node
+    // is not writable.", every camera, every session) that this camera
+    // generation's ReverseY node exists but rejects writes outright. Reverse
+    // X has no such issue and stays.
     auto* rxCk = new QCheckBox("Reverse X");
-    auto* ryCk = new QCheckBox("Reverse Y");
     rxCk->setChecked(m_params.reverseX);
-    ryCk->setChecked(m_params.reverseY);
     form->addRow(rxCk);
-    form->addRow(ryCk);
 
     add_separator(form);
     add_section(form, "Acquisition");
@@ -274,7 +276,6 @@ void CameraCardW::build_image_tab(QWidget* tab) {
     connect(oxSpin,  qOverload<int>(&QSpinBox::valueChanged),    this, [this](int v){ m_params.offsetX = v; emit params_changed(); });
     connect(oySpin,  qOverload<int>(&QSpinBox::valueChanged),    this, [this](int v){ m_params.offsetY = v; emit params_changed(); });
     connect(rxCk,    &QCheckBox::toggled, this, [this](bool v){ m_params.reverseX = v; emit params_changed(); });
-    connect(ryCk,    &QCheckBox::toggled, this, [this](bool v){ m_params.reverseY = v; emit params_changed(); });
     connect(fmtCombo,&QComboBox::currentTextChanged, this, [this](const QString& v){ m_params.pixelFormat = v; emit params_changed(); });
     connect(fpsCk, &QCheckBox::toggled, this, [this, fpsSpin](bool v){
         m_params.specifyFps = v;
@@ -334,16 +335,21 @@ void CameraCardW::build_gain_tab(QWidget* tab) {
     form->setSpacing(6);
     form->setContentsMargins(8, 8, 8, 8);
 
-    static const QStringList kAutoModes{"Off", "Once", "Continuous"};
+    // No "Off" (manual) option and no Gain (dB) field here — confirmed dead
+    // on this camera generation: it only exposes the older SFNC 1.x
+    // "GainRaw" node, not the modern "Gain" (dB) node apply_image_params()
+    // needs to honor a manual value, so a user-entered number in Off mode
+    // was silently never applied (see CameraParameters::gainAuto's doc
+    // comment in settings.hpp). The GainAuto enum write itself (Once/
+    // Continuous) does succeed, so those two modes and their auto range
+    // stay. If a saved profile still has gainAuto="Off" from before this
+    // change, make_combo() appends it as an extra selectable item so it
+    // round-trips rather than silently changing on load — just no longer
+    // offered as a first-class choice.
+    static const QStringList kAutoModes{"Once", "Continuous"};
 
     auto* autoCombo = make_combo(kAutoModes, m_params.gainAuto);
     form->addRow("Auto mode:", autoCombo);
-
-    add_separator(form);
-    add_section(form, "Manual");
-
-    auto* gainSpin = make_dspin(0.0, 48.0, m_params.gainDb, 0.1, 2);
-    form->addRow("Gain:", with_unit(gainSpin, "dB"));
 
     add_separator(form);
     add_section(form, "Auto range");
@@ -353,16 +359,9 @@ void CameraCardW::build_gain_tab(QWidget* tab) {
     form->addRow("Lower limit:", with_unit(lowerSpin, "dB"));
     form->addRow("Upper limit:", with_unit(upperSpin, "dB"));
 
-    auto update_enabled = [gainSpin, lowerSpin, upperSpin](const QString& mode) {
-        gainSpin->setEnabled(mode == "Off");
-        lowerSpin->setEnabled(mode != "Off");
-        upperSpin->setEnabled(mode != "Off");
-    };
-    update_enabled(m_params.gainAuto);
-    connect(autoCombo, &QComboBox::currentTextChanged, this, [this, update_enabled](const QString& v){
-        m_params.gainAuto = v; update_enabled(v); emit params_changed();
+    connect(autoCombo, &QComboBox::currentTextChanged, this, [this](const QString& v){
+        m_params.gainAuto = v; emit params_changed();
     });
-    connect(gainSpin,  qOverload<double>(&QDoubleSpinBox::valueChanged), this, [this](double v){ m_params.gainDb          = v; emit params_changed(); });
     connect(lowerSpin, qOverload<double>(&QDoubleSpinBox::valueChanged), this, [this](double v){ m_params.gainAutoLowerDb = v; emit params_changed(); });
     connect(upperSpin, qOverload<double>(&QDoubleSpinBox::valueChanged), this, [this](double v){ m_params.gainAutoUpperDb = v; emit params_changed(); });
 }
@@ -377,30 +376,20 @@ void CameraCardW::build_advanced_tab(QWidget* tab) {
 
     add_section(form, "Tone & colour");
 
+    // Saturation/Contrast/Brightness are deliberately not offered here —
+    // confirmed to have no GenICam node on every camera generation Mosaic
+    // has been run against (the ace-classic GigE cameras used in room 11
+    // have no on-camera ISP for these at all), so they could never take
+    // effect on real hardware. The underlying CameraParameters fields
+    // still exist and still round-trip through settings.json, in case a
+    // future camera model does expose the matching node.
     auto* gammaSpin  = make_dspin(0.1,  4.0,  m_params.gamma,      0.05, 2);
     auto* blSpin     = make_dspin(0.0,  63.0, m_params.blackLevel,  0.5,  1);
-    auto* satSpin    = make_dspin(0.0,  2.0,  m_params.saturation,  0.05, 2);
-    auto* contSpin   = make_dspin(0.0,  2.0,  m_params.contrast,    0.05, 2);
-    auto* brightSpin = make_dspin(0.0,  1.0,  m_params.brightness,  0.01, 2);
     auto* atbSpin    = make_dspin(0.0,  1.0,  m_params.autoTargetBrightness, 0.01, 2);
     auto* dshSpin    = make_spin (0,    4,    m_params.digitalShift, 1);
 
-    // Saturation/Contrast/Brightness have no GenICam node on every camera
-    // generation Mosaic has been run against (e.g. the ace-classic GigE
-    // cameras used in room 11 have no on-camera ISP for these) — they're
-    // saved with the session but only take effect on hardware that exposes
-    // the matching node.
-    const QString noHwNote = "May not be supported by every camera model — "
-                              "saved regardless, applied only if the camera exposes it.";
-    satSpin->setToolTip(noHwNote);
-    contSpin->setToolTip(noHwNote);
-    brightSpin->setToolTip(noHwNote);
-
     form->addRow("Gamma:",                gammaSpin);
     form->addRow("Black level:",          blSpin);
-    form->addRow("Saturation:",           satSpin);
-    form->addRow("Contrast:",             contSpin);
-    form->addRow("Brightness:",           brightSpin);
     form->addRow("Auto target bright.:",  atbSpin);
     form->addRow("Digital shift (bits):", with_unit(dshSpin, "bit"));
 
@@ -420,9 +409,6 @@ void CameraCardW::build_advanced_tab(QWidget* tab) {
 
     connect(gammaSpin,  qOverload<double>(&QDoubleSpinBox::valueChanged), this, [this](double val){ m_params.gamma            = val; emit params_changed(); });
     connect(blSpin,     qOverload<double>(&QDoubleSpinBox::valueChanged), this, [this](double val){ m_params.blackLevel       = val; emit params_changed(); });
-    connect(satSpin,    qOverload<double>(&QDoubleSpinBox::valueChanged), this, [this](double val){ m_params.saturation       = val; emit params_changed(); });
-    connect(contSpin,   qOverload<double>(&QDoubleSpinBox::valueChanged), this, [this](double val){ m_params.contrast         = val; emit params_changed(); });
-    connect(brightSpin, qOverload<double>(&QDoubleSpinBox::valueChanged), this, [this](double val){ m_params.brightness       = val; emit params_changed(); });
     connect(atbSpin,    qOverload<double>(&QDoubleSpinBox::valueChanged), this, [this](double val){ m_params.autoTargetBrightness = val; emit params_changed(); });
     connect(dshSpin,    qOverload<int>   (&QSpinBox::valueChanged),       this, [this](int    val){ m_params.digitalShift     = val; emit params_changed(); });
     connect(bwCombo,    &QComboBox::currentTextChanged, this, [this](const QString& val){ m_params.balanceWhiteAuto = val; emit params_changed(); });

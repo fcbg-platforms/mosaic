@@ -9,6 +9,7 @@
 #include <atomic>
 #include <chrono>
 #include <cmath>
+#include <optional>
 
 #if defined(MOSAIC_HAVE_CAMERAS)
 #  define NOMINMAX          // prevent Windows.h min/max macros breaking std::min
@@ -90,6 +91,18 @@ struct VideoGrabber::Impl {
     // thread, before the grab thread starts). -1.0 if it couldn't be read
     // (stub builds, or the node genuinely unavailable). See achievable_fps().
     double resultingFps = -1.0;
+
+    // When this camera's grab thread most recently reached Pylon's
+    // StartGrabbing() — nullopt if it has never actually started grabbing
+    // yet (or was stopped and hasn't been restarted). Written only in
+    // start_grabbing() (main thread, resets to nullopt) and run_pylon_loop()
+    // (grab thread, sets the real timestamp) — the grab thread never runs
+    // concurrently with those main-thread writes (QThread::start()/wait()
+    // establish the happens-before edges), so a plain optional is safe here,
+    // same reasoning as tickFreqHz/resultingFps above. Used by
+    // refresh_achievable_fps() to gate on real elapsed acquisition time —
+    // see that function's own doc comment for why.
+    std::optional<SteadyClock::time_point> grabbingStartedAt;
 
 #if defined(MOSAIC_HAVE_CAMERAS)
     Pylon::CInstantCamera        camera;
@@ -498,7 +511,6 @@ bool VideoGrabber::open() {
         const int64_t freq  = safe_i("GevTimestampTickFrequency");
         d->tickFreqHz = freq;
         const double  rfps  = safe_f_fallback("ResultingFrameRate", "ResultingFrameRateAbs");
-        d->resultingFps = rfps; // see achievable_fps()
         log_info(QString("[Camera %1] GigE pkt=%2B scpd=%3 scftd=%4 scbwa=%5 resultFPS=%6 tickFreq=%7Hz")
                      .arg(d->cameraIndex)
                      .arg(pktSz).arg(scpd).arg(scftd).arg(scbwa)
@@ -508,22 +520,12 @@ bool VideoGrabber::open() {
                             .arg(d->cameraIndex).arg(scftd)
                             .arg(scftd * 1000.0 / freq, 0, 'f', 2));
         }
-        // The requested AcquisitionFrameRate is not guaranteed to be
-        // achievable — exposure time, ROI, and GigE bandwidth all cap the
-        // real delivered rate, and Pylon accepts an unachievable request
-        // without error (it just silently under-delivers). Surface a real
-        // mismatch here instead of leaving it silent — this is a likely
-        // contributor to cross-camera frame-count differences (see
-        // SyncManifest / docs on synchronization).
-        if (d->params.specifyFps && rfps > 0.0 && rfps < d->params.fps * 0.9) {
-            log_warning(QString("[Camera %1] Requested %2 fps but the camera can only sustain "
-                                "~%3 fps at the current exposure/ROI/bandwidth settings — "
-                                "lower the exposure time or the configured frame rate to match.")
-                            .arg(d->cameraIndex)
-                            .arg(d->params.fps, 0, 'f', 1)
-                            .arg(rfps, 0, 'f', 1));
-        }
     }
+    // Stores d->resultingFps + warns if the configured fps isn't achievable
+    // — shared with apply_live_params()'s live-apply path (via
+    // run_pylon_loop()), see refresh_achievable_fps()'s own doc comment for
+    // why a one-time-at-open() measurement isn't enough.
+    refresh_achievable_fps();
 
     // Read back actual values for the log message.
     log_info(QString("[Camera %1] reading back dimensions from node map").arg(d->cameraIndex));
@@ -679,6 +681,78 @@ void VideoGrabber::apply_image_params() {
 #endif
 }
 
+// Re-reads the camera's real ResultingFrameRate (SFNC 2.0) / ResultingFrameRateAbs
+// (SFNC 1.x) into d->resultingFps and re-emits the "requested fps not
+// achievable" warning if it's now short of the configured rate. Called once
+// from open(), and again from run_pylon_loop()'s live-apply branch and its
+// own periodic self-refresh, right after apply_image_params() re-applies
+// exposure/gain/etc: a parameter that affects the real achievable rate
+// (most notably exposure time) can change via apply_live_params() without a
+// full close+reopen, and leaving d->resultingFps stale from open() time
+// would feed VideoManager::arm_and_fire_action_commands() a too-optimistic
+// value — letting the shared Action Command trigger period run faster than
+// this camera can now actually sustain, reproducing the packet-loss/
+// dropped-frame failure mode this project already guards against for
+// over-requested free-run fps, just self-inflicted by a stale live-apply
+// instead.
+//
+// Gated on real elapsed acquisition time (is_achievable_fps_measurement_
+// warmed_up()), not on the reading's own magnitude — a magnitude-based
+// floor (rejecting anything "suspiciously low" relative to the camera's
+// exposure ceiling) was tried first and reverted after real room-11 data
+// (2026-08-05) contradicted its core assumption: comparing readings taken
+// seconds apart, across all 6 cameras, over a real ~20s recording showed
+// several genuinely stable, repeated, real readings sitting well below
+// what that floor assumed was physically possible — auto-exposure
+// converging near its own configured ceiling in a dim room can legitimately
+// leave real achievable fps far lower than a naive "1/exposure, with some
+// margin" estimate predicts, and no fixed margin generalizes across
+// however bright or dim the room actually is. Waiting for real elapsed
+// time instead, then trusting whatever the camera reports once warmed up
+// — however low — needs no per-scene-lighting-tuned constant and can't
+// mistake "real, if disappointing" for "premature".
+void VideoGrabber::refresh_achievable_fps() {
+#if defined(MOSAIC_HAVE_CAMERAS)
+    if (!d->camera.IsOpen()) return;
+    auto& cam = d->camera.GetNodeMap();
+    auto safe_f_fallback = [&](const char* primary, const char* fallback) -> double {
+        try { return Pylon::CFloatParameter(cam, primary).GetValue(); }
+        catch (const Pylon::GenericException&) {
+            try { return Pylon::CFloatParameter(cam, fallback).GetValue(); }
+            catch (...) { return -1.0; }
+        }
+    };
+    const double rfps = safe_f_fallback("ResultingFrameRate", "ResultingFrameRateAbs");
+
+    const double secondsSinceGrabbingStarted = d->grabbingStartedAt.has_value()
+        ? std::chrono::duration<double>(SteadyClock::now() - *d->grabbingStartedAt).count()
+        : -1.0;
+    if (rfps <= 0.0 ||
+        !is_achievable_fps_measurement_warmed_up(secondsSinceGrabbingStarted)) {
+        // Leaves d->resultingFps untouched (still -1 if never yet had a
+        // trustworthy reading) rather than overwriting it with one taken
+        // before real acquisition has had time to settle —
+        // achievable_fps()'s callers already correctly fall back to
+        // configured_fps() in that case.
+        return;
+    }
+    d->resultingFps = rfps; // see achievable_fps()
+
+    // Same mismatch check as open()'s own diagnostic block — surfaced again
+    // here so a live parameter change (typically exposure time) that makes
+    // the configured fps newly unachievable is flagged right away, not only
+    // discovered indirectly via dropped frames during a later recording.
+    if (d->params.specifyFps && rfps > 0.0 && rfps < d->params.fps * 0.9) {
+        log_warning(QString("[Camera %1] Requested %2 fps but the camera can only sustain "
+                            "~%3 fps at the current exposure/ROI/bandwidth settings — "
+                            "lower the exposure time or the configured frame rate to match.")
+                        .arg(d->cameraIndex)
+                        .arg(d->params.fps, 0, 'f', 1)
+                        .arg(rfps, 0, 'f', 1));
+    }
+#endif
+}
+
 void VideoGrabber::apply_live_params() {
 #if defined(MOSAIC_HAVE_CAMERAS)
     if (!d->deviceOpen.load()) return;
@@ -739,6 +813,7 @@ void VideoGrabber::start_grabbing() {
     d->dropCounter.store(0);
     d->lastFrameElapsedNs.store(-1);
     d->actuallyGrabbing.store(false);
+    d->grabbingStartedAt.reset();
     QThread::start();
 }
 
@@ -785,12 +860,14 @@ void VideoGrabber::run_pylon_loop() {
 
         d->camera.StartGrabbing(Pylon::GrabStrategy_LatestImageOnly,
                                 Pylon::GrabLoop_ProvidedByUser);
+        d->grabbingStartedAt = SteadyClock::now();
         d->actuallyGrabbing.store(true);
 
         Pylon::CGrabResultPtr  result;
         Pylon::CPylonImage     convertedImage;
         auto lastFpsTime    = SteadyClock::now();
         auto lastWarnTime   = SteadyClock::now();
+        auto lastFpsRefresh = SteadyClock::now();
         int64_t fpsCount    = 0;
         int64_t warnCount   = 0;
         int previewSkip     = 0;
@@ -798,6 +875,25 @@ void VideoGrabber::run_pylon_loop() {
         while (!isInterruptionRequested()) {
             if (d->liveApplyPending.exchange(false)) {
                 apply_image_params();
+                refresh_achievable_fps();
+            }
+            // Periodic self-refresh, independent of any UI edit: a reading
+            // taken right at open()/StartGrabbing() is always rejected by
+            // refresh_achievable_fps()'s warm-up gate as premature — real
+            // acquisition needs to actually run for a while first. Without
+            // this, a camera would never get a second chance to report a
+            // trustworthy reading until the user happened to touch a
+            // live-apply-triggering UI control — leaving VideoManager::
+            // arm_and_fire_action_commands() (and its own periodic
+            // self-correction, see ActionCommandTicker::run()) permanently
+            // stuck trusting configured_fps() instead of ever discovering
+            // this camera's real ceiling.
+            {
+                const auto nowForFpsRefresh = SteadyClock::now();
+                if (std::chrono::duration<double>(nowForFpsRefresh - lastFpsRefresh).count() >= 2.0) {
+                    lastFpsRefresh = nowForFpsRefresh;
+                    refresh_achievable_fps();
+                }
             }
             if (!d->camera.RetrieveResult(100, result, Pylon::TimeoutHandling_Return)) {
                 continue;

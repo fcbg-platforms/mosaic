@@ -44,28 +44,6 @@ MOSAIC Documentation
      </p>
    </div>
 
-.. raw:: html
-
-   <div style="
-     background: #f5f5fb;
-     border: 1px solid #e2e2f0;
-     border-radius: 10px;
-     padding: 20px 28px;
-     margin-bottom: 28px;
-     display: flex;
-     align-items: center;
-     flex-wrap: wrap;
-     gap: 24px;
-   ">
-     <span style="font-size: 0.85rem; color: #5a5a7a; font-weight: 600; letter-spacing: 0.02em;">
-       Developed at
-     </span>
-     <img src="_static/fcbg-logo.png" alt="Fondation Campus Biotech Geneva"
-          style="height:48px; width:auto; display:block;">
-     <img src="_static/neuro-logo.png" alt="Neuro"
-          style="height:48px; width:auto; display:block;">
-   </div>
-
 .. grid:: 2
    :gutter: 3
 
@@ -195,3 +173,31 @@ Key capabilities
    * - **Research profiles**
      - Isolated settings, recording directories, and calibration per group;
        PBKDF2-SHA256 login.
+
+----
+
+.. raw:: html
+
+   <div style="
+     background: #f5f5fb;
+     border: 1px solid #e2e2f0;
+     border-radius: 14px;
+     padding: 36px 32px 32px;
+     margin-top: 12px;
+     display: flex;
+     flex-direction: column;
+     align-items: center;
+     gap: 20px;
+     text-align: center;
+   ">
+     <div style="display: flex; align-items: center; justify-content: center;
+                 flex-wrap: wrap; gap: 48px;">
+       <img src="_static/fcbg-logo.png" alt="Fondation Campus Biotech Geneva"
+            style="height:88px; width:auto; display:block;">
+       <img src="_static/neuro-logo.png" alt="Neuro"
+            style="height:88px; width:auto; display:block;">
+     </div>
+     <span style="font-size: 0.95rem; color: #5a5a7a; letter-spacing: 0.02em;">
+       Developed by <strong style="color:#33335a;">Payam S. Shabestari</strong>
+     </span>
+   </div>

@@ -6,8 +6,10 @@ using mosaic::action_command_period_ms;
 using mosaic::ipv4_broadcast_address;
 using mosaic::ipv4_from_dotted;
 using mosaic::ipv4_to_dotted;
+using mosaic::is_achievable_fps_measurement_warmed_up;
 using mosaic::k_default_action_fps;
 using mosaic::k_default_action_margin;
+using mosaic::k_default_fps_warmup_seconds;
 
 TEST(Ipv4BroadcastAddress, ClassCSubnet) {
     // The real room-11 scenario: each camera on its own /24.
@@ -116,4 +118,39 @@ TEST(ActionCommandPeriodMs, OutOfRangeMarginFallsBackToNoMargin) {
     EXPECT_DOUBLE_EQ(action_command_period_ms({20.0}, 0.0), 50.0);
     EXPECT_DOUBLE_EQ(action_command_period_ms({20.0}, -1.0), 50.0);
     EXPECT_DOUBLE_EQ(action_command_period_ms({20.0}, 1.5), 50.0);
+}
+
+// Real room-11 finding (2026-08-05): a magnitude-based plausibility floor
+// (reject readings far below what the camera's exposure ceiling implied)
+// was tried first and reverted — a longer real recording found several
+// genuinely stable, repeated readings sitting well below what any fixed
+// margin assumed was possible (auto-exposure converged near its ceiling in
+// a dim room). Gating on real elapsed acquisition time instead needs no
+// per-scene-lighting-tuned constant.
+TEST(IsAchievableFpsMeasurementWarmedUp, RejectsBeforeWarmupElapses) {
+    EXPECT_FALSE(is_achievable_fps_measurement_warmed_up(0.0, 3.0));
+    EXPECT_FALSE(is_achievable_fps_measurement_warmed_up(2.999, 3.0));
+}
+
+TEST(IsAchievableFpsMeasurementWarmedUp, AcceptsAtOrAfterWarmupElapses) {
+    EXPECT_TRUE(is_achievable_fps_measurement_warmed_up(3.0, 3.0));
+    EXPECT_TRUE(is_achievable_fps_measurement_warmed_up(30.0, 3.0));
+}
+
+TEST(IsAchievableFpsMeasurementWarmedUp, NegativeSecondsMeansNotGrabbingYetAtAll) {
+    // e.g. open()'s own one-time diagnostic reading, taken before
+    // start_grabbing() is ever called — always rejected, regardless of how
+    // permissive warmupSeconds is.
+    EXPECT_FALSE(is_achievable_fps_measurement_warmed_up(-1.0, 0.0));
+    EXPECT_FALSE(is_achievable_fps_measurement_warmed_up(-0.001, 3.0));
+}
+
+TEST(IsAchievableFpsMeasurementWarmedUp, NonPositiveWarmupSecondsSkipsTheWait) {
+    EXPECT_TRUE(is_achievable_fps_measurement_warmed_up(0.0, 0.0));
+    EXPECT_TRUE(is_achievable_fps_measurement_warmed_up(0.0, -1.0));
+}
+
+TEST(IsAchievableFpsMeasurementWarmedUp, DefaultWarmupMatchesDocumentedConstant) {
+    EXPECT_FALSE(is_achievable_fps_measurement_warmed_up(k_default_fps_warmup_seconds - 0.001));
+    EXPECT_TRUE(is_achievable_fps_measurement_warmed_up(k_default_fps_warmup_seconds));
 }

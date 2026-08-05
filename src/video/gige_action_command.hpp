@@ -93,6 +93,43 @@ inline constexpr double k_default_action_margin = 0.85;
     const std::vector<double>& targetFps,
     double                     marginFactor = k_default_action_margin);
 
+// Default minimum time a camera must have been actively grabbing before a
+// freshly-read ResultingFrameRate/ResultingFrameRateAbs is trusted at all —
+// gating on real elapsed time rather than the reading's own magnitude.
+//
+// A magnitude-based approach (reject anything "suspiciously low" relative
+// to the camera's own exposure ceiling) was tried first and reverted after
+// real room-11 data (2026-08-05) contradicted its core assumption. The
+// first version (rejecting readings taken right at open(), well below what
+// exposure alone predicted, e.g. ~2.9 fps against a ~20 fps figure) correctly
+// caught a real bug — but a later, larger comparison across all 6 cameras
+// over one real ~20s recording found several genuinely stable, REPEATED
+// readings sitting well below what even a loosened margin assumed was
+// physically possible: auto-exposure converging near its own configured
+// ceiling in a dim room can legitimately leave real achievable fps far
+// lower than any "1/exposure, with some margin" estimate predicts, and no
+// fixed margin generalizes across however bright or dim the room actually
+// is. Waiting for real elapsed acquisition time instead, then trusting
+// whatever the camera reports once warmed up — however low — needs no
+// per-scene-lighting-tuned constant and can't mistake "real, if
+// disappointing" for "premature". 3.0s is a starting point (this camera
+// generation's "Once" auto-exposure convergence time was never directly
+// measured in isolation), not a measured-optimal value — the periodic
+// self-refresh in VideoGrabber::run_pylon_loop() and the periodic
+// self-correction in VideoManager's ActionCommandTicker::run() mean an
+// under-estimate here still self-corrects within a few more cycles, just
+// not on the very first check.
+inline constexpr double k_default_fps_warmup_seconds = 3.0;
+
+// Pure: true once at least warmupSeconds have elapsed since this camera
+// started grabbing. secondsSinceGrabbingStarted < 0 means "not grabbing yet
+// at all" (e.g. open()'s own one-time diagnostic reading, taken before
+// start_grabbing() is ever called) and is always rejected, regardless of
+// warmupSeconds.
+[[nodiscard]] bool is_achievable_fps_measurement_warmed_up(
+    double secondsSinceGrabbingStarted,
+    double warmupSeconds = k_default_fps_warmup_seconds);
+
 // Owns the GigE transport layer handle for the lifetime of a continuous,
 // per-frame Action-Command-triggered recording/preview session, so
 // IssueActionCommand() is a lightweight per-tick call rather than paying

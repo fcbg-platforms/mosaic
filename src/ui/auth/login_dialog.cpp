@@ -205,7 +205,7 @@ protected:
         p.setFont(verFont);
         p.setPen(QColor("#2a2a4a"));
         p.drawText(QRectF(0, height() - 28, width(), 20),
-                   Qt::AlignHCenter, "v0.1.0  ·  CSRU Laboratory");
+                   Qt::AlignHCenter, "v0.1.0  ·  FCBG");
 
         // ── Right edge divider line ───────────────────────────────────────
         QLinearGradient edgeGrad(width() - 1, 0, width() - 1, height());
@@ -475,6 +475,9 @@ struct LoginDialog::Impl {
     QStackedWidget* stack        = nullptr;
     QWidget*        loginPage    = nullptr;
     QWidget*        registerPage = nullptr;
+    QPushButton*    closeBtn     = nullptr; // floats top-right, parented to the dialog itself
+                                              // (not the stack) so it stays put across login/
+                                              // register and is repositioned in resizeEvent()
 
     // Login page
     QGridLayout*       profileGrid     = nullptr;
@@ -798,6 +801,25 @@ void LoginDialog::build_ui() {
 
     d->stack->addWidget(d->registerPage); // index 1
 
+    // Floating close ("✕") button — top-right corner, parented directly to
+    // the dialog (not the stack/pages) so it stays fixed across login/
+    // register and is repositioned in resizeEvent(). The window itself is
+    // frameless (no OS titlebar/close button) and Escape is deliberately
+    // swallowed (see keyPressEvent()), so this is the dialog's only way to
+    // quit the app before picking a profile — clicking it rejects the
+    // dialog, which main.cpp's auth loop already treats as "exit cleanly".
+    d->closeBtn = new QPushButton("✕", this);
+    d->closeBtn->setFixedSize(28, 28);
+    d->closeBtn->setCursor(Qt::PointingHandCursor);
+    d->closeBtn->setToolTip("Close MOSAIC");
+    d->closeBtn->setStyleSheet(
+        "QPushButton { background: rgba(255,255,255,12); border: 1px solid #303055;"
+        "  border-radius: 14px; color: #8888aa; font-size: 13px; font-weight: bold; }"
+        "QPushButton:hover { background: #cc4444; border-color: #ee6666; color: #ffffff; }"
+        "QPushButton:pressed { background: #a83333; }");
+    connect(d->closeBtn, &QPushButton::clicked, this, &QDialog::reject);
+    d->closeBtn->raise();
+
     rebuild_profile_grid();
 }
 
@@ -1080,6 +1102,14 @@ void LoginDialog::set_register_error(const QString& msg) {
 void LoginDialog::keyPressEvent(QKeyEvent* event) {
     if (event->key() == Qt::Key_Escape) { return; }
     QDialog::keyPressEvent(event);
+}
+
+void LoginDialog::resizeEvent(QResizeEvent* event) {
+    QDialog::resizeEvent(event);
+    if (d->closeBtn) {
+        d->closeBtn->move(width() - d->closeBtn->width() - 14, 14);
+        d->closeBtn->raise();
+    }
 }
 
 // Gentle fade-in the first (and only, in practice — a fresh LoginDialog is
