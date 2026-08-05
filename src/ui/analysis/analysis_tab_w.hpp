@@ -1,6 +1,7 @@
 #pragma once
 #include "analysis/analysis_manager.hpp"
 #include "core/settings.hpp"
+#include <QVector>
 #include <QWidget>
 #include <cstdint>
 #include <memory>
@@ -62,10 +63,13 @@ private:
     void reload_current_camera_result();
     void update_kinematics_chart();
     void export_kinematics_csv();
+    void rebuild_subject_chips(int subjectCount);
+    [[nodiscard]] QVector<int> checked_subject_indices() const;
     void open_output_folder();
     void update_transcript_table();
     void export_transcript_csv();
     void highlight_active_transcript_row(int64_t ms);
+    void rebuild_speaker_legend();
     void update_expression_view();
     void export_expression_csv();
     void update_gaze_view();

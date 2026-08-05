@@ -1,5 +1,7 @@
 #include "ui/audio/audio_waveform_w.hpp"
+#include "ui/audio/speaker_palette.hpp"
 #include <QColor>
+#include <QMouseEvent>
 #include <QPainter>
 #include <QPainterPath>
 #include <QThread>
@@ -24,6 +26,19 @@ static constexpr QColor k_channel_colors[] = {
     QColor(0xaa, 0xdd, 0xff),   // 7: light blue
 };
 
+// Static-mode trace color — deliberately NOT k_channel_colors[0] (green):
+// in static mode the trace represents "the mixed clip's amplitude", not a
+// specific microphone channel, and once speaker bands are drawn on top,
+// reusing a palette color for the trace itself would read as "the trace
+// IS speaker 0" rather than "the trace is just amplitude". Distinct from
+// all 8 k_channel_colors hues; reads clearly on the #08,08,16 background.
+// Live mode (per-channel k_channel_colors[ch]) is untouched.
+static constexpr QColor kStaticTraceColor(0x8a, 0x94, 0xb0);
+
+// Neutral fallback returned by speaker_color() for an empty/unrecognized
+// speaker label — distinct from every real palette entry.
+static constexpr QColor kUnknownSpeakerColor(0x55, 0x55, 0x66);
+
 struct AudioWaveformW::Impl {
     int    channelCount{1};
     float  scale{AudioWaveformW::kDefaultScale};
@@ -40,6 +55,16 @@ struct AudioWaveformW::Impl {
     std::vector<std::pair<float, float>> staticSamples;
     qint64                           staticDurationMs{0};
     qint64                           playheadMs{0};
+
+    // Speaker-timing bands (static mode only) — see set_speaker_bands().
+    // speakerOrder tracks first-appearance order (QMap<QString,int> alone
+    // doesn't preserve insertion order, it sorts by key) so speaker_legend()
+    // can return entries in the same order they were assigned a color.
+    std::vector<AudioWaveformW::SpeakerBand> bands;
+    QMap<QString, int>                       speakerIndex;
+    QVector<QString>                         speakerOrder;
+
+    std::function<void(qint64)> seekCb;
 
     void ensure_channels(int count) {
         if (count < 1) { count = 1; }
@@ -109,6 +134,43 @@ void AudioWaveformW::clear_static_envelope() {
     update();
 }
 
+// ── Speaker-timing bands ───────────────────────────────────────────────────
+
+void AudioWaveformW::set_speaker_bands(const QVector<SpeakerBand>& bands) {
+    d->bands.assign(bands.begin(), bands.end());
+
+    QStringList orderedLabels;
+    orderedLabels.reserve(bands.size());
+    for (const auto& b : bands) { orderedLabels << b.speaker; }
+
+    d->speakerIndex = assign_speaker_palette_indices(orderedLabels);
+    d->speakerOrder.clear();
+    d->speakerOrder.reserve(d->speakerIndex.size());
+    for (const auto& label : orderedLabels) {
+        if (label.isEmpty() || d->speakerOrder.contains(label)) { continue; }
+        d->speakerOrder << label;
+    }
+    update();
+}
+
+QColor AudioWaveformW::speaker_color(const QString& speaker) const {
+    if (!d->speakerIndex.contains(speaker)) { return kUnknownSpeakerColor; }
+    return k_channel_colors[d->speakerIndex.value(speaker) % 8];
+}
+
+QVector<QPair<QString, QColor>> AudioWaveformW::speaker_legend() const {
+    QVector<QPair<QString, QColor>> out;
+    out.reserve(d->speakerOrder.size());
+    for (const auto& speaker : d->speakerOrder) {
+        out.append({speaker, speaker_color(speaker)});
+    }
+    return out;
+}
+
+void AudioWaveformW::set_seek_callback(std::function<void(qint64)> cb) {
+    d->seekCb = std::move(cb);
+}
+
 // ── Data ingestion ─────────────────────────────────────────────────────────
 
 void AudioWaveformW::push_envelope(int channelIndex, float minSample, float maxSample) {
@@ -151,7 +213,7 @@ void AudioWaveformW::paintEvent(QPaintEvent* /*event*/) {
             const int botY = rc.height() - 4;
             const int midY = (topY + botY) / 2;
             const int ampH = (botY - topY) / 2;
-            const QColor clr = k_channel_colors[0];
+            const QColor clr = kStaticTraceColor;
 
             const float xStep = static_cast<float>(rc.width()) / static_cast<float>(n - 1);
             auto yOf = [&](float v) {
@@ -185,6 +247,40 @@ void AudioWaveformW::paintEvent(QPaintEvent* /*event*/) {
             }
             p.drawPath(topLine);
             p.drawPath(botLine);
+
+            // Speaker-timing shading: a low-alpha full-height wash per
+            // speaker turn (background context, drawn on top of the trace
+            // so it tints without hiding it — doesn't compete with the
+            // trace itself for attention) plus a solid top-edge strip (a
+            // crisp "at a glance" timeline, unambiguous even where the
+            // wash is hard to see against a loud passage). Segments with
+            // no attributed speaker (gaps) draw neither — an honest "no
+            // data" representation, not a fabricated color. Two passes so
+            // every strip draws on top of every wash, regardless of band
+            // ordering.
+            if (d->staticDurationMs > 0 && !d->bands.empty()) {
+                auto bandX = [&](qint64 ms) {
+                    return std::clamp<qreal>(
+                        static_cast<qreal>(ms) / static_cast<qreal>(d->staticDurationMs),
+                        0.0, 1.0) * rc.width();
+                };
+                for (const auto& band : d->bands) {
+                    if (band.speaker.isEmpty()) { continue; }
+                    const qreal x0 = bandX(band.startMs);
+                    const qreal x1 = bandX(band.endMs);
+                    if (x1 <= x0) { continue; }
+                    QColor wash = speaker_color(band.speaker);
+                    wash.setAlpha(28);
+                    p.fillRect(QRectF(x0, 0, x1 - x0, rc.height()), wash);
+                }
+                for (const auto& band : d->bands) {
+                    if (band.speaker.isEmpty()) { continue; }
+                    const qreal x0 = bandX(band.startMs);
+                    const qreal x1 = bandX(band.endMs);
+                    if (x1 <= x0) { continue; }
+                    p.fillRect(QRectF(x0, 0, x1 - x0, 5), speaker_color(band.speaker));
+                }
+            }
 
             // Playhead: bright vertical line at the current position, in
             // place of live mode's fixed right-edge "now" indicator.
@@ -272,6 +368,18 @@ void AudioWaveformW::paintEvent(QPaintEvent* /*event*/) {
     // Right-edge "now" indicator
     p.setPen(QPen(QColor(0x44, 0x44, 0x66), 1, Qt::DashLine));
     p.drawLine(rc.width() - 1, 0, rc.width() - 1, rc.height());
+}
+
+void AudioWaveformW::mousePressEvent(QMouseEvent* event) {
+    if (!d->staticMode || !d->seekCb || d->staticDurationMs <= 0) {
+        QWidget::mousePressEvent(event);
+        return;
+    }
+    const qreal frac = std::clamp<qreal>(
+        static_cast<qreal>(event->pos().x()) / static_cast<qreal>(std::max(1, width())),
+        0.0, 1.0);
+    d->seekCb(static_cast<qint64>(frac * static_cast<qreal>(d->staticDurationMs)));
+    QWidget::mousePressEvent(event);
 }
 
 QSize AudioWaveformW::sizeHint() const {

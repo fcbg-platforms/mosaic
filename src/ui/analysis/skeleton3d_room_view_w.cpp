@@ -1,4 +1,5 @@
 #include "ui/analysis/skeleton3d_room_view_w.hpp"
+#include "ui/analysis/subject_colors.hpp"
 #include <QMatrix4x4>
 #include <QMouseEvent>
 #include <QPainter>
@@ -19,10 +20,6 @@ namespace {
 const QColor kCameraColors[] = {
     QColor("#44cc44"), QColor("#4488ff"), QColor("#ffaa44"),
     QColor("#ff4488"), QColor("#44cccc"), QColor("#cc44cc"),
-};
-const QColor kTrackColors[] = {
-    QColor("#00dcff"), QColor("#ffdd44"), QColor("#ff4488"),
-    QColor("#44cc44"), QColor("#cc44cc"), QColor("#ff8844"),
 };
 
 QVector3D to_qvec3(const Skeleton3DVec3& p) {
@@ -268,7 +265,7 @@ void Skeleton3DRoomViewW::paintEvent(QPaintEvent*) {
         totalPeople = frame->people.size();
         const auto& edges = d->result.skeleton_edges();
         for (const auto& person : frame->people) {
-            const QColor color = kTrackColors[((person.trackId % 6) + 6) % 6];
+            const QColor color = subject_color(person.trackId);
 
             for (const auto& edge : edges) {
                 const int a = edge.first, b = edge.second;
