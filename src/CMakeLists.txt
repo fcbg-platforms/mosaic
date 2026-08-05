@@ -78,6 +78,8 @@ qt_add_executable(mosaic MACOSX_BUNDLE
     ui/audio/audio_settings_w.cpp
     ui/audio/audio_waveform_w.hpp
     ui/audio/audio_waveform_w.cpp
+    ui/audio/speaker_palette.hpp
+    ui/audio/speaker_palette.cpp
     ui/audio/microphone_card_w.hpp
     ui/audio/microphone_card_w.cpp
 
@@ -160,6 +162,7 @@ qt_add_executable(mosaic MACOSX_BUNDLE
     ui/session/session_player_w.cpp
 
     # ── Analysis tab ─────────────────────────────────────────────────────
+    ui/analysis/subject_colors.hpp
     ui/analysis/pose_overlay_player_w.hpp
     ui/analysis/pose_overlay_player_w.cpp
     ui/analysis/analysis_tab_w.hpp

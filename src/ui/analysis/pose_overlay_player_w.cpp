@@ -1,4 +1,5 @@
 #include "ui/analysis/pose_overlay_player_w.hpp"
+#include "ui/analysis/subject_colors.hpp"
 #include <QCursor>
 #include <QFontMetrics>
 #include <QHBoxLayout>
@@ -26,14 +27,6 @@ QString format_ms(int64_t ms) {
         .arg(totalSec / 60, 2, 10, QChar('0'))
         .arg(totalSec % 60, 2, 10, QChar('0'));
 }
-
-// Per-track-id color palette for the 3D-pose-reconstruction overlay — same
-// shape as GazeRoomViewW's kCameraColors, distinct hues so 2+ simultaneous
-// tracked people are visually separable.
-const QColor kTrackColors[] = {
-    QColor("#00dcff"), QColor("#ffdd44"), QColor("#ff4488"),
-    QColor("#44cc44"), QColor("#cc44cc"), QColor("#ff8844"),
-};
 
 } // namespace
 
@@ -159,8 +152,19 @@ protected:
             return;
         }
 
-        for (const auto& subject : frame_->subjects) {
-            painter.setPen(QPen(QColor(255, 210, 0), 2));
+        // Each detected subject gets its own color (subject_color(), the
+        // same per-index palette the multi-subject kinematics chart uses —
+        // see MetricsChartW::set_multi_subject_position()/set_multi_subject_
+        // series() in analysis_tab_w.cpp) so a subject's skeleton on screen
+        // visually matches its trace's color in the chart. Colored
+        // regardless of which subjects are currently checked in the chart's
+        // picker — this overlay always shows every detection the model
+        // found in this frame, not just the charted subset.
+        for (int i = 0; i < frame_->subjects.size(); ++i) {
+            const auto& subject = frame_->subjects[i];
+            const QColor color = subject_color(i);
+
+            painter.setPen(QPen(color, 2));
             for (const auto& [a, b] : skeletonEdges_) {
                 if (a < 0 || b < 0 || a >= subject.keypoints.size() ||
                     b >= subject.keypoints.size()) {
@@ -174,10 +178,10 @@ protected:
             }
 
             painter.setPen(Qt::NoPen);
-            painter.setBrush(QColor(0, 220, 255));
-            for (int i = 0; i < subject.keypoints.size(); ++i) {
-                if (!is_keypoint_visible(subject, i)) { continue; }
-                painter.drawEllipse(to_widget(subject.keypoints[i]), 3, 3);
+            painter.setBrush(color);
+            for (int k = 0; k < subject.keypoints.size(); ++k) {
+                if (!is_keypoint_visible(subject, k)) { continue; }
+                painter.drawEllipse(to_widget(subject.keypoints[k]), 3, 3);
             }
         }
     }
@@ -261,16 +265,17 @@ private:
     }
 
     // Draws every reconstructed person's reprojected 2D skeleton for the
-    // current camera — track_id decides color (kTrackColors), a keypoint
-    // index is skipped entirely (not just left undrawn as a stray dot) if
-    // its owning Skeleton3DKeypoint::valid is false, mirroring the JSON
-    // schema's own "keypoints_valid is the single source of truth" rule.
+    // current camera — track_id decides color (subject_color(), shared with
+    // the Pose plugin's own per-subject coloring), a keypoint index is
+    // skipped entirely (not just left undrawn as a stray dot) if its owning
+    // Skeleton3DKeypoint::valid is false, mirroring the JSON schema's own
+    // "keypoints_valid is the single source of truth" rule.
     void paint_skeleton3d(QPainter& painter, const std::function<QPointF(QPointF)>& to_widget) {
         for (const auto& person : skeleton3dFrame_->people) {
             const auto pts = person.reprojectedPx.value(skeleton3dCameraIndex_);
             if (pts.isEmpty()) { continue; }
 
-            const QColor color = kTrackColors[((person.trackId % 6) + 6) % 6];
+            const QColor color = subject_color(person.trackId);
 
             painter.setPen(QPen(color, 2));
             for (const auto& [a, b] : skeletonEdges_) {

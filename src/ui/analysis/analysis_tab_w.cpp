@@ -12,9 +12,11 @@
 #include "ui/analysis/gaze_room_view_w.hpp"
 #include "ui/analysis/pose_overlay_player_w.hpp"
 #include "ui/analysis/skeleton3d_room_view_w.hpp"
+#include "ui/analysis/subject_colors.hpp"
 #include "ui/anim_utils.hpp"
 #include "ui/audio/audio_waveform_w.hpp"
 #include <QAbstractItemView>
+#include <QBrush>
 #include <QCheckBox>
 #include <QChart>
 #include <QChartView>
@@ -50,6 +52,7 @@
 #include <QTableWidget>
 #include <QTextEdit>
 #include <QTextStream>
+#include <QToolButton>
 #include <QToolTip>
 #include <QUrl>
 #include <QValueAxis>
@@ -169,6 +172,18 @@ WavEnvelopeResult load_wav_envelope(const QString& wavPath, int numColumns) {
         remaining -= chunk.size();
     }
     return result;
+}
+
+// Detected subject count for a Pose result: the widest "subjects" array
+// seen in any single frame. Not a claim of tracked identity across frames
+// (see AnalysisTabW::rebuild_subject_chips()'s own doc comment) — just
+// "how many chips to offer".
+int max_subjects_in(const PoseAnalysisResult& result) {
+    int maxSubjects = 0;
+    for (const auto& frame : result.frames()) {
+        maxSubjects = std::max(maxSubjects, static_cast<int>(frame.subjects.size()));
+    }
+    return maxSubjects;
 }
 
 } // namespace
@@ -304,16 +319,23 @@ public:
     // without needing to cross-reference the controls above it.
     void set_title(const QString& text) { chart()->setTitle(text); }
 
-    // subjectIndex picks which detected subject to plot when a frame has
-    // more than one (0 = first/primary subject — the common case).
-    void set_data(const PoseAnalysisResult& result, int keypointIndex, int subjectIndex = 0) {
+    // Position mode, one or more subjects: 2 lines per subject (solid = X,
+    // dashed = Y), each pair tinted by subject_color(subjectIndex) so a
+    // subject's trace here matches its skeleton's color in the video
+    // overlay (SkeletonOverlayW's pose branch). Replaces the old single-
+    // subject set_data() — subjectIndices.size()==1 (today's default,
+    // subject 0 only) reproduces exactly what set_data() used to show,
+    // just with subject-aware legend labels instead of plain "X position"/
+    // "Y position".
+    void set_multi_subject_position(const PoseAnalysisResult& result, int keypointIndex,
+                                     const QVector<int>& subjectIndices) {
         clear_all_series();
+        clear_subject_series();
         axisY_->setTitleText("Position (px)");
-        set_series_marker_visible(xSeries_, true);
-        set_series_marker_visible(ySeries_, true);
         set_series_marker_visible(valueSeries_, false);
 
-        if (!result.is_valid() || result.frames().isEmpty() || keypointIndex < 0) {
+        if (!result.is_valid() || result.frames().isEmpty() || keypointIndex < 0
+            || subjectIndices.isEmpty()) {
             apply_ranges(false, 0.0, 0.0, 0.0);
             return;
         }
@@ -323,19 +345,71 @@ public:
         double maxY = std::numeric_limits<double>::lowest();
         double maxT = 0.0;
 
-        for (const auto& frame : result.frames()) {
-            if (subjectIndex >= frame.subjects.size()) { continue; }
-            const auto& subject = frame.subjects[subjectIndex];
-            if (keypointIndex >= subject.keypoints.size()) { continue; }
+        for (int subjectIndex : subjectIndices) {
+            auto* xs = new QLineSeries();
+            xs->setName(QString("Subject %1 · X").arg(subjectIndex + 1));
+            xs->setPen(QPen(subject_color(subjectIndex), 2, Qt::SolidLine));
+            auto* ys = new QLineSeries();
+            ys->setName(QString("Subject %1 · Y").arg(subjectIndex + 1));
+            ys->setPen(QPen(subject_color(subjectIndex), 2, Qt::DashLine));
 
-            const double tSec = (frame.timestampNs - t0) / 1e9;
-            const auto&  kp   = subject.keypoints[keypointIndex];
-            xSeries_->append(tSec, kp.x());
-            ySeries_->append(tSec, kp.y());
+            for (const auto& frame : result.frames()) {
+                if (subjectIndex >= frame.subjects.size()) { continue; }
+                const auto& subject = frame.subjects[subjectIndex];
+                if (keypointIndex >= subject.keypoints.size()) { continue; }
 
-            maxT = std::max(maxT, tSec);
-            minY = std::min({minY, kp.x(), kp.y()});
-            maxY = std::max({maxY, kp.x(), kp.y()});
+                const double tSec = (frame.timestampNs - t0) / 1e9;
+                const auto&  kp   = subject.keypoints[keypointIndex];
+                xs->append(tSec, kp.x());
+                ys->append(tSec, kp.y());
+
+                maxT = std::max(maxT, tSec);
+                minY = std::min({minY, kp.x(), kp.y()});
+                maxY = std::max({maxY, kp.x(), kp.y()});
+            }
+            add_subject_series(xs);
+            add_subject_series(ys);
+        }
+
+        apply_ranges(minY <= maxY, minY, maxY, maxT);
+    }
+
+    // Speed/Acceleration mode, one or more subjects: 1 line per subject,
+    // tinted by subject_color(subjectIndex). perSubject: (subjectIndex,
+    // points) pairs, points already in (ms-since-start, value) form
+    // (caller pre-filters NaN, exactly as the old single-subject code
+    // already did). Same minDurationMs floor behavior as
+    // set_single_series() — see that method's own doc comment.
+    void set_multi_subject_series(const QVector<QPair<int, QVector<QPointF>>>& perSubject,
+                                   const QString& yAxisLabel, double minDurationMs = 0.0) {
+        clear_all_series();
+        clear_subject_series();
+        axisY_->setTitleText(yAxisLabel);
+        set_series_marker_visible(xSeries_, false);
+        set_series_marker_visible(ySeries_, false);
+        set_series_marker_visible(valueSeries_, false);
+
+        if (perSubject.isEmpty()) {
+            apply_ranges(false, 0.0, 0.0, 0.0);
+            return;
+        }
+
+        double minY = std::numeric_limits<double>::max();
+        double maxY = std::numeric_limits<double>::lowest();
+        double maxT = std::max(0.0, minDurationMs) / 1000.0;
+
+        for (const auto& [subjectIndex, points] : perSubject) {
+            auto* s = new QLineSeries();
+            s->setName(QString("Subject %1").arg(subjectIndex + 1));
+            s->setPen(QPen(subject_color(subjectIndex), 2));
+            for (const auto& p : points) {
+                const double tSec = p.x() / 1000.0;
+                s->append(tSec, p.y());
+                maxT = std::max(maxT, tSec);
+                minY = std::min(minY, p.y());
+                maxY = std::max(maxY, p.y());
+            }
+            add_subject_series(s);
         }
 
         apply_ranges(minY <= maxY, minY, maxY, maxT);
@@ -363,6 +437,10 @@ public:
                             const QString& seriesName = QString(),
                             double minDurationMs = 0.0) {
         clear_all_series();
+        clear_subject_series();   // defensive: this widget is also reused by Facial
+                                   // Expression, which never populates subjectSeries_
+                                   // itself, but a stale entry from an earlier Pose
+                                   // view shouldn't be able to linger regardless.
         axisY_->setTitleText(yAxisLabel);
         valueSeries_->setName(seriesName.isEmpty() ? yAxisLabel : seriesName);
         set_series_marker_visible(xSeries_, false);
@@ -398,10 +476,19 @@ public:
 
 protected:
     void mousePressEvent(QMouseEvent* event) override {
+        // xSeries_/ySeries_ are no longer ever populated (Position mode now
+        // goes through subjectSeries_ — see set_multi_subject_position()),
+        // so the coordinate-mapping anchor must be whichever series
+        // actually has data: subjectSeries_ (Pose, both modes) if present,
+        // else valueSeries_ (Facial Expression's set_single_series() path).
+        // mapToValue() only uses the anchor to resolve axis coordinates, so
+        // any non-empty series attached to the same axes gives the same
+        // answer regardless of which one is passed.
+        QLineSeries* anchor = !subjectSeries_.isEmpty() ? subjectSeries_.first() : valueSeries_;
         if (seekCb_ && axisX_->max() > axisX_->min()) {
             const QPointF scenePos = mapToScene(event->pos());
             const QPointF chartPos = chart()->mapFromScene(scenePos);
-            const QPointF value    = chart()->mapToValue(chartPos, xSeries_);
+            const QPointF value    = chart()->mapToValue(chartPos, anchor);
             const int64_t ms = static_cast<int64_t>(
                 std::clamp(value.x(), axisX_->min(), axisX_->max()) * 1000.0);
             seekCb_(ms);
@@ -415,6 +502,36 @@ private:
         ySeries_->clear();
         valueSeries_->clear();
         playheadSeries_->clear();
+    }
+
+    // Removes and deletes every dynamically-created subject series from a
+    // previous set_multi_subject_position()/set_multi_subject_series()
+    // call — Qt Charts requires an explicit removeSeries() before deleting,
+    // and this codebase's own "just rebuild on change, don't diff" idiom
+    // (seen elsewhere, e.g. tile-grid rebuilds) applies here too: simpler
+    // and safer than trying to reuse/resize existing series across calls
+    // with a possibly-different subject count each time.
+    void clear_subject_series() {
+        for (auto* s : subjectSeries_) {
+            chart()->removeSeries(s);
+            delete s;
+        }
+        subjectSeries_.clear();
+    }
+
+    // Adds one dynamically-created series: attaches it to both axes, wires
+    // the same hover-tooltip behavior every other series already has, and
+    // tracks it in subjectSeries_ for the next clear_subject_series() call.
+    void add_subject_series(QLineSeries* s) {
+        chart()->addSeries(s);
+        s->attachAxis(axisX_);
+        s->attachAxis(axisY_);
+        connect(s, &QLineSeries::hovered, this, [s](const QPointF& point, bool state) {
+            if (!state) { QToolTip::hideText(); return; }
+            QToolTip::showText(QCursor::pos(),
+                QString("%1: %2s, %3").arg(s->name()).arg(point.x(), 0, 'f', 2).arg(point.y(), 0, 'f', 1));
+        });
+        subjectSeries_.push_back(s);
     }
 
     void set_series_marker_visible(QLineSeries* series, bool visible) {
@@ -448,13 +565,20 @@ private:
         }
     }
 
-    QLineSeries* xSeries_        = nullptr;
-    QLineSeries* ySeries_        = nullptr;
+    QLineSeries* xSeries_        = nullptr;   // no longer populated — kept only so
+                                               // set_single_series()'s cross-clearing/
+                                               // marker-hiding calls have a stable target
+    QLineSeries* ySeries_        = nullptr;   // (same as xSeries_ above)
     QLineSeries* valueSeries_    = nullptr;
     QLineSeries* playheadSeries_ = nullptr;
     QValueAxis*  axisX_          = nullptr;
     QValueAxis*  axisY_          = nullptr;
     SeekCb       seekCb_;
+    // Dynamically created/destroyed per set_multi_subject_position()/
+    // set_multi_subject_series() call — see clear_subject_series()/
+    // add_subject_series(). Empty when Facial Expression's
+    // set_single_series() path is in use.
+    QVector<QLineSeries*> subjectSeries_;
 };
 
 // Custom-paints session rows with a hover-intensity tint instead of relying
@@ -614,6 +738,9 @@ struct AnalysisTabW::Impl {
     AudioWaveformW* diarizeWaveform = nullptr;   // diarize only — whole-clip static waveform,
                                                   // playhead-synced to d->player, same visual
                                                   // style as the Audio settings tab's live view
+    QWidget*        speakerLegendRowW = nullptr; // diarize only — color-swatch legend for the
+                                                  // waveform's speaker bands, rebuilt by
+                                                  // rebuild_speaker_legend()
 
     // Expression view controls — mirrors kinematicsRowW's own-container
     // pattern so select_plugin() can hide the whole row with one call.
@@ -659,6 +786,14 @@ struct AnalysisTabW::Impl {
     QDoubleSpinBox*  scaleSpin           = nullptr;  // mm/px, 1.0 = raw pixels
     QLabel*          kinematicsStatsLbl  = nullptr;
     QPushButton*     exportKinematicsBtn = nullptr;
+
+    // Subject picker — one checkable chip per detected subject index, so
+    // the kinematics chart/overlay can show several subjects' traces at
+    // once. Pose only; own-container row so select_plugin() can hide it
+    // with one call, matching kinematicsRowW's own convention. Rebuilt by
+    // rebuild_subject_chips() whenever a new session/camera loads.
+    QWidget*               subjectPickerRowW = nullptr;
+    QVector<QToolButton*>  subjectChips;
 
     QList<SessionInfo>  sessions;
     QString              currentSessionPath;
@@ -1300,6 +1435,29 @@ void AnalysisTabW::build_ui() {
                                                   // trace here reads better taller.
     d->diarizeWaveform->setVisible(false);   // shown only for the diarize plugin
     rightLay->addWidget(d->diarizeWaveform);
+    d->diarizeWaveform->set_seek_callback([this](qint64 ms) { d->player->seek(ms); });
+
+    // Speaker-legend row: one color swatch + label per speaker found in the
+    // current session's transcript, rebuilt by rebuild_speaker_legend()
+    // every time reload_current_camera_result() loads a new diarize result.
+    d->speakerLegendRowW = new QWidget;
+    auto* speakerLegendLay = new QHBoxLayout(d->speakerLegendRowW);
+    speakerLegendLay->setContentsMargins(0, 4, 0, 0);
+    d->speakerLegendRowW->setVisible(false);   // shown only for the diarize plugin
+    rightLay->addWidget(d->speakerLegendRowW);
+
+    // ── Subject picker: one checkable chip per detected subject, so the
+    //    chart/overlay can show several subjects' traces at once instead of
+    //    always just subject 0. Pose only — own-container row, mirroring
+    //    kinematicsRowW's convention, rebuilt by rebuild_subject_chips()
+    //    whenever a new session/camera loads.
+    d->subjectPickerRowW = new QWidget;
+    auto* subjectPickerLay = new QHBoxLayout(d->subjectPickerRowW);
+    subjectPickerLay->setContentsMargins(0, 0, 0, 4);
+    subjectPickerLay->setSpacing(6);
+    d->subjectPickerRowW->setVisible(false);   // shown only for the pose plugin, and only
+                                                // when the session has >1 detected subject
+    rightLay->addWidget(d->subjectPickerRowW);
 
     // ── Kinematics view controls: reshape how the current keypoint's data
     //    is plotted (Position/Speed/Acceleration), not what gets launched.
@@ -1349,17 +1507,18 @@ void AnalysisTabW::build_ui() {
     d->kinematicsStatsLbl = new QLabel;
     d->kinematicsStatsLbl->setStyleSheet("color:#7070a0; font-size:11px;");
     d->kinematicsStatsLbl->setToolTip(
-        "Subject identity is not tracked across frames — kinematics assume "
-        "subject 0 is a single continuous animal (safe for single-subject "
-        "sessions only).");
+        "Subject identity is not tracked across frames — each Subject number "
+        "above is per-frame detection order, not a tracked individual (safe "
+        "to treat as one continuous subject only within a single, unbroken "
+        "detection run).");
     kinematicsRow->addWidget(d->kinematicsStatsLbl, 1);
 
     d->exportKinematicsBtn = new QPushButton("Export CSV");
     d->exportKinematicsBtn->setToolTip(
         "Exports timestamp/position/speed/acceleration for the current "
-        "keypoint in raw pixel units, ignoring the Scale spinbox above — "
-        "includes the subject-identity and smoothing caveats as a comment "
-        "header in the file.");
+        "keypoint and every currently-selected subject, in raw pixel units, "
+        "ignoring the Scale spinbox above — includes the subject-identity "
+        "and smoothing caveats as a comment header in the file.");
     connect(d->exportKinematicsBtn, &QPushButton::clicked, this,
             &AnalysisTabW::export_kinematics_csv);
     kinematicsRow->addWidget(d->exportKinematicsBtn);
@@ -1641,6 +1800,11 @@ void AnalysisTabW::select_plugin(int index) {
     set_visible_animated(d->trackFieldW, isPose3D);
     set_visible_animated(d->chart, isPoseKeypoints || isExpression);
     set_visible_animated(d->kinematicsRowW, isPoseKeypoints);
+    // subjectPickerRowW's own further narrowing (hidden when the session has
+    // <=1 detected subject) happens inside rebuild_subject_chips(), called
+    // from reload_current_camera_result() right after this — this toggle
+    // only handles "hide when leaving the Pose plugin entirely".
+    if (!isPoseKeypoints) { set_visible_animated(d->subjectPickerRowW, false); }
     set_visible_animated(d->expressionRowW, isExpression);
     set_visible_animated(d->gazeFusionRowW, isGazeFusion);
     set_visible_animated(d->roomView, isGazeFusion);
@@ -1653,6 +1817,7 @@ void AnalysisTabW::select_plugin(int index) {
     set_visible_animated(d->micRowW, isDiarize);
     set_visible_animated(d->transcriptTable, isDiarize);
     set_visible_animated(d->diarizeWaveform, isDiarize);
+    set_visible_animated(d->speakerLegendRowW, isDiarize);
 
     // controlsStack's own crossfade defers reload_current_camera_result()
     // until the new page is actually current (right as the fade-in phase
@@ -1871,6 +2036,8 @@ void AnalysisTabW::reload_current_camera_result() {
             d->player->set_video(QString());   // stop/clear any previously-loaded audio
             d->player->set_pose_result(d->currentResult);
             d->diarizeWaveform->clear_static_envelope();
+            d->diarizeWaveform->set_speaker_bands({});
+            rebuild_speaker_legend();
             update_transcript_table();
             return;
         }
@@ -1892,6 +2059,14 @@ void AnalysisTabW::reload_current_camera_result() {
         const QString transcriptAbs = info->path + "/" + transcript_json_path_for(audioRel);
         d->currentTranscript = QFileInfo::exists(transcriptAbs)
             ? TranscriptResult::load(transcriptAbs) : TranscriptResult();
+
+        QVector<AudioWaveformW::SpeakerBand> bands;
+        bands.reserve(d->currentTranscript.segments().size());
+        for (const auto& seg : d->currentTranscript.segments()) {
+            bands.push_back({seg.startMs, seg.endMs, seg.speaker});
+        }
+        d->diarizeWaveform->set_speaker_bands(bands);
+        rebuild_speaker_legend();
         update_transcript_table();
 
         if (!d->currentTranscript.is_valid()) {
@@ -1908,6 +2083,7 @@ void AnalysisTabW::reload_current_camera_result() {
     if (!info || d->cameraCombo->currentIndex() < 0) {
         d->player->set_video(QString());   // stop/clear any previously-loaded video
         d->player->set_pose_result(d->currentResult);
+        rebuild_subject_chips(0);   // no session selected — no chips to show
         d->keypointCombo->clear();
         d->blendshapeCombo->clear();
         // Explicit calls rather than relying on QComboBox::clear() above
@@ -1934,6 +2110,7 @@ void AnalysisTabW::reload_current_camera_result() {
             const bool hasOutput = QFileInfo::exists(depthAbs);
             d->player->set_video(hasOutput ? depthAbs : videoAbs);
             d->player->set_pose_result(PoseAnalysisResult());   // no overlay in depth mode
+            rebuild_subject_chips(0);   // depth mode has no per-subject chart
             d->openFolderBtn->setEnabled(hasOutput);
 
             if (hasOutput) {
@@ -1960,6 +2137,7 @@ void AnalysisTabW::reload_current_camera_result() {
         }
         d->keypointCombo->blockSignals(false);
 
+        rebuild_subject_chips(max_subjects_in(d->currentResult));
         update_kinematics_chart();
 
         // Only overwrite statusLbl for the "nothing to show yet" cases — a
@@ -2045,13 +2223,66 @@ void AnalysisTabW::reload_current_camera_result() {
 
 // ── Kinematics view ──────────────────────────────────────────────────────
 
+// Rebuilds the subject-chip row for a newly-loaded Pose result. subjectCount
+// <= 1 leaves the row empty and hidden — nothing to pick between, matching
+// this file's established "don't show a control with nothing to control"
+// convention (e.g. trackFieldW for a single-track pose3d session). Chip 0
+// defaults checked, matching the single-subject view every session showed
+// before this feature existed.
+void AnalysisTabW::rebuild_subject_chips(int subjectCount) {
+    auto* layout = d->subjectPickerRowW->layout();
+    QLayoutItem* item = nullptr;
+    while ((item = layout->takeAt(0)) != nullptr) {
+        if (auto* w = item->widget()) { w->deleteLater(); }
+        delete item;
+    }
+    d->subjectChips.clear();
+
+    if (subjectCount <= 1) {
+        d->subjectPickerRowW->setVisible(false);
+        return;
+    }
+
+    layout->addWidget(new QLabel("Subjects:"));
+    for (int i = 0; i < subjectCount; ++i) {
+        auto* chip = new QToolButton;
+        chip->setText(QString("Subject %1").arg(i + 1));
+        chip->setCheckable(true);
+        chip->setChecked(i == 0);
+        chip->setCursor(Qt::PointingHandCursor);
+        chip->setToolTip(
+            "Subject identity is not tracked across frames — this is per-frame "
+            "detection order, not a tracked individual.");
+        const QString hex = subject_color(i).name();
+        chip->setStyleSheet(QString(
+            "QToolButton { border: 2px solid %1; border-radius: 4px; padding: 3px 8px;"
+            "  color: %1; background: transparent; }"
+            "QToolButton:checked { background: %1; color: #0a0a1a; }").arg(hex));
+        connect(chip, &QToolButton::toggled, this, &AnalysisTabW::update_kinematics_chart);
+        layout->addWidget(chip);
+        d->subjectChips.push_back(chip);
+    }
+    static_cast<QHBoxLayout*>(layout)->addStretch();
+    d->subjectPickerRowW->setVisible(is_pose_plugin());
+}
+
+QVector<int> AnalysisTabW::checked_subject_indices() const {
+    QVector<int> out;
+    for (int i = 0; i < d->subjectChips.size(); ++i) {
+        if (d->subjectChips[i]->isChecked()) { out.push_back(i); }
+    }
+    if (out.isEmpty()) { out.push_back(0); }   // defensive fallback — chart is never silently empty
+    return out;
+}
+
 void AnalysisTabW::update_kinematics_chart() {
     const int keypointIndex = d->keypointCombo->currentIndex();
     const QString metric = d->metricCombo->currentData().toString();
     const QString keypointName = keypointIndex >= 0 ? d->keypointCombo->currentText() : QString();
+    const QVector<int> subjects = checked_subject_indices();
 
     if (metric == "position" || keypointIndex < 0) {
-        d->chart->set_data(d->currentResult, keypointIndex);
+        d->chart->set_multi_subject_position(d->currentResult, keypointIndex, subjects);
         d->chart->set_title(keypointName.isEmpty()
             ? "No keypoint selected" : keypointName + " — Position");
         d->kinematicsStatsLbl->clear();
@@ -2060,37 +2291,43 @@ void AnalysisTabW::update_kinematics_chart() {
     }
 
     const bool isSpeed = metric == "speed";
-    const auto series = compute_kinematics(d->currentResult, keypointIndex,
-                                            /*subjectIndex=*/0, d->smoothingSpin->value());
     const double scale = d->scaleSpin->value();  // mm/px, 1.0 = raw pixels
     const bool   isMm  = scale != 1.0;
     const QString metricName = isSpeed ? "Speed" : "Acceleration";
     const QString unit = isSpeed ? (isMm ? "mm/s" : "px/s") : (isMm ? "mm/s²" : "px/s²");
-
-    QVector<QPointF> points;
-    points.reserve(series.samples.size());
     const int64_t t0 = d->first_timestamp_ns();
-    for (const auto& sample : series.samples) {
-        const double value = isSpeed ? sample.speedPxPerS : sample.accelPxPerS2;
-        if (std::isnan(value)) { continue; }
-        const double tMs = (sample.timestampNs - t0) / 1e6;
-        points.append(QPointF(tMs, value * scale));
+
+    QVector<QPair<int, QVector<QPointF>>> perSubject;
+    QStringList statLines;
+    for (int subjectIndex : subjects) {
+        const auto series = compute_kinematics(d->currentResult, keypointIndex,
+                                                subjectIndex, d->smoothingSpin->value());
+        QVector<QPointF> points;
+        points.reserve(series.samples.size());
+        for (const auto& sample : series.samples) {
+            const double value = isSpeed ? sample.speedPxPerS : sample.accelPxPerS2;
+            if (std::isnan(value)) { continue; }
+            const double tMs = (sample.timestampNs - t0) / 1e6;
+            points.append(QPointF(tMs, value * scale));
+        }
+        perSubject.push_back({subjectIndex, points});
+
+        if (std::isnan(series.stats.avgSpeedPxPerS)) {
+            statLines << QString("Subject %1: not enough data").arg(subjectIndex + 1);
+        } else {
+            statLines << QString("Subject %1 — dist %2  avg %3 %4  max %5 %4")
+                .arg(subjectIndex + 1)
+                .arg(series.stats.totalDistancePx * scale, 0, 'f', 1)
+                .arg(series.stats.avgSpeedPxPerS * scale, 0, 'f', 1)
+                .arg(isMm ? "mm/s" : "px/s")
+                .arg(series.stats.maxSpeedPxPerS * scale, 0, 'f', 1);
+        }
     }
 
-    d->chart->set_single_series(points, QString("%1 (%2)").arg(metricName, unit), metricName);
+    d->chart->set_multi_subject_series(perSubject, QString("%1 (%2)").arg(metricName, unit));
     d->chart->set_title(keypointName + " — " + metricName);
     d->chart->set_playhead_ms(d->player->position_ms());
-
-    if (std::isnan(series.stats.avgSpeedPxPerS)) {
-        d->kinematicsStatsLbl->setText("Not enough data for stats (need ≥2 valid samples).");
-    } else {
-        d->kinematicsStatsLbl->setText(QString(
-            "Distance: %1  ·  Avg speed: %2 %3  ·  Max speed: %4 %3")
-            .arg(series.stats.totalDistancePx * scale, 0, 'f', 1)
-            .arg(series.stats.avgSpeedPxPerS * scale, 0, 'f', 1)
-            .arg(isMm ? "mm/s" : "px/s")
-            .arg(series.stats.maxSpeedPxPerS * scale, 0, 'f', 1));
-    }
+    d->kinematicsStatsLbl->setText(statLines.join("   |   "));
 }
 
 void AnalysisTabW::export_kinematics_csv() {
@@ -2107,31 +2344,35 @@ void AnalysisTabW::export_kinematics_csv() {
     // unambiguous for anyone reading the file without knowing what scale
     // was selected in the UI at export time.
     const int smoothingWindow = d->smoothingSpin->value();
-    const auto series = compute_kinematics(d->currentResult, keypointIndex,
-                                            /*subjectIndex=*/0, smoothingWindow);
     const int64_t t0 = d->first_timestamp_ns();
+    const QVector<int> subjects = checked_subject_indices();
 
     export_csv(this, "Export Kinematics", suggested, [&](QTextStream& ts) {
         // Both caveats below matter to anyone reading this file without
-        // having seen the app: subject identity isn't tracked frame-to-frame
-        // by the Pose detector (a stat like max speed can be corrupted by an
-        // identity swap in a multi-subject session), and x_px/y_px are
-        // post-smoothing, not the raw detector output.
-        ts << "# subject_index=0 - identity is not tracked across frames by the "
-              "Pose detector; treat as one continuous animal only for "
-              "single-subject sessions\n";
+        // having seen the app: subject numbers are per-frame detection
+        // order, not identity tracked frame-to-frame by the Pose detector
+        // (a stat like max speed can be corrupted by an identity swap in a
+        // multi-subject session), and x_px/y_px are post-smoothing, not the
+        // raw detector output.
+        ts << "# subject numbers are per-frame detection order, not tracked identity "
+              "across frames — see the in-app tooltip on the Subject chips\n";
         ts << "# smoothing_window=" << smoothingWindow
            << " (x_px/y_px below are post-smoothing positions)\n";
-        ts << "timestamp_ms,x_px,y_px,speed_px_s,accel_px_s2\n";
-        for (const auto& sample : series.samples) {
-            ts << (sample.timestampNs - t0) / 1e6 << ","
-               << sample.position.x() << "," << sample.position.y() << ","
-               << (std::isnan(sample.speedPxPerS)
-                       ? QString() : QString::number(sample.speedPxPerS))
-               << ","
-               << (std::isnan(sample.accelPxPerS2)
-                       ? QString() : QString::number(sample.accelPxPerS2))
-               << "\n";
+        ts << "subject,timestamp_ms,x_px,y_px,speed_px_s,accel_px_s2\n";
+        for (int subjectIndex : subjects) {
+            const auto series = compute_kinematics(d->currentResult, keypointIndex,
+                                                    subjectIndex, smoothingWindow);
+            for (const auto& sample : series.samples) {
+                ts << (subjectIndex + 1) << ","
+                   << (sample.timestampNs - t0) / 1e6 << ","
+                   << sample.position.x() << "," << sample.position.y() << ","
+                   << (std::isnan(sample.speedPxPerS)
+                           ? QString() : QString::number(sample.speedPxPerS))
+                   << ","
+                   << (std::isnan(sample.accelPxPerS2)
+                           ? QString() : QString::number(sample.accelPxPerS2))
+                   << "\n";
+            }
         }
     });
 }
@@ -2156,6 +2397,10 @@ void AnalysisTabW::update_transcript_table() {
 
         auto* speakerItem = new QTableWidgetItem(seg.speaker.isEmpty() ? QString("—") : seg.speaker);
         speakerItem->setFlags(speakerItem->flags() & ~Qt::ItemIsEditable);
+        // Colors the text (not the cell background) to match the waveform's
+        // speaker bands and the legend row — a background tint would fight
+        // with QTableWidget's own row-selection highlight.
+        speakerItem->setForeground(QBrush(d->diarizeWaveform->speaker_color(seg.speaker)));
         d->transcriptTable->setItem(i, 2, speakerItem);
 
         auto* textItem = new QTableWidgetItem(seg.text);
@@ -2178,6 +2423,39 @@ void AnalysisTabW::update_transcript_table() {
         ? QString("%1 speaker(s) detected").arg(speakers.size())
         : QString("diarization skipped — transcript only");
     d->transcriptStatsLbl->setText(QString("%1 segment(s)  ·  %2").arg(segments.size()).arg(suffix));
+}
+
+// Rebuilds the small color-swatch legend row from d->diarizeWaveform's own
+// speaker->color assignment (set by the most recent set_speaker_bands()
+// call) so the legend, waveform bands, and transcript table's Speaker
+// column text all agree on the same mapping. Stays empty (no chips) for a
+// transcript-only session with no diarization.
+void AnalysisTabW::rebuild_speaker_legend() {
+    auto* layout = d->speakerLegendRowW->layout();
+    QLayoutItem* item = nullptr;
+    while ((item = layout->takeAt(0)) != nullptr) {
+        if (auto* w = item->widget()) { w->deleteLater(); }
+        delete item;
+    }
+
+    for (const auto& [speaker, color] : d->diarizeWaveform->speaker_legend()) {
+        auto* chip = new QWidget;
+        auto* chipLay = new QHBoxLayout(chip);
+        chipLay->setContentsMargins(0, 0, 0, 0);
+        chipLay->setSpacing(4);
+
+        auto* swatch = new QLabel;
+        swatch->setFixedSize(10, 10);
+        swatch->setStyleSheet(QString("background: %1; border-radius: 3px;").arg(color.name()));
+        chipLay->addWidget(swatch);
+
+        auto* label = new QLabel(speaker);
+        label->setStyleSheet("color:#a0a0c8; font-size:11px;");
+        chipLay->addWidget(label);
+
+        layout->addWidget(chip);
+    }
+    static_cast<QHBoxLayout*>(layout)->addStretch();
 }
 
 void AnalysisTabW::highlight_active_transcript_row(int64_t ms) {

@@ -1,7 +1,9 @@
 #pragma once
+#include <QColor>
 #include <QPair>
 #include <QVector>
 #include <QWidget>
+#include <functional>
 #include <memory>
 
 namespace mosaic {
@@ -78,6 +80,44 @@ public:
     /// Clears static-mode data and returns to live rolling mode.
     void clear_static_envelope();
 
+    /// One speaker's contiguous talking turn, in the same clip-relative
+    /// millisecond timeline as set_static_envelope()'s durationMs. Plain,
+    /// analysis-decoupled struct — the caller (e.g. AnalysisTabW) converts
+    /// from its own TranscriptSegment type; this widget never depends on
+    /// analysis-specific headers. `speaker` == empty string means "no
+    /// speaker attributed" (a gap/unlabeled stretch) and is never drawn as
+    /// a band.
+    struct SpeakerBand {
+        qint64  startMs = 0;
+        qint64  endMs   = 0;
+        QString speaker;
+    };
+
+    /// Static mode only (ignored before set_static_envelope() has been
+    /// called, or after clear_static_envelope()). Colors are assigned
+    /// internally — stable for the lifetime of this call, in order of each
+    /// speaker's first appearance across @p bands — see speaker_color()/
+    /// speaker_legend() for callers that need the same mapping (e.g.
+    /// coloring the transcript table to match). Passing an empty vector
+    /// clears any previously-set bands.
+    void set_speaker_bands(const QVector<SpeakerBand>& bands);
+
+    /// @returns The color assigned to `speaker` by the most recent
+    /// set_speaker_bands() call, or a neutral gray if `speaker` is empty or
+    /// wasn't present in that call.
+    [[nodiscard]] QColor speaker_color(const QString& speaker) const;
+
+    /// @returns The (speaker, color) pairs actually present after the most
+    /// recent set_speaker_bands() call, ordered by first appearance — for
+    /// building a legend row. Never includes the empty/"no speaker" entry.
+    [[nodiscard]] QVector<QPair<QString, QColor>> speaker_legend() const;
+
+    /// Click-to-seek: @p cb is invoked with the clip-relative millisecond
+    /// position under the mouse on click. Active only in static mode —
+    /// seeking a live rolling view has no meaning, so this is a no-op
+    /// there.
+    void set_seek_callback(std::function<void(qint64)> cb);
+
 public slots:
     /// Append one (min, max) envelope pair for @p channelIndex (0-based),
     /// each in the raw, unscaled range [-1, 1] — display gain is applied in
@@ -87,6 +127,7 @@ public slots:
 
 protected:
     void paintEvent(QPaintEvent* event) override;
+    void mousePressEvent(QMouseEvent* event) override;
     QSize sizeHint() const override;
 
 private:
