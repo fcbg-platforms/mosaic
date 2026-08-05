@@ -251,14 +251,15 @@ void AudioWaveformW::paintEvent(QPaintEvent* /*event*/) {
             // Speaker-timing shading: a low-alpha full-height wash per
             // speaker turn (background context, drawn on top of the trace
             // so it tints without hiding it — doesn't compete with the
-            // trace itself for attention) plus a solid top-edge strip (a
-            // crisp "at a glance" timeline, unambiguous even where the
-            // wash is hard to see against a loud passage). Segments with
-            // no attributed speaker (gaps) draw neither — an honest "no
-            // data" representation, not a fabricated color. Two passes so
-            // every strip draws on top of every wash, regardless of band
-            // ordering.
+            // trace itself for attention) plus solid top- and bottom-edge
+            // strips (framing the turn top-and-bottom reads more clearly as
+            // a labeled "band" at a glance than a single thin top sliver).
+            // Segments with no attributed speaker (gaps) draw neither — an
+            // honest "no data" representation, not a fabricated color. Two
+            // passes so every strip draws on top of every wash, regardless
+            // of band ordering.
             if (d->staticDurationMs > 0 && !d->bands.empty()) {
+                static constexpr qreal kBandStripHeight = 9.0;
                 auto bandX = [&](qint64 ms) {
                     return std::clamp<qreal>(
                         static_cast<qreal>(ms) / static_cast<qreal>(d->staticDurationMs),
@@ -270,7 +271,7 @@ void AudioWaveformW::paintEvent(QPaintEvent* /*event*/) {
                     const qreal x1 = bandX(band.endMs);
                     if (x1 <= x0) { continue; }
                     QColor wash = speaker_color(band.speaker);
-                    wash.setAlpha(28);
+                    wash.setAlpha(55);
                     p.fillRect(QRectF(x0, 0, x1 - x0, rc.height()), wash);
                 }
                 for (const auto& band : d->bands) {
@@ -278,7 +279,10 @@ void AudioWaveformW::paintEvent(QPaintEvent* /*event*/) {
                     const qreal x0 = bandX(band.startMs);
                     const qreal x1 = bandX(band.endMs);
                     if (x1 <= x0) { continue; }
-                    p.fillRect(QRectF(x0, 0, x1 - x0, 5), speaker_color(band.speaker));
+                    const QColor strip = speaker_color(band.speaker);
+                    p.fillRect(QRectF(x0, 0, x1 - x0, kBandStripHeight), strip);
+                    p.fillRect(QRectF(x0, rc.height() - kBandStripHeight, x1 - x0, kBandStripHeight),
+                               strip);
                 }
             }
 

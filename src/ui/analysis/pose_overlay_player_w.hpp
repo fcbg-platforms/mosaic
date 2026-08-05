@@ -36,6 +36,12 @@ public:
     // set_pose_result() or set_expression_result() is also called.
     void set_video(const QString& videoPath);
 
+    // Hides/shows just the video-display area, leaving the transport bar
+    // (play/pause, scrubber, time) visible and fully functional — for
+    // plugins whose "video" is actually a .wav file with nothing to render
+    // (Diarization). Playback/seek/position_changed are unaffected.
+    void set_video_surface_visible(bool visible);
+
     // Sets the pose data drawn as a skeleton overlay. Pass a
     // default-constructed (is_valid() == false) result to clear the
     // overlay. Mutually exclusive with set_expression_result() — setting

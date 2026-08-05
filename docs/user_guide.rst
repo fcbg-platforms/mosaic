@@ -150,8 +150,8 @@ sitting alongside **Live**. The workflow is always the same shape:
       .. important::
 
          Diarization needs a **free Hugging Face token** with the terms of
-         use accepted for both ``pyannote/speaker-diarization-3.1`` and
-         ``pyannote/segmentation-3.0`` (generate a token at
+         use accepted for ``pyannote/speaker-diarization-community-1``
+         (generate a token at
          `huggingface.co/settings/tokens
          <https://huggingface.co/settings/tokens>`_). Without a token,
          transcription still runs — every segment just gets an empty
