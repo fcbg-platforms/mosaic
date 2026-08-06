@@ -164,10 +164,9 @@ def transcribe_audio(model, audio_path: Path,
 _GATING_HELP = (
     "pyannote's diarization models are gated on Hugging Face. To use one: "
     "(1) create a free account at https://huggingface.co, (2) accept the "
-    "terms of use for https://huggingface.co/pyannote/speaker-diarization-3.1 "
-    "and https://huggingface.co/pyannote/segmentation-3.0, (3) generate an "
-    "access token at https://huggingface.co/settings/tokens and paste it into "
-    "the Diarization plugin's token field."
+    "terms of use for https://huggingface.co/pyannote/speaker-diarization-community-1, "
+    "(3) generate an access token at https://huggingface.co/settings/tokens and "
+    "paste it into the Diarization plugin's token field."
 )
 
 
@@ -206,8 +205,19 @@ def load_diarization_pipeline(hf_token: str, device: str):
     from pyannote.audio import Pipeline
 
     try:
+        # "community-1" (not the older "speaker-diarization-3.1") — the
+        # pipeline pyannote.audio 4.x itself recommends: better speaker-
+        # assignment/counting accuracy, and avoids a confusing 2-hop gating
+        # chain (this installed pyannote.audio version's own "3.1" wrapper
+        # transitively pulls a community-1 component anyway, which would
+        # otherwise fail with an unrelated-looking GatedRepoError). The auth
+        # kwarg is `token=`, not the older `use_auth_token=` — that name was
+        # removed in pyannote.audio 4.x (confirmed via
+        # inspect.signature(Pipeline.from_pretrained) against the installed
+        # version), so a still-`use_auth_token=`-shaped call throws
+        # TypeError immediately, never reaching the network at all.
         pipeline = Pipeline.from_pretrained(
-            "pyannote/speaker-diarization-3.1", use_auth_token=hf_token)
+            "pyannote/speaker-diarization-community-1", token=hf_token)
     except Exception as exc:  # noqa: BLE001 - re-raised with actionable context below
         raise RuntimeError(
             f"Could not load the pyannote diarization pipeline ({exc}). {_GATING_HELP}"
@@ -215,6 +225,37 @@ def load_diarization_pipeline(hf_token: str, device: str):
 
     pipeline.to(torch.device(device))
     return pipeline
+
+
+def _load_waveform_dict(audio_path: Path) -> dict:
+    """Pre-decodes a WAV file into pyannote's ``{'waveform': (channel,
+    time) torch.Tensor, 'sample_rate': int}`` escape-hatch format.
+
+    pyannote.audio 4.x's own audio-loading path (handing it a raw file
+    path) goes through ``torchcodec``, which is confirmed broken on this
+    machine — its Windows DLLs fail to load against every FFmpeg build it
+    tries (4 through 8), turning into ``RuntimeError: torchcodec is not
+    available`` at diarize time regardless of the pipeline itself loading
+    fine. ``scipy.io.wavfile`` has zero torchcodec/ffmpeg dependency and
+    Mosaic's recordings are always plain PCM WAV (see docs/recording.rst),
+    so pre-decoding ourselves is a safe, always-available bypass rather
+    than a narrow special case — verified directly against a real session
+    recording before landing this.
+    """
+    import numpy as np
+    import torch
+    from scipy.io import wavfile
+
+    sample_rate, samples = wavfile.read(str(audio_path))
+    if samples.ndim == 1:
+        samples = samples[:, None]   # mono -> (time, 1)
+    if np.issubdtype(samples.dtype, np.integer):
+        # e.g. int16 -> 32768.0, matching this project's established PCM
+        # normalization convention (src/audio/audio_envelope.cpp).
+        max_val = float(2 ** (samples.dtype.itemsize * 8 - 1))
+        samples = samples.astype(np.float32) / max_val
+    waveform = torch.from_numpy(np.ascontiguousarray(samples.T.astype(np.float32)))
+    return {"waveform": waveform, "sample_rate": int(sample_rate)}
 
 
 def diarize_audio(pipeline, audio_path: Path,
@@ -235,6 +276,17 @@ def diarize_audio(pipeline, audio_path: Path,
     -------
     list of DiarizationTurn
         One entry per detected speaker turn.
+
+    Notes
+    -----
+    pyannote.audio 4.x's pipeline call now returns a ``DiarizeOutput``
+    dataclass, not the bare ``Annotation`` 3.x returned. Uses
+    ``exclusive_speaker_diarization`` (turns with overlapping speech
+    resolved to a single speaker) rather than ``speaker_diarization``
+    (keeps overlaps) — its own docstring calls this out as "adapted to
+    downstream transcription", exactly this function's use case via
+    :func:`assign_speakers`'s single-best-speaker-per-segment matching,
+    where an overlapping turn would only add ambiguity.
     """
     kwargs = {}
     if min_speakers > 0:
@@ -242,10 +294,10 @@ def diarize_audio(pipeline, audio_path: Path,
     if max_speakers > 0:
         kwargs["max_speakers"] = max_speakers
 
-    diarization = pipeline(str(audio_path), **kwargs)
+    output = pipeline(_load_waveform_dict(audio_path), **kwargs)
 
     turns: list[DiarizationTurn] = []
-    for turn, _, speaker in diarization.itertracks(yield_label=True):
+    for turn, _, speaker in output.exclusive_speaker_diarization.itertracks(yield_label=True):
         turns.append({"start": turn.start, "end": turn.end, "speaker": speaker})
     return turns
 

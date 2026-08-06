@@ -321,6 +321,8 @@ struct PoseOverlayPlayerW::Impl {
     QVideoSink*        sink    = nullptr;
     QLabel*            display = nullptr;
     SkeletonOverlayW*  overlay = nullptr;
+    QWidget*           videoContainer = nullptr;   // hidden via set_video_surface_visible()
+                                                     // for audio-only sources (e.g. Diarization)
 
     QPushButton*       playBtn  = nullptr;
     QSlider*           scrubber = nullptr;
@@ -370,9 +372,9 @@ PoseOverlayPlayerW::PoseOverlayPlayerW(QWidget* parent)
     outer->setContentsMargins(0, 0, 0, 0);
     outer->setSpacing(4);
 
-    auto* videoContainer = new QWidget;
-    videoContainer->setMinimumSize(320, 240);
-    auto* stack = new QStackedLayout(videoContainer);
+    d->videoContainer = new QWidget;
+    d->videoContainer->setMinimumSize(320, 240);
+    auto* stack = new QStackedLayout(d->videoContainer);
     stack->setStackingMode(QStackedLayout::StackAll);
     stack->setContentsMargins(0, 0, 0, 0);
 
@@ -395,7 +397,7 @@ PoseOverlayPlayerW::PoseOverlayPlayerW(QWidget* parent)
     // (that fix was still correct/needed, just not sufficient alone).
     stack->setCurrentWidget(d->overlay);
 
-    outer->addWidget(videoContainer, 1);
+    outer->addWidget(d->videoContainer, 1);
 
     // ── Transport controls ──────────────────────────────────────────────
     auto* transport = new QHBoxLayout;
@@ -522,6 +524,10 @@ void PoseOverlayPlayerW::set_video(const QString& videoPath) {
     d->overlay->clear();
     d->display->clear();   // drop the outgoing video's last frame, not just the overlay
     d->player->setSource(QUrl::fromLocalFile(videoPath));
+}
+
+void PoseOverlayPlayerW::set_video_surface_visible(bool visible) {
+    d->videoContainer->setVisible(visible);
 }
 
 void PoseOverlayPlayerW::set_pose_result(const PoseAnalysisResult& result) {

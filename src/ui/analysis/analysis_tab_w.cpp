@@ -677,6 +677,7 @@ struct AnalysisTabW::Impl {
     QStackedWidget* controlsStack = nullptr;
     QComboBox*   modelCombo   = nullptr;   // pose
     QSpinBox*    skipSpin     = nullptr;   // pose
+    QLabel*      depthModeHintLbl = nullptr;   // pose, shown only for depth models
     QComboBox*   backendCombo = nullptr;   // face_mask
     QComboBox*   styleCombo   = nullptr;   // face_mask
     QSpinBox*    faceSkipSpin = nullptr;   // face_mask
@@ -727,6 +728,8 @@ struct AnalysisTabW::Impl {
                                                           // the 3D room view always shows every track
     PoseOverlayPlayerW*  player       = nullptr;   // shared: video (pose/face_mask/expression),
                                                     // or audio (diarize)
+    QSplitter*           resultsSplitter = nullptr;   // holds player/chart/transcriptTable/
+                                                        // roomView/skeleton3dRoomView/triggerSyncTable
     MetricsChartW*       chart        = nullptr;   // pose + expression
     QPushButton*         openFolderBtn= nullptr;   // face_mask only
 
@@ -1011,9 +1014,11 @@ void AnalysisTabW::build_ui() {
     d->controlsStack = new QStackedWidget;
 
     // ── Pose controls page ──────────────────────────────────────────────
-    auto* posePage = new QWidget;
-    auto* poseLay  = new QHBoxLayout(posePage);
-    poseLay->setContentsMargins(0, 0, 0, 0);
+    auto* posePage     = new QWidget;
+    auto* poseOuterLay = new QVBoxLayout(posePage);
+    poseOuterLay->setContentsMargins(0, 0, 0, 0);
+    auto* poseLay = new QHBoxLayout;
+    poseOuterLay->addLayout(poseLay);
 
     d->modelCombo = new QComboBox;
     for (const auto& [label, value] : pose_model_options()) {
@@ -1043,6 +1048,22 @@ void AnalysisTabW::build_ui() {
         "them. Higher values analyze long recordings faster at the cost "
         "of temporal resolution. Keep at 1 for the most complete result.");
     poseLay->addWidget(d->skipSpin);
+
+    // Depth models are a completely separate output shape (a colorized
+    // depth video, no keypoints/kinematics at all — see is_depth_model()'s
+    // own doc comment). The model combo's tooltip already explains this,
+    // but a tooltip is easy to miss; this persistent hint makes the
+    // limitation, and today's workaround, discoverable without hovering.
+    d->depthModeHintLbl = new QLabel(
+        "Depth models produce a colorized depth video only — no pose "
+        "keypoints/kinematics. Run again with a regular model (e.g. "
+        "YOLOv8n-pose) to also get pose data for this session; both "
+        "outputs are kept in separate pose/ and depth/ folders.");
+    d->depthModeHintLbl->setWordWrap(true);
+    d->depthModeHintLbl->setStyleSheet("color:#7070a0; font-size:11px; font-style:italic;");
+    d->depthModeHintLbl->setVisible(false);   // shown only when a depth model is selected
+    poseOuterLay->addWidget(d->depthModeHintLbl);
+
     d->controlsStack->addWidget(posePage);
 
     // ── Face-mask controls page ─────────────────────────────────────────
@@ -1120,9 +1141,9 @@ void AnalysisTabW::build_ui() {
     d->hfTokenEdit->setToolTip(
         "Required only for speaker diarization (transcription always works without "
         "it). Create a free account at huggingface.co, accept the terms of use for "
-        "pyannote/speaker-diarization-3.1 and pyannote/segmentation-3.0, then "
-        "generate a token at huggingface.co/settings/tokens. Saved to this profile's "
-        "settings so you don't need to re-enter it next time.");
+        "pyannote/speaker-diarization-community-1, then generate a token at "
+        "huggingface.co/settings/tokens. Saved to this profile's settings so you "
+        "don't need to re-enter it next time.");
     connect(d->hfTokenEdit, &QLineEdit::textChanged, this, [this](const QString& text) {
         d->settings.analysis.hfToken = text;
     });
@@ -1412,7 +1433,7 @@ void AnalysisTabW::build_ui() {
     connect(d->micCombo, &QComboBox::currentIndexChanged, this, &AnalysisTabW::select_camera);
 
     d->transcriptStatsLbl = new QLabel;
-    d->transcriptStatsLbl->setStyleSheet("color:#7070a0; font-size:11px;");
+    d->transcriptStatsLbl->setStyleSheet("color:#8888b8; font-size:13px; font-weight:600;");
     micRow->addWidget(d->transcriptStatsLbl, 1);
 
     d->exportTranscriptBtn = new QPushButton("Export CSV");
@@ -1619,7 +1640,8 @@ void AnalysisTabW::build_ui() {
     d->triggerSyncRowW->setVisible(false);   // shown only for the trigger_sync plugin
     rightLay->addWidget(d->triggerSyncRowW);
 
-    auto* resultsSplitter = new QSplitter(Qt::Horizontal);
+    d->resultsSplitter = new QSplitter(Qt::Horizontal);
+    auto*& resultsSplitter = d->resultsSplitter;
     d->player = new PoseOverlayPlayerW;   // reused for audio-only playback in diarize mode too —
     resultsSplitter->addWidget(d->player); // set_video() just calls QMediaPlayer::setSource(),
                                             // which plays a .wav fine with no video frames
@@ -1634,6 +1656,16 @@ void AnalysisTabW::build_ui() {
     d->transcriptTable = new QTableWidget(0, 4);
     d->transcriptTable->setHorizontalHeaderLabels({"Start", "End", "Speaker", "Text"});
     d->transcriptTable->horizontalHeader()->setStretchLastSection(true);
+    d->transcriptTable->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Fixed);
+    d->transcriptTable->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Fixed);
+    d->transcriptTable->horizontalHeader()->setSectionResizeMode(2, QHeaderView::Fixed);
+    d->transcriptTable->setColumnWidth(0, 70);
+    d->transcriptTable->setColumnWidth(1, 70);
+    d->transcriptTable->setColumnWidth(2, 110);
+    d->transcriptTable->setWordWrap(true);
+    d->transcriptTable->setStyleSheet(
+        "QTableWidget { font-size: 13px; } "
+        "QHeaderView::section { font-size: 12px; font-weight: 600; color: #a0a0c8; }");
     d->transcriptTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
     d->transcriptTable->setSelectionBehavior(QAbstractItemView::SelectRows);
     d->transcriptTable->setSelectionMode(QAbstractItemView::SingleSelection);
@@ -1796,6 +1828,7 @@ void AnalysisTabW::select_plugin(int index) {
         if (visible) { anim::fade_in_widget(w, 130); }
     };
     set_visible_animated(d->keypointFieldW, isPoseKeypoints);
+    set_visible_animated(d->depthModeHintLbl, isPose && is_pose_depth_selected());
     set_visible_animated(d->blendshapeFieldW, isExpression);
     set_visible_animated(d->trackFieldW, isPose3D);
     set_visible_animated(d->chart, isPoseKeypoints || isExpression);
@@ -1818,6 +1851,17 @@ void AnalysisTabW::select_plugin(int index) {
     set_visible_animated(d->transcriptTable, isDiarize);
     set_visible_animated(d->diarizeWaveform, isDiarize);
     set_visible_animated(d->speakerLegendRowW, isDiarize);
+
+    // Diarize's "video" is really a .wav — the video-surface area would
+    // otherwise be a wasted black rectangle taking up roughly half the
+    // results view. Collapse it to a slim playback strip (play/pause/
+    // scrub/time only) and let transcriptTable's existing stretch factor
+    // claim the freed width; every other plugin keeps today's unchanged
+    // full-width behavior since both are restored here whenever isDiarize
+    // is false.
+    d->player->set_video_surface_visible(!isDiarize);
+    d->player->setMaximumWidth(isDiarize ? 340 : QWIDGETSIZE_MAX);
+    d->resultsSplitter->setStretchFactor(0, isDiarize ? 0 : 1);
 
     // controlsStack's own crossfade defers reload_current_camera_result()
     // until the new page is actually current (right as the fade-in phase
@@ -2397,16 +2441,36 @@ void AnalysisTabW::update_transcript_table() {
 
         auto* speakerItem = new QTableWidgetItem(seg.speaker.isEmpty() ? QString("—") : seg.speaker);
         speakerItem->setFlags(speakerItem->flags() & ~Qt::ItemIsEditable);
-        // Colors the text (not the cell background) to match the waveform's
-        // speaker bands and the legend row — a background tint would fight
-        // with QTableWidget's own row-selection highlight.
-        speakerItem->setForeground(QBrush(d->diarizeWaveform->speaker_color(seg.speaker)));
+        // Colors the text to match the waveform's speaker bands and the
+        // legend row, and bolds it so speaker identity pops at a glance.
+        const QColor speakerColor = d->diarizeWaveform->speaker_color(seg.speaker);
+        speakerItem->setForeground(QBrush(speakerColor));
+        QFont speakerFont = speakerItem->font();
+        speakerFont.setBold(true);
+        speakerItem->setFont(speakerFont);
         d->transcriptTable->setItem(i, 2, speakerItem);
 
         auto* textItem = new QTableWidgetItem(seg.text);
         textItem->setFlags(textItem->flags() & ~Qt::ItemIsEditable);
         d->transcriptTable->setItem(i, 3, textItem);
+
+        // A low-alpha per-row tint (across all 4 cells) matching the
+        // speaker's own color — subtle enough to not fight QTableWidget's
+        // selection highlight, unlike a full-strength background would.
+        // Rows with no attributed speaker keep the default background (no
+        // fabricated color), matching the waveform's own "gaps draw
+        // neither wash nor strip" discipline.
+        if (!seg.speaker.isEmpty()) {
+            QColor tint = speakerColor;
+            tint.setAlpha(22);
+            const QBrush tintBrush(tint);
+            startItem->setBackground(tintBrush);
+            endItem->setBackground(tintBrush);
+            speakerItem->setBackground(tintBrush);
+            textItem->setBackground(tintBrush);
+        }
     }
+    d->transcriptTable->resizeRowsToContents();
 
     if (!d->currentTranscript.is_valid()) {
         d->transcriptStatsLbl->clear();
@@ -2440,17 +2504,19 @@ void AnalysisTabW::rebuild_speaker_legend() {
 
     for (const auto& [speaker, color] : d->diarizeWaveform->speaker_legend()) {
         auto* chip = new QWidget;
+        chip->setStyleSheet(
+            "background: rgba(255,255,255,12); border-radius: 4px;");
         auto* chipLay = new QHBoxLayout(chip);
-        chipLay->setContentsMargins(0, 0, 0, 0);
-        chipLay->setSpacing(4);
+        chipLay->setContentsMargins(6, 2, 6, 2);
+        chipLay->setSpacing(6);
 
         auto* swatch = new QLabel;
-        swatch->setFixedSize(10, 10);
-        swatch->setStyleSheet(QString("background: %1; border-radius: 3px;").arg(color.name()));
+        swatch->setFixedSize(14, 14);
+        swatch->setStyleSheet(QString("background: %1; border-radius: 4px;").arg(color.name()));
         chipLay->addWidget(swatch);
 
         auto* label = new QLabel(speaker);
-        label->setStyleSheet("color:#a0a0c8; font-size:11px;");
+        label->setStyleSheet("color:#a0a0c8; font-size:12px;");
         chipLay->addWidget(label);
 
         layout->addWidget(chip);
