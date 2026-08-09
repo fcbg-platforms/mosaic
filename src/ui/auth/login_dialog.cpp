@@ -475,7 +475,7 @@ struct LoginDialog::Impl {
     QStackedWidget* stack        = nullptr;
     QWidget*        loginPage    = nullptr;
     QWidget*        registerPage = nullptr;
-    QPushButton*    closeBtn     = nullptr; // floats top-right, parented to the dialog itself
+    QPushButton*    closeBtn     = nullptr; // floats top-left, parented to the dialog itself
                                               // (not the stack) so it stays put across login/
                                               // register and is repositioned in resizeEvent()
 
@@ -801,7 +801,7 @@ void LoginDialog::build_ui() {
 
     d->stack->addWidget(d->registerPage); // index 1
 
-    // Floating close ("✕") button — top-right corner, parented directly to
+    // Floating close ("✕") button — top-left corner, parented directly to
     // the dialog (not the stack/pages) so it stays fixed across login/
     // register and is repositioned in resizeEvent(). The window itself is
     // frameless (no OS titlebar/close button) and Escape is deliberately
@@ -813,8 +813,15 @@ void LoginDialog::build_ui() {
     d->closeBtn->setCursor(Qt::PointingHandCursor);
     d->closeBtn->setToolTip("Close MOSAIC");
     d->closeBtn->setStyleSheet(
+        // padding:0/min-height:0 block the app-wide QPushButton QSS
+        // (ui/style.hpp)'s "padding: 5px 14px; min-height: 22px;" from
+        // leaking through (this rule only overrides the properties it sets
+        // — anything it doesn't set still cascades from the global sheet),
+        // which otherwise stretched this 28x28 button wider than tall
+        // despite setFixedSize(), turning the circle into an oval.
         "QPushButton { background: rgba(255,255,255,12); border: 1px solid #303055;"
-        "  border-radius: 14px; color: #8888aa; font-size: 13px; font-weight: bold; }"
+        "  border-radius: 14px; color: #8888aa; font-size: 13px; font-weight: bold;"
+        "  padding: 0; min-height: 0; min-width: 0; }"
         "QPushButton:hover { background: #cc4444; border-color: #ee6666; color: #ffffff; }"
         "QPushButton:pressed { background: #a83333; }");
     connect(d->closeBtn, &QPushButton::clicked, this, &QDialog::reject);
@@ -1107,7 +1114,7 @@ void LoginDialog::keyPressEvent(QKeyEvent* event) {
 void LoginDialog::resizeEvent(QResizeEvent* event) {
     QDialog::resizeEvent(event);
     if (d->closeBtn) {
-        d->closeBtn->move(width() - d->closeBtn->width() - 14, 14);
+        d->closeBtn->move(14, 14);
         d->closeBtn->raise();
     }
 }

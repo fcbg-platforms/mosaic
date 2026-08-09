@@ -49,7 +49,6 @@ private:
     void build_cameras_section(QVBoxLayout* parent);
     void make_card(int index);          // create a card for cameras[index], no push_back
     void add_camera(CameraParameters params = {}); // push_back + make_card
-    void remove_camera(int index);
     void discover_cameras();            // enumerate Pylon devices, add_camera() for new ones
 
     VideoSettings& m_settings;

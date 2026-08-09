@@ -38,7 +38,6 @@ public:
 
 signals:
     void params_changed();
-    void remove_requested(int index);
 
 private:
     void build_header();

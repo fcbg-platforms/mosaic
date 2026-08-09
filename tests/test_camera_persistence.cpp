@@ -20,8 +20,10 @@ TEST(CameraPersistence, DroppedCameraStaysDroppedAfterSaveAndLoad) {
     CameraParameters cam2; cam2.serialNumber = "333";
     settings.video.cameras = {cam0, cam1, cam2};
 
-    // Same erase() the "-" button on a camera card performs
-    // (VideoSettingsW::remove_camera).
+    // Exercises the same vector::erase() the persistence layer itself relies
+    // on — the GUI no longer offers a way to drop a camera (removed so a
+    // configured rig can't be accidentally shrunk), but a dropped-and-saved
+    // entry should still stay dropped after a reload.
     settings.video.cameras.erase(settings.video.cameras.begin() + 1);
     ASSERT_EQ(settings.video.cameras.size(), 2u);
 
