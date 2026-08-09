@@ -82,6 +82,26 @@ QString write_no_detections_fixture(const QString& dirPath) {
     return path;
 }
 
+// Same schema as kFixtureJson, plus the top-level "model" field added when
+// Pose output was namespaced by model (see AnalysisTabW::slug_for_model()).
+const char* kWithModelFixtureJson = R"JSON(
+{
+  "source_video": "video_0.mp4",
+  "model": "yolov8n-pose.pt",
+  "keypoint_names": ["nose", "left_eye", "right_eye"],
+  "skeleton_edges": [[0, 1], [0, 2]],
+  "frames": []
+}
+)JSON";
+
+QString write_with_model_fixture(const QString& dirPath) {
+    const QString path = dirPath + "/video_0.yolov8n-pose.pose.json";
+    QFile f(path);
+    EXPECT_TRUE(f.open(QIODevice::WriteOnly | QIODevice::Text));
+    f.write(kWithModelFixtureJson);
+    return path;
+}
+
 } // namespace
 
 TEST(PoseAnalysisResult, LoadsValidFileWithFullSchema) {
@@ -169,4 +189,20 @@ TEST(PoseAnalysisResult, HasAnyDetectionsIsFalseWhenNoFrameHasASubject) {
 TEST(PoseAnalysisResult, HasAnyDetectionsIsFalseOnDefaultConstructedResult) {
     const PoseAnalysisResult result;
     EXPECT_FALSE(result.has_any_detections());
+}
+
+TEST(PoseAnalysisResult, ModelIsEmptyForOlderFilesWithNoModelField) {
+    QTemporaryDir dir;
+    ASSERT_TRUE(dir.isValid());
+    const auto result = PoseAnalysisResult::load(write_fixture(dir.path()));
+    ASSERT_TRUE(result.is_valid());
+    EXPECT_TRUE(result.model().isEmpty());
+}
+
+TEST(PoseAnalysisResult, ModelParsesFromTopLevelField) {
+    QTemporaryDir dir;
+    ASSERT_TRUE(dir.isValid());
+    const auto result = PoseAnalysisResult::load(write_with_model_fixture(dir.path()));
+    ASSERT_TRUE(result.is_valid());
+    EXPECT_EQ(result.model(), "yolov8n-pose.pt");
 }

@@ -21,6 +21,7 @@ PoseAnalysisResult PoseAnalysisResult::load(const QString& jsonPath) {
     }
 
     result.sourceVideo_ = root["source_video"].toString();
+    result.model_       = root["model"].toString();   // absent -> "" (older files)
 
     for (const auto& kp : root["keypoint_names"].toArray()) {
         result.keypointNames_ << kp.toString();

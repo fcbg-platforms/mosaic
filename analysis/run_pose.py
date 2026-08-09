@@ -85,7 +85,7 @@ def _camera_index_from_filename(video_path: Path) -> int:
         return 0
     return int(m.group(1))
 
-def process_session(session_dir: Path, estimator: HumanPoseEstimator,
+def process_session(session_dir: Path, estimator: HumanPoseEstimator, model_name: str,
                     skip: int = 1, out_format: str = "json") -> None:
     videos = sorted((session_dir / "video").glob("*.mp4"))
     if not videos:
@@ -108,10 +108,10 @@ def process_session(session_dir: Path, estimator: HumanPoseEstimator,
         # (which can have gaps) — the progress bar cares about "how many of
         # the M videos in this run have we processed," not the raw index.
         print(f"[run_pose] Camera {position}/{len(videos)}: {video_path.name}", flush=True)
-        process_video(video_path, estimator, skip=skip, out_format=out_format,
+        process_video(video_path, estimator, model_name, skip=skip, out_format=out_format,
                       camera_index=camera_index, output_dir=pose_dir)
 
-def process_video(video_path: Path, estimator: HumanPoseEstimator,
+def process_video(video_path: Path, estimator: HumanPoseEstimator, model_name: str,
                   skip: int = 1, out_format: str = "json",
                   camera_index: int = 0,
                   output_dir: Optional[Path] = None) -> None:
@@ -178,23 +178,34 @@ def process_video(video_path: Path, estimator: HumanPoseEstimator,
     print(f"[run_pose] Done. {frame_idx} frames in {elapsed:.1f}s "
           f"({frame_idx/elapsed:.1f} fps throughput)", flush=True)
 
-    _write_results(video_path, results, out_format, output_dir)
+    _write_results(video_path, results, out_format, model_name, output_dir)
 
-def _write_results(video_path: Path, results: list[dict], out_format: str,
+def _write_results(video_path: Path, results: list[dict], out_format: str, model_name: str,
                     output_dir: Optional[Path] = None) -> None:
     # output_dir is only given by process_session() (real session-folder
     # runs) — the standalone `--video FILE` CLI mode has no session/pose-
     # folder concept to hang a subfolder off of, so it keeps writing beside
     # the source video, exactly as before.
+    #
+    # base_name is namespaced by which model produced it (e.g.
+    # "video_0.yolov8n-pose") so a second model run against the same video
+    # no longer silently overwrites the first — mirrors AnalysisTabW::
+    # slug_for_model() exactly (strip the trailing ".pt"). Deliberately NOT
+    # built via Path.with_suffix() below: that method only understands a
+    # single trailing dot-segment as "the suffix" — once base_name itself
+    # contains a dot (from the model slug), with_suffix(".pose.json") would
+    # silently eat the slug back off instead of appending. Every branch
+    # below builds its full filename as a plain string instead.
+    model_slug = re.sub(r"\.pt$", "", model_name)
+    base_name = f"{video_path.stem}.{model_slug}"
+    out_dir = output_dir if output_dir is not None else video_path.parent
     if output_dir is not None:
         output_dir.mkdir(parents=True, exist_ok=True)
-        base = output_dir / video_path.stem
-    else:
-        base = video_path.with_suffix("")
     if out_format == "json":
-        out_path = base.with_suffix(".pose.json")
+        out_path = out_dir / f"{base_name}.pose.json"
         out_path.write_text(json.dumps({
             "source_video": video_path.name,
+            "model": model_name,
             "keypoint_names": COCO_KEYPOINTS,
             "skeleton_edges": COCO_SKELETON,
             "frames": results,
@@ -203,7 +214,7 @@ def _write_results(video_path: Path, results: list[dict], out_format: str,
 
     elif out_format == "csv":
         import csv as csv_mod
-        out_path = base.with_suffix(".pose.csv")
+        out_path = out_dir / f"{base_name}.pose.csv"
         with out_path.open("w", newline="") as f:
             writer = csv_mod.writer(f)
             kp_headers = [f"{kp}_x,{kp}_y,{kp}_vis".split(",") for kp in COCO_KEYPOINTS]
@@ -222,7 +233,7 @@ def _write_results(video_path: Path, results: list[dict], out_format: str,
 
     elif out_format == "hdf5":
         import h5py
-        out_path = base.with_suffix(".pose.h5")
+        out_path = out_dir / f"{base_name}.pose.h5"
         with h5py.File(out_path, "w") as hf:
             hf.attrs["source_video"]    = video_path.name
             hf.attrs["keypoint_names"]  = COCO_KEYPOINTS
@@ -241,7 +252,8 @@ def _write_results(video_path: Path, results: list[dict], out_format: str,
 # subfolder" pattern (here: depth/ instead of anonymized/) rather than
 # writing a JSON sidecar, since there's no keypoint/skeleton data to record.
 
-def process_session_depth(session_dir: Path, estimator: DepthEstimator, skip: int = 1) -> None:
+def process_session_depth(session_dir: Path, estimator: DepthEstimator, model_name: str,
+                           skip: int = 1) -> None:
     videos = sorted((session_dir / "video").glob("*.mp4"))
     if not videos:
         print(f"[run_pose] No .mp4 files found in {session_dir / 'video'}", file=sys.stderr)
@@ -254,9 +266,9 @@ def process_session_depth(session_dir: Path, estimator: DepthEstimator, skip: in
         # prints above — AnalysisTabW's camera-progress bar regex matches
         # any "[run_X] Camera N/M:" line, not just this specific call site.
         print(f"[run_pose] Camera {position}/{len(videos)}: {video_path.name}", flush=True)
-        process_video_depth(video_path, estimator, skip=skip, output_dir=depth_dir)
+        process_video_depth(video_path, estimator, model_name, skip=skip, output_dir=depth_dir)
 
-def process_video_depth(video_path: Path, estimator: DepthEstimator,
+def process_video_depth(video_path: Path, estimator: DepthEstimator, model_name: str,
                          skip: int = 1, output_dir: Optional[Path] = None) -> None:
     cap = cv2.VideoCapture(str(video_path))
     if not cap.isOpened():
@@ -271,7 +283,11 @@ def process_video_depth(video_path: Path, estimator: DepthEstimator,
 
     output_dir = output_dir or video_path.parent
     output_dir.mkdir(parents=True, exist_ok=True)
-    out_path = output_dir / video_path.name
+    # Namespaced by which depth model produced it — mirrors _write_results()'s
+    # keypoint-path treatment above, since the 3 depth variants (n/s/m)
+    # shared the identical silent-overwrite gap.
+    model_slug = re.sub(r"\.pt$", "", model_name)
+    out_path = output_dir / f"{video_path.stem}.{model_slug}{video_path.suffix}"
 
     writer = _open_video_writer(out_path, fps, (width, height))
     if writer is None:
@@ -403,7 +419,8 @@ def main() -> None:
     if "depth" in args.model:
         depth_estimator = DepthEstimator(model_name=args.model, device=args.device)
         if args.session:
-            process_session_depth(Path(args.session), depth_estimator, skip=args.skip)
+            process_session_depth(Path(args.session), depth_estimator, args.model,
+                                   skip=args.skip)
         elif args.video:
             video_path = Path(args.video)
             # Same "write beside the session's video/ folder, into a sibling
@@ -412,7 +429,7 @@ def main() -> None:
             # lookup finds it either way this script was invoked.
             session_root = (video_path.parent.parent if video_path.parent.name == "video"
                              else video_path.parent)
-            process_video_depth(video_path, depth_estimator, skip=args.skip,
+            process_video_depth(video_path, depth_estimator, args.model, skip=args.skip,
                                  output_dir=session_root / "depth")
         elif args.pipe:
             print("[run_pose] --pipe mode is not supported for depth models",
@@ -429,7 +446,7 @@ def main() -> None:
     if args.pipe:
         run_pipe(estimator)
     elif args.session:
-        process_session(Path(args.session), estimator,
+        process_session(Path(args.session), estimator, args.model,
                         skip=args.skip, out_format=args.out_format)
     elif args.video:
         video_path = Path(args.video)
@@ -438,7 +455,7 @@ def main() -> None:
         # timestamp CSV (if one happened to exist alongside a *different*
         # camera's video) instead of the correct one, or the correct one
         # not at all.
-        process_video(video_path, estimator, skip=args.skip,
+        process_video(video_path, estimator, args.model, skip=args.skip,
                       out_format=args.out_format,
                       camera_index=_camera_index_from_filename(video_path))
 

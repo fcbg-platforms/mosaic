@@ -181,19 +181,6 @@ void CameraCardW::build_header() {
     m_statusDot = dot;
     lay->addWidget(dot);
 
-    // Delete button
-    auto* delBtn = new QToolButton;
-    delBtn->setText("✕");
-    delBtn->setStyleSheet(R"(
-        QToolButton { background: transparent; border: none; color: #555575;
-                      font-size: 13px; padding: 2px 4px; }
-        QToolButton:hover { color: #cc4444; }
-    )");
-    delBtn->setCursor(Qt::PointingHandCursor);
-    connect(delBtn, &QToolButton::clicked, this, [this]{
-        emit remove_requested(m_index);
-    });
-    lay->addWidget(delBtn);
 }
 
 // ── Body ───────────────────────────────────────────────────────────────────

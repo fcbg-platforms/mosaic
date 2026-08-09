@@ -313,7 +313,6 @@ void VideoSettingsW::make_card(int index) {
     connect(card, &CameraCardW::params_changed,   this, [this, index]{
         emit camera_params_changed(index);
     });
-    connect(card, &CameraCardW::remove_requested, this, &VideoSettingsW::remove_camera);
     d->camerasLayout->addWidget(card);
     d->cards.append(card);
 }
@@ -330,35 +329,6 @@ void VideoSettingsW::add_camera(CameraParameters params) {
     }
     m_settings.cameras.push_back(std::move(params));
     make_card(static_cast<int>(m_settings.cameras.size()) - 1);
-    emit settings_changed();
-    emit cameras_list_changed();
-}
-
-void VideoSettingsW::remove_camera(int index) {
-    if (index < 0 || index >= d->cards.size()) return;
-
-    // The card at `index` emitted remove_requested, which called us via a
-    // DirectConnection — it is still on the call stack.  Deleting it now would
-    // destroy the object mid-signal-emission and crash.  Use deleteLater() so
-    // Qt defers the destruction until after the call stack unwinds.
-    d->camerasLayout->removeWidget(d->cards[index]);
-    d->cards[index]->deleteLater();
-
-    // Cards AFTER `index` are not on the call stack, but their CameraParameters&
-    // refs become stale after the vector erase below.  Delete them immediately
-    // so no queued paint/update event can dereference the dangling refs.
-    for (int i = d->cards.size() - 1; i > index; --i) {
-        d->camerasLayout->removeWidget(d->cards[i]);
-        delete d->cards[i];
-    }
-    d->cards.resize(index);
-
-    m_settings.cameras.erase(m_settings.cameras.begin() + index);
-
-    // Recreate cards for every camera that follows the removed slot.
-    for (int i = index; i < static_cast<int>(m_settings.cameras.size()); ++i)
-        make_card(i);
-
     emit settings_changed();
     emit cameras_list_changed();
 }

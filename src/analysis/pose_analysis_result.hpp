@@ -69,6 +69,11 @@ public:
     }
 
     [[nodiscard]] const QString& source_video() const { return sourceVideo_; }
+    // The model id that produced this result (e.g. "yolov8n-pose.pt"), from
+    // the JSON's top-level "model" field — empty for files written before
+    // this field existed (older, un-namespaced .pose.json files still load
+    // fine, they just report no model).
+    [[nodiscard]] const QString& model() const { return model_; }
     [[nodiscard]] const QStringList& keypoint_names() const { return keypointNames_; }
     [[nodiscard]] const QVector<QPair<int, int>>& skeleton_edges() const { return skeletonEdges_; }
     [[nodiscard]] const QVector<PoseFrame>& frames() const { return frames_; }
@@ -82,6 +87,7 @@ public:
 private:
     bool                     valid_ = false;
     QString                  sourceVideo_;
+    QString                  model_;
     QStringList              keypointNames_;
     QVector<QPair<int, int>> skeletonEdges_;
     QVector<PoseFrame>       frames_;

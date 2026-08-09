@@ -117,13 +117,20 @@ def main() -> None:
     frames_by_camera: dict[int, list[_AnalysedFrame]] = {}
     for idx, info in cameras.items():
         # Pose's own sidecar output moved to a dedicated session_dir/pose/
-        # subfolder (see AnalysisTabW::pose_json_path_for()) — build the
-        # same path here instead of assuming the sidecar sits beside the
-        # video with only its suffix swapped (stale: that was only ever
-        # true before the pose/ subfolder migration).
-        pose_json = session_dir / "pose" / f"{Path(info['video_file']).stem}.pose.json"
-        if not pose_json.exists():
+        # subfolder (see AnalysisTabW::pose_json_path_for()) and is now
+        # namespaced by which model produced it (e.g.
+        # "video_0.yolov8n-pose.pose.json") so running a second model
+        # against the same session no longer clobbers the first — 3D
+        # reconstruction doesn't care which model was used, just that some
+        # pose data exists per camera, so glob for any match and take the
+        # most recently written one rather than assuming a fixed bare
+        # filename (which the C++ side no longer ever writes).
+        stem = Path(info["video_file"]).stem
+        candidates = sorted((session_dir / "pose").glob(f"{stem}.*.pose.json"),
+                             key=lambda p: p.stat().st_mtime)
+        if not candidates:
             continue
+        pose_json = candidates[-1]
         frames_by_camera[idx] = _load_pose_json(pose_json, session_dir / info["video_file"], idx)
 
     n_with_pose = sum(1 for v in frames_by_camera.values() if v)

@@ -25,6 +25,7 @@
 #include <QCursor>
 #include <QDesktopServices>
 #include <QDoubleSpinBox>
+#include <QDir>
 #include <QFile>
 #include <QFileDialog>
 #include <QFileInfo>
@@ -212,6 +213,14 @@ public:
         chart->legend()->setAlignment(Qt::AlignBottom);
         chart->legend()->setBackgroundVisible(false);
         chart->legend()->setLabelColor(QColor("#a0a0c8"));
+        // MarkerShapeDefault (the implicit default) renders every legend
+        // swatch as a plain solid-color rectangle, regardless of the
+        // series' own QPen — so same-color solid/dashed X/Y series (see
+        // set_multi_subject_position()) were indistinguishable by anything
+        // but their text label. MarkerShapeFromSeries draws each swatch as
+        // a short line segment using that series' real pen, dash pattern
+        // included.
+        chart->legend()->setMarkerShape(QLegend::MarkerShapeFromSeries);
         QFont legendFont;
         legendFont.setPointSize(10);
         chart->legend()->setFont(legendFont);
@@ -333,6 +342,14 @@ public:
         clear_subject_series();
         axisY_->setTitleText("Position (px)");
         set_series_marker_visible(valueSeries_, false);
+        // xSeries_/ySeries_ are legacy, no-longer-populated series kept only
+        // as a stable target for the cross-clearing/marker-hiding calls in
+        // set_multi_subject_series()/set_single_series() — hidden here too
+        // so their generic "X position"/"Y position" legend entries don't
+        // show alongside the real per-subject "Subject N · X/Y" ones (this
+        // method runs first, since Position is metricCombo's default).
+        set_series_marker_visible(xSeries_, false);
+        set_series_marker_visible(ySeries_, false);
 
         if (!result.is_valid() || result.frames().isEmpty() || keypointIndex < 0
             || subjectIndices.isEmpty()) {
@@ -1536,10 +1553,12 @@ void AnalysisTabW::build_ui() {
 
     d->exportKinematicsBtn = new QPushButton("Export CSV");
     d->exportKinematicsBtn->setToolTip(
-        "Exports timestamp/position/speed/acceleration for the current "
-        "keypoint and every currently-selected subject, in raw pixel units, "
-        "ignoring the Scale spinbox above — includes the subject-identity "
-        "and smoothing caveats as a comment header in the file.");
+        "Exports timestamp/position/speed/acceleration for EVERY keypoint "
+        "(not just the one currently shown in the chart), every "
+        "currently-selected subject, and every camera analyzed with the "
+        "currently-selected model — into one CSV under this session's "
+        "kinematics/ folder, in raw pixel units, ignoring the Scale "
+        "spinbox above.");
     connect(d->exportKinematicsBtn, &QPushButton::clicked, this,
             &AnalysisTabW::export_kinematics_csv);
     kinematicsRow->addWidget(d->exportKinematicsBtn);
@@ -1888,14 +1907,29 @@ void AnalysisTabW::on_pose_model_changed() {
 
 // ── Analysis lifecycle ───────────────────────────────────────────────────
 
+QString AnalysisTabW::slug_for_model(const QString& modelId) const {
+    // Strips just the trailing ".pt" (e.g. "yolov8n-pose.pt" -> "yolov8n-pose",
+    // "yolo26n-depth.pt" -> "yolo26n-depth") — every current pose_model_options()/
+    // pose_depth_model_options() entry is already filename-safe once that's
+    // gone, so no further sanitization is needed.
+    return QFileInfo(modelId).completeBaseName();
+}
+
 QString AnalysisTabW::pose_json_path_for(const QString& videoRelPath) const {
     // Own subfolder, not a sidecar beside the video (unlike transcript
     // below) — see analysis/run_pose.py::process_session()'s matching
-    // pose_dir. Forward-only: sessions analyzed before this change have
-    // their .pose.json under video/ instead and won't be found here until
-    // re-run, matching this project's established no-migration convention
-    // for directory-layout changes (item 13).
-    return "pose/" + QFileInfo(videoRelPath).completeBaseName() + ".pose.json";
+    // pose_dir. Filename is namespaced by the currently-selected model
+    // (see slug_for_model()) so running a second model against the same
+    // session no longer silently overwrites the first — this also means
+    // switching modelCombo doubles as "which saved result to view" for an
+    // already-analyzed session, since on_pose_model_changed() already
+    // triggers a reload on every combo change. Forward-only: sessions
+    // analyzed before this change have their un-suffixed .pose.json under
+    // video/ or pose/ instead and won't be found here until re-run,
+    // matching this project's established no-migration convention for
+    // directory/filename-layout changes (item 13).
+    return "pose/" + QFileInfo(videoRelPath).completeBaseName() + "."
+           + slug_for_model(d->modelCombo->currentData().toString()) + ".pose.json";
 }
 
 QString AnalysisTabW::anonymized_video_path_for(const QString& videoRelPath) const {
@@ -1905,7 +1939,12 @@ QString AnalysisTabW::anonymized_video_path_for(const QString& videoRelPath) con
 QString AnalysisTabW::depth_video_path_for(const QString& videoRelPath) const {
     // Mirrors anonymized_video_path_for()'s own-subfolder convention — see
     // analysis/run_pose.py::process_session_depth()'s matching depth_dir.
-    return "depth/" + QFileInfo(videoRelPath).fileName();
+    // Model-namespaced for the same reason/with the same forward-only
+    // caveat as pose_json_path_for() above — the 3 depth variants (n/s/m)
+    // shared the identical silent-overwrite gap.
+    const QFileInfo info(videoRelPath);
+    return "depth/" + info.completeBaseName() + "."
+           + slug_for_model(d->modelCombo->currentData().toString()) + "." + info.suffix();
 }
 
 QString AnalysisTabW::transcript_json_path_for(const QString& audioRelPath) const {
@@ -2192,7 +2231,23 @@ void AnalysisTabW::reload_current_camera_result() {
         // valid result with zero detections is different: that's more
         // useful information than "Done." on its own, so it does overwrite.
         if (!d->currentResult.is_valid()) {
-            d->statusLbl->setText("No analysis yet for this camera — click Run.");
+            // pose_json_path_for() is model-namespaced, so "invalid" here
+            // means either "never analyzed at all" or "analyzed with a
+            // different model" — check the pose/ folder for any OTHER
+            // model's result for this same video to tell those apart, since
+            // the second case has a clearer fix (switch models above)
+            // rather than implying nothing has been done for this camera.
+            const QDir poseDir(info->path + "/pose");
+            const QString stem = QFileInfo(videoRel).completeBaseName();
+            const bool otherModelExists =
+                !poseDir.entryList({stem + ".*.pose.json"}, QDir::Files).isEmpty();
+            if (otherModelExists) {
+                d->statusLbl->setText("This camera hasn't been analyzed with the selected "
+                                       "model yet — click Run, or pick a model above that's "
+                                       "already been run for this session.");
+            } else {
+                d->statusLbl->setText("No analysis yet for this camera — click Run.");
+            }
             d->statusLbl->setStyleSheet("color:#6060a0; font-size:15px; font-weight:600;");
         } else if (!d->currentResult.has_any_detections()) {
             d->statusLbl->setText("Pose ran, but no person was detected in this camera's "
@@ -2376,46 +2431,83 @@ void AnalysisTabW::update_kinematics_chart() {
 
 void AnalysisTabW::export_kinematics_csv() {
     const auto* info = d->current_session();
-    const int keypointIndex = d->keypointCombo->currentIndex();
-    if (!info || keypointIndex < 0 || !d->currentResult.is_valid()) { return; }
+    if (!info) { return; }
 
-    const QString keypointName = d->keypointCombo->currentText();
-    const QString cameraLabel  = d->cameraCombo->currentText();
-    const QString suggested = info->path + "/" + cameraLabel + "_" + keypointName
-        + "_kinematics.csv";
+    const QString modelId   = d->modelCombo->currentData().toString();
+    const QString modelSlug = slug_for_model(modelId);
+    // Own subfolder (mirrors pose/, depth/, expression/, anonymized/) — one
+    // file per model, covering every keypoint and every camera, rather
+    // than requiring one export click per keypoint currently selected in
+    // the chart. QFile::open() doesn't create missing parent directories,
+    // so this folder is created up front, same as every Python-side output
+    // folder already does via mkdir(parents=True).
+    QDir(info->path).mkpath("kinematics");
+    const QString suggested = info->path + "/kinematics/" + modelSlug + ".csv";
 
     // Always raw pixel units, regardless of the display-layer mm/px scale —
     // unambiguous for anyone reading the file without knowing what scale
     // was selected in the UI at export time.
     const int smoothingWindow = d->smoothingSpin->value();
-    const int64_t t0 = d->first_timestamp_ns();
     const QVector<int> subjects = checked_subject_indices();
 
+    // Load every camera's own result for the currently-selected model
+    // (pose_json_path_for() is model-aware) up front — both to skip
+    // cameras with nothing to export, and to compute one SHARED t0 (the
+    // earliest first-frame timestamp across all of them) rather than each
+    // camera resetting to its own zero. All cameras in a session already
+    // share one process-wide clock origin (elapsed_ns()), so a shared t0
+    // keeps the exported timestamp_ms values directly comparable across
+    // cameras instead of each column restarting at its own camera's start.
+    struct CameraResult { QString label; PoseAnalysisResult result; };
+    QVector<CameraResult> perCamera;
+    int64_t t0 = std::numeric_limits<int64_t>::max();
+    for (int camIdx = 0; camIdx < info->videoFiles.size(); ++camIdx) {
+        const QString poseAbs = info->path + "/" + pose_json_path_for(info->videoFiles[camIdx]);
+        auto result = PoseAnalysisResult::load(poseAbs);
+        if (!result.is_valid() || result.frames().isEmpty()) { continue; }
+        t0 = std::min(t0, result.frames().first().timestampNs);
+        perCamera.push_back({QString("Camera %1").arg(camIdx), std::move(result)});
+    }
+    if (perCamera.isEmpty()) { return; }
+
     export_csv(this, "Export Kinematics", suggested, [&](QTextStream& ts) {
-        // Both caveats below matter to anyone reading this file without
-        // having seen the app: subject numbers are per-frame detection
-        // order, not identity tracked frame-to-frame by the Pose detector
-        // (a stat like max speed can be corrupted by an identity swap in a
-        // multi-subject session), and x_px/y_px are post-smoothing, not the
-        // raw detector output.
+        // Caveats below matter to anyone reading this file without having
+        // seen the app: subject numbers are per-frame detection order, not
+        // identity tracked frame-to-frame OR across cameras (a stat like
+        // max speed can be corrupted by an identity swap in a multi-subject
+        // session, and "subject 0" in one camera is not necessarily the
+        // same physical person as "subject 0" in another), and x_px/y_px
+        // are post-smoothing, not the raw detector output.
         ts << "# subject numbers are per-frame detection order, not tracked identity "
-              "across frames — see the in-app tooltip on the Subject chips\n";
+              "across frames or cameras — see the in-app tooltip on the Subject chips\n";
+        ts << "# model: " << modelId << "\n";
         ts << "# smoothing_window=" << smoothingWindow
            << " (x_px/y_px below are post-smoothing positions)\n";
-        ts << "subject,timestamp_ms,x_px,y_px,speed_px_s,accel_px_s2\n";
-        for (int subjectIndex : subjects) {
-            const auto series = compute_kinematics(d->currentResult, keypointIndex,
-                                                    subjectIndex, smoothingWindow);
-            for (const auto& sample : series.samples) {
-                ts << (subjectIndex + 1) << ","
-                   << (sample.timestampNs - t0) / 1e6 << ","
-                   << sample.position.x() << "," << sample.position.y() << ","
-                   << (std::isnan(sample.speedPxPerS)
-                           ? QString() : QString::number(sample.speedPxPerS))
-                   << ","
-                   << (std::isnan(sample.accelPxPerS2)
-                           ? QString() : QString::number(sample.accelPxPerS2))
-                   << "\n";
+        ts << "camera,keypoint,subject,timestamp_ms,x_px,y_px,speed_px_s,accel_px_s2\n";
+        for (const auto& cam : perCamera) {
+            // Every keypoint the model reports (e.g. all 17 COCO keypoints),
+            // not just whichever one happens to be selected in the chart —
+            // each camera's own result is the source of truth for its
+            // keypoint list/order, not the (single, currently-displayed
+            // camera's) keypointCombo.
+            const QStringList& keypointNames = cam.result.keypoint_names();
+            for (int keypointIndex = 0; keypointIndex < keypointNames.size(); ++keypointIndex) {
+                for (int subjectIndex : subjects) {
+                    const auto series = compute_kinematics(cam.result, keypointIndex,
+                                                            subjectIndex, smoothingWindow);
+                    for (const auto& sample : series.samples) {
+                        ts << cam.label << "," << keypointNames[keypointIndex] << ","
+                           << (subjectIndex + 1) << ","
+                           << (sample.timestampNs - t0) / 1e6 << ","
+                           << sample.position.x() << "," << sample.position.y() << ","
+                           << (std::isnan(sample.speedPxPerS)
+                                   ? QString() : QString::number(sample.speedPxPerS))
+                           << ","
+                           << (std::isnan(sample.accelPxPerS2)
+                                   ? QString() : QString::number(sample.accelPxPerS2))
+                           << "\n";
+                    }
+                }
             }
         }
     });
