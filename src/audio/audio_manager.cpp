@@ -43,6 +43,9 @@ void AudioManager::start_monitoring(const std::vector<MicrophoneParameters>& mic
         connect(rec.get(), &AudioRecorder::envelope_changed, this,
                 [this, i](float lo, float hi) { emit envelope_changed(i, lo, hi); },
                 Qt::QueuedConnection);
+        connect(rec.get(), &AudioRecorder::raw_pcm_ready, this,
+                [this, i](QByteArray pcm, int sr, int ch) { emit raw_pcm_ready(i, pcm, sr, ch); },
+                Qt::QueuedConnection);
         if (!rec->start("")) {  // monitor-only mode
             log_warning(QString("[AudioManager] Monitor recorder %1 failed to start.").arg(i));
         }
@@ -86,6 +89,10 @@ void AudioManager::start(const QString& sessionDir,
 
         connect(rec.get(), &AudioRecorder::envelope_changed, this,
                 [this, i](float lo, float hi) { emit envelope_changed(i, lo, hi); },
+                Qt::QueuedConnection);
+
+        connect(rec.get(), &AudioRecorder::raw_pcm_ready, this,
+                [this, i](QByteArray pcm, int sr, int ch) { emit raw_pcm_ready(i, pcm, sr, ch); },
                 Qt::QueuedConnection);
 
         connect(rec.get(), &AudioRecorder::error_occurred, this,

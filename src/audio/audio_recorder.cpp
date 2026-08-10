@@ -102,6 +102,8 @@ bool AudioRecorder::start(const QString& filePath) {
         }
     }
     m_captureFormat = fmt.sampleFormat();
+    m_sampleRate    = fmt.sampleRate();
+    m_channels      = fmt.channelCount();
 
     // 2. Open WAV file now that the real capture format is known — still
     //    fails early before touching hardware (QAudioSource isn't created
@@ -171,6 +173,8 @@ void AudioRecorder::on_data_ready() {
 
     if (!m_monitorOnly)
         m_writer.write(data.constData(), data.size());
+
+    emit raw_pcm_ready(data, m_sampleRate, m_channels);
 
     const float rms = compute_rms(data.constData(), data.size());
     m_level.store(rms, std::memory_order_relaxed);
