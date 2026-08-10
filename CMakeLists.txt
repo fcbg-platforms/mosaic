@@ -40,7 +40,7 @@ option(MOSAIC_ENABLE_CAMERAS       "Build Basler Pylon camera support"         O
 option(MOSAIC_ENABLE_FFMPEG        "Build FFmpeg video encoding"               OFF)
 option(MOSAIC_ENABLE_NVENC         "Build NVIDIA NVENC GPU encoder (implies FFmpeg)" OFF)
 option(MOSAIC_ENABLE_PARALLEL_PORT "Build InpOut32 parallel port trigger"      OFF)
-option(MOSAIC_ENABLE_OPENCV        "Build OpenCV calibration"                  OFF)
+option(MOSAIC_ENABLE_OPENCV        "Build OpenCV calibration"                  ON)
 
 list(INSERT CMAKE_MODULE_PATH 0 "${CMAKE_SOURCE_DIR}/cmake")
 

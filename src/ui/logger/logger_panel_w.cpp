@@ -29,7 +29,11 @@ struct LoggerPanelW::Impl {
     QCheckBox*  autoScroll  = nullptr;
     int         maxLines    = 3000;
     int         lineCount   = 0;
-    int         minLevel    = static_cast<int>(LogLevel::Trace);
+    // Defaults to Warning, not Trace — routine INFO-level activity (e.g.
+    // the Calibration tab's per-frame feed/detection logging) otherwise
+    // floods this panel during normal use. Still fully adjustable via the
+    // Show combo below, which stays in sync with this default.
+    int         minLevel    = static_cast<int>(LogLevel::Warning);
 };
 
 LoggerPanelW::LoggerPanelW(QWidget* parent)
@@ -74,7 +78,7 @@ void LoggerPanelW::build_toolbar(QVBoxLayout* parent) {
 
     d->levelFilter = new QComboBox;
     for (const auto* lbl : k_level_labels) { d->levelFilter->addItem(lbl); }
-    d->levelFilter->setCurrentIndex(static_cast<int>(LogLevel::Trace));
+    d->levelFilter->setCurrentIndex(static_cast<int>(LogLevel::Warning));
     d->levelFilter->setFixedWidth(90);
     connect(d->levelFilter, qOverload<int>(&QComboBox::currentIndexChanged),
             this, [this](int idx) { d->minLevel = idx; });

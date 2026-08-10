@@ -258,6 +258,41 @@ unsupported by this camera generation's firmware (no ``GevIEEE1588`` node)
 — Action Command triggering is the ceiling on this hardware, not an interim
 step toward something tighter.
 
+Occasional missed frames are normal — telling jitter from a real problem
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Even with Action Command triggering active and every camera healthy, a
+long recording will very occasionally miss an isolated trigger — one
+camera skips a single frame (or a handful in a row) and picks the very
+next one up cleanly. On a real 30-minute, 5-camera room-11 session this
+showed up as 0–11 gaps of a few hundred milliseconds per camera out of
+23,000+ frames each (well under 0.05% of intervals), with every camera's
+total frame count within 0.3% of the others. **This is expected background
+jitter on any GigE Vision network — a brief switch/NIC hiccup that
+self-corrects on the next trigger — not a bug, and not something to chase.**
+
+A *real* problem looks nothing like that, and is easy to tell apart in
+``mosaic.log``:
+
+- ``[VideoManager] Camera N: <ticks> action-command ticks fired so far but
+  only <captured> frames captured (<missing> missing) — this camera is
+  likely missing trigger broadcasts, not just corrupted frames.`` —
+  recurring every ~5s for the same camera, not a one-off.
+- ``[Camera N] <count> incomplete frame(s) in last 5 s (GigE packet loss —
+  check NIC jumbo frames and switch bandwidth)`` — also recurring every ~5s.
+
+Either warning showing up **repeatedly, for the same camera, session after
+session** points to a real physical fault on that camera's link (cable,
+connector, or NIC port) — confirmed on room 11's own hardware: one camera
+on a marginal link lost 15–85% of its frames with these exact warnings
+firing continuously, while the other 5 cameras on healthy links stayed
+within a fraction of a percent of each other. The fix in that case is
+physical (reseat, then swap the cable/connector if reseating doesn't
+hold), not a settings or code change. To check a session after the fact,
+compare each camera's ``timestamps_camN.csv`` line count against the
+others — healthy cameras land within roughly 1% of each other; a camera
+sitting far below the rest is the one to investigate.
+
 Trigger CSV
 -----------
 

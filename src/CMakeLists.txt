@@ -73,6 +73,8 @@ qt_add_executable(mosaic MACOSX_BUNDLE
     ui/realtime/realtime_tab_w.cpp
     ui/realtime/realtime_camera_tile_w.hpp
     ui/realtime/realtime_camera_tile_w.cpp
+    ui/realtime/realtime_trace_w.hpp
+    ui/realtime/realtime_trace_w.cpp
     ui/realtime/pose_skeleton_edges.hpp
 
     # ── Audio settings panel ──────────────────────────────────────────────

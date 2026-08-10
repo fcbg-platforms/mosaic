@@ -2,6 +2,9 @@
 #include "ui/anim_utils.hpp"
 #include "ui/audio/audio_waveform_w.hpp"
 #include "ui/realtime/realtime_camera_tile_w.hpp"
+#include "ui/realtime/realtime_trace_w.hpp"
+#include <QComboBox>
+#include <QDateTime>
 #include <QGridLayout>
 #include <QHBoxLayout>
 #include <QLabel>
@@ -53,6 +56,14 @@ struct RealtimeTabW::Impl {
     QWidget*      tileGridHost   = nullptr;
     AudioWaveformW* waveform     = nullptr;
 
+    // Live position trace (see build_ui()'s "Live Trace" panel) — shows one
+    // selected camera's selected keypoint moving over the last ~15s.
+    QComboBox*      traceCameraCombo   = nullptr;
+    QComboBox*      traceKeypointCombo = nullptr;
+    RealtimeTraceW*  traceW            = nullptr;
+    int             traceCameraIndex   = 0;
+    QStringList     traceKeypointNames;   // last-seen names for the selected camera
+
     QVector<RealtimeCameraTileW*> tiles;
     int  lastCameraCount = -1;
     bool paused          = false;
@@ -85,6 +96,7 @@ RealtimeTabW::RealtimeTabW(AppSettings& settings, VideoManager* videoMgr,
     if (d->poseWorker) {
         connect(d->poseWorker, &PoseWorker::pose_ready, this,
                 [this](int camIdx, QVariantList keypoints) {
+            on_pose_ready_for_trace(camIdx, keypoints);
             if (camIdx >= 0 && camIdx < d->tiles.size()) {
                 d->tiles[camIdx]->on_pose_ready(std::move(keypoints));
             }
@@ -147,6 +159,65 @@ void RealtimeTabW::build_ui() {
     kpiRow->addWidget(d->statePill);
     root->addLayout(kpiRow);
 
+    // ── Live Trace + Audio waveform, side by side ─────────────────────────
+    // Shared panel chrome so the two read as a matched pair, not two
+    // independently-styled widgets bolted together.
+    const auto make_panel = [](const QString& title, QWidget** headerRowHost) -> QWidget* {
+        auto* box = new QWidget;
+        box->setStyleSheet("background:#13132a; border:1px solid #252545; border-radius:6px;");
+        auto* lay = new QVBoxLayout(box);
+        lay->setContentsMargins(10, 8, 10, 10);
+        lay->setSpacing(6);
+
+        auto* header = new QWidget;
+        auto* headerLay = new QHBoxLayout(header);
+        headerLay->setContentsMargins(0, 0, 0, 0);
+        auto* titleLbl = new QLabel(title);
+        titleLbl->setStyleSheet("color:#7070a0; font-size:10px; letter-spacing:0.03em;");
+        headerLay->addWidget(titleLbl);
+        headerLay->addStretch(1);
+        lay->addWidget(header);
+        if (headerRowHost) { *headerRowHost = header; }
+        return box;
+    };
+
+    QWidget* traceHeader = nullptr;
+    auto* traceBox = make_panel("LIVE TRACE", &traceHeader);
+    auto* traceHeaderLay = qobject_cast<QHBoxLayout*>(traceHeader->layout());
+    d->traceCameraCombo = new QComboBox;
+    d->traceCameraCombo->setStyleSheet("font-size:11px;");
+    d->traceKeypointCombo = new QComboBox;
+    d->traceKeypointCombo->setStyleSheet("font-size:11px;");
+    d->traceKeypointCombo->setMinimumWidth(120);
+    traceHeaderLay->addWidget(d->traceCameraCombo);
+    traceHeaderLay->addWidget(d->traceKeypointCombo);
+    d->traceW = new RealtimeTraceW;
+    static_cast<QVBoxLayout*>(traceBox->layout())->addWidget(d->traceW);
+
+    connect(d->traceCameraCombo, &QComboBox::currentIndexChanged, this, [this](int idx) {
+        if (idx < 0) { return; }
+        d->traceCameraIndex = idx;
+        d->traceKeypointNames.clear();
+        d->traceKeypointCombo->clear();
+        d->traceW->clear();
+    });
+    connect(d->traceKeypointCombo, &QComboBox::currentIndexChanged, this, [this](int) {
+        d->traceW->clear();
+    });
+
+    auto* audioBox = make_panel("AUDIO", nullptr);
+    d->waveform = new AudioWaveformW;
+    d->waveform->set_channel_count(
+        std::max(1, static_cast<int>(d->settings.audio.microphones.size())));
+    static_cast<QVBoxLayout*>(audioBox->layout())->addWidget(d->waveform);
+
+    auto* topRow = new QWidget;
+    auto* topRowLay = new QHBoxLayout(topRow);
+    topRowLay->setContentsMargins(0, 0, 0, 0);
+    topRowLay->setSpacing(8);
+    topRowLay->addWidget(traceBox, 1);
+    topRowLay->addWidget(audioBox, 1);
+
     // ── Paused banner (hidden until a recording starts) ─────────────────
     d->pausedBanner = new QLabel(
         "⏸  Analysis paused — recording in progress");
@@ -156,9 +227,10 @@ void RealtimeTabW::build_ui() {
     d->pausedBanner->hide();
     root->addWidget(d->pausedBanner);
 
-    // ── Tile grid + audio strip, in a resettable splitter ────────────────
+    // ── [Trace | Audio] row + tile grid, in a resettable splitter ─────────
     d->splitter = new QSplitter(Qt::Vertical);
     d->splitter->setHandleWidth(3);
+    d->splitter->addWidget(topRow);
 
     auto* scroll = new QScrollArea;
     scroll->setWidgetResizable(true);
@@ -168,13 +240,8 @@ void RealtimeTabW::build_ui() {
     scroll->setWidget(d->tileGridHost);
     d->splitter->addWidget(scroll);
 
-    d->waveform = new AudioWaveformW;
-    d->waveform->set_channel_count(
-        std::max(1, static_cast<int>(d->settings.audio.microphones.size())));
-    d->splitter->addWidget(d->waveform);
-
-    d->splitter->setStretchFactor(0, 1);
-    d->splitter->setStretchFactor(1, 0);
+    d->splitter->setStretchFactor(0, 0);
+    d->splitter->setStretchFactor(1, 1);
     root->addWidget(d->splitter, 1);
 
     reset_layout();
@@ -182,7 +249,7 @@ void RealtimeTabW::build_ui() {
 
 void RealtimeTabW::reset_layout() {
     const int total = std::max(400, height());
-    d->splitter->setSizes({total - 160, 160});
+    d->splitter->setSizes({220, total - 220});
 }
 
 void RealtimeTabW::rebuild_tiles() {
@@ -216,6 +283,54 @@ void RealtimeTabW::rebuild_tiles() {
         d->tileGrid->addWidget(tile, i / cols, i % cols);
         d->tiles.append(tile);
     }
+
+    rebuild_trace_camera_combo();
+}
+
+void RealtimeTabW::rebuild_trace_camera_combo() {
+    const int count = static_cast<int>(d->settings.video.cameras.size());
+    const int previous = d->traceCameraCombo->count() > 0
+        ? d->traceCameraCombo->currentIndex() : 0;
+
+    const QSignalBlocker blocker(d->traceCameraCombo);
+    d->traceCameraCombo->clear();
+    for (int i = 0; i < count; ++i) { d->traceCameraCombo->addItem(QString("Cam %1").arg(i)); }
+
+    const int restored = std::clamp(previous, 0, std::max(0, count - 1));
+    d->traceCameraCombo->setCurrentIndex(count > 0 ? restored : -1);
+    d->traceCameraIndex = count > 0 ? restored : -1;
+}
+
+void RealtimeTabW::on_pose_ready_for_trace(int camIdx, const QVariantList& keypoints) {
+    if (camIdx != d->traceCameraIndex || keypoints.isEmpty()) { return; }
+
+    // (Re)populate the keypoint combo the first time this camera's data
+    // names a set of keypoints, or if the set itself ever changes —
+    // preserves the current selection by name where it still exists,
+    // mirroring AnalysisTabW's own keypointCombo-repopulation convention.
+    QStringList names;
+    names.reserve(keypoints.size());
+    for (const auto& kp : keypoints) { names << kp.toMap().value("name").toString(); }
+    if (names != d->traceKeypointNames) {
+        const QString previous = d->traceKeypointCombo->currentText();
+        const QSignalBlocker blocker(d->traceKeypointCombo);
+        d->traceKeypointCombo->clear();
+        d->traceKeypointCombo->addItems(names);
+        const int restoreIdx = names.indexOf(previous);
+        d->traceKeypointCombo->setCurrentIndex(restoreIdx >= 0 ? restoreIdx : 0);
+        d->traceKeypointNames = names;
+    }
+
+    const int selected = d->traceKeypointCombo->currentIndex();
+    if (selected < 0 || selected >= keypoints.size()) { return; }
+    const auto kp = keypoints[selected].toMap();
+    // Same 0.4 visibility cutoff RealtimeCameraTileW's own overlay already
+    // uses (realtime_camera_tile_w.cpp) — a low-confidence detection is
+    // skipped rather than plotted as if it were real, matching this
+    // codebase's established "skip missing samples" discipline.
+    if (kp.value("visibility").toDouble() < 0.4) { return; }
+    d->traceW->push_sample(QDateTime::currentMSecsSinceEpoch(),
+                            kp.value("x").toDouble(), kp.value("y").toDouble());
 }
 
 void RealtimeTabW::on_tick() {
@@ -240,6 +355,11 @@ void RealtimeTabW::on_tick() {
                                    : QStringLiteral("--"));
     d->gazeKpi->setText(gazeN > 0 ? QString("%1%").arg(qRound(gazeSum / gazeN * 100))
                                    : QStringLiteral("--"));
+
+    // Forces the trace to re-trim/repaint against real wall-clock time even
+    // between pose samples, so it visibly scrolls/empties out if its camera
+    // goes quiet rather than only updating on push_sample().
+    if (d->traceW) { d->traceW->update(); }
 }
 
 void RealtimeTabW::on_recording_started(const QString&) {

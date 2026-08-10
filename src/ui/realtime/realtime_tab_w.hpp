@@ -20,8 +20,11 @@ namespace mosaic {
 // injection (same pattern AnalysisTabW uses for AnalysisManager*).
 //
 // Shows: a KPI strip (cameras active, avg pose detection %, avg gaze
-// on-target %, live/paused state), one RealtimeCameraTileW per configured
-// camera, and a shared live audio waveform strip. Pose/gaze inference
+// on-target %, live/paused state), a live position trace for one
+// user-selected camera/keypoint (RealtimeTraceW — the real-time counterpart
+// to the Analysis tab's post-hoc Position chart), one RealtimeCameraTileW
+// per configured camera, and a shared live audio waveform strip. Pose/gaze
+// inference
 // auto-pauses while a recording is in progress (see MainWindow's
 // RecordManager::recording_started/stopped -> PoseWorker::set_paused()
 // wiring) — this tab only reflects that state, it doesn't own it, since
@@ -52,6 +55,8 @@ public:
 private:
     void build_ui();
     void rebuild_tiles();
+    void rebuild_trace_camera_combo();
+    void on_pose_ready_for_trace(int camIdx, const QVariantList& keypoints);
     void on_tick();
     void on_recording_started(const QString& sessionPath);
     void on_recording_stopped(const QString& sessionPath, int durationMs);

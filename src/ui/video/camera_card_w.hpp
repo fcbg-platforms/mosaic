@@ -51,7 +51,12 @@ private:
 
     CameraParameters& m_params;
     int  m_index;
-    bool m_expanded{true};
+    // Defaults to collapsed: camera settings are hardware-sensitive
+    // (exposure/trigger/pixel-format) and pre-tuned for the room — starting
+    // every card open invited accidental edits just from scrolling past it.
+    // A user who wants to change a camera's settings can still expand any
+    // card explicitly via its header arrow.
+    bool m_expanded{false};
 
     QWidget*   m_body{nullptr};
     QWidget*   m_statusDot{nullptr};
