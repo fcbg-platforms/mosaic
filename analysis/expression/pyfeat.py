@@ -14,12 +14,24 @@ not assumed from training-data memory — py-feat renamed Detector ->
 Detectorv1 with no back-compat alias the same week this was researched):
 
   - `import feat` unconditionally imports torchcodec at module load time
-    (feat/utils/io.py), which needs a torchcodec-compatible FFmpeg on
-    PATH at *runtime* even though this module only ever passes single-
-    frame in-memory tensors, never touches video I/O. This is unrelated
-    to and separate from this project's own vcpkg-managed C++-side
-    FFmpeg. If `import feat` fails, the error will be an FFmpeg-discovery
-    RuntimeError, not a plain ImportError — check `where ffmpeg` first.
+    (feat/utils/io.py), which needs a torchcodec-compatible FFmpeg
+    (versions 4-8; a "shared"/DLL-shipping build, not a static one) at
+    *runtime* even though this module only ever passes single-frame
+    in-memory tensors, never touches video I/O. This is unrelated to and
+    separate from this project's own vcpkg-managed C++-side FFmpeg. If
+    `import feat` fails, the error will be an FFmpeg-discovery
+    RuntimeError, not a plain ImportError.
+  - Confirmed on a real dev machine (not hypothetical): having
+    `ffmpeg.exe` on `PATH` is NOT enough on its own — Windows Python
+    3.8+ removed `PATH` from the default DLL search order for security,
+    and torchcodec's `ctypes`-based loader needs an explicit
+    `os.add_dll_directory()` call to resolve its own DLL's dependency on
+    the real FFmpeg shared libraries. `_ensure_ffmpeg_dll_directory()`
+    below does this automatically (via `shutil.which("ffmpeg")`) before
+    `import feat` runs, so a user only needs FFmpeg findable on `PATH` at
+    all — but if this backend still fails to construct, that function
+    silently no-ops when `ffmpeg` isn't found, so `where ffmpeg`/`which
+    ffmpeg` is still the first thing to check.
   - `feat/__init__.py` sets OMP_NUM_THREADS=1 process-wide as a side
     effect (a torch/xgboost OpenMP SIGSEGV workaround) unless already
     set. Harmless here since run_expression.py is its own subprocess,
@@ -46,6 +58,10 @@ without that check.
 """
 from __future__ import annotations
 
+import os
+import shutil
+from pathlib import Path
+
 import numpy as np
 
 #: The 20 py-feat/Detectorv1 xgb-head Action Units (verified against
@@ -69,6 +85,36 @@ _EMOTION_COLUMN_TO_LABEL: dict[str, str] = {
 }
 
 
+def _ensure_ffmpeg_dll_directory() -> None:
+    """Registers the directory of a discoverable ``ffmpeg`` executable as a
+    Windows DLL search directory, before ``import feat`` runs.
+
+    Confirmed necessary on a real dev machine, not hypothetical: `import
+    feat` unconditionally imports torchcodec, which dynamically loads its
+    own ``libtorchcodec_core<N>.dll``, which in turn depends on the real
+    FFmpeg shared libraries (avcodec/avformat/avutil/...) matching that
+    FFmpeg major version. Having ``ffmpeg.exe`` on ``PATH`` alone was NOT
+    sufficient for that dependency chain to resolve — Windows Python 3.8+
+    removed the working directory and ``PATH`` from the default DLL search
+    order for security (see the "bpo-36085" note in the 3.8 changelog);
+    ``os.add_dll_directory()`` is the documented replacement, and
+    torchcodec's own ``ctypes``-based loader needs it explicitly, a plain
+    ``PATH`` entry is not enough. Without this, ``import feat`` fails with
+    a torchcodec ``RuntimeError`` ("Could not load libtorchcodec") that
+    reads like "no FFmpeg installed at all" even when a compatible one
+    genuinely is present and on PATH.
+    """
+    if not hasattr(os, "add_dll_directory"):
+        return  # not Windows — PATH-based DLL search still applies there
+    ffmpeg_path = shutil.which("ffmpeg")
+    if ffmpeg_path is None:
+        return  # none found at all; let the resulting RuntimeError explain why
+    try:
+        os.add_dll_directory(str(Path(ffmpeg_path).resolve().parent))
+    except OSError:
+        pass  # already registered, or a stale/invalid path — non-fatal either way
+
+
 class PyFeatClassifier:
     """py-feat Detectorv1 backend — 20-AU + 7-class emotion.
 
@@ -77,6 +123,8 @@ class PyFeatClassifier:
     """
 
     def __init__(self, device: str = "cpu") -> None:
+        _ensure_ffmpeg_dll_directory()
+
         # Lazy import: keeps _fex_row_to_result() (and this whole module,
         # if nothing constructs a PyFeatClassifier) importable without
         # torch/torchcodec/feat installed — same reason ferplus.py defers
