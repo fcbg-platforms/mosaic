@@ -1,5 +1,6 @@
 #include "ui/main_window.hpp"
 #include "analysis/pose_worker.hpp"
+#include "analysis/transcript_worker.hpp"
 #include "ui/analysis/analysis_tab_w.hpp"
 #include "ui/audio/audio_settings_w.hpp"
 #include "ui/calibration/calibration_w.hpp"
@@ -81,8 +82,9 @@ struct MainWindow::Impl {
     QQuickWidget*   monitorView   = nullptr;
     LoggerPanelW*   loggerPanel   = nullptr;
     QLabel*         statusLabel   = nullptr;
-    PoseWorker*     poseWorker    = nullptr;
-    RealtimeTabW*   realtimeTab   = nullptr;
+    PoseWorker*        poseWorker       = nullptr;
+    TranscriptWorker*  transcriptWorker = nullptr;
+    RealtimeTabW*      realtimeTab      = nullptr;
     AnalysisTabW*   analysisTab   = nullptr;
     VideoSettingsW* videoSettingsW = nullptr;
 
@@ -463,6 +465,64 @@ void MainWindow::build_central_widget() {
         }
     }
 
+    // Start real-time transcript worker if the analysis/ venv is available.
+    // Uses analysis/.venv (NOT python/.venv — see find_relative_to_app()'s
+    // own doc comment and analysis/run_live_transcribe.py's module doc
+    // comment for why: faster-whisper/torch already live in the
+    // mosaic-analysis venv used by the post-hoc diarization pipeline,
+    // avoiding duplicating that heavy dependency set into python/'s
+    // otherwise-light mosaic-pose venv).
+    {
+#ifdef Q_OS_WIN
+        const QString transcriptInterpRel = "analysis/.venv/Scripts/python.exe";
+#else
+        const QString transcriptInterpRel = "analysis/.venv/bin/python";
+#endif
+        const QString transcriptInterp = find_relative_to_app(transcriptInterpRel);
+        const QString transcriptScript = find_relative_to_app("analysis/run_live_transcribe.py");
+        if (transcriptInterp.isEmpty() || transcriptScript.isEmpty()) {
+            log_warning("Live transcript unavailable — analysis/.venv or "
+                        "analysis/run_live_transcribe.py not found next to the "
+                        "application or in the working directory. The "
+                        "Real-time tab's Transcript panel will show no live "
+                        "captions until the analysis/ venv is set up and reachable.");
+        } else {
+            d->transcriptWorker = new TranscriptWorker(this);
+            if (d->transcriptWorker->start(transcriptInterp, transcriptScript, {"--model", "tiny"})) {
+                if (d->audioMgr && !d->settings.audio.microphones.empty()) {
+                    // Mic 0 only for v1 — see RealtimeTabW's own doc comment
+                    // for the scope justification. AudioManager emits
+                    // raw_pcm_ready regardless of monitor-only vs. real
+                    // recording (matches VideoManager::frame_preview's
+                    // always-on behavior feeding PoseWorker); pause is
+                    // enforced below via set_paused(), not here.
+                    connect(d->audioMgr, &AudioManager::raw_pcm_ready, d->transcriptWorker,
+                            [this](int micIdx, QByteArray pcm, int sr, int ch) {
+                        if (micIdx != 0 || !d->transcriptWorker) return;
+                        d->transcriptWorker->submit_chunk(0, sr, ch, pcm);
+                    }, Qt::QueuedConnection);
+                }
+                if (d->recordMgr) {
+                    // Same auto-pause reasoning/wiring as PoseWorker's block
+                    // above — global resource policy, wired here not inside
+                    // RealtimeTabW, holds regardless of which tab is open.
+                    connect(d->recordMgr, &RecordManager::recording_started, d->transcriptWorker,
+                            [this](const QString&) { d->transcriptWorker->set_paused(true); });
+                    connect(d->recordMgr, &RecordManager::recording_stopped, d->transcriptWorker,
+                            [this](const QString&, int) { d->transcriptWorker->set_paused(false); });
+                }
+                log_info("Transcript worker started — live captions active.");
+            } else {
+                log_warning("Live transcript worker failed to start (found "
+                            "python.exe/run_live_transcribe.py, but launching "
+                            "the process failed) — the Real-time tab's "
+                            "Transcript panel will show no live captions. "
+                            "Check mosaic.log above this line for the "
+                            "underlying process error.");
+            }
+        }
+    }
+
     d->rightSplitter->addWidget(d->monitorView);
 
     // Logger panel
@@ -483,7 +543,7 @@ void MainWindow::build_central_widget() {
     d->topTabs->addTab(d->mainSplitter, "Live");
 
     d->realtimeTab = new RealtimeTabW(d->settings, d->videoMgr, d->audioMgr,
-                                       d->recordMgr, d->poseWorker);
+                                       d->recordMgr, d->poseWorker, d->transcriptWorker);
     d->topTabs->addTab(d->realtimeTab, "Real-time");
 
     d->analysisTab = new AnalysisTabW(d->settings, d->analysisMgr,

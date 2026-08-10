@@ -3,6 +3,7 @@
 #include "core/settings.hpp"
 #include <QAudioFormat>
 #include <QAudioSource>
+#include <QByteArray>
 #include <QObject>
 #include <atomic>
 #include <memory>
@@ -36,6 +37,12 @@ public:
 signals:
     void level_rms_changed(float rms);       // 10–20 × per second, main-thread safe
     void envelope_changed(float minSample, float maxSample);  // same cadence, [-1, 1]
+    // Same cadence as envelope_changed — the already-16-bit-PCM-normalized
+    // `data` from on_data_ready() (see m_captureFormat's doc comment),
+    // before it's discarded. sampleRate/channels are whatever was actually
+    // negotiated by start() (see its own doc comment — NOT guaranteed to
+    // match MicrophoneParameters' requested values).
+    void raw_pcm_ready(QByteArray pcm16, int sampleRate, int channels);
     void error_occurred(QString message);
 
 private slots:
@@ -56,6 +63,8 @@ private:
     // before it reaches m_writer/compute_rms()/compute_envelope(), so
     // nothing downstream needs to know the device's native format.
     QAudioFormat::SampleFormat m_captureFormat{QAudioFormat::Int16};
+    int          m_sampleRate{0};   // actually negotiated rate, set in start()
+    int          m_channels{0};     // actually negotiated channel count, set in start()
 };
 
 } // namespace mosaic

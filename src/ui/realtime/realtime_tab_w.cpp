@@ -3,6 +3,7 @@
 #include "ui/audio/audio_waveform_w.hpp"
 #include "ui/realtime/realtime_camera_tile_w.hpp"
 #include "ui/realtime/realtime_trace_w.hpp"
+#include "ui/realtime/transcript_panel_w.hpp"
 #include <QComboBox>
 #include <QDateTime>
 #include <QGridLayout>
@@ -40,11 +41,12 @@ QLabel* make_kpi_label() {
 } // namespace
 
 struct RealtimeTabW::Impl {
-    AppSettings&   settings;
-    VideoManager*  videoMgr   = nullptr;
-    AudioManager*  audioMgr   = nullptr;
-    RecordManager* recordMgr  = nullptr;
-    PoseWorker*    poseWorker = nullptr;
+    AppSettings&       settings;
+    VideoManager*      videoMgr         = nullptr;
+    AudioManager*      audioMgr         = nullptr;
+    RecordManager*     recordMgr        = nullptr;
+    PoseWorker*        poseWorker       = nullptr;
+    TranscriptWorker*  transcriptWorker = nullptr;
 
     QLabel*       camerasKpi     = nullptr;
     QLabel*       poseKpi        = nullptr;
@@ -64,6 +66,10 @@ struct RealtimeTabW::Impl {
     int             traceCameraIndex   = 0;
     QStringList     traceKeypointNames;   // last-seen names for the selected camera
 
+    // Live speech transcript (see build_ui()'s "TRANSCRIPT" panel) — mic 0
+    // only for v1, see TranscriptWorker's own doc comment for why.
+    TranscriptPanelW* transcriptW = nullptr;
+
     QVector<RealtimeCameraTileW*> tiles;
     int  lastCameraCount = -1;
     bool paused          = false;
@@ -73,16 +79,29 @@ struct RealtimeTabW::Impl {
 
 RealtimeTabW::RealtimeTabW(AppSettings& settings, VideoManager* videoMgr,
                             AudioManager* audioMgr, RecordManager* recordMgr,
-                            PoseWorker* poseWorker, QWidget* parent)
+                            PoseWorker* poseWorker, TranscriptWorker* transcriptWorker,
+                            QWidget* parent)
     : QWidget(parent), d(std::make_unique<Impl>(settings))
 {
-    d->videoMgr   = videoMgr;
-    d->audioMgr   = audioMgr;
-    d->recordMgr  = recordMgr;
-    d->poseWorker = poseWorker;
+    d->videoMgr         = videoMgr;
+    d->audioMgr         = audioMgr;
+    d->recordMgr        = recordMgr;
+    d->poseWorker       = poseWorker;
+    d->transcriptWorker = transcriptWorker;
 
     build_ui();
     rebuild_tiles();
+
+    if (d->transcriptWorker) {
+        connect(d->transcriptWorker, &TranscriptWorker::transcript_final, this,
+                [this](int micIdx, QString text) {
+            if (micIdx == 0) { d->transcriptW->push_final(text); }
+        }, Qt::QueuedConnection);
+        connect(d->transcriptWorker, &TranscriptWorker::transcript_partial, this,
+                [this](int micIdx, QString text) {
+            if (micIdx == 0) { d->transcriptW->set_tentative(text); }
+        }, Qt::QueuedConnection);
+    }
 
     if (d->videoMgr) {
         connect(d->videoMgr, &VideoManager::frame_preview, this,
@@ -211,12 +230,22 @@ void RealtimeTabW::build_ui() {
         std::max(1, static_cast<int>(d->settings.audio.microphones.size())));
     static_cast<QVBoxLayout*>(audioBox->layout())->addWidget(d->waveform);
 
+    auto* transcriptBox = make_panel("TRANSCRIPT · mic 0", nullptr);
+    d->transcriptW = new TranscriptPanelW;
+    static_cast<QVBoxLayout*>(transcriptBox->layout())->addWidget(d->transcriptW);
+    if (!d->transcriptWorker) {
+        d->transcriptW->set_unavailable(
+            "Live transcript unavailable — analysis/.venv or "
+            "analysis/run_live_transcribe.py not found.");
+    }
+
     auto* topRow = new QWidget;
     auto* topRowLay = new QHBoxLayout(topRow);
     topRowLay->setContentsMargins(0, 0, 0, 0);
     topRowLay->setSpacing(8);
-    topRowLay->addWidget(traceBox, 1);
+    topRowLay->addWidget(traceBox, 2);
     topRowLay->addWidget(audioBox, 1);
+    topRowLay->addWidget(transcriptBox, 2);
 
     // ── Paused banner (hidden until a recording starts) ─────────────────
     d->pausedBanner = new QLabel(
@@ -249,7 +278,7 @@ void RealtimeTabW::build_ui() {
 
 void RealtimeTabW::reset_layout() {
     const int total = std::max(400, height());
-    d->splitter->setSizes({220, total - 220});
+    d->splitter->setSizes({260, total - 260});
 }
 
 void RealtimeTabW::rebuild_tiles() {

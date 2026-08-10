@@ -1,6 +1,7 @@
 #pragma once
 #include "core/settings.hpp"
 #include <QAudioDevice>
+#include <QByteArray>
 #include <QList>
 #include <QObject>
 #include <memory>
@@ -89,6 +90,18 @@ signals:
     /// @param minSample  Most negative sample in the buffer, normalised [-1, 0].
     /// @param maxSample  Most positive sample in the buffer, normalised [0, 1].
     void envelope_changed(int micIndex, float minSample, float maxSample);
+
+    /// Forwarded from every active AudioRecorder (both start() and
+    /// start_monitoring() paths) with the mic index — same treatment as
+    /// envelope_changed. Emitted regardless of monitor-only vs. real
+    /// recording (matches VideoManager::frame_preview's own always-on
+    /// behavior that feeds PoseWorker) — recording-time gating is done at
+    /// the consumer (TranscriptWorker::set_paused()), not here.
+    /// @param micIndex    Zero-based index into the active microphone list.
+    /// @param pcm16       Interleaved 16-bit PCM, already format-normalized.
+    /// @param sampleRate  Actually-negotiated sample rate (see AudioRecorder::start()).
+    /// @param channels    Actually-negotiated channel count.
+    void raw_pcm_ready(int micIndex, QByteArray pcm16, int sampleRate, int channels);
 
     /// Emitted when a recorder encounters a device error.
     /// @param micIndex  Zero-based index of the failing recorder.

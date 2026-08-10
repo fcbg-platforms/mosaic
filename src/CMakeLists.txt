@@ -15,6 +15,8 @@ qt_add_executable(mosaic MACOSX_BUNDLE
     analysis/analysis_manager.cpp
     analysis/pose_worker.hpp
     analysis/pose_worker.cpp
+    analysis/transcript_worker.hpp
+    analysis/transcript_worker.cpp
     analysis/realtime_metrics.hpp
     analysis/realtime_metrics.cpp
     analysis/pose_models.hpp
@@ -77,6 +79,8 @@ qt_add_executable(mosaic MACOSX_BUNDLE
     ui/realtime/realtime_camera_tile_w.cpp
     ui/realtime/realtime_trace_w.hpp
     ui/realtime/realtime_trace_w.cpp
+    ui/realtime/transcript_panel_w.hpp
+    ui/realtime/transcript_panel_w.cpp
     ui/realtime/pose_skeleton_edges.hpp
 
     # ── Audio settings panel ──────────────────────────────────────────────
