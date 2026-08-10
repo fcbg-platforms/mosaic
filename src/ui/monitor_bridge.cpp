@@ -10,8 +10,6 @@ MonitorBridge::MonitorBridge(RecordManager*       recordMgr,
       m_cameraCount(static_cast<int>(videoSettings.cameras.size()))
 {
     m_frameGens.resize(m_cameraCount, 0);
-    m_allPoseKeypoints.resize(m_cameraCount);
-    m_allGazeData.resize(m_cameraCount);
 
     connect(m_rm, &RecordManager::recording_started, this,
             [this](const QString& path) {
@@ -45,8 +43,6 @@ int          MonitorBridge::cameraCount()      const { return m_cameraCount;    
 QString      MonitorBridge::sessionPath()      const { return m_sessionPath;         }
 int          MonitorBridge::frameGen()         const { return m_frameGen;            }
 QVariantList MonitorBridge::frameGens()        const { return m_frameGens;           }
-QVariantList MonitorBridge::allPoseKeypoints() const { return m_allPoseKeypoints;   }
-QVariantList MonitorBridge::allGazeData()      const { return m_allGazeData;        }
 
 // ── Q_INVOKABLEs ───────────────────────────────────────────────────────────
 
@@ -62,8 +58,6 @@ void MonitorBridge::set_camera_count(int count) {
     if (m_cameraCount == count) return;
     m_cameraCount = count;
     m_frameGens.resize(count, 0);
-    m_allPoseKeypoints.resize(count);
-    m_allGazeData.resize(count);
     if (m_feedProvider) m_feedProvider->set_camera_count(count);
     emit cameraCountChanged();
     emit frameGensChanged();
@@ -88,24 +82,6 @@ void MonitorBridge::on_frame_preview(int cameraIndex, QImage frame) {
     ++m_frameGen;
     emit frameGensChanged();  // per-camera first so QML reads the updated list
     emit frameGenChanged();
-}
-
-// ── Pose keypoints ──────────────────────────────────────────────────────────
-
-void MonitorBridge::on_pose_ready(int cameraIndex, QVariantList keypoints) {
-    if (cameraIndex < 0) return;
-    if (cameraIndex >= m_allPoseKeypoints.size())
-        m_allPoseKeypoints.resize(cameraIndex + 1);
-    m_allPoseKeypoints[cameraIndex] = keypoints;
-    emit poseKeypointsChanged();
-}
-
-void MonitorBridge::on_gaze_ready(int cameraIndex, QVariantMap gazeData) {
-    if (cameraIndex < 0) return;
-    if (cameraIndex >= m_allGazeData.size())
-        m_allGazeData.resize(cameraIndex + 1);
-    m_allGazeData[cameraIndex] = gazeData;
-    emit gazeDataChanged();
 }
 
 } // namespace mosaic

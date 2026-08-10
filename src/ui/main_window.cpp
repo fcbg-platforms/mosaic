@@ -403,12 +403,6 @@ void MainWindow::build_central_widget() {
         } else {
             d->poseWorker = new PoseWorker(this);
             if (d->poseWorker->start(interp, script)) {
-                connect(d->poseWorker, &PoseWorker::pose_ready,
-                        d->bridge, &MonitorBridge::on_pose_ready,
-                        Qt::QueuedConnection);
-                connect(d->poseWorker, &PoseWorker::gaze_ready,
-                        d->bridge, &MonitorBridge::on_gaze_ready,
-                        Qt::QueuedConnection);
                 if (d->videoMgr) {
                     // Send all cameras at ≤2 fps each (6 cams × 2 fps = 12 fps
                     // total — within MediaPipe lite's ~18 fps capacity).
