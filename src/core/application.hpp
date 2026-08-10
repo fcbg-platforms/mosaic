@@ -50,7 +50,13 @@ public:
     ///
     /// @param username  Active profile name.  Pass @c "guest" for an
     ///                  unauthenticated session that uses default paths.
-    void initialize(const QString& username = "guest");
+    /// @param isAdmin   Whether @p username's profile has @c Profile::Role::Admin.
+    ///                  Gates per-user recording access control: an admin's
+    ///                  session browser/Analysis tab aggregate every known
+    ///                  profile's recordings instead of being scoped to just
+    ///                  their own, and a one-time flat-session-folder
+    ///                  migration runs only when this is true.
+    void initialize(const QString& username = "guest", bool isAdmin = false);
 
     /// @brief Saves settings and closes the window.
     ///

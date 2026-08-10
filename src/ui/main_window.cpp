@@ -41,6 +41,10 @@ namespace mosaic {
 struct MainWindow::Impl {
     AppSettings&     settings;
     QString          username;
+    // Per-user recording access control (item 27) — resolved once in
+    // Application::initialize(), read-only from here on.
+    bool             isAdmin       = false;
+    QStringList      otherUserDirectories;
     TriggerManager*  triggerMgr   = nullptr;
     AudioManager*    audioMgr     = nullptr;
     VideoManager*    videoMgr     = nullptr;
@@ -68,24 +72,29 @@ struct MainWindow::Impl {
     QTimer*     liveApplyDebounce       = nullptr;
     QSet<int>   pendingLiveApplyIndices;
 
-    explicit Impl(AppSettings& s, const QString& user, TriggerManager* tm,
+    explicit Impl(AppSettings& s, const QString& user, bool admin,
+                  const QStringList& otherDirs, TriggerManager* tm,
                   AudioManager* am, VideoManager* vm, RecordManager* rm,
                   AnalysisManager* anlm)
-        : settings(s), username(user)
+        : settings(s), username(user), isAdmin(admin)
+        , otherUserDirectories(otherDirs)
         , triggerMgr(tm), audioMgr(am), videoMgr(vm), recordMgr(rm)
         , analysisMgr(anlm) {}
 };
 
-MainWindow::MainWindow(AppSettings&     settings,
-                        const QString&   username,
-                        TriggerManager*  triggerMgr,
-                        AudioManager*    audioMgr,
-                        VideoManager*    videoMgr,
-                        RecordManager*   recordMgr,
-                        AnalysisManager* analysisMgr,
-                        QWidget*         parent)
+MainWindow::MainWindow(AppSettings&      settings,
+                        const QString&    username,
+                        TriggerManager*   triggerMgr,
+                        AudioManager*     audioMgr,
+                        VideoManager*     videoMgr,
+                        RecordManager*    recordMgr,
+                        AnalysisManager*  analysisMgr,
+                        bool              isAdmin,
+                        const QStringList& otherUserDirectories,
+                        QWidget*          parent)
     : QMainWindow(parent)
-    , d(std::make_unique<Impl>(settings, username, triggerMgr, audioMgr, videoMgr, recordMgr, analysisMgr))
+    , d(std::make_unique<Impl>(settings, username, isAdmin, otherUserDirectories,
+                                triggerMgr, audioMgr, videoMgr, recordMgr, analysisMgr))
 {
     const QString userLabel = (username == "guest") ? "Guest" : ("@" + username);
     setWindowTitle(QString("MOSAIC — %1").arg(userLabel));
@@ -125,7 +134,8 @@ void MainWindow::build_menu_bar() {
     auto* browseAction = new QAction("&Browse Sessions…", this);
     browseAction->setShortcut(QKeySequence("Ctrl+B"));
     connect(browseAction, &QAction::triggered, this, [this] {
-        SessionBrowserW browser(d->settings.record.directory, d->analysisMgr, this);
+        SessionBrowserW browser(d->settings.record.directory, d->analysisMgr,
+                                 d->isAdmin ? d->otherUserDirectories : QStringList{}, this);
         browser.exec();
     });
     file->addAction(browseAction);
@@ -232,7 +242,7 @@ void MainWindow::build_central_widget() {
     d->settingsTabs->addTab(
         new TriggerEventPanelW(d->triggerMgr),                            "Events");
     d->settingsTabs->addTab(
-        new RecordSettingsW(d->settings.record),                           "Record");
+        new RecordSettingsW(d->settings.record, d->isAdmin),                "Record");
     d->settingsTabs->addTab(
         new PerformanceMonitorW(d->videoMgr, d->audioMgr, d->analysisMgr),  "Perf");
     d->settingsTabs->addTab(
@@ -428,7 +438,8 @@ void MainWindow::build_central_widget() {
                                        d->recordMgr, d->poseWorker);
     d->topTabs->addTab(d->realtimeTab, "Real-time");
 
-    d->analysisTab = new AnalysisTabW(d->settings, d->analysisMgr);
+    d->analysisTab = new AnalysisTabW(d->settings, d->analysisMgr,
+                                       d->isAdmin ? d->otherUserDirectories : QStringList{});
     d->topTabs->addTab(d->analysisTab, "Analysis");
 }
 

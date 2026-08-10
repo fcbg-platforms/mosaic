@@ -1,6 +1,8 @@
 #include "core/application.hpp"
 #include "analysis/analysis_manager.hpp"
 #include "auth/profile_manager.hpp"
+#include "core/recording_access_control.hpp"
+#include "session/session_info.hpp"
 #include "trigger/trigger_types.hpp"
 #include "ui/main_window.hpp"
 #include "utils/logger.hpp"
@@ -8,6 +10,7 @@
 #include <QCoreApplication>
 #include <QDir>
 #include <array>
+#include <QSet>
 
 namespace {
 
@@ -49,12 +52,165 @@ std::vector<mosaic::MicrophoneParameters> default_microphone() {
     return { mosaic::MicrophoneParameters{} };
 }
 
+// Resolves every OTHER known profile's own configured record.directory
+// (reading each one's real settings.json, not assuming the default
+// convention holds if that profile customized it) — reused verbatim
+// infrastructure (ProfileManager::settings_path() + AppSettings::load()),
+// not a new aggregation mechanism. Excludes `excludeUsername` (the calling
+// admin's own profile) since SessionBrowserW/AnalysisTabW already scan
+// their own settings.record.directory separately — including it here too
+// would show every one of the admin's own sessions twice. Always includes
+// the shared "_unassigned" fallback so migrated-but-unrecognized sessions
+// stay visible to every admin.
+QStringList resolve_other_user_directories(const mosaic::ProfileManager& profileMgr,
+                                            const QString& excludeUsername) {
+    QStringList dirs;
+    for (const auto& profile : profileMgr.profiles()) {
+        if (profile.username == excludeUsername) { continue; }
+        const QString settingsPath = mosaic::ProfileManager::settings_path(profile.username);
+        if (auto loaded = mosaic::AppSettings::load(settingsPath)) {
+            dirs << loaded->record.directory;
+        } else {
+            // Profile registered but never actually logged in yet (no
+            // settings.json written) — its future recordings will still
+            // land at the default convention once it does, so include that
+            // now rather than waiting for its first login to appear.
+            dirs << mosaic::default_record_directory_for(profile.username);
+        }
+    }
+    // "guest" is a special-cased pseudo-identity (see Application::initialize(),
+    // which loads its settings from AppSettings::default_path() rather than
+    // ProfileManager::settings_path()) — it is never a registered Profile, so
+    // the loop above never finds it. Without this, an admin's aggregate view
+    // would silently miss guest's own recordings even though guest's own
+    // record.directory is seeded/migrated to the exact same per-user
+    // convention as every real profile (see the settingsFileExisted block
+    // below). Guest itself can never be admin (main.cpp's is_admin() lookup
+    // finds no registered "guest" Profile and defaults to false), so this
+    // branch is unreachable in practice today — kept for defensive
+    // correctness in case that assumption ever changes.
+    if (excludeUsername != "guest") {
+        if (auto loaded = mosaic::AppSettings::load(mosaic::AppSettings::default_path())) {
+            dirs << loaded->record.directory;
+        } else {
+            dirs << mosaic::default_record_directory_for("guest");
+        }
+    }
+    dirs << mosaic::unassigned_record_directory();
+    return dirs;
+}
+
+// One-time, naturally-idempotent migration of sessions still sitting loose
+// in the pre-item-27 shared flat folder (legacy_shared_record_directory())
+// into the new per-user layout — sorted by each session's own recorded_by
+// field via the exact same "does this child dir contain session_meta.json
+// directly" detection SessionInfo::list_all() already uses. Naturally
+// idempotent because nothing is left loose in the flat root for a later
+// call to find once a session has been moved — no separate marker file
+// needed. Only ever called when the active profile is an admin (see
+// initialize()) — a filesystem reorganization touching other users' data
+// shouldn't be triggerable by an ordinary non-admin login.
+void migrate_flat_session_folders(const mosaic::ProfileManager& profileMgr) {
+    const QDir flatRoot(mosaic::legacy_shared_record_directory());
+    if (!flatRoot.exists()) { return; }
+
+    QSet<QString> knownUsernames;
+    for (const auto& profile : profileMgr.profiles()) { knownUsernames.insert(profile.username); }
+    // "guest" is a special-cased pseudo-identity, never a registered Profile
+    // (see resolve_other_user_directories()'s doc comment above) — without
+    // this, a flat-folder session with recorded_by=="guest" would be
+    // misrouted to _unassigned instead of guest's own per-user folder.
+    knownUsernames.insert("guest");
+
+    const auto entries = flatRoot.entryInfoList(QDir::Dirs | QDir::NoDotAndDotDot, QDir::Name);
+    for (const auto& entry : entries) {
+        const QString sourceDir = entry.filePath();
+        if (!QFile::exists(sourceDir + "/session_meta.json")) { continue; }   // not a session folder
+
+        const mosaic::SessionInfo info = mosaic::SessionInfo::load(sourceDir);
+        const QString targetOwnerDir =
+            mosaic::resolve_migration_target(info.recordedBy, knownUsernames);
+
+        QDir().mkpath(targetOwnerDir);
+        const QString targetDir = targetOwnerDir + "/" + entry.fileName();
+        if (QFile::exists(targetDir)) {
+            mosaic::log_warning(QString("[Application] Migration: %1 already exists — leaving "
+                                        "%2 in place, resolve the name clash manually.")
+                                     .arg(targetDir, sourceDir));
+            continue;
+        }
+        if (QDir().rename(sourceDir, targetDir)) {
+            mosaic::log_info(QString("[Application] Migrated session %1 → %2 (recorded_by=\"%3\").")
+                                  .arg(entry.fileName(), targetOwnerDir, info.recordedBy));
+        } else {
+            mosaic::log_warning(QString("[Application] Migration: failed to move %1 to %2.")
+                                     .arg(sourceDir, targetDir));
+        }
+    }
+}
+
+// Self-scoped companion to migrate_flat_session_folders() above: moves only
+// the CURRENT user's own sessions still sitting loose in the legacy flat
+// folder into their own now-current per-user directory. Unlike the broad
+// sweep above (every profile's sessions, gated to admin logins only, since
+// it touches other users' data), this only ever moves sessions this user
+// themselves recorded — safe on every login, admin or not.
+//
+// Runs unconditionally on every login, not just the moment record.directory
+// first transitions away from the legacy default, and not just for
+// newly-created profiles: a profile that already transitioned in an earlier
+// session — before this function existed — would otherwise have its
+// record.directory correctly repointed at its own subfolder while its
+// actual pre-existing session folders stayed behind, orphaned, in the flat
+// root (this was a real, confirmed regression: guest's settings.json had
+// already been migrated to "./recordings/guest", but the 22 real sessions
+// it had recorded were still sitting in the flat "./recordings", making
+// them silently disappear from guest's own session browser/Analysis tab).
+// Naturally idempotent, same reasoning as the admin sweep — nothing is left
+// loose for this user once their own sessions have been moved once.
+void migrate_own_flat_sessions(const QString& username, const QString& targetDir) {
+    const QDir flatRoot(mosaic::legacy_shared_record_directory());
+    if (!flatRoot.exists()) { return; }
+
+    const auto entries = flatRoot.entryInfoList(QDir::Dirs | QDir::NoDotAndDotDot, QDir::Name);
+    for (const auto& entry : entries) {
+        const QString sourceDir = entry.filePath();
+        if (!QFile::exists(sourceDir + "/session_meta.json")) { continue; }   // not a session folder
+
+        const mosaic::SessionInfo info = mosaic::SessionInfo::load(sourceDir);
+        if (info.recordedBy != username) { continue; }   // not ours — leave for the admin sweep
+
+        QDir().mkpath(targetDir);
+        const QString destDir = targetDir + "/" + entry.fileName();
+        if (QFile::exists(destDir)) {
+            mosaic::log_warning(QString("[Application] Migration: %1 already exists — leaving "
+                                        "%2 in place, resolve the name clash manually.")
+                                     .arg(destDir, sourceDir));
+            continue;
+        }
+        if (QDir().rename(sourceDir, destDir)) {
+            mosaic::log_info(QString("[Application] Recovered own session %1 → %2.")
+                                  .arg(entry.fileName(), targetDir));
+        } else {
+            mosaic::log_warning(QString("[Application] Migration: failed to move %1 to %2.")
+                                     .arg(sourceDir, destDir));
+        }
+    }
+}
+
 } // namespace
 
 namespace mosaic {
 
 struct Application::Impl {
     QString                          username;
+    bool                             isAdmin = false;
+    // Every OTHER known profile's own record.directory (plus the shared
+    // "_unassigned" fallback) — only ever populated when isAdmin is true;
+    // stays empty for a regular user, whose session browsing is already
+    // correctly scoped by their own (per-user) settings.record.directory
+    // alone, with no aggregation needed.
+    QStringList                      otherUserDirectories;
     AppSettings                      settings;
     std::unique_ptr<TriggerManager>  triggerManager;
     std::unique_ptr<AudioManager>    audioManager;
@@ -69,8 +225,9 @@ Application::Application(QObject* parent)
 
 Application::~Application() = default;
 
-void Application::initialize(const QString& username) {
+void Application::initialize(const QString& username, bool isAdmin) {
     d->username = username.isEmpty() ? "guest" : username;
+    d->isAdmin  = isAdmin;
 
     // Open log file in the profile directory (or default location for guest).
     const QString settingsPath = (d->username == "guest")
@@ -111,6 +268,30 @@ void Application::initialize(const QString& username) {
         // RecordManager::start() skips the whole audio block when the
         // microphone list is empty) until a mic is added by hand.
         d->settings.audio.microphones = default_microphone();
+        // Per-user recording directory (item 27) — every profile's
+        // recordings live in their own subfolder from the start, not the
+        // shared legacy default.
+        d->settings.record.directory = default_record_directory_for(d->username);
+    } else if (is_legacy_shared_record_directory(d->settings.record.directory)) {
+        // Existing profile that predates per-user recording access control
+        // — was still pointing at the shared legacy default, never
+        // customized. One-time, idempotent fix-forward to this profile's
+        // own subfolder; a profile that already customized record.directory
+        // to something else is left untouched (only the literal, unmodified
+        // legacy default is migrated).
+        d->settings.record.directory = default_record_directory_for(d->username);
+    }
+
+    // Recover any of this user's own sessions still sitting loose in the
+    // legacy flat folder (see migrate_own_flat_sessions()'s doc comment for
+    // why this must run unconditionally, not just on the branches above).
+    migrate_own_flat_sessions(d->username, d->settings.record.directory);
+
+    if (d->isAdmin) {
+        ProfileManager profileMgr;
+        profileMgr.load();
+        d->otherUserDirectories = resolve_other_user_directories(profileMgr, d->username);
+        migrate_flat_session_folders(profileMgr);
     }
 
     // Guarantee reference stability before videoManager->open() below binds
@@ -203,7 +384,7 @@ void Application::initialize(const QString& username) {
         d->settings, d->username,
         d->triggerManager.get(), d->audioManager.get(),
         d->videoManager.get(), d->recordManager.get(),
-        d->analysisManager.get());
+        d->analysisManager.get(), d->isAdmin, d->otherUserDirectories);
     d->mainWindow->show();
 
     log_info("Initialisation complete.");

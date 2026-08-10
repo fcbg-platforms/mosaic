@@ -107,6 +107,15 @@ CameraCardW::CameraCardW(CameraParameters& params, int index, QWidget* parent)
 
     root->addWidget(findChild<QWidget*>("cardHeader"));
     root->addWidget(m_body);
+
+    // Start collapsed — with up to 6 camera cards, showing every one fully
+    // expanded by default was overwhelming; the header (name/serial/status)
+    // is enough to orient by, and each card can be expanded on demand.
+    // Applied directly (no animation) since this is the initial state, not
+    // a user-triggered transition — matches m_expanded's default above.
+    m_body->hide();
+    m_body->setMaximumHeight(0);
+    if (auto* btn = qobject_cast<QToolButton*>(m_expandBtn)) { btn->setText("▶"); }
 }
 
 CameraCardW::~CameraCardW() = default;

@@ -51,7 +51,7 @@ private:
 
     CameraParameters& m_params;
     int  m_index;
-    bool m_expanded{true};
+    bool m_expanded{false};
 
     QWidget*   m_body{nullptr};
     QWidget*   m_statusDot{nullptr};

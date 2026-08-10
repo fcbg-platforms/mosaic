@@ -106,8 +106,18 @@ int main(int argc, char* argv[])
             }
         }
 
+        // Resolved from the FINAL username (after any admin-panel "Launch
+        // as" selection above), not the originally-logged-in identity — an
+        // admin who picks "Launch as regularUser" should see exactly what
+        // that user would see (fully impersonated), while "Enter as Admin"
+        // (which leaves username unchanged) correctly keeps isAdmin true.
+        bool isAdmin = false;
+        if (const mosaic::Profile* finalProf = profileMgr.find(username)) {
+            isAdmin = finalProf->is_admin();
+        }
+
         mosaic::Application mosaic;
-        mosaic.initialize(username);
+        mosaic.initialize(username, isAdmin);
 
         const int exitCode = app.exec();
         if (exitCode == k_switch_exit_code) {
