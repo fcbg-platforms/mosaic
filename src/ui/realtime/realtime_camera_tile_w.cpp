@@ -254,7 +254,7 @@ RealtimeCameraTileW::RealtimeCameraTileW(int cameraIndex, bool liveAnalysisEnabl
     d->analyzeCk->setChecked(liveAnalysisEnabled);
     d->analyzeCk->setToolTip(
         "Include this camera in the shared live pose/gaze budget "
-        "(~2fps/camera, split across every enabled camera).");
+        "(~5fps/camera, split across every enabled camera).");
     connect(d->analyzeCk, &QCheckBox::toggled, this, [this](bool on) {
         d->analyzeEnabled = on;
         if (!on) {

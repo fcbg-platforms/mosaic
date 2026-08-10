@@ -404,8 +404,20 @@ void MainWindow::build_central_widget() {
             d->poseWorker = new PoseWorker(this);
             if (d->poseWorker->start(interp, script)) {
                 if (d->videoMgr) {
-                    // Send all cameras at ≤2 fps each (6 cams × 2 fps = 12 fps
-                    // total — within MediaPipe lite's ~18 fps capacity).
+                    // Send each enabled camera at ≤5 fps (200ms min interval).
+                    // Sized against the lite model's real per-frame cost (see
+                    // frame_server.py's explicit model_complexity=0), not the
+                    // theoretical worst case: with only one camera's "Analyze"
+                    // checkbox on at a time — today's typical config — this is
+                    // comfortably within budget and makes the Real-time tab's
+                    // Live Trace panel visibly smoother than the previous
+                    // 2 fps. If several cameras ever have live analysis
+                    // enabled simultaneously, the aggregate demand on the one
+                    // shared MediaPipe subprocess (running pose + gaze per
+                    // frame) can exceed its throughput and reintroduce
+                    // queueing lag — lower this back down (or make it a
+                    // proper per-camera/tunable setting) if that pattern
+                    // becomes real usage, not just a hypothetical.
                     // Per-camera timestamps prevent one fast camera from starving others.
                     auto ts = std::make_shared<std::array<qint64, 16>>();
                     ts->fill(0);
@@ -423,7 +435,7 @@ void MainWindow::build_central_widget() {
                             return;
                         }
                         const qint64 nowMs = QDateTime::currentMSecsSinceEpoch();
-                        if (nowMs - (*ts)[camIdx] < 500) return;   // 2 fps per camera
+                        if (nowMs - (*ts)[camIdx] < 200) return;   // 5 fps per camera
                         (*ts)[camIdx] = nowMs;
                         d->poseWorker->submit_frame(camIdx, frame);
                     }, Qt::QueuedConnection);

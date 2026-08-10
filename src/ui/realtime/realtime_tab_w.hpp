@@ -11,7 +11,7 @@ namespace mosaic {
 
 // Top-level "Real-time" tab: a live pose/gaze analytics dashboard built
 // entirely on the pipeline the app already runs (PoseWorker's shared
-// MediaPipe subprocess, ~2fps/camera) — no new inference, just a much
+// MediaPipe subprocess, ~5fps/camera) — no new inference, just a much
 // richer view of the same data than the Live tab's hidden overlay toggles.
 //
 // Bypasses MonitorBridge/QML entirely — this tab is pure QWidgets, wired
