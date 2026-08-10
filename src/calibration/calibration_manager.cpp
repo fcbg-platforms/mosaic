@@ -97,6 +97,12 @@ bool CalibrationManager::feed_frame(const VideoFrame& frame) {
         d->imageSize = grey.size();
     }
 
+    log_info(QString("[Calibration] feed_frame: pattern %1x%2 %3 in %4x%5 frame "
+                     "(%6 accepted view(s) so far).")
+                 .arg(d->board.cols).arg(d->board.rows)
+                 .arg(found ? "FOUND" : "not found")
+                 .arg(frame.width).arg(frame.height)
+                 .arg(d->imagePoints.size()));
     emit corners_detected(viewIdx, found, previewImg.copy());
     return found;
 #else

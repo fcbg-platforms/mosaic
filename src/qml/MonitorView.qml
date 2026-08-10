@@ -15,12 +15,6 @@ Rectangle {
     readonly property int    frameGen:    typeof backend !== "undefined" ? backend.frameGen     : 0
     // Per-camera generation counters — only the relevant slot reloads its image.
     readonly property var    frameGens:   typeof backend !== "undefined" ? backend.frameGens    : []
-    readonly property var    poseKps:     typeof backend !== "undefined" ? backend.allPoseKeypoints : []
-    readonly property var    gazeData:   typeof backend !== "undefined" ? backend.allGazeData      : []
-
-    property bool showPose: false
-    property bool showGaze: false
-
     // Column count for the camera grid — chosen to give the most square layout.
     readonly property int gridCols: {
         const n = Math.max(1, root.cameraCount)
@@ -67,52 +61,6 @@ Rectangle {
             }
 
             Item { Layout.fillWidth: true }
-
-            // Pose overlay toggle
-            Rectangle {
-                width: 100; height: 22; radius: 5
-                color: root.showPose ? "#112211" : "#111122"
-                border.color: root.showPose ? "#33bb55" : "#2a2a44"
-                border.width: 1
-
-                Label {
-                    anchors.centerIn: parent
-                    text: root.showPose ? "Pose  ON" : "Pose  OFF"
-                    color: root.showPose ? "#44ff88" : "#44446a"
-                    font { pixelSize: 10; bold: true; letterSpacing: 1 }
-                }
-                MouseArea {
-                    anchors.fill: parent
-                    hoverEnabled: true
-                    cursorShape: Qt.PointingHandCursor
-                    onClicked: root.showPose = !root.showPose
-                    onEntered: parent.border.color = root.showPose ? "#55dd77" : "#44446a"
-                    onExited:  parent.border.color = root.showPose ? "#33bb55" : "#2a2a44"
-                }
-            }
-
-            // Gaze overlay toggle
-            Rectangle {
-                width: 100; height: 22; radius: 5
-                color: root.showGaze ? "#1a1500" : "#111122"
-                border.color: root.showGaze ? "#aa8800" : "#2a2a44"
-                border.width: 1
-
-                Label {
-                    anchors.centerIn: parent
-                    text: root.showGaze ? "Gaze  ON" : "Gaze  OFF"
-                    color: root.showGaze ? "#ffcc00" : "#44446a"
-                    font { pixelSize: 10; bold: true; letterSpacing: 1 }
-                }
-                MouseArea {
-                    anchors.fill: parent
-                    hoverEnabled: true
-                    cursorShape: Qt.PointingHandCursor
-                    onClicked: root.showGaze = !root.showGaze
-                    onEntered: parent.border.color = root.showGaze ? "#ccaa00" : "#44446a"
-                    onExited:  parent.border.color = root.showGaze ? "#aa8800" : "#2a2a44"
-                }
-            }
         }
 
         // ── Camera grid ────────────────────────────────────────────────────
@@ -132,16 +80,10 @@ Rectangle {
                     Layout.fillHeight: true
                     cameraIndex: index
                     hasCamera:   index < root.cameraCount
-                    showPose:    root.showPose
-                    showGaze:    root.showGaze
                     // Each slot tracks only its own camera's generation counter,
                     // so unrelated camera updates don't trigger a reload here.
                     frameGen:    (root.frameGens && index < root.frameGens.length)
                                  ? root.frameGens[index] : 0
-                    poseKeypoints: (root.poseKps && index < root.poseKps.length)
-                                   ? root.poseKps[index] : []
-                    gazeInfo:    (root.gazeData && index < root.gazeData.length)
-                                 ? root.gazeData[index] : null
                 }
             }
         }
@@ -179,11 +121,7 @@ Rectangle {
         id: slotRoot
         property int  cameraIndex:   0
         property bool hasCamera:     false
-        property bool showPose:      false
-        property bool showGaze:      false
         property int  frameGen:      0
-        property var  poseKeypoints: []
-        property var  gazeInfo:      null
 
         // True once the first frame has arrived for this slot.
         property bool hasFrame: false
@@ -268,124 +206,6 @@ Rectangle {
             text: "No camera"
             color: "#1e1e38"
             font { pixelSize: 12 }
-        }
-
-        // ── Pose skeleton overlay ──────────────────────────────────────────
-        Canvas {
-            id: poseCanvas
-            anchors.fill: feedImg
-            visible: slotRoot.showPose && slotRoot.hasCamera && slotRoot.hasFrame
-
-            property var kps: slotRoot.poseKeypoints
-
-            onKpsChanged: requestPaint()
-            onVisibleChanged: if (visible) requestPaint()
-
-            onPaint: {
-                var ctx = getContext("2d")
-                ctx.clearRect(0, 0, width, height)
-                if (!kps || kps.length === 0) return
-                var w = width, h = height
-                ctx.fillStyle = "rgba(0,160,255,0.9)"
-                for (var k = 0; k < kps.length; k++) {
-                    if (kps[k].visibility < 0.4) continue
-                    ctx.beginPath()
-                    ctx.arc(kps[k].x * w, kps[k].y * h, 2, 0, 2 * Math.PI)
-                    ctx.fill()
-                }
-            }
-        }
-
-        // ── Gaze overlay ──────────────────────────────────────────────────
-        Canvas {
-            id: gazeCanvas
-            anchors.fill: feedImg
-            visible: slotRoot.showGaze && slotRoot.hasCamera && slotRoot.hasFrame
-
-            property var gz: slotRoot.gazeInfo
-
-            onGzChanged:      requestPaint()
-            onVisibleChanged: if (visible) requestPaint()
-
-            onPaint: {
-                var ctx = getContext("2d")
-                ctx.clearRect(0, 0, width, height)
-                if (!gz) return
-
-                var w = width, h = height
-                ctx.save()
-
-                // ── Face bounding box ──────────────────────────────────────
-                var fb = gz["face_box"]
-                if (fb) {
-                    ctx.strokeStyle = "rgba(255, 200, 0, 0.85)"
-                    ctx.lineWidth = 1.5
-                    ctx.strokeRect(fb["x"] * w, fb["y"] * h,
-                                   fb["w"] * w, fb["h"] * h)
-                }
-
-                // ── Iris dots ──────────────────────────────────────────────
-                var li = gz["left_iris"]
-                var ri = gz["right_iris"]
-                if (li && li["x"] !== undefined) {
-                    ctx.beginPath()
-                    ctx.arc(li["x"] * w, li["y"] * h, 5, 0, 2 * Math.PI)
-                    ctx.fillStyle   = "rgba(255, 220, 50, 0.95)"
-                    ctx.fill()
-                    ctx.strokeStyle = "rgba(0, 0, 0, 0.6)"
-                    ctx.lineWidth   = 1
-                    ctx.stroke()
-                }
-                if (ri && ri["x"] !== undefined) {
-                    ctx.beginPath()
-                    ctx.arc(ri["x"] * w, ri["y"] * h, 5, 0, 2 * Math.PI)
-                    ctx.fillStyle   = "rgba(255, 220, 50, 0.95)"
-                    ctx.fill()
-                    ctx.strokeStyle = "rgba(0, 0, 0, 0.6)"
-                    ctx.lineWidth   = 1
-                    ctx.stroke()
-                }
-
-                // ── Gaze direction arrow ───────────────────────────────────
-                // Origin: midpoint between the two irises.
-                // Direction: (gaze_dx, gaze_dy) scaled to 35% of the shorter
-                //            canvas dimension so it's always clearly visible.
-                if (fb && li && ri &&
-                    li["x"] !== undefined && ri["x"] !== undefined) {
-                    var ox = ((li["x"] + ri["x"]) / 2) * w
-                    var oy = ((li["y"] + ri["y"]) / 2) * h
-                    var dx = gz["gaze_dx"]
-                    var dy = gz["gaze_dy"]
-                    // gaze_dx/dy are 0 when looking straight; scale to pixels
-                    var armLen = Math.min(w, h) * 0.35
-                    var tx = ox + dx * armLen
-                    var ty = oy + dy * armLen
-
-                    // Dashed line from eye-midpoint to gaze target
-                    ctx.setLineDash([4, 3])
-                    ctx.strokeStyle = "rgba(255, 200, 0, 0.5)"
-                    ctx.lineWidth   = 1.5
-                    ctx.beginPath()
-                    ctx.moveTo(ox, oy)
-                    ctx.lineTo(tx, ty)
-                    ctx.stroke()
-                    ctx.setLineDash([])
-
-                    // Gaze target crosshair
-                    var r = 8
-                    ctx.strokeStyle = "rgba(255, 200, 0, 0.95)"
-                    ctx.lineWidth   = 2
-                    ctx.beginPath()
-                    ctx.arc(tx, ty, r, 0, 2 * Math.PI)
-                    ctx.stroke()
-                    ctx.beginPath()
-                    ctx.moveTo(tx - r - 4, ty); ctx.lineTo(tx + r + 4, ty)
-                    ctx.moveTo(tx, ty - r - 4); ctx.lineTo(tx, ty + r + 4)
-                    ctx.stroke()
-                }
-
-                ctx.restore()
-            }
         }
 
         // ── Top-left: camera index badge ───────────────────────────────────
