@@ -24,6 +24,8 @@ add_executable(mosaic_tests
     test_audio_persistence.cpp
     test_realtime_metrics.cpp
     test_speaker_palette.cpp
+    test_recording_access_control.cpp
+    "${CMAKE_SOURCE_DIR}/src/core/recording_access_control.cpp"
     "${CMAKE_SOURCE_DIR}/src/ui/audio/speaker_palette.cpp"
     "${CMAKE_SOURCE_DIR}/src/video/gige_action_command.cpp"
     "${CMAKE_SOURCE_DIR}/src/calibration/rms_quality.cpp"

@@ -38,8 +38,8 @@ struct RecordSettingsW::Impl {
     QTextEdit* preview = nullptr;
 };
 
-RecordSettingsW::RecordSettingsW(RecordSettings& settings, QWidget* parent)
-    : QWidget(parent), m_settings(settings), d(std::make_unique<Impl>())
+RecordSettingsW::RecordSettingsW(RecordSettings& settings, bool isAdmin, QWidget* parent)
+    : QWidget(parent), m_settings(settings), m_isAdmin(isAdmin), d(std::make_unique<Impl>())
 {
     auto* outerLay = new QVBoxLayout(this);
     outerLay->setContentsMargins(0, 0, 0, 0);
@@ -100,6 +100,23 @@ void RecordSettingsW::build_directory_section(QVBoxLayout* parent) {
     });
     pathRow->addWidget(browseBtn);
     lay->addLayout(pathRow);
+
+    // Per-user recording access control (item 27): a non-admin's recording
+    // directory is the actual access boundary, not just a default — freely
+    // allowing it to be retargeted (e.g. pointed at another user's folder)
+    // would silently defeat that boundary. Read-only (not merely disabled)
+    // so the current path stays visible/selectable/copyable, just not
+    // editable; the browse button is disabled outright since there's
+    // nothing meaningful to browse to. Admins keep full editing.
+    if (!m_isAdmin) {
+        d->dirEdit->setReadOnly(true);
+        d->dirEdit->setToolTip(
+            "This is your own recording folder and can't be changed — "
+            "per-user recordings are kept separate. An admin can adjust "
+            "this if needed.");
+        browseBtn->setEnabled(false);
+        browseBtn->setToolTip(d->dirEdit->toolTip());
+    }
 
     // Open directory shortcut
     auto* openBtn = new QPushButton("Open recordings folder");

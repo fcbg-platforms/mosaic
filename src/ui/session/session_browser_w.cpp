@@ -169,6 +169,7 @@ private:
 
 struct SessionBrowserW::Impl {
     QString           recordsDir;
+    QStringList       extraDirectories;   // item 27 — admin-only aggregate view
     AnalysisManager*  analysisMgr = nullptr;
 
     QList<SessionInfo>  sessions;
@@ -240,13 +241,15 @@ static QLabel* chip_label(const QString& text,
 
 // ── Constructor ────────────────────────────────────────────────────────────
 
-SessionBrowserW::SessionBrowserW(const QString&   recordsDir,
-                                  AnalysisManager* analysisMgr,
-                                  QWidget*         parent)
+SessionBrowserW::SessionBrowserW(const QString&     recordsDir,
+                                  AnalysisManager*   analysisMgr,
+                                  const QStringList& extraDirectories,
+                                  QWidget*           parent)
     : QDialog(parent)
     , d(std::make_unique<Impl>())
 {
-    d->recordsDir  = recordsDir;
+    d->recordsDir       = recordsDir;
+    d->extraDirectories = extraDirectories;
     d->analysisMgr = analysisMgr;
 
     setWindowTitle("Session Browser & Annotator");
@@ -636,7 +639,13 @@ void SessionBrowserW::build_right_panel() {
 // ── Session list management ────────────────────────────────────────────────
 
 void SessionBrowserW::rebuild_session_list() {
+    // Own directory first, then each admin-only extra directory (item 27)
+    // — SessionInfo::list_all() itself stays a plain single-directory
+    // scan, this just calls it once per directory and merges.
     d->sessions = SessionInfo::list_all(d->recordsDir);
+    for (const QString& extraDir : d->extraDirectories) {
+        d->sessions += SessionInfo::list_all(extraDir);
+    }
 
     // Remove old rows
     for (auto* row : d->rows) { row->deleteLater(); }

@@ -63,6 +63,10 @@ static QString find_relative_to_app(const QString& relPath) {
 struct MainWindow::Impl {
     AppSettings&     settings;
     QString          username;
+    // Per-user recording access control (item 27) — resolved once in
+    // Application::initialize(), read-only from here on.
+    bool             isAdmin       = false;
+    QStringList      otherUserDirectories;
     TriggerManager*  triggerMgr   = nullptr;
     AudioManager*    audioMgr     = nullptr;
     VideoManager*    videoMgr     = nullptr;
@@ -90,24 +94,29 @@ struct MainWindow::Impl {
     QTimer*     liveApplyDebounce       = nullptr;
     QSet<int>   pendingLiveApplyIndices;
 
-    explicit Impl(AppSettings& s, const QString& user, TriggerManager* tm,
+    explicit Impl(AppSettings& s, const QString& user, bool admin,
+                  const QStringList& otherDirs, TriggerManager* tm,
                   AudioManager* am, VideoManager* vm, RecordManager* rm,
                   AnalysisManager* anlm)
-        : settings(s), username(user)
+        : settings(s), username(user), isAdmin(admin)
+        , otherUserDirectories(otherDirs)
         , triggerMgr(tm), audioMgr(am), videoMgr(vm), recordMgr(rm)
         , analysisMgr(anlm) {}
 };
 
-MainWindow::MainWindow(AppSettings&     settings,
-                        const QString&   username,
-                        TriggerManager*  triggerMgr,
-                        AudioManager*    audioMgr,
-                        VideoManager*    videoMgr,
-                        RecordManager*   recordMgr,
-                        AnalysisManager* analysisMgr,
-                        QWidget*         parent)
+MainWindow::MainWindow(AppSettings&      settings,
+                        const QString&    username,
+                        TriggerManager*   triggerMgr,
+                        AudioManager*     audioMgr,
+                        VideoManager*     videoMgr,
+                        RecordManager*    recordMgr,
+                        AnalysisManager*  analysisMgr,
+                        bool              isAdmin,
+                        const QStringList& otherUserDirectories,
+                        QWidget*          parent)
     : QMainWindow(parent)
-    , d(std::make_unique<Impl>(settings, username, triggerMgr, audioMgr, videoMgr, recordMgr, analysisMgr))
+    , d(std::make_unique<Impl>(settings, username, isAdmin, otherUserDirectories,
+                                triggerMgr, audioMgr, videoMgr, recordMgr, analysisMgr))
 {
     const QString userLabel = (username == "guest") ? "Guest" : ("@" + username);
     setWindowTitle(QString("MOSAIC — %1").arg(userLabel));
@@ -147,7 +156,8 @@ void MainWindow::build_menu_bar() {
     auto* browseAction = new QAction("&Browse Sessions…", this);
     browseAction->setShortcut(QKeySequence("Ctrl+B"));
     connect(browseAction, &QAction::triggered, this, [this] {
-        SessionBrowserW browser(d->settings.record.directory, d->analysisMgr, this);
+        SessionBrowserW browser(d->settings.record.directory, d->analysisMgr,
+                                 d->isAdmin ? d->otherUserDirectories : QStringList{}, this);
         browser.exec();
     });
     file->addAction(browseAction);
@@ -254,7 +264,7 @@ void MainWindow::build_central_widget() {
     d->settingsTabs->addTab(
         new TriggerEventPanelW(d->triggerMgr),                            "Events");
     d->settingsTabs->addTab(
-        new RecordSettingsW(d->settings.record),                           "Record");
+        new RecordSettingsW(d->settings.record, d->isAdmin),                "Record");
     d->settingsTabs->addTab(
         new PerformanceMonitorW(d->videoMgr, d->audioMgr, d->analysisMgr),  "Perf");
     d->settingsTabs->addTab(
@@ -393,15 +403,21 @@ void MainWindow::build_central_widget() {
         } else {
             d->poseWorker = new PoseWorker(this);
             if (d->poseWorker->start(interp, script)) {
-                connect(d->poseWorker, &PoseWorker::pose_ready,
-                        d->bridge, &MonitorBridge::on_pose_ready,
-                        Qt::QueuedConnection);
-                connect(d->poseWorker, &PoseWorker::gaze_ready,
-                        d->bridge, &MonitorBridge::on_gaze_ready,
-                        Qt::QueuedConnection);
                 if (d->videoMgr) {
-                    // Send all cameras at ≤2 fps each (6 cams × 2 fps = 12 fps
-                    // total — within MediaPipe lite's ~18 fps capacity).
+                    // Send each enabled camera at ≤5 fps (200ms min interval).
+                    // Sized against the lite model's real per-frame cost (see
+                    // frame_server.py's explicit model_complexity=0), not the
+                    // theoretical worst case: with only one camera's "Analyze"
+                    // checkbox on at a time — today's typical config — this is
+                    // comfortably within budget and makes the Real-time tab's
+                    // Live Trace panel visibly smoother than the previous
+                    // 2 fps. If several cameras ever have live analysis
+                    // enabled simultaneously, the aggregate demand on the one
+                    // shared MediaPipe subprocess (running pose + gaze per
+                    // frame) can exceed its throughput and reintroduce
+                    // queueing lag — lower this back down (or make it a
+                    // proper per-camera/tunable setting) if that pattern
+                    // becomes real usage, not just a hypothetical.
                     // Per-camera timestamps prevent one fast camera from starving others.
                     auto ts = std::make_shared<std::array<qint64, 16>>();
                     ts->fill(0);
@@ -419,7 +435,7 @@ void MainWindow::build_central_widget() {
                             return;
                         }
                         const qint64 nowMs = QDateTime::currentMSecsSinceEpoch();
-                        if (nowMs - (*ts)[camIdx] < 500) return;   // 2 fps per camera
+                        if (nowMs - (*ts)[camIdx] < 200) return;   // 5 fps per camera
                         (*ts)[camIdx] = nowMs;
                         d->poseWorker->submit_frame(camIdx, frame);
                     }, Qt::QueuedConnection);
@@ -470,7 +486,8 @@ void MainWindow::build_central_widget() {
                                        d->recordMgr, d->poseWorker);
     d->topTabs->addTab(d->realtimeTab, "Real-time");
 
-    d->analysisTab = new AnalysisTabW(d->settings, d->analysisMgr);
+    d->analysisTab = new AnalysisTabW(d->settings, d->analysisMgr,
+                                       d->isAdmin ? d->otherUserDirectories : QStringList{});
     d->topTabs->addTab(d->analysisTab, "Analysis");
 }
 

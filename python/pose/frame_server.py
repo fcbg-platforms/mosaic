@@ -58,7 +58,15 @@ def read_frame() -> tuple[int, np.ndarray] | tuple[None, None]:
 
 
 def main() -> None:
-    estimator      = PoseEstimator(model_complexity=1)
+    # Explicitly lite (0), not full (1): only pose_landmarker_lite.task is
+    # actually present under python/pose/ — requesting "full" here used to
+    # silently fall back to lite anyway (see PoseEstimator's own fallback
+    # logic), so this was already the real runtime behavior, just by
+    # accident rather than by choice. Making it explicit removes a latent
+    # trap: if a full/heavy model file is ever added to this directory for
+    # some other purpose, this live path would otherwise silently get
+    # slower with no code change to explain why.
+    estimator      = PoseEstimator(model_complexity=0)
     gaze_estimator = GazeEstimator()
     try:
         while True:

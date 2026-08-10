@@ -20,9 +20,16 @@ namespace mosaic {
 class SessionBrowserW : public QDialog {
     Q_OBJECT
 public:
-    explicit SessionBrowserW(const QString&   recordsDir,
-                              AnalysisManager* analysisMgr = nullptr,
-                              QWidget*         parent      = nullptr);
+    // extraDirectories: additional session-root directories to scan and
+    // merge alongside recordsDir — used for per-user recording access
+    // control (item 27): empty for a regular user (recordsDir alone is
+    // already that user's own, correctly-scoped folder), or every other
+    // known profile's own recording directory when the active profile is
+    // an admin, so the browser shows an aggregated, all-users view.
+    explicit SessionBrowserW(const QString&     recordsDir,
+                              AnalysisManager*   analysisMgr = nullptr,
+                              const QStringList& extraDirectories = {},
+                              QWidget*           parent      = nullptr);
     ~SessionBrowserW() override;
 
 private:

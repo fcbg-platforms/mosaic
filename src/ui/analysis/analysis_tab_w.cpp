@@ -686,6 +686,7 @@ private:
 struct AnalysisTabW::Impl {
     AppSettings&     settings;
     AnalysisManager* analysisMgr;
+    QStringList      extraDirectories;   // item 27 — admin-only aggregate view
 
     QListWidget* sessionList = nullptr;
     QComboBox*   pluginCombo = nullptr;
@@ -839,7 +840,8 @@ struct AnalysisTabW::Impl {
     // otherwise be shown against the now-selected (different) plugin's view.
     QString jobPlugin;
 
-    Impl(AppSettings& s, AnalysisManager* mgr) : settings(s), analysisMgr(mgr) {}
+    Impl(AppSettings& s, AnalysisManager* mgr, const QStringList& extraDirs = {})
+        : settings(s), analysisMgr(mgr), extraDirectories(extraDirs) {}
 
     [[nodiscard]] const SessionInfo* current_session() const {
         for (const auto& s : sessions) {
@@ -872,8 +874,9 @@ struct AnalysisTabW::Impl {
 
 // ── Construction ─────────────────────────────────────────────────────────
 
-AnalysisTabW::AnalysisTabW(AppSettings& settings, AnalysisManager* analysisMgr, QWidget* parent)
-    : QWidget(parent), d(std::make_unique<Impl>(settings, analysisMgr))
+AnalysisTabW::AnalysisTabW(AppSettings& settings, AnalysisManager* analysisMgr,
+                            const QStringList& extraDirectories, QWidget* parent)
+    : QWidget(parent), d(std::make_unique<Impl>(settings, analysisMgr, extraDirectories))
 {
     build_ui();
     // pluginCombo's first addItem() (build_ui(), "Pose (YOLOv8)") fires its
@@ -1746,7 +1749,13 @@ void AnalysisTabW::build_ui() {
 
 void AnalysisTabW::rebuild_session_list() {
     const QString selected = d->currentSessionPath;
+    // Own directory first, then each admin-only extra directory (item 27)
+    // — SessionInfo::list_all() itself stays a plain single-directory
+    // scan, this just calls it once per directory and merges.
     d->sessions = SessionInfo::list_all(d->settings.record.directory);
+    for (const QString& extraDir : d->extraDirectories) {
+        d->sessions += SessionInfo::list_all(extraDir);
+    }
 
     d->sessionList->blockSignals(true);
     d->sessionList->clear();
