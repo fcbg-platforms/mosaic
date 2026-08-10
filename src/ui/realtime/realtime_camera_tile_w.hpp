@@ -12,8 +12,9 @@ namespace mosaic {
 // thumbnail with a pose-skeleton + gaze overlay (ported from
 // PoseOverlayPlayerW/SkeletonOverlayW's QPainter approach and colors, for
 // visual consistency with the post-hoc Analysis-tab overlay), a small gaze
-// compass, and a footer with a pose-tracking-quality badge, a neutral gaze
-// on-target percentage, and a bucketed detection-rate sparkline.
+// compass, and a footer with a pose-tracking-quality badge and a neutral
+// gaze on-target percentage (no per-tile sparkline — the tab's own
+// RealtimeTraceW panel is the one place a live trace is shown).
 //
 // Receives frames/keypoints/gaze data via direct slots — the tab dispatches
 // PoseWorker::pose_ready()/gaze_ready() and VideoManager::frame_preview() to
