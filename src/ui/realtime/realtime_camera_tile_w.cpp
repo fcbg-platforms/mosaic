@@ -203,73 +203,6 @@ private:
     std::optional<QVariantMap>  gaze_;
 };
 
-// ── SparklineW — bucketed detection-rate trend ─────────────────────────────
-
-class SparklineW : public QWidget {
-public:
-    explicit SparklineW(QWidget* parent = nullptr) : QWidget(parent) {
-        setFixedHeight(28);
-        setMinimumWidth(80);
-    }
-
-    void set_rates(const QVector<double>& rates) { rates_ = rates; update(); }
-
-    void set_desaturated(bool desat) {
-        if (desaturated_ == desat) { return; }
-        desaturated_ = desat;
-        update();
-    }
-
-protected:
-    void paintEvent(QPaintEvent*) override {
-        QPainter p(this);
-        p.setRenderHint(QPainter::Antialiasing);
-
-        const double baselineY = height() - 4.0;
-        p.setPen(QPen(QColor("#1a1a35"), 1));
-        p.drawLine(QPointF(0, baselineY), QPointF(width() - 36, baselineY));
-
-        if (rates_.isEmpty()) {
-            p.setPen(QColor("#55557a"));
-            QFont f; f.setPixelSize(9);
-            p.setFont(f);
-            p.drawText(rect(), Qt::AlignCenter, "no data yet");
-            return;
-        }
-
-        QColor accent("#4488dd");
-        if (desaturated_) { accent.setAlpha(110); }
-
-        const double topY  = 3.0;
-        const double plotH = baselineY - topY;
-        const double plotW = std::max(1, width() - 36);
-        const double stepX = rates_.size() > 1
-            ? plotW / static_cast<double>(rates_.size() - 1)
-            : 0.0;
-
-        QPainterPath path;
-        for (int i = 0; i < rates_.size(); ++i) {
-            const double x = i * stepX;
-            const double y = baselineY - std::clamp(rates_[i], 0.0, 1.0) * plotH;
-            if (i == 0) { path.moveTo(x, y); } else { path.lineTo(x, y); }
-        }
-        p.setPen(QPen(accent, 2));
-        p.drawPath(path);
-
-        // Direct last-value readout — a live/streaming display still needs
-        // a way to read an exact current value, not just a moving line.
-        p.setPen(desaturated_ ? QColor("#55557a") : QColor("#c8c8e0"));
-        QFont f; f.setPixelSize(10); f.setBold(true);
-        p.setFont(f);
-        const QString label = QString("%1%").arg(qRound(rates_.last() * 100));
-        p.drawText(QRectF(width() - 34, 0, 34, height()), Qt::AlignVCenter | Qt::AlignRight, label);
-    }
-
-private:
-    QVector<double> rates_;
-    bool            desaturated_ = false;
-};
-
 // ── Impl ────────────────────────────────────────────────────────────────────
 
 struct RealtimeCameraTileW::Impl {
@@ -283,7 +216,6 @@ struct RealtimeCameraTileW::Impl {
     QWidget*        footer          = nullptr;
     QLabel*         qualityBadge    = nullptr;
     QLabel*         gazeOnTargetLbl = nullptr;
-    SparklineW*     sparkline       = nullptr;
 
     DetectionRateTracker detectionTracker;
     DetectionRateTracker gazeTracker;
@@ -325,6 +257,16 @@ RealtimeCameraTileW::RealtimeCameraTileW(int cameraIndex, bool liveAnalysisEnabl
         "(~2fps/camera, split across every enabled camera).");
     connect(d->analyzeCk, &QCheckBox::toggled, this, [this](bool on) {
         d->analyzeEnabled = on;
+        if (!on) {
+            // Turning analysis off stops new pose_ready/gaze_ready events
+            // from ever arriving for this camera (main_window.cpp's
+            // frame_preview lambda skips submit_frame() once
+            // liveAnalysisEnabled is false) — without this, the thumbnail
+            // keeps drawing whatever skeleton/gaze it last received,
+            // frozen indefinitely instead of disappearing.
+            d->thumb->set_pose({});
+            d->thumb->set_gaze(std::nullopt);
+        }
         emit analyze_toggled(d->cameraIndex, on);
     });
     header->addWidget(d->liveDot);
@@ -353,9 +295,6 @@ RealtimeCameraTileW::RealtimeCameraTileW(int cameraIndex, bool liveAnalysisEnabl
     footerLay->addStretch(1);
     footerLay->addWidget(d->gazeOnTargetLbl);
     root->addWidget(d->footer);
-
-    d->sparkline = new SparklineW;
-    root->addWidget(d->sparkline);
 }
 
 RealtimeCameraTileW::~RealtimeCameraTileW() = default;
@@ -375,7 +314,6 @@ void RealtimeCameraTileW::set_analysis_paused(bool paused) {
     if (d->paused == paused) { return; }
     d->paused = paused;
     anim::ensure_opacity_effect(d->footer)->setOpacity(paused ? 0.45 : 1.0);
-    d->sparkline->set_desaturated(paused);
 }
 
 void RealtimeCameraTileW::on_frame_preview(QImage frame) {
@@ -393,7 +331,6 @@ void RealtimeCameraTileW::on_pose_ready(QVariantList keypoints) {
 
     d->detectionTracker.push(!keypoints.isEmpty(), now);
     d->thumb->set_pose(keypoints);
-    d->sparkline->set_rates(d->detectionTracker.bucket_rates());
 
     const auto rate = d->detectionTracker.rate();
     const RmsQuality quality = pose_tracking_quality_for(rate.value_or(0.0));

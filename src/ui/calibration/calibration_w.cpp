@@ -2,8 +2,11 @@
 #include "calibration/rms_quality.hpp"
 #include "ui/calibration/badge_style.hpp"
 #include "ui/calibration/room_calibration_w.hpp"
+#include "utils/logger.hpp"
+#include "video/video_manager.hpp"
 #include <QCheckBox>
 #include <QComboBox>
+#include <QDateTime>
 #include <QDoubleSpinBox>
 #include <QFrame>
 #include <QGroupBox>
@@ -14,6 +17,7 @@
 #include <QScrollArea>
 #include <QSpinBox>
 #include <QTabWidget>
+#include <QTimer>
 #include <QVBoxLayout>
 
 namespace mosaic {
@@ -22,6 +26,8 @@ struct CalibrationW::Impl {
     VideoSettings&      videoSettings;
     CalibrationManager  manager;
     RoomCalibrationW*   roomTab = nullptr;   // not owned (child widget, Qt parent-owns)
+    VideoManager*       videoMgr = nullptr;  // not owned
+    QTabWidget*         innerTabs = nullptr; // not owned — Intrinsics is index 0
 
     // Board configuration
     QSpinBox*       colsSpin      = nullptr;
@@ -51,12 +57,15 @@ CalibrationW::CalibrationW(VideoSettings& videoSettings, RoomSettings& roomSetti
                             VideoManager* videoMgr, QWidget* parent)
     : QWidget(parent), d(std::make_unique<Impl>(videoSettings))
 {
+    d->videoMgr = videoMgr;
+
     auto* outerLay = new QVBoxLayout(this);
     outerLay->setContentsMargins(0, 0, 0, 0);
 
     auto* innerTabs = new QTabWidget;
     innerTabs->setDocumentMode(true);
     outerLay->addWidget(innerTabs);
+    d->innerTabs = innerTabs;
 
     auto* scroll = new QScrollArea;
     scroll->setWidgetResizable(true);
@@ -84,6 +93,30 @@ CalibrationW::CalibrationW(VideoSettings& videoSettings, RoomSettings& roomSetti
     }
 
     build_board_section(contentLay);
+
+    // Keep CalibrationManager::set_board() synced with the spinboxes at all
+    // times, not just when "Calibrate" is clicked — feed_frame() (see the
+    // capture-frame connection below) bakes the *currently-set* board's
+    // squareSizeMm into every accepted view's 3-D object points as it's
+    // fed, not retroactively at calibrate() time. Previously set_board()
+    // only ran inside the Calibrate button's click handler, by which point
+    // every already-accumulated view had silently used CalibrationManager's
+    // own internal default (25mm) regardless of what the spinbox showed —
+    // a real correctness bug (wrong absolute scale in the result), not
+    // just a cosmetic mismatch, whenever a user changed Square away from
+    // that default before capturing.
+    const auto sync_board_spec = [this] {
+        CalibrationManager::BoardSpec spec;
+        spec.cols         = d->colsSpin->value();
+        spec.rows         = d->rowsSpin->value();
+        spec.squareSizeMm = d->squareSpin->value();
+        d->manager.set_board(spec);
+    };
+    sync_board_spec();
+    connect(d->colsSpin,   qOverload<int>(&QSpinBox::valueChanged),       this, sync_board_spec);
+    connect(d->rowsSpin,   qOverload<int>(&QSpinBox::valueChanged),       this, sync_board_spec);
+    connect(d->squareSpin, qOverload<double>(&QDoubleSpinBox::valueChanged), this, sync_board_spec);
+
     build_capture_section(contentLay);
     build_preview_section(contentLay);
     build_result_section(contentLay);
@@ -109,6 +142,72 @@ CalibrationW::CalibrationW(VideoSettings& videoSettings, RoomSettings& roomSetti
     // solvePnP-based extrinsic solve immediately, not just after this
     // widget is recreated.
     connect(this, &CalibrationW::calibration_saved, d->roomTab, &RoomCalibrationW::refresh_intrinsics);
+
+    // Feed live full-resolution frames from whichever camera is selected in
+    // the capture section into the calibration manager — previously nothing
+    // in the app ever called CalibrationManager::feed_frame() at all (the
+    // "Capture" section's own tip label described this as something the
+    // caller must wire up, but no caller ever did), so "Views accepted"
+    // could never advance past 0 no matter how the checkerboard was shown
+    // to the camera.
+    //
+    // Deliberately reuses VideoManager::request_calibration_frame()/
+    // calibration_frame_ready() — the same one-shot full-resolution
+    // mechanism RoomCalibrationW's "Capture Shot" button already uses —
+    // polled on a timer here instead of a single click, rather than feeding
+    // VideoManager::frame_preview() directly: that signal is capped to
+    // 640x360 for cheap UI display (VideoGrabber::run_pylon_loop()'s own
+    // comment), and at that size a real printed checkerboard held at a
+    // normal distance shrinks to only a few pixels per square — nowhere
+    // near enough for cv::findChessboardCorners to reliably detect,
+    // confirmed on real hardware: feed_frame() ran continuously against
+    // the downscaled preview and never found the pattern once. Full
+    // resolution (1920x1080 on this rig) gives the detector real pixels to
+    // work with.
+    if (d->videoMgr) {
+        connect(d->videoMgr, &VideoManager::calibration_frame_ready, this,
+                [this](int camIdx, QImage frame, uint64_t /*token*/) {
+            if (camIdx != d->cameraCombo->currentIndex()) { return; }
+
+            if (frame.format() != QImage::Format_BGR888) {
+                frame = frame.convertToFormat(QImage::Format_BGR888);
+            }
+            VideoFrame vf;
+            vf.width  = frame.width();
+            vf.height = frame.height();
+            vf.stride = static_cast<int>(frame.bytesPerLine());
+            vf.data.assign(frame.constBits(), frame.constBits() + static_cast<size_t>(vf.stride) * vf.height);
+            log_info(QString("[CalibrationW] Feeding camera %1 full-res frame (%2x%3) into "
+                             "intrinsics calibration.").arg(camIdx).arg(vf.width).arg(vf.height));
+            d->manager.feed_frame(vf);
+        }, Qt::QueuedConnection);
+
+        // ~1.25 requests/sec — slow enough that cv::findChessboardCorners
+        // (real synchronous CPU work on this, the GUI, thread) never stacks
+        // up, and slow enough to naturally encourage moving the board
+        // between accepted views instead of racking up near-duplicates.
+        //
+        // Gated on this widget's own visibility AND the Intrinsics sub-tab
+        // specifically being selected — CalibrationW is a permanently-
+        // instantiated top-level tab (constructed once at app startup, like
+        // every other MainWindow tab), so without this check the timer would
+        // fire full-resolution capture + synchronous OpenCV corner-search
+        // forever, regardless of which tab is actually on screen, stalling
+        // the GUI thread and visibly lagging live video everywhere in the
+        // app — confirmed on real hardware. Mirrors the same
+        // "gate expensive per-frame work on isVisible()" precedent
+        // RoomCalibrationW's own live preview conversion already uses.
+        auto* requestTimer = new QTimer(this);
+        requestTimer->setInterval(800);
+        connect(requestTimer, &QTimer::timeout, this, [this] {
+            if (!isVisible()) { return; }
+            if (d->innerTabs && d->innerTabs->currentIndex() != 0) { return; }
+            if (d->cameraCombo->currentIndex() >= 0) {
+                d->videoMgr->request_calibration_frame(d->cameraCombo->currentIndex());
+            }
+        });
+        requestTimer->start();
+    }
 }
 
 CalibrationW::~CalibrationW() = default;
@@ -145,7 +244,11 @@ void CalibrationW::build_board_section(QVBoxLayout* parent) {
     row->addWidget(make_label("Square:"));
     d->squareSpin = new QDoubleSpinBox;
     d->squareSpin->setRange(1.0, 500.0);
-    d->squareSpin->setValue(25.0);
+    // Matches the generated, print-ready checkerboard's actual physical
+    // square size (9x6 inner corners, 22mm squares) — was 25mm, a mismatch
+    // with the size the printed board is now generated at. Cols/Rows
+    // already defaulted to 9/6, matching correctly.
+    d->squareSpin->setValue(22.0);
     d->squareSpin->setSuffix("  mm");
     d->squareSpin->setFixedWidth(95);
     row->addWidget(d->squareSpin);
@@ -223,11 +326,8 @@ void CalibrationW::build_result_section(QVBoxLayout* parent) {
     auto* row1 = new QHBoxLayout;
     d->calibrateBtn = new QPushButton("▶  Calibrate");
     connect(d->calibrateBtn, &QPushButton::clicked, this, [this] {
-        CalibrationManager::BoardSpec spec;
-        spec.cols         = d->colsSpin->value();
-        spec.rows         = d->rowsSpin->value();
-        spec.squareSizeMm = d->squareSpin->value();
-        d->manager.set_board(spec);
+        // Board spec is kept live-synced by sync_board_spec() above —
+        // nothing to rebuild here.
         d->manager.calibrate();
     });
     row1->addWidget(d->calibrateBtn);

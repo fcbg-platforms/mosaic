@@ -20,6 +20,7 @@
 #include <QCoreApplication>
 #include <QDateTime>
 #include <QDesktopServices>
+#include <QDir>
 #include <array>
 #include <memory>
 #include <QFileInfo>
@@ -37,6 +38,27 @@
 #include <QVBoxLayout>
 
 namespace mosaic {
+
+// Multi-base search for a file relative to the app, mirroring
+// AnalysisManager::find_venv_python()'s already-proven approach — a naive
+// single applicationDirPath()-relative guess silently fails in a dev build
+// (built to build/Release/bin/Release/, while python/'s real venv lives in
+// the source tree and is never copied next to the exe) with no diagnostic
+// at all. Checking the working directory too (typical when launched from a
+// shell/IDE with cwd at the source root) makes this resolve correctly here,
+// exactly like the analysis/ Python plugins already do.
+static QString find_relative_to_app(const QString& relPath) {
+    const QStringList bases = {
+        QCoreApplication::applicationDirPath(),
+        QCoreApplication::applicationDirPath() + "/../../../..",  // Xcode bundle
+        QDir::currentPath(),
+    };
+    for (const QString& base : bases) {
+        const QString candidate = QDir(base).filePath(relPath);
+        if (QFileInfo::exists(candidate)) { return candidate; }
+    }
+    return {};
+}
 
 struct MainWindow::Impl {
     AppSettings&     settings;
@@ -359,12 +381,26 @@ void MainWindow::build_central_widget() {
         d->liveApplyDebounce->start();
     });
 
-    // Start real-time pose worker if the Python venv is available.
+    // Start real-time pose worker if the Python venv is available. Uses a
+    // multi-base search (find_relative_to_app(), above) rather than a
+    // single applicationDirPath()-relative guess, since python/'s venv
+    // lives in the source tree and nothing currently copies it next to a
+    // built exe — see that function's own doc comment.
     {
-        const QString exeDir  = QCoreApplication::applicationDirPath();
-        const QString interp  = exeDir + "/python/.venv/Scripts/python.exe";
-        const QString script  = exeDir + "/python/pose/frame_server.py";
-        if (QFileInfo::exists(interp) && QFileInfo::exists(script)) {
+#ifdef Q_OS_WIN
+        const QString interpRel = "python/.venv/Scripts/python.exe";
+#else
+        const QString interpRel = "python/.venv/bin/python";
+#endif
+        const QString interp = find_relative_to_app(interpRel);
+        const QString script = find_relative_to_app("python/pose/frame_server.py");
+        if (interp.isEmpty() || script.isEmpty()) {
+            log_warning("Real-time pose/gaze unavailable — python/.venv or "
+                        "python/pose/frame_server.py not found next to the "
+                        "application or in the working directory. The "
+                        "Real-time tab will show no skeleton/gaze overlay "
+                        "until the python/ venv is set up and reachable.");
+        } else {
             d->poseWorker = new PoseWorker(this);
             if (d->poseWorker->start(interp, script)) {
                 connect(d->poseWorker, &PoseWorker::pose_ready,
@@ -411,6 +447,12 @@ void MainWindow::build_central_widget() {
                             [this](const QString&, int) { d->poseWorker->set_paused(false); });
                 }
                 log_info("Pose worker started — real-time pose overlay active.");
+            } else {
+                log_warning("Real-time pose worker failed to start (found "
+                            "python.exe/frame_server.py, but launching the "
+                            "process failed) — the Real-time tab will show "
+                            "no skeleton/gaze overlay. Check mosaic.log above "
+                            "this line for the underlying process error.");
             }
         }
     }
