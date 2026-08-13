@@ -60,4 +60,12 @@ bool gaze_on_target_for(double gazeDx, double gazeDy, double threshold) {
     return std::hypot(gazeDx, gazeDy) <= threshold;
 }
 
+RmsQuality rppg_quality_for(double snrDb, double validFrameFraction) {
+    if (validFrameFraction < 0.6) { return RmsQuality::Poor; }
+    if (snrDb >= 5.0)  { return RmsQuality::Excellent; }
+    if (snrDb >= 0.0)  { return RmsQuality::Good; }
+    if (snrDb >= -5.0) { return RmsQuality::Acceptable; }
+    return RmsQuality::Poor;
+}
+
 } // namespace mosaic

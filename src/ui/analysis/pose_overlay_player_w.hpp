@@ -2,6 +2,7 @@
 #include "analysis/expression_result.hpp"
 #include "analysis/gaze_fusion_result.hpp"
 #include "analysis/pose_analysis_result.hpp"
+#include "analysis/rppg_result.hpp"
 #include "analysis/skeleton3d_result.hpp"
 #include <QWidget>
 #include <memory>
@@ -10,10 +11,11 @@ namespace mosaic {
 
 // Single-camera video playback with a pose-keypoint/skeleton overlay, a
 // facial-expression bbox+label overlay, a gaze-fusion bbox+direction-arrow
-// overlay, OR a 3D-pose-reconstruction reprojected-skeleton overlay, drawn
-// in sync with the current playback position (all four are mutually
+// overlay, a 3D-pose-reconstruction reprojected-skeleton overlay, OR a
+// remote-heart-rate (rPPG) face-ROI bbox + live BPM readout overlay, drawn
+// in sync with the current playback position (all five are mutually
 // exclusive — see set_pose_result()/set_expression_result()/
-// set_gaze_result()/set_skeleton3d_result()).
+// set_gaze_result()/set_skeleton3d_result()/set_rppg_result()).
 //
 // Not a reuse of SessionPlayerW's CameraSlotW: that class is coupled to
 // multi-camera master-clock sync, which doesn't apply to this single-video,
@@ -73,6 +75,16 @@ public:
     // with set_pose_result()/set_expression_result()/set_gaze_result()
     // (see above).
     void set_skeleton3d_result(const Skeleton3DResult& result, int cameraIndex);
+
+    // Sets the rPPG heart-rate data drawn as a face-ROI bbox + live BPM
+    // readout overlay. cameraIndex exists only for API symmetry with the
+    // other four setters — RppgResult is already inherently single-camera
+    // (one file per video), so it isn't used to filter anything here. Pass
+    // a default-constructed (is_valid() == false) result to clear the
+    // overlay. Mutually exclusive with set_pose_result()/
+    // set_expression_result()/set_gaze_result()/set_skeleton3d_result()
+    // (see above).
+    void set_rppg_result(const RppgResult& result, int cameraIndex);
 
     [[nodiscard]] int64_t position_ms() const;
     [[nodiscard]] int64_t duration_ms() const;

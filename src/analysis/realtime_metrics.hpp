@@ -65,4 +65,20 @@ inline constexpr double kGazeOnTargetThreshold = 0.35;
 [[nodiscard]] bool gaze_on_target_for(double gazeDx, double gazeDy,
                                        double threshold = kGazeOnTargetThreshold);
 
+/// @brief Buckets a remote-heart-rate (rPPG) window's pulse-SNR (dB, from
+/// run_rppg.py's estimate_hr_welch()) into the same RmsQuality status
+/// vocabulary already established for calibration quality and live
+/// pose-tracking rate (pose_tracking_quality_for() above) — same reuse
+/// rationale, not a new per-domain enum.
+///
+/// Forces Poor whenever validFrameFraction is below 0.6 (matching
+/// run_rppg.py's own MIN_VALID_FRACTION gate) regardless of the reported
+/// SNR — a quality read computed on sparse/mostly-missing face data isn't
+/// meaningful even if the SNR number itself happens to look reasonable.
+///
+/// The SNR thresholds below are documented as heuristic defaults, not
+/// derived from a specific calibration study — the same honest framing
+/// already used for DetectionRateTracker's own bucket thresholds.
+[[nodiscard]] RmsQuality rppg_quality_for(double snrDb, double validFrameFraction);
+
 } // namespace mosaic

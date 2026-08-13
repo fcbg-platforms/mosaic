@@ -60,6 +60,11 @@ analysis/expression/models/
 # cache convention as the entries above.
 analysis/gaze/models/
 
+# Auto-downloaded MediaPipe FaceLandmarker weights (analysis/rppg backend,
+# used by the Remote Heart Rate plugin) — same per-plugin-owns-its-cache
+# convention as the entries above.
+analysis/rppg/models/
+
 # Logs
 *.log
 

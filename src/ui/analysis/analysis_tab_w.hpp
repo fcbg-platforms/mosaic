@@ -32,13 +32,20 @@ namespace mosaic {
 // cross-camera person association (multi-person capable, unlike Gaze
 // Fusion's single-subject design), shown as a per-camera reprojected
 // skeleton overlay plus an interactive, orbit-rotatable 3D room view
-// (Skeleton3DRoomViewW); and EEG/Trigger ↔ Frame Sync — resolves every event
+// (Skeleton3DRoomViewW); EEG/Trigger ↔ Frame Sync — resolves every event
 // in the session's trigger.csv (e.g. an EEG amplifier's parallel-port trigger
 // cable) to its nearest frame in every camera (analysis/trigger_frame_map.hpp),
 // shown as a click-to-seek table, computed synchronously in C++ (no
 // subprocess — unlike every other plugin here, this is pure fast CSV-to-CSV
 // arithmetic with no ML dependency, the same shape as SyncManifest's own
-// synchronous generate()). AnalysisManager (analysis/analysis_manager.hpp)
+// synchronous generate()); and Remote Heart Rate (rPPG) — an EXPERIMENTAL,
+// research-grade-only camera-based heart-rate estimate (analysis/rppg/,
+// classical Green/CHROM/POS signal-processing algorithms, no deep learning),
+// shown as a BPM-over-time chart plus a per-camera face-ROI debug overlay, a
+// stats readout, and a persistent on-screen disclaimer — not a medical
+// device, not clinically validated; no blood-pressure or heart-rate-
+// variability estimate is attempted (see item 21's plan section for why both
+// were deliberately descoped). AnalysisManager (analysis/analysis_manager.hpp)
 // runs each ML-backed plugin's script through the same shared subprocess
 // queue. For Pose, the metrics plot can show raw Position (x/y) or, entirely
 // computed client-side from the already-loaded result (no extra Python run
@@ -84,6 +91,8 @@ private:
     void export_skeleton3d_csv();
     void update_trigger_sync_view();
     void export_trigger_sync_csv();
+    void update_rppg_view();
+    void export_rppg_csv();
     [[nodiscard]] bool is_pose_plugin() const;
     [[nodiscard]] bool is_diarize_plugin() const;
     [[nodiscard]] bool is_expression_plugin() const;
@@ -91,6 +100,7 @@ private:
     [[nodiscard]] bool is_gaze_fusion_plugin() const;
     [[nodiscard]] bool is_pose3d_plugin() const;
     [[nodiscard]] bool is_trigger_sync_plugin() const;
+    [[nodiscard]] bool is_rppg_plugin() const;
     [[nodiscard]] bool is_pose_depth_selected() const;
     [[nodiscard]] QString slug_for_model(const QString& modelId) const;
     [[nodiscard]] QString pose_json_path_for(const QString& videoRelPath) const;
@@ -98,6 +108,7 @@ private:
     [[nodiscard]] QString anonymized_video_path_for(const QString& videoRelPath) const;
     [[nodiscard]] QString transcript_json_path_for(const QString& audioRelPath) const;
     [[nodiscard]] QString expression_json_path_for(const QString& videoRelPath) const;
+    [[nodiscard]] QString rppg_json_path_for(const QString& videoRelPath) const;
 
     struct Impl;
     std::unique_ptr<Impl> d;

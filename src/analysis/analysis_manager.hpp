@@ -192,6 +192,34 @@ public:
     void run_pose3d_reconstruction(const QString& sessionPath, int minCameras,
                                     double maxReprojectionErrorPx, int frameSkip);
 
+    /// @brief Estimate a remote (camera-based) heart rate over the course of
+    /// a recorded session's video, using classical (non-deep-learning)
+    /// signal-processing algorithms. Writes one
+    /// "<video_stem>.<backend>.rppg.json" per camera into the session's own
+    /// rppg/ subfolder — originals are never modified.
+    ///
+    /// EXPERIMENTAL — research-grade heart-rate estimate only, not a
+    /// medical device and not clinically validated. No blood-pressure or
+    /// heart-rate-variability estimate is attempted (see item 21's plan
+    /// section for why both were deliberately descoped).
+    ///
+    /// Always runs when called directly, exactly like analyze_session(). If a
+    /// previous analysis is still running, this queues the new job. No
+    /// sync_manifest.json dependency, unlike run_gaze_fusion()/
+    /// run_pose3d_reconstruction() — this is a single-camera analysis with
+    /// no cross-camera synchronization need.
+    ///
+    /// @param sessionPath        Absolute path to the recorded session directory.
+    /// @param backend            "green" (naive baseline), "chrom", or "pos"
+    ///                           (default, generally the most robust classical
+    ///                           method).
+    /// @param windowSec          HR-analysis window length, in seconds.
+    /// @param hopSec             Sliding-window hop length, in seconds.
+    /// @param smoothingWindows   Centered median-filter width, in windows, for
+    ///                           the smoothed_bpm series (1 = no smoothing).
+    void run_rppg_analysis(const QString& sessionPath, const QString& backend,
+                            double windowSec, double hopSec, int smoothingWindows);
+
     /// @brief Stop the currently running analysis process immediately.
     void stop();
 

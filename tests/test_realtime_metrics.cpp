@@ -6,6 +6,7 @@ using mosaic::RmsQuality;
 using mosaic::gaze_on_target_for;
 using mosaic::kGazeOnTargetThreshold;
 using mosaic::pose_tracking_quality_for;
+using mosaic::rppg_quality_for;
 
 // ── pose_tracking_quality_for ───────────────────────────────────────────────
 
@@ -111,4 +112,33 @@ TEST(DetectionRateTracker, IgnoresOutOfOrderTimestamp) {
     t.push(false, 1000);   // stale, out of order — dropped
     ASSERT_TRUE(t.rate().has_value());
     EXPECT_NEAR(*t.rate(), 1.0, 1e-9);
+}
+
+// ── rppg_quality_for ─────────────────────────────────────────────────────────
+
+TEST(RppgQualityFor, LowValidFrameFractionForcesPoorRegardlessOfSnr) {
+    // A quality read computed on sparse/mostly-missing face data isn't
+    // meaningful, even if the reported SNR number happens to look high.
+    EXPECT_EQ(rppg_quality_for(/*snrDb=*/20.0, /*validFrameFraction=*/0.59), RmsQuality::Poor);
+    EXPECT_EQ(rppg_quality_for(20.0, 0.0), RmsQuality::Poor);
+}
+
+TEST(RppgQualityFor, ExcellentAt5DbAndAboveWithSufficientValidFraction) {
+    EXPECT_EQ(rppg_quality_for(5.0, 0.6), RmsQuality::Excellent);
+    EXPECT_EQ(rppg_quality_for(20.0, 1.0), RmsQuality::Excellent);
+}
+
+TEST(RppgQualityFor, GoodBetween0And5Db) {
+    EXPECT_EQ(rppg_quality_for(0.0, 0.6), RmsQuality::Good);
+    EXPECT_EQ(rppg_quality_for(4.9, 0.9), RmsQuality::Good);
+}
+
+TEST(RppgQualityFor, AcceptableBetweenNegative5And0Db) {
+    EXPECT_EQ(rppg_quality_for(-5.0, 0.6), RmsQuality::Acceptable);
+    EXPECT_EQ(rppg_quality_for(-0.1, 0.9), RmsQuality::Acceptable);
+}
+
+TEST(RppgQualityFor, PoorBelowNegative5Db) {
+    EXPECT_EQ(rppg_quality_for(-5.1, 1.0), RmsQuality::Poor);
+    EXPECT_EQ(rppg_quality_for(-60.0, 1.0), RmsQuality::Poor);
 }

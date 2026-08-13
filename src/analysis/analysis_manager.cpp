@@ -165,6 +165,22 @@ void AnalysisManager::run_pose3d_reconstruction(const QString& sessionPath, int 
     enqueue_or_launch(sessionPath, "analysis/run_pose3d.py", args, {});
 }
 
+void AnalysisManager::run_rppg_analysis(const QString& sessionPath, const QString& backend,
+                                         double windowSec, double hopSec, int smoothingWindows) {
+    const QStringList args = {
+        "--session",           sessionPath,
+        "--backend",           backend,
+        "--window-sec",        QString::number(windowSec),
+        "--hop-sec",           QString::number(hopSec),
+        "--smoothing-windows", QString::number(qMax(1, smoothingWindows)),
+    };
+    // No secrets involved, unlike run_diarization()'s hfToken. No
+    // sync_manifest.json pre-generation, unlike run_gaze_fusion()/
+    // run_pose3d_reconstruction() — single-camera analysis, no cross-camera
+    // sync dependency.
+    enqueue_or_launch(sessionPath, "analysis/run_rppg.py", args, {});
+}
+
 void AnalysisManager::enqueue_or_launch(const QString& sessionPath, const QString& scriptRelPath,
                                          const QStringList& args, const QProcessEnvironment& env) {
     const Job job{sessionPath, scriptRelPath, args, env};
