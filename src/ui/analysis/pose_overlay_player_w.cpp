@@ -50,46 +50,52 @@ public:
     void set_frame(const PoseFrame* frame, QVector<QPair<int, int>> skeletonEdges) {
         frame_          = frame;
         skeletonEdges_  = std::move(skeletonEdges);
-        exprFrame_      = nullptr;   // mutually exclusive with expression/gaze/skeleton3d mode
+        exprFrame_      = nullptr;   // mutually exclusive with expression/gaze/skeleton3d/rppg mode
         gazeFrame_      = nullptr;
         skeleton3dFrame_ = nullptr;
+        rppgFrame_      = nullptr;
+        rppgWindow_     = nullptr;
         update();
     }
 
     // Facial-expression draw mode — mutually exclusive with set_frame()/
-    // set_gaze_frame()/set_skeleton3d_frame() (see
+    // set_gaze_frame()/set_skeleton3d_frame()/set_rppg_frame() (see
     // PoseOverlayPlayerW::set_pose_result()/set_expression_result()/
-    // set_gaze_result()/set_skeleton3d_result() for why every setter clears
-    // the others).
+    // set_gaze_result()/set_skeleton3d_result()/set_rppg_result() for why
+    // every setter clears the others).
     void set_expression_frame(const ExpressionFrame* frame) {
         exprFrame_     = frame;
         frame_         = nullptr;
         gazeFrame_     = nullptr;
         skeleton3dFrame_ = nullptr;
+        rppgFrame_     = nullptr;
+        rppgWindow_    = nullptr;
         skeletonEdges_.clear();
         update();
     }
 
     // Gaze-fusion draw mode — mutually exclusive with set_frame()/
-    // set_expression_frame()/set_skeleton3d_frame() (see above). cameraIndex
-    // picks which GazeFusionFrame::perCamera entry to draw (the
-    // currently-loaded video's own camera).
+    // set_expression_frame()/set_skeleton3d_frame()/set_rppg_frame() (see
+    // above). cameraIndex picks which GazeFusionFrame::perCamera entry to
+    // draw (the currently-loaded video's own camera).
     void set_gaze_frame(const GazeFusionFrame* frame, int cameraIndex) {
         gazeFrame_       = frame;
         gazeCameraIndex_ = cameraIndex;
         frame_           = nullptr;
         exprFrame_       = nullptr;
         skeleton3dFrame_ = nullptr;
+        rppgFrame_       = nullptr;
+        rppgWindow_      = nullptr;
         skeletonEdges_.clear();
         update();
     }
 
     // 3D-pose-reconstruction draw mode — mutually exclusive with
-    // set_frame()/set_expression_frame()/set_gaze_frame() (see above).
-    // cameraIndex picks which entry of each person's reprojectedPx map
-    // applies (the currently-loaded video's own camera); skeletonEdges is
-    // the result's own edge list (drawn purely from precomputed pixel
-    // coordinates — zero calibration math here).
+    // set_frame()/set_expression_frame()/set_gaze_frame()/set_rppg_frame()
+    // (see above). cameraIndex picks which entry of each person's
+    // reprojectedPx map applies (the currently-loaded video's own camera);
+    // skeletonEdges is the result's own edge list (drawn purely from
+    // precomputed pixel coordinates — zero calibration math here).
     void set_skeleton3d_frame(const Skeleton3DFrame* frame, int cameraIndex,
                                QVector<QPair<int, int>> skeletonEdges) {
         skeleton3dFrame_       = frame;
@@ -98,6 +104,24 @@ public:
         frame_     = nullptr;
         exprFrame_ = nullptr;
         gazeFrame_ = nullptr;
+        rppgFrame_  = nullptr;
+        rppgWindow_ = nullptr;
+        update();
+    }
+
+    // rPPG (remote heart rate) draw mode — mutually exclusive with
+    // set_frame()/set_expression_frame()/set_gaze_frame()/
+    // set_skeleton3d_frame() (see above). window may be nullptr even when
+    // frame isn't (e.g. between windows, or an unreliable one) — the BPM
+    // readout is simply omitted in that case, never fabricated.
+    void set_rppg_frame(const RppgFrame* frame, const RppgWindow* window) {
+        rppgFrame_  = frame;
+        rppgWindow_ = window;
+        frame_      = nullptr;
+        exprFrame_  = nullptr;
+        gazeFrame_  = nullptr;
+        skeleton3dFrame_ = nullptr;
+        skeletonEdges_.clear();
         update();
     }
 
@@ -111,6 +135,8 @@ public:
         exprFrame_  = nullptr;
         gazeFrame_  = nullptr;
         skeleton3dFrame_ = nullptr;
+        rppgFrame_  = nullptr;
+        rppgWindow_ = nullptr;
         nativeSize_ = QSize();
         update();
     }
@@ -146,6 +172,10 @@ protected:
         }
         if (exprFrame_) {
             paint_expression(painter, to_widget);
+            return;
+        }
+        if (rppgFrame_) {
+            paint_rppg(painter, to_widget);
             return;
         }
         if (!frame_) {
@@ -304,6 +334,38 @@ private:
         }
     }
 
+    // Draws a face-ROI bbox + "BPM: 71" live readout (omitted, not
+    // fabricated, when rppgWindow_ is nullptr — e.g. between windows, or
+    // this window had no reliable estimate). Bbox border uses the same
+    // rose/red hue as SessionBrowserW's HR session badge (#ff5577), a
+    // deliberately distinct color family from every other overlay mode's
+    // box color (orange for expression, cyan for gaze) — see
+    // src/ui/session/session_browser_w.cpp's badge-color comment.
+    void paint_rppg(QPainter& painter, const std::function<QPointF(QPointF)>& to_widget) {
+        if (!rppgFrame_->faceDetected) { return; }
+
+        const QFontMetrics fm(painter.font());
+        const QRectF box(to_widget(rppgFrame_->roiBboxPx.topLeft()),
+                          to_widget(rppgFrame_->roiBboxPx.bottomRight()));
+        painter.setPen(QPen(QColor(255, 85, 119), 2));
+        painter.setBrush(Qt::NoBrush);
+        painter.drawRect(box);
+
+        if (!rppgWindow_ || std::isnan(rppgWindow_->bpm)) { return; }
+
+        // "(exp.)" travels with the label itself, not just AnalysisTabW's
+        // separate banner widget — a screenshot of just this video pane
+        // still carries a visible, if terse, non-clinical marker.
+        const QString label = QString("%1 BPM (exp.)").arg(qRound(rppgWindow_->bpm));
+        const QRectF labelBg(box.left(), box.top() - fm.height() - 4,
+                              fm.horizontalAdvance(label) + 8, fm.height() + 4);
+        painter.setPen(Qt::NoPen);
+        painter.setBrush(QColor(0, 0, 0, 160));
+        painter.drawRect(labelBg);
+        painter.setPen(QColor(255, 150, 175));
+        painter.drawText(labelBg, Qt::AlignCenter, label);
+    }
+
     QSize                    nativeSize_;
     const PoseFrame*         frame_ = nullptr;
     QVector<QPair<int, int>> skeletonEdges_;
@@ -312,6 +374,8 @@ private:
     int                      gazeCameraIndex_ = -1;
     const Skeleton3DFrame*   skeleton3dFrame_ = nullptr;
     int                      skeleton3dCameraIndex_ = -1;
+    const RppgFrame*         rppgFrame_  = nullptr;
+    const RppgWindow*        rppgWindow_ = nullptr;
 };
 
 // ── PoseOverlayPlayerW::Impl ────────────────────────────────────────────
@@ -334,6 +398,8 @@ struct PoseOverlayPlayerW::Impl {
     int                gazeCameraIndex = -1;
     Skeleton3DResult   skeleton3dResult;
     int                skeleton3dCameraIndex = -1;
+    RppgResult         rppgResult;
+    int                rppgCameraIndex = -1;
     QSize              nativeSize;
     double             fps        = 25.0;
     bool               scrubbing  = false;
@@ -489,6 +555,14 @@ PoseOverlayPlayerW::PoseOverlayPlayerW(QWidget* parent)
             const ExpressionFrame* frame =
                 d->expressionResult.nearest_frame(d->frame_estimate(pos));
             d->overlay->set_expression_frame(frame);
+        } else if (d->rppgResult.is_valid()) {
+            // RppgResult's timestamps are already video-relative
+            // milliseconds (see run_rppg.py's timestamp handling) — no
+            // separate _timestamp_estimate() conversion needed, unlike
+            // gaze/skeleton3d's shared-master-timeline results above.
+            const RppgFrame* frame = d->rppgResult.nearest_frame(pos);
+            const RppgWindow* window = d->rppgResult.nearest_window(pos);
+            d->overlay->set_rppg_frame(frame, window);
         } else {
             const PoseFrame* frame = d->poseResult.is_valid()
                 ? d->poseResult.nearest_frame(d->frame_estimate(pos))
@@ -534,6 +608,7 @@ void PoseOverlayPlayerW::set_pose_result(const PoseAnalysisResult& result) {
     d->expressionResult = ExpressionResult();   // mutually exclusive, see header doc
     d->gazeResult        = GazeFusionResult();
     d->skeleton3dResult  = Skeleton3DResult();
+    d->rppgResult        = RppgResult();
     d->poseResult = result;
     const PoseFrame* frame = d->poseResult.is_valid()
         ? d->poseResult.nearest_frame(d->frame_estimate(d->player->position()))
@@ -545,6 +620,7 @@ void PoseOverlayPlayerW::set_expression_result(const ExpressionResult& result) {
     d->poseResult = PoseAnalysisResult();   // mutually exclusive, see header doc
     d->gazeResult = GazeFusionResult();
     d->skeleton3dResult = Skeleton3DResult();
+    d->rppgResult = RppgResult();
     d->expressionResult = result;
     const ExpressionFrame* frame = d->expressionResult.is_valid()
         ? d->expressionResult.nearest_frame(d->frame_estimate(d->player->position()))
@@ -556,6 +632,7 @@ void PoseOverlayPlayerW::set_gaze_result(const GazeFusionResult& result, int cam
     d->poseResult       = PoseAnalysisResult();   // mutually exclusive, see header doc
     d->expressionResult = ExpressionResult();
     d->skeleton3dResult  = Skeleton3DResult();
+    d->rppgResult        = RppgResult();
     d->gazeResult        = result;
     d->gazeCameraIndex   = cameraIndex;
     const GazeFusionFrame* frame = d->gazeResult.is_valid()
@@ -568,12 +645,27 @@ void PoseOverlayPlayerW::set_skeleton3d_result(const Skeleton3DResult& result, i
     d->poseResult          = PoseAnalysisResult();   // mutually exclusive, see header doc
     d->expressionResult    = ExpressionResult();
     d->gazeResult           = GazeFusionResult();
+    d->rppgResult           = RppgResult();
     d->skeleton3dResult     = result;
     d->skeleton3dCameraIndex = cameraIndex;
     const Skeleton3DFrame* frame = d->skeleton3dResult.is_valid()
         ? d->skeleton3dResult.nearest_frame(d->skeleton3d_timestamp_estimate(d->player->position()))
         : nullptr;
     d->overlay->set_skeleton3d_frame(frame, cameraIndex, d->skeleton3dResult.skeleton_edges());
+}
+
+void PoseOverlayPlayerW::set_rppg_result(const RppgResult& result, int cameraIndex) {
+    d->poseResult        = PoseAnalysisResult();   // mutually exclusive, see header doc
+    d->expressionResult  = ExpressionResult();
+    d->gazeResult         = GazeFusionResult();
+    d->skeleton3dResult   = Skeleton3DResult();
+    d->rppgResult         = result;
+    d->rppgCameraIndex    = cameraIndex;
+    const RppgFrame*  frame  = d->rppgResult.is_valid()
+        ? d->rppgResult.nearest_frame(d->player->position()) : nullptr;
+    const RppgWindow* window = d->rppgResult.is_valid()
+        ? d->rppgResult.nearest_window(d->player->position()) : nullptr;
+    d->overlay->set_rppg_frame(frame, window);
 }
 
 int64_t PoseOverlayPlayerW::position_ms() const { return d->player->position(); }

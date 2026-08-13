@@ -20,6 +20,7 @@ add_executable(mosaic_tests
     test_room_frame_solver.cpp
     test_gaze_fusion_result.cpp
     test_skeleton3d_result.cpp
+    test_rppg_result.cpp
     test_audio_envelope.cpp
     test_audio_persistence.cpp
     test_realtime_metrics.cpp
@@ -36,6 +37,7 @@ add_executable(mosaic_tests
     "${CMAKE_SOURCE_DIR}/src/calibration/room_frame_solver.cpp"
     "${CMAKE_SOURCE_DIR}/src/analysis/gaze_fusion_result.cpp"
     "${CMAKE_SOURCE_DIR}/src/analysis/skeleton3d_result.cpp"
+    "${CMAKE_SOURCE_DIR}/src/analysis/rppg_result.cpp"
     "${CMAKE_SOURCE_DIR}/src/analysis/pose_analysis_result.cpp"
     "${CMAKE_SOURCE_DIR}/src/analysis/pose_kinematics.cpp"
     "${CMAKE_SOURCE_DIR}/src/analysis/transcript_result.cpp"

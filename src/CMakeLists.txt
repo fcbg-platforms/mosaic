@@ -36,6 +36,8 @@ qt_add_executable(mosaic MACOSX_BUNDLE
     analysis/gaze_fusion_result.cpp
     analysis/skeleton3d_result.hpp
     analysis/skeleton3d_result.cpp
+    analysis/rppg_result.hpp
+    analysis/rppg_result.cpp
 
     # ── Foundation ────────────────────────────────────────────────────────
     utils/logger.hpp

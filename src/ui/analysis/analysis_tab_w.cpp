@@ -4,6 +4,8 @@
 #include "analysis/pose_analysis_result.hpp"
 #include "analysis/pose_kinematics.hpp"
 #include "analysis/pose_models.hpp"
+#include "analysis/realtime_metrics.hpp"
+#include "analysis/rppg_result.hpp"
 #include "analysis/skeleton3d_result.hpp"
 #include "analysis/transcript_result.hpp"
 #include "analysis/trigger_frame_map.hpp"
@@ -15,6 +17,7 @@
 #include "ui/analysis/subject_colors.hpp"
 #include "ui/anim_utils.hpp"
 #include "ui/audio/audio_waveform_w.hpp"
+#include "ui/calibration/badge_style.hpp"
 #include <QAbstractItemView>
 #include <QBrush>
 #include <QCheckBox>
@@ -715,6 +718,10 @@ struct AnalysisTabW::Impl {
     QSpinBox*        pose3dMinCamerasSpin      = nullptr;   // pose3d
     QDoubleSpinBox*  maxReprojectionErrorSpin  = nullptr;   // pose3d
     QSpinBox*        pose3dSkipSpin            = nullptr;   // pose3d
+    QComboBox*       rppgBackendCombo   = nullptr;   // rppg
+    QDoubleSpinBox*  rppgWindowSecSpin  = nullptr;   // rppg
+    QDoubleSpinBox*  rppgHopSecSpin     = nullptr;   // rppg
+    QSpinBox*        rppgSmoothingSpin  = nullptr;   // rppg
 
     QPushButton*  runBtn       = nullptr;
     QLabel*       statusLbl    = nullptr;
@@ -797,6 +804,22 @@ struct AnalysisTabW::Impl {
     QLabel*        triggerSyncStatsLbl  = nullptr;   // trigger_sync only
     QPushButton*   exportTriggerSyncBtn = nullptr;   // trigger_sync only
 
+    // Remote Heart Rate (rPPG) view controls — mirrors triggerSyncRowW's
+    // own-container pattern. Reuses the shared MetricsChartW (via
+    // set_single_series()) for the BPM-over-time trace rather than adding a
+    // new chart widget — same reuse this plugin's Approach section commits
+    // to. rppgDisclaimerLbl is deliberately a persistent, always-visible
+    // banner (not a tooltip) — this plugin's whole safety framing depends
+    // on the "experimental, not clinical" caveat never being missable.
+    QWidget*      rppgRowW           = nullptr;   // rppg only
+    QLabel*       rppgDisclaimerLbl  = nullptr;   // rppg only
+    QCheckBox*    rppgShowSmoothedCheck = nullptr;   // rppg only — toggles which series the chart plots
+    QLabel*       rppgStatsLbl       = nullptr;   // rppg only
+    QLabel*       rppgQualityBadge   = nullptr;   // rppg only — rppg_quality_for() tier, reusing
+                                                    // the same RmsQuality/badge_stylesheet() vocabulary
+                                                    // pose_tracking_quality_for() already established
+    QPushButton*  exportRppgBtn      = nullptr;   // rppg only
+
     // Kinematics view controls — reshape how the already-loaded
     // currentResult is displayed, not what gets launched (unlike runBox's
     // model/skip controls), so they live in their own row. Pose only —
@@ -824,6 +847,7 @@ struct AnalysisTabW::Impl {
     GazeFusionResult      currentGazeFusion;         // gaze_fusion only
     Skeleton3DResult      currentSkeleton3D;         // pose3d only
     TriggerFrameMap       currentTriggerFrameMap;    // trigger_sync only
+    RppgResult            currentRppgResult;         // rppg only
 
     // AnalysisManager is a single shared instance (also used by
     // SessionBrowserW's "Run Pose" button and PerformanceMonitorW's
@@ -869,6 +893,7 @@ struct AnalysisTabW::Impl {
         currentGazeFusion       = GazeFusionResult();
         currentSkeleton3D       = Skeleton3DResult();
         currentTriggerFrameMap  = TriggerFrameMap();
+        currentRppgResult       = RppgResult();
     }
 };
 
@@ -1027,6 +1052,7 @@ void AnalysisTabW::build_ui() {
     d->pluginCombo->addItem("Multi-Camera Gaze Fusion", "gaze_fusion");
     d->pluginCombo->addItem("3D Pose Reconstruction", "pose3d");
     d->pluginCombo->addItem("EEG/Trigger ↔ Frame Sync", "trigger_sync");
+    d->pluginCombo->addItem("Remote Heart Rate (rPPG, experimental)", "rppg");
     controlsRow->addWidget(new QLabel("Plugin:"));
     controlsRow->addWidget(d->pluginCombo);
     connect(d->pluginCombo, &QComboBox::currentIndexChanged, this, &AnalysisTabW::select_plugin);
@@ -1316,6 +1342,63 @@ void AnalysisTabW::build_ui() {
     triggerSyncHint->setProperty("role", "muted");
     triggerSyncCtlLay->addWidget(triggerSyncHint, 1);
     d->controlsStack->addWidget(triggerSyncPage);
+
+    // ── Remote Heart Rate (rPPG) controls page ──────────────────────────
+    // No frame-skip control, unlike every sibling plugin above — a real
+    // Nyquist-sampling reason, not an oversight: skipping frames would
+    // downsample the pulse signal itself, and this plugin already needs
+    // near-every-frame sampling to resolve a 0.7-3.0 Hz physiological
+    // band. See analysis/run_rppg.py's own module doc comment.
+    auto* rppgPage = new QWidget;
+    auto* rppgCtlLay = new QHBoxLayout(rppgPage);
+    rppgCtlLay->setContentsMargins(0, 0, 0, 0);
+
+    d->rppgBackendCombo = new QComboBox;
+    d->rppgBackendCombo->addItem("POS (recommended)", "pos");
+    d->rppgBackendCombo->addItem("CHROM", "chrom");
+    d->rppgBackendCombo->addItem("Green (naive baseline)", "green");
+    d->rppgBackendCombo->setItemData(0,
+        "Plane-Orthogonal-to-Skin (Wang et al. 2017) — generally the most robust "
+        "classical rPPG method.", Qt::ToolTipRole);
+    d->rppgBackendCombo->setItemData(1,
+        "Chrominance-based (de Haan & Jeanne 2013) — a solid, simpler alternative to POS.",
+        Qt::ToolTipRole);
+    d->rppgBackendCombo->setItemData(2,
+        "Raw green-channel signal, no motion/illumination compensation at all — "
+        "fastest, but the most sensitive to any movement. Kept for comparison/debugging.",
+        Qt::ToolTipRole);
+    connect(d->rppgBackendCombo, &QComboBox::currentIndexChanged, this,
+            &AnalysisTabW::reload_current_camera_result);
+    rppgCtlLay->addWidget(d->rppgBackendCombo);
+
+    d->rppgWindowSecSpin = new QDoubleSpinBox;
+    d->rppgWindowSecSpin->setRange(4.0, 30.0);
+    d->rppgWindowSecSpin->setSingleStep(1.0);
+    d->rppgWindowSecSpin->setValue(10.0);
+    d->rppgWindowSecSpin->setSuffix(" s window");
+    d->rppgWindowSecSpin->setToolTip(
+        "HR-analysis window length. Longer windows give finer frequency resolution "
+        "(more precise BPM) but respond more slowly to real heart-rate changes.");
+    rppgCtlLay->addWidget(d->rppgWindowSecSpin);
+
+    d->rppgHopSecSpin = new QDoubleSpinBox;
+    d->rppgHopSecSpin->setRange(0.5, 10.0);
+    d->rppgHopSecSpin->setSingleStep(0.5);
+    d->rppgHopSecSpin->setValue(2.0);
+    d->rppgHopSecSpin->setSuffix(" s hop");
+    rppgCtlLay->addWidget(d->rppgHopSecSpin);
+
+    d->rppgSmoothingSpin = new QSpinBox;
+    d->rppgSmoothingSpin->setRange(1, 15);
+    d->rppgSmoothingSpin->setSingleStep(2);
+    d->rppgSmoothingSpin->setValue(1);
+    d->rppgSmoothingSpin->setPrefix("smooth ");
+    d->rppgSmoothingSpin->setToolTip(
+        "Centered median-filter width (in windows) applied when writing the "
+        "smoothed_bpm series. 1 = no smoothing (default) — raw bpm is always kept "
+        "too, regardless of this setting.");
+    rppgCtlLay->addWidget(d->rppgSmoothingSpin);
+    d->controlsStack->addWidget(rppgPage);
 
     controlsRow->addWidget(d->controlsStack, 1);
 
@@ -1662,6 +1745,59 @@ void AnalysisTabW::build_ui() {
     d->triggerSyncRowW->setVisible(false);   // shown only for the trigger_sync plugin
     rightLay->addWidget(d->triggerSyncRowW);
 
+    // ── Remote Heart Rate (rPPG) view controls: a persistent disclaimer
+    //    banner (always visible while this plugin is selected — reuses the
+    //    Real-time tab's pausedBanner amber visual language — never just a
+    //    tooltip, since this plugin's whole safety framing depends on the
+    //    caveat never being missable), a raw/smoothed toggle for the shared
+    //    chart, stats readout, and CSV export. rppg only — own container so
+    //    select_plugin() can hide the whole row with one call, mirroring
+    //    triggerSyncRowW.
+    d->rppgRowW = new QWidget;
+    auto* rppgRowLay = new QVBoxLayout(d->rppgRowW);
+    rppgRowLay->setContentsMargins(0, 0, 0, 0);
+    rppgRowLay->setSpacing(4);
+
+    d->rppgDisclaimerLbl = new QLabel(
+        "⚠ Experimental research estimate only — not a medical device, not clinically validated.");
+    d->rppgDisclaimerLbl->setStyleSheet(
+        "QLabel { color:#ddaa44; background:rgba(221,170,68,0.15); "
+        "border:1px solid #ddaa44; border-radius:4px; padding:6px 10px; font-weight:600; }");
+    d->rppgDisclaimerLbl->setWordWrap(true);
+    rppgRowLay->addWidget(d->rppgDisclaimerLbl);
+
+    auto* rppgStatsRow = new QHBoxLayout;
+    d->rppgShowSmoothedCheck = new QCheckBox("Show smoothed");
+    d->rppgShowSmoothedCheck->setToolTip(
+        "Toggles the chart between the raw per-window BPM series and a centered "
+        "median-filtered version (width set by the \"smooth\" control above). "
+        "CSV export always includes both columns regardless of this toggle.");
+    connect(d->rppgShowSmoothedCheck, &QCheckBox::toggled, this, &AnalysisTabW::update_rppg_view);
+    rppgStatsRow->addWidget(d->rppgShowSmoothedCheck);
+
+    d->rppgQualityBadge = new QLabel("—");
+    d->rppgQualityBadge->setStyleSheet(badge_stylesheet(RmsQuality::Poor));
+    d->rppgQualityBadge->setToolTip(
+        "Signal-quality tier for this result: mean pulse-SNR across usable windows, "
+        "forced to Poor whenever fewer than 60% of windows had a reliable face-ROI "
+        "detection (see rppg_quality_for()).");
+    rppgStatsRow->addWidget(d->rppgQualityBadge);
+
+    d->rppgStatsLbl = new QLabel;
+    d->rppgStatsLbl->setStyleSheet("color:#7070a0; font-size:11px;");
+    rppgStatsRow->addWidget(d->rppgStatsLbl, 1);
+
+    d->exportRppgBtn = new QPushButton("Export CSV");
+    d->exportRppgBtn->setToolTip(
+        "Exports start/end time, raw bpm, smoothed bpm, SNR, and valid-frame-fraction "
+        "for every analysis window as CSV.");
+    connect(d->exportRppgBtn, &QPushButton::clicked, this, &AnalysisTabW::export_rppg_csv);
+    rppgStatsRow->addWidget(d->exportRppgBtn);
+    rppgRowLay->addLayout(rppgStatsRow);
+
+    d->rppgRowW->setVisible(false);   // shown only for the rppg plugin
+    rightLay->addWidget(d->rppgRowW);
+
     d->resultsSplitter = new QSplitter(Qt::Horizontal);
     auto*& resultsSplitter = d->resultsSplitter;
     d->player = new PoseOverlayPlayerW;   // reused for audio-only playback in diarize mode too —
@@ -1839,6 +1975,7 @@ void AnalysisTabW::select_plugin(int index) {
     const bool isGazeFusion  = is_gaze_fusion_plugin();
     const bool isPose3D      = is_pose3d_plugin();
     const bool isTriggerSync = is_trigger_sync_plugin();
+    const bool isRppg        = is_rppg_plugin();
     // A depth model selected within the Pose plugin produces a colorized
     // video, not keypoints — the keypoint/chart controls below need to stay
     // hidden for it, same as they are for every non-pose plugin.
@@ -1859,7 +1996,7 @@ void AnalysisTabW::select_plugin(int index) {
     set_visible_animated(d->depthModeHintLbl, isPose && is_pose_depth_selected());
     set_visible_animated(d->blendshapeFieldW, isExpression);
     set_visible_animated(d->trackFieldW, isPose3D);
-    set_visible_animated(d->chart, isPoseKeypoints || isExpression);
+    set_visible_animated(d->chart, isPoseKeypoints || isExpression || isRppg);
     set_visible_animated(d->kinematicsRowW, isPoseKeypoints);
     // subjectPickerRowW's own further narrowing (hidden when the session has
     // <=1 detected subject) happens inside rebuild_subject_chips(), called
@@ -1873,6 +2010,7 @@ void AnalysisTabW::select_plugin(int index) {
     set_visible_animated(d->skeleton3dRoomView, isPose3D);
     set_visible_animated(d->triggerSyncRowW, isTriggerSync);
     set_visible_animated(d->triggerSyncTable, isTriggerSync);
+    set_visible_animated(d->rppgRowW, isRppg);
     set_visible_animated(d->openFolderBtn, isFaceMask || is_pose_depth_selected());
     set_visible_animated(d->sourceRowW, !isDiarize);
     set_visible_animated(d->micRowW, isDiarize);
@@ -1968,6 +2106,16 @@ QString AnalysisTabW::expression_json_path_for(const QString& videoRelPath) cons
     return "expression/" + QFileInfo(videoRelPath).completeBaseName() + ".expression.json";
 }
 
+QString AnalysisTabW::rppg_json_path_for(const QString& videoRelPath) const {
+    // Own subfolder, backend-namespaced — mirrors pose_json_path_for()'s
+    // exact convention (3 backends here instead of pose's model choice), see
+    // analysis/run_rppg.py::_write_results(). Switching rppgBackendCombo
+    // doubles as "which saved result to view" the same way switching
+    // modelCombo does for Pose. Same forward-only caveat.
+    return "rppg/" + QFileInfo(videoRelPath).completeBaseName() + "."
+           + d->rppgBackendCombo->currentData().toString() + ".rppg.json";
+}
+
 bool AnalysisTabW::is_pose_plugin() const {
     return d->pluginCombo->currentData().toString() == "pose";
 }
@@ -1994,6 +2142,10 @@ bool AnalysisTabW::is_pose3d_plugin() const {
 
 bool AnalysisTabW::is_trigger_sync_plugin() const {
     return d->pluginCombo->currentData().toString() == "trigger_sync";
+}
+
+bool AnalysisTabW::is_rppg_plugin() const {
+    return d->pluginCombo->currentData().toString() == "rppg";
 }
 
 bool AnalysisTabW::is_pose_depth_selected() const {
@@ -2186,6 +2338,7 @@ void AnalysisTabW::reload_current_camera_result() {
         // populated-combo case below is.
         update_kinematics_chart();
         update_expression_view();
+        update_rppg_view();
         return;
     }
 
@@ -2295,6 +2448,28 @@ void AnalysisTabW::reload_current_camera_result() {
         } else if (!exprResult.has_any_detections()) {
             d->statusLbl->setText("Expression ran, but no face was detected in this camera's "
                                    "footage — try a different camera, or check its framing/lighting.");
+            d->statusLbl->setStyleSheet("color:#ddaa33; font-size:15px; font-weight:600;");
+        }
+        return;
+    }
+
+    if (is_rppg_plugin()) {
+        d->player->set_video(videoAbs);
+
+        const QString rppgAbs = info->path + "/" + rppg_json_path_for(videoRel);
+        d->currentRppgResult = QFileInfo::exists(rppgAbs)
+            ? RppgResult::load(rppgAbs) : RppgResult();
+        d->player->set_rppg_result(d->currentRppgResult, d->cameraCombo->currentIndex());
+
+        update_rppg_view();
+
+        if (!d->currentRppgResult.is_valid() || d->currentRppgResult.windows().isEmpty()) {
+            d->statusLbl->setText("No analysis yet for this camera — click Run.");
+            d->statusLbl->setStyleSheet("color:#6060a0; font-size:15px; font-weight:600;");
+        } else if (d->currentRppgResult.pct_windows_good() <= 0.0) {
+            d->statusLbl->setText("rPPG ran, but no window had a reliable estimate in this "
+                                   "camera's footage — try a different camera, better lighting, "
+                                   "or check the subject held still and faced the camera.");
             d->statusLbl->setStyleSheet("color:#ddaa33; font-size:15px; font-weight:600;");
         }
         return;
@@ -2983,6 +3158,104 @@ void AnalysisTabW::export_trigger_sync_csv() {
     d->currentTriggerFrameMap.export_csv(dst);
 }
 
+void AnalysisTabW::update_rppg_view() {
+    const auto& result = d->currentRppgResult;
+    if (!result.is_valid() || result.windows().isEmpty()) {
+        d->chart->set_single_series({}, "BPM");
+        d->chart->set_title("No analysis yet");
+        d->rppgStatsLbl->clear();
+        d->rppgQualityBadge->setText("—");
+        d->rppgQualityBadge->setStyleSheet(badge_stylesheet(RmsQuality::Poor));
+        d->chart->set_playhead_ms(d->player->position_ms());
+        return;
+    }
+
+    const bool showSmoothed = d->rppgShowSmoothedCheck->isChecked();
+    QVector<QPointF> points;
+    points.reserve(result.windows().size());
+    for (const auto& win : result.windows()) {
+        // startMs/endMs are already video-relative (see run_rppg.py's
+        // timestamp handling — no separate t0 subtraction needed, unlike
+        // Pose's/Expression's charts). Plotted at the window's midpoint,
+        // the conventional way to represent a sliding-window estimate.
+        const double bpm = showSmoothed ? win.smoothedBpm : win.bpm;
+        if (std::isnan(bpm)) { continue; }   // no reliable estimate this window — skip, don't fabricate
+        points.append(QPointF((win.startMs + win.endMs) / 2.0, bpm));
+    }
+
+    // Floors the axis at the last window's own end time (regardless of
+    // whether every window had a usable estimate), matching
+    // update_expression_view()'s identical reasoning for why the axis must
+    // span the full analyzed range, not just the plotted points.
+    const double lastAnalyzedMs = static_cast<double>(result.windows().last().endMs);
+    d->chart->set_single_series(points, "BPM",
+                                 showSmoothed ? "Smoothed BPM" : "Raw BPM", lastAnalyzedMs);
+    d->chart->set_title(QString("Heart rate — %1").arg(result.backend().toUpper()));
+    d->chart->set_playhead_ms(d->player->position_ms());
+
+    QStringList parts;
+    parts << QString("backend %1").arg(result.backend());
+    if (result.mean_bpm()) {
+        parts << QString("mean %1 bpm").arg(*result.mean_bpm(), 0, 'f', 1);
+    }
+    if (result.min_bpm() && result.max_bpm()) {
+        parts << QString("range %1–%2 bpm").arg(*result.min_bpm(), 0, 'f', 1)
+                                            .arg(*result.max_bpm(), 0, 'f', 1);
+    }
+    parts << QString("%1% windows usable").arg(result.pct_windows_good() * 100.0, 0, 'f', 0);
+    d->rppgStatsLbl->setText(parts.join("  ·  "));
+
+    // Aggregate quality badge — mean SNR across windows with a usable
+    // estimate, mean valid-frame-fraction across every window (including
+    // no-estimate ones, since a low detection rate is itself the signal
+    // rppg_quality_for()'s validFrameFraction gate is meant to catch).
+    // Was previously computed nowhere despite rppg_quality_for() existing
+    // specifically to serve this badge — see its own doc comment.
+    double snrSum = 0.0, fracSum = 0.0;
+    int snrCount = 0;
+    for (const auto& win : result.windows()) {
+        if (!std::isnan(win.snrDb)) { snrSum += win.snrDb; ++snrCount; }
+        fracSum += win.validFrameFraction;
+    }
+    const double meanSnr  = snrCount > 0 ? snrSum / snrCount
+                                          : std::numeric_limits<double>::quiet_NaN();
+    const double meanFrac = fracSum / result.windows().size();
+    const RmsQuality quality = rppg_quality_for(meanSnr, meanFrac);
+    d->rppgQualityBadge->setStyleSheet(badge_stylesheet(quality));
+    QString tierName;
+    switch (quality) {
+        case RmsQuality::Excellent:  tierName = "Excellent"; break;
+        case RmsQuality::Good:       tierName = "Good"; break;
+        case RmsQuality::Acceptable: tierName = "Acceptable"; break;
+        case RmsQuality::Poor:       tierName = "Poor"; break;
+    }
+    d->rppgQualityBadge->setText(std::isnan(meanSnr)
+        ? QString("Quality: %1").arg(tierName)
+        : QString("Quality: %1 (%2 dB)").arg(tierName).arg(meanSnr, 0, 'f', 1));
+}
+
+void AnalysisTabW::export_rppg_csv() {
+    const auto* info = d->current_session();
+    if (!info || !d->currentRppgResult.is_valid()) { return; }
+
+    const QString suggested = info->path + "/rppg_"
+        + d->currentRppgResult.backend() + ".csv";
+
+    export_csv(this, "Export Heart Rate", suggested, [&](QTextStream& ts) {
+        ts << "# EXPERIMENTAL research estimate only — not a medical device, "
+              "not clinically validated. See mosaic-rppg-v1 schema docs.\n";
+        ts << "# backend: " << d->currentRppgResult.backend() << "\n";
+        ts << "start_ms,end_ms,bpm,smoothed_bpm,snr_db,valid_frame_fraction\n";
+        for (const auto& win : d->currentRppgResult.windows()) {
+            ts << win.startMs << "," << win.endMs << ","
+               << (std::isnan(win.bpm) ? QString() : QString::number(win.bpm)) << ","
+               << (std::isnan(win.smoothedBpm) ? QString() : QString::number(win.smoothedBpm)) << ","
+               << (std::isnan(win.snrDb) ? QString() : QString::number(win.snrDb)) << ","
+               << win.validFrameFraction << "\n";
+        }
+    });
+}
+
 void AnalysisTabW::run_analysis() {
     if (d->currentSessionPath.isEmpty()) { return; }
 
@@ -3080,6 +3353,12 @@ void AnalysisTabW::run_analysis() {
             d->pose3dMinCamerasSpin->value(),
             d->maxReprojectionErrorSpin->value(),
             d->pose3dSkipSpin->value());
+    } else if (plugin == "rppg") {
+        d->analysisMgr->run_rppg_analysis(d->currentSessionPath,
+            d->rppgBackendCombo->currentData().toString(),
+            d->rppgWindowSecSpin->value(),
+            d->rppgHopSecSpin->value(),
+            d->rppgSmoothingSpin->value());
     } else {
         // Defensive: pluginCombo only ever offers the ids handled above, but
         // a silent fallthrough here would otherwise launch face-masking with
