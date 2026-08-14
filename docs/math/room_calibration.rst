@@ -145,3 +145,42 @@ T_{c\to\text{room}} \circ T_{\text{board}\to c}`. The plane point is that
 transform's translation column; the plane normal is its rotation part's
 3rd column (the board's own printed-face normal, since ChArUco object
 points lie in the board's local :math:`Z=0` plane by construction).
+
+Practical recommendations
+------------------------------
+
+.. grid:: 1 1 2 2
+   :gutter: 2
+
+   .. grid-item-card:: 🎯  Aim for a well-connected shot graph
+
+      Every camera needs *some* path of shared shots back to camera 0 —
+      not necessarily direct. Move the board through overlapping pairs of
+      camera fields of view deliberately, not just wherever's convenient;
+      a camera left unresolved contributes nothing to any downstream 3D
+      plugin (:doc:`gaze_fusion`, :doc:`pose3d_reconstruction`).
+
+   .. grid-item-card:: 🔢  More shots per pair, not just more pairs
+
+      Multiple shared shots between the same camera pair feed
+      :eq:`quat-mean`'s averaging step directly — a pair with only one
+      shared shot has no noise-averaging benefit at all. A handful of
+      varied-angle shots per overlapping pair meaningfully improves that
+      pair's resolved relative pose over a single shot.
+
+   .. grid-item-card:: 📏  Check the reprojection RMS, not just "resolved"
+
+      A camera reporting "resolved" with a poor reprojection RMS still
+      silently degrades every downstream 3D computation through it — treat
+      a high RMS the same as an unresolved camera and recapture that
+      camera's shots with more care (steadier board, less motion blur,
+      better lighting) rather than accepting a technically-non-null but
+      low-quality pose.
+
+   .. grid-item-card:: 🧊  Why this rig can't move afterward
+
+      The averaged extrinsics describe the cameras' positions *at
+      calibration time*. Any physical camera move — even a small bump —
+      invalidates every pose computed from it, silently, with no runtime
+      check catching the mismatch. Recalibrate after any physical rig
+      change, not just when results start looking wrong.

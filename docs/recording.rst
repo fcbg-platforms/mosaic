@@ -44,25 +44,53 @@ Session folder layout:
 
 .. code-block:: text
 
-   2026-06-04_14-32-05/
-   ├── session_meta.json
-   ├── trigger.csv
-   ├── sync_manifest.json         # written after recording stops
-   ├── audio/
-   │   └── audio_0.wav
-   ├── video/
-   │   ├── video_0.mp4
-   │   └── timestamps_cam0.csv
-   ├── pose/
-   │   └── video_0.pose.json          # written by run_pose.py, if run
-   └── expression/
-       └── video_0.expression.json    # written by run_expression.py, if run
+   recordings/
+   └── <username>/                        # per-profile — see :doc:`profiles`
+       └── 2026-06-04_14-32-05/
+           ├── session_meta.json
+           ├── trigger.csv
+           ├── trigger_frame_map.json         # written by the EEG/Trigger↔Frame Sync plugin, if run
+           ├── sync_manifest.json             # written after recording stops
+           ├── gaze_fusion.json                # written by run_gaze_fusion.py, if run
+           ├── skeleton3d.json                 # written by run_pose3d.py, if run
+           ├── audio/
+           │   └── audio_0.wav
+           ├── video/
+           │   ├── video_0.mp4
+           │   └── timestamps_cam0.csv
+           ├── pose/
+           │   └── video_0.<model-slug>.pose.json      # written by run_pose.py — filename is
+           │                                            # model-namespaced, so running two
+           │                                            # different models keeps both results
+           ├── depth/
+           │   └── video_0.<model-slug>.mp4             # a depth-task Pose model's colorized
+           │                                            # output — no keypoints/JSON, see the
+           │                                            # note below
+           ├── expression/
+           │   └── video_0.expression.json    # written by run_expression.py, if run
+           ├── rppg/
+           │   └── video_0.<backend>.rppg.json  # written by run_rppg.py, if run — EXPERIMENTAL
+           └── anonymized/
+               └── video_0.mp4                 # written by run_face_mask.py, if run — never
+                                                # touches the original video/ files
 
 Media is split into ``audio/`` and ``video/`` subfolders so a session directory listing isn't
-dominated by per-camera files; ``pose/`` and ``expression/`` each hold their own plugin's
-per-camera output, kept out of ``video/`` rather than sitting alongside the source ``.mp4``
-files; everything session-level (metadata, trigger log, sync manifest, annotations) stays at the
-session root.
+dominated by per-camera files; ``pose/``, ``depth/``, ``expression/``, and ``rppg/`` each hold
+their own plugin's per-camera output, kept out of ``video/`` rather than sitting alongside the
+source ``.mp4`` files; ``anonymized/`` holds Face Masking's output videos; everything session-level
+(metadata, trigger log, sync manifest, cross-camera fusion results, annotations) stays at the
+session root. Recordings are also split **per profile** — see :doc:`profiles`'s recording-access-
+control section for how a non-admin profile's sessions stay isolated from every other profile's.
+
+.. note::
+
+   A Pose-plugin **depth model** (e.g. ``yolo26n-depth``) writes only a
+   colorized depth video to ``depth/`` — it produces no keypoints and
+   therefore no ``.pose.json`` at all, since a depth-task model's output
+   head has no boxes/keypoints to extract in the first place. Run Pose
+   twice on the same session — once with a regular pose model, once with a
+   depth model — to get both a ``pose/`` result and a ``depth/`` result;
+   they coexist in separate subfolders.
 
 .. _session metadata:
 

@@ -15,7 +15,8 @@ Shared conventions
 --------------------
 
 Every page below that deals with 3D geometry (:doc:`gaze_fusion`,
-:doc:`room_calibration`) uses the same conventions, matching
+:doc:`room_calibration`, :doc:`pose3d_reconstruction`) uses the same
+conventions, matching
 ``room_frame::Mat4`` (C++) and ``ray_math.py``'s module docstring (Python):
 
 .. list-table::
@@ -82,6 +83,20 @@ Every page below that deals with 3D geometry (:doc:`gaze_fusion`,
 
       Image-moment centroids and greedy nearest-neighbour assignment.
 
+   .. grid-item-card:: 🧍‍♂️ 3D Pose Reconstruction
+      :link: pose3d_reconstruction
+      :link-type: doc
+
+      Multi-view DLT triangulation, cross-camera person association, and 3D
+      track identity.
+
+   .. grid-item-card:: ❤️ Remote Heart Rate (rPPG)
+      :link: remote_heart_rate
+      :link-type: doc
+
+      Green/CHROM/POS pulse extraction and Welch-periodogram BPM
+      estimation. **Experimental.**
+
 .. toctree::
    :hidden:
 
@@ -92,3 +107,5 @@ Every page below that deals with 3D geometry (:doc:`gaze_fusion`,
    speaker_diarization
    face_masking
    motion_tracking
+   pose3d_reconstruction
+   remote_heart_rate

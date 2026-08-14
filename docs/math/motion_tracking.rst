@@ -72,3 +72,40 @@ timestamp delta specifically to stay correct across detection gaps. Motion
 tracking's simpler fixed-fps estimate is a deliberate, lower-overhead
 choice for this plugin — not a bug, but worth knowing if comparing speed
 figures between the two plugins.
+
+Practical recommendations
+------------------------------
+
+.. grid:: 1 1 2 2
+   :gutter: 2
+
+   .. grid-item-card:: 🎥  A static, uncluttered background helps most
+
+      MOG2 background subtraction assumes the background is genuinely
+      static — camera shake, lighting flicker, or moving background
+      objects (a door, another person passing through) all produce
+      spurious foreground blobs that can be mistaken for tracked subjects.
+      A well-framed, stable shot does more for tracking quality than any
+      parameter tuning.
+
+   .. grid-item-card:: 🎚️  Tuning ``max_distance``
+
+      Too tight and a fast-moving subject fragments into a new track every
+      few frames; too loose and two nearby subjects can swap identities at
+      a near-crossing. Set it based on how far a subject plausibly moves
+      between frames at the recording's actual frame rate, not a generic
+      default.
+
+   .. grid-item-card:: 🔢  Set ``n_animals`` when the count is known
+
+      Capping the expected subject count prevents spurious background
+      noise from spawning phantom tracks — set it whenever the true
+      number of tracked subjects in the session is known in advance.
+
+   .. grid-item-card:: 📐  Prefer real Speed/Acceleration for a single tracked person
+
+      If a session has exactly one subject and precise kinematics matter,
+      :doc:`pose_kinematics`'s gap-tolerant, real-timestamp-based
+      Speed/Acceleration is the more accurate choice — Motion tracking's
+      fixed-fps velocity estimate is better suited to multi-subject
+      centroid tracking than to precise single-subject kinematics.
