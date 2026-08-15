@@ -61,6 +61,51 @@ Storage layout
 Passwords are stored as **PBKDF2-HMAC-SHA256** with a 32-byte random salt
 and 100 000 iterations.  No plain-text password is ever written to disk.
 
+Recording access control (admin vs. per-user)
+--------------------------------------------------
+
+Beyond isolated *settings*, each profile also gets its own isolated
+**recordings** folder: ``recordings/<username>/`` (resolved relative to
+wherever the app is running from), seeded automatically the first time a
+brand-new profile logs in. This is a real filesystem boundary, not just a
+display filter — see :doc:`recording`'s session-layout section for the
+full folder tree.
+
+.. list-table::
+   :widths: 25 75
+   :header-rows: 1
+
+   * - Role
+     - What it sees / can do
+   * - **Regular user**
+       (``Role::User``)
+     - Session Browser and Analysis tab show only that profile's own
+       ``recordings/<username>/`` sessions. The Record Settings
+       recording-directory field is **read-only** — shown, but not
+       editable — precisely so it can't be pointed at another profile's
+       folder.
+   * - **Admin**
+       (``Role::Admin``)
+     - Session Browser and Analysis tab show an **aggregated** view across
+       *every* known profile's ``recordings/<username>/`` folder, plus a
+       shared ``recordings/_unassigned/`` bucket, each session labeled with
+       an ``@username`` badge. The recording-directory field stays fully
+       editable, same as before this feature existed.
+
+.. note::
+
+   **One-time migration.** The first time an **admin** profile logs in
+   after this feature was added, MOSAIC scans the legacy flat
+   ``recordings/`` root (the shared location every profile used before
+   per-user folders existed) for loose session folders and moves each one
+   into ``recordings/<recorded_by>/`` — matched by that session's own
+   ``recorded_by`` field in ``session_meta.json`` — or into
+   ``recordings/_unassigned/`` if ``recorded_by`` is empty or doesn't
+   match any known profile. This runs silently at startup and is
+   naturally idempotent (nothing is left loose in the flat root after the
+   first successful run for a later run to find). Sessions recorded
+   before this feature shipped are moved forward, never deleted.
+
 Creating a profile
 ------------------
 

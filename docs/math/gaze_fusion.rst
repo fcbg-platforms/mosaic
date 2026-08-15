@@ -162,3 +162,44 @@ The intersection is reported as ``None`` (no target point) in two cases:
 the plane — no well-defined intersection), or :math:`u < 0` (the
 intersection lies *behind* the ray's origin, i.e. the gaze direction
 points away from the surface).
+
+Practical recommendations
+------------------------------
+
+.. grid:: 1 1 2 2
+   :gutter: 2
+
+   .. grid-item-card:: 📷  More cameras, better fusion
+
+      Below the ``--min-cameras`` threshold (default 2), a per-camera ray
+      is still recorded but there's nothing to triangulate. 3+ cameras
+      viewing the subject from meaningfully different angles gives both a
+      better-conditioned :math:`A` matrix in Stage 3's least-squares solve
+      and a lower residual — treat 2-camera fusion as the practical
+      minimum, not the target.
+
+   .. grid-item-card:: 📐  Room calibration accuracy dominates
+
+      Every stage here is only as good as the room extrinsics from
+      :doc:`room_calibration`. A camera with a marginal reprojection RMS
+      there silently degrades every fused ray computed through it — if
+      target points look physically implausible, re-check calibration
+      quality before suspecting the fusion math.
+
+   .. grid-item-card:: 👁️  The eye-rotation term is a bounded heuristic
+
+      Remember the direction formula separates two genuinely different
+      signals: a metric, ``solvePnP``-solved head pose, and a *bounded
+      heuristic* eye-in-socket perturbation (:math:`\pm 30°`/:math:`\pm
+      20°` by default). Don't over-interpret gaze precision for subjects
+      looking sharply off-axis from their own head direction — the
+      heuristic's bound is a real accuracy ceiling, not just a
+      implementation detail.
+
+   .. grid-item-card:: 📊  Reading the residual
+
+      ``residual_rms_mm`` is the direct fit-quality signal — a large
+      residual means the contributing cameras' rays didn't actually
+      converge well, and any target point derived from that fit deserves
+      correspondingly less trust, independent of how "close" it looks to
+      a plausible screen/table location.

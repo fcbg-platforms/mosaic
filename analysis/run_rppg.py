@@ -232,8 +232,20 @@ def _compute_windows(sample_ts_ms: list[float], sample_rgb: list[tuple[float, fl
     hop_ms = hop_sec * 1000.0
     end_ms = float(all_ts[-1])
 
+    # Starts from the recording's own first processed-frame timestamp, not
+    # a literal 0 — all_ts_ms comes straight from timestamps_camN.csv's
+    # elapsed_ns column (app-launch-relative, per this project's
+    # elapsed_ns() clock convention) whenever real hardware timestamps
+    # exist, which is virtually always true for a real recorded session.
+    # Starting at 0 produced dozens of guaranteed-empty leading windows on
+    # a real session (confirmed: 30 of 44 windows for a video whose first
+    # real frame landed at ~68s), which not only wasted a full pass of
+    # this loop for no reason but also silently deflated pct_windows_good
+    # in the summary — a session with perfect tracking for its entire real
+    # duration would still report a low "good" percentage, since most of
+    # the counted "windows" never had a chance to contain a single frame.
     windows: list[dict] = []
-    start_ms = 0.0
+    start_ms = float(all_ts[0])
     while start_ms < end_ms:
         win_end_ms = start_ms + window_ms
 

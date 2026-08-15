@@ -49,4 +49,48 @@ and large/close faces both get proportionally strong blur:
 where :math:`\vert` is bitwise OR, used here purely to force the result
 odd (OpenCV's Gaussian blur requires an odd kernel size), and the
 :math:`\max(3, \ldots)` floor guarantees a valid minimum kernel even for a
-very small box.
+very small box. The computed kernel is additionally clamped to the box's
+own actual width/height (never larger than the region being blurred) — a
+region too small for any valid odd kernel falls back to a solid fill
+instead, so a detected face is never left completely unmasked purely
+because ``cv2.GaussianBlur`` rejected an oversized kernel for a thin,
+edge-clipped box.
+
+Practical recommendations
+------------------------------
+
+.. grid:: 1 1 2 2
+   :gutter: 2
+
+   .. grid-item-card:: ⚙️  Which detection backend to pick
+
+      **MediaPipe** (default) has the best recall across angles. **YOLOv8**
+      is a community checkpoint — verify it's finding faces you'd expect
+      before trusting it for a privacy-critical run. **OpenCV DNN** avoids
+      an extra ML framework but is noticeably weaker at extreme angles —
+      only use it when the other two aren't viable options.
+
+   .. grid-item-card:: 🔒  Privacy is only as strong as recall
+
+      This tool's entire purpose is anonymization — a **missed** detection
+      means an unmasked face in the output, silently. Spot-check the
+      anonymized output on a few frames per camera before treating it as
+      safe to share externally, especially for a backend/session
+      combination you haven't validated before.
+
+   .. grid-item-card:: 🎞️  Keep frame-skip low for anonymization
+
+      Unlike Pose/Expression's frame-skip (which only thins out *recorded*
+      data), Face Masking's skip control reuses the last detected box on
+      skipped frames — a fast-moving face between detected frames can
+      leave a real gap in coverage. Keep it at 1 (every frame) unless
+      you've confirmed the subject's motion is slow enough for a higher
+      value to still cover every frame adequately.
+
+   .. grid-item-card:: 🫥  Blur vs. solid box
+
+      Blur is visually softer and preserves general context (hair,
+      approximate shape); a solid box is a harder, more obviously
+      irreversible guarantee against any residual leakage through a
+      partially-transparent or thin blur kernel — prefer solid box when
+      the anonymization requirement is strict, not just visual.

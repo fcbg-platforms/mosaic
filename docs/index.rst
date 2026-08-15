@@ -108,7 +108,8 @@ MOSAIC Documentation
       :class-card: sd-border-0
 
       The ``analysis/`` project's importable library surface — Pose, Face
-      Masking, Diarization, Expression, Gaze Fusion, and Motion — with full
+      Masking, Diarization, Expression (incl. py-feat), Gaze Fusion, Motion,
+      3D Pose Reconstruction, and Remote Heart Rate — with full
       numpydoc-rendered signatures.
 
    .. grid-item-card:: ∑  Mathematical background
@@ -159,12 +160,25 @@ Key capabilities
        ports can also send a recording start/stop marker back to the EEG.
 
    * - **Camera calibration**
-     - OpenCV checkerboard intrinsic calibration; results stored per camera in
-       the group's ``settings.json``.
+     - OpenCV checkerboard intrinsic calibration, plus multi-camera ChArUco
+       room (extrinsic) calibration for combining 3D signals across cameras.
+
+   * - **Eight offline analysis plugins**
+     - Pose, Face Masking, Speaker Diarization, Facial Expression (3
+       backends incl. real FACS Action Units via py-feat), Multi-Camera
+       Gaze Fusion, Motion Tracking, 3D Pose Reconstruction, and an
+       experimental Remote Heart Rate (rPPG) estimator — see
+       :doc:`user_guide`.
+
+   * - **Live dashboard**
+     - The Real-time tab shows live pose/gaze overlays, a live audio
+       waveform, and live speech captions per camera/microphone, with
+       automatic pause during active recording.
 
    * - **Research profiles**
      - Isolated settings, recording directories, and calibration per group;
-       PBKDF2-SHA256 login.
+       PBKDF2-SHA256 login; per-user recording access control with an
+       aggregated admin view.
 
 ----
 

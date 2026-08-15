@@ -40,3 +40,43 @@ diarization was skipped entirely and the turn set is empty — gets
 ``speaker=None`` rather than a guessed label, consistent with this
 project's general "don't overclaim" convention (see also
 :doc:`facial_expression`'s tie-break).
+
+Practical recommendations
+------------------------------
+
+.. grid:: 1 1 2 2
+   :gutter: 2
+
+   .. grid-item-card:: 🔑  The Hugging Face token is required for speaker labels
+
+      Without a valid token (with both gated pyannote models' terms
+      accepted), transcription still runs but every segment's speaker is
+      ``None`` — this is a graceful degradation, not a failure, so it's
+      easy to miss that diarization silently didn't run. Check the
+      transcript table's Speaker column isn't empty if speaker labels
+      actually matter for the session.
+
+   .. grid-item-card:: 🎙️  Model size vs. accuracy vs. speed
+
+      **small** (default) is a reasonable balance. **tiny**/**base** are
+      noticeably faster but meaningfully less accurate on accented or
+      noisy speech; **large-v3** is the most accurate but slowest —
+      reasonable for a short, important recording where transcription
+      quality matters more than turnaround time.
+
+   .. grid-item-card:: 👥  Min/max speaker-count hints
+
+      If the number of speakers in a session is known in advance, setting
+      both min and max speakers to that count gives pyannote's diarization
+      a real constraint to work with, generally improving speaker-turn
+      accuracy over leaving it unconstrained — worth setting whenever the
+      session's speaker count is actually known.
+
+   .. grid-item-card:: 🗣️  A boundary segment can flip between overlapping turns
+
+      A whisper segment that straddles two speaker turns is assigned
+      entirely to whichever turn it overlaps more — for a segment near a
+      genuine turn-taking boundary, small VAD/diarization timing
+      differences can flip which speaker "wins." Treat a speaker label
+      right at a turn boundary as somewhat less certain than one deep
+      inside a long single-speaker stretch.

@@ -86,3 +86,43 @@ travelled).
    time-weighted formula above is the fix, and is the reason gap-tolerant
    sampling (above) matters for more than just correctness of the
    instantaneous samples.
+
+Practical recommendations
+------------------------------
+
+.. grid:: 1 1 2 2
+   :gutter: 2
+
+   .. grid-item-card:: 🎚️  Smoothing is off by default — and that's deliberate
+
+      Raising **Smoothing** (e.g. to 5) meaningfully stabilizes a noisy
+      Acceleration curve at the cost of blurring genuinely fast
+      transients. Leave it at 1 (off) first and only raise it once you've
+      confirmed the raw signal actually needs it — don't smooth by
+      default just because it looks cleaner.
+
+   .. grid-item-card:: 📏  Set Scale honestly, or leave it at 1.0
+
+      Without a real calibration linking pixels to physical distance, the
+      **Scale (mm/px)** field is exactly as accurate as the value you
+      type into it — a wrong or guessed scale produces a confidently
+      wrong physical speed. Leave it at ``1.0`` (px units) unless you
+      have an actual measured reference distance in the frame to compute
+      the real ratio from.
+
+   .. grid-item-card:: 🕳️  A long low-visibility gap still reports honestly...
+
+      ...but "honestly" doesn't mean "meaningfully." A single reported
+      average speed spanning a multi-second occlusion gap is
+      mathematically correct (see the time-weighted formula above) but
+      may not reflect anything a reader would call the subject's "real"
+      average speed during that gap — treat any large gap in the
+      exported CSV's timestamps as a flag to sanity-check the surrounding
+      numbers, not just trust them.
+
+   .. grid-item-card:: 🧑‍🤝‍🧑  Single-subject sessions only
+
+      Kinematics are computed against subject index 0 specifically — a
+      multi-subject session's kinematics are only meaningful if subject 0
+      genuinely refers to the same physical individual for the whole
+      analyzed span, which this plugin cannot verify on its own.

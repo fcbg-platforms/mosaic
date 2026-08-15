@@ -31,6 +31,58 @@ See :doc:`recording` for exactly what gets written (``session_meta.json``,
 per-camera timestamp CSVs, the post-hoc ``sync_manifest.json``) and why
 cameras can end up with slightly different frame counts.
 
+The Real-time tab — live dashboard
+-----------------------------------------
+
+Sitting between **Live** and **Analysis**, the **Real-time** tab is a
+live-monitoring dashboard, not a post-hoc plugin — everything on it updates
+continuously while cameras are open, whether or not a recording is
+currently in progress.
+
+**Per-camera tiles.** One tile per configured camera, each showing a live
+thumbnail with a real-time pose skeleton and gaze-direction overlay drawn
+on top (reusing the exact same live MediaPipe pipeline the Live tab's own
+overlay toggles use — the Analysis tab's post-hoc Pose/Gaze results are a
+*different*, independently-run, full-fidelity computation over recorded
+video, not the same data). Each tile shows a pose-detection-quality badge,
+a gaze-on-target percentage, and a small bucketed sparkline of recent
+detection rate. An **Analyze** checkbox per tile lets you opt a specific
+camera out of live analysis without affecting the others — useful if one
+camera's feed doesn't need live tracking and you'd rather spend that
+camera's share of the shared inference budget elsewhere.
+
+**Auto-pause during recording.** Live pose/gaze analysis automatically
+pauses the instant a recording starts, and resumes automatically when it
+stops — a visible amber banner ("⏸ Analysis paused — recording in
+progress") makes this state unambiguous. This is a deliberate resource
+trade-off: recording's own video/audio pipeline gets full priority, and
+every tile's last-known overlay stays visible (frozen, at reduced opacity)
+rather than going blank, so you're never looking at a dead panel. Raw
+camera thumbnails and the audio waveform keep updating throughout — only
+the heavier pose/gaze inference and live transcription pause.
+
+**Live audio waveform.** A shared, multi-channel bipolar waveform strip
+along the bottom shows every configured microphone's live signal — the
+same widget and scale control as the Live tab's own audio monitor.
+
+**Live transcript.** A scrolling captions panel shows near-real-time
+speech-to-text for microphone 1 (a ``tiny`` Whisper model, tuned for low
+latency over accuracy) — confirmed text scrolls up the history; an italic
+in-progress line shows the current, still-revising guess underneath it.
+Like pose/gaze analysis, this pauses automatically during recording. If
+the transcription subprocess isn't available (missing Python environment),
+the panel shows a clear "unavailable" message instead of silently staying
+empty.
+
+.. note::
+
+   The Real-time tab's live pose/gaze/transcript signals are **not saved
+   anywhere** — they're a monitoring convenience, not a recorded artifact.
+   For a persisted, full-fidelity result you can review and export later,
+   run the corresponding Analysis-tab plugin (**Pose**, **Multi-Camera
+   Gaze Fusion**) against the recorded video, or **Speaker Diarization**
+   for a saved transcript.
+
 Using the Session Browser
 -------------------------------
 
@@ -45,7 +97,24 @@ For a selected session you can:
 - **Run Motion tracking** — the one plugin that only runs from here, not the
   Analysis tab (see :ref:`the note below <motion-tracking-note>`).
 - See at a glance, via colored badges, which analyses have already been run
-  on that session (Pose, Face Masking, Diarization, Expression, Gaze).
+  on that session: **POSE**, **MOTION**, **TRANSCRIPT** (Speaker
+  Diarization), **EXPRESSION**, **GAZE**, **3D POSE**, and **HR**
+  (Remote Heart Rate). Face Masking has no badge of its own — check for
+  the session's ``anonymized/`` folder directly, or open the Face Masking
+  plugin on the Analysis tab, which reports whether it's already been run.
+
+.. note::
+
+   **Who sees which sessions.** A regular profile only ever sees its own
+   recordings (its ``recordings/<username>/`` folder — see
+   :doc:`recording`). An **admin** profile's Session Browser and Analysis
+   tab instead show an *aggregated* view across every known profile's
+   sessions (plus an ``_unassigned`` bucket for anything that couldn't be
+   matched to a profile), each labeled with a ``@username`` badge — see
+   :doc:`profiles` for the full recording-access-control model. This is a
+   real filesystem-level separation, not just a UI filter: a non-admin
+   profile's own Record Settings directory field is read-only, precisely
+   so it can't be pointed at another profile's folder.
 
 Running an Analysis-tab plugin
 ------------------------------------
@@ -107,8 +176,18 @@ sitting alongside **Live**. The workflow is always the same shape:
       selected keypoint — see :doc:`math/pose_kinematics` for the math and
       the **Smoothing**/**Scale (mm/px)** controls below. Distance/average-
       speed/max-speed stats and a CSV export are available alongside the
-      chart. Kinematics assume a single continuous subject (subject 0) —
-      identity isn't tracked frame-to-frame in a multi-animal session.
+      chart.
+
+      **Multiple subjects**: when a session has more than one detected
+      person, a row of colored **Subject** chips appears above the chart —
+      check as many as you want plotted simultaneously (Position mode
+      shows a solid/dashed X/Y pair per subject; Speed/Acceleration shows
+      one line per subject), and the video overlay colors each detected
+      person's skeleton to match. A single-subject session shows no chip
+      row at all. Subject *numbers* are per-frame detection order, not a
+      tracked identity — "Subject 1" in one frame isn't guaranteed to be
+      the same physical person as "Subject 1" in another frame, so treat
+      multi-subject kinematics as indicative, not identity-verified.
 
    .. tab-item:: Face Masking
 
@@ -142,10 +221,16 @@ sitting alongside **Live**. The workflow is always the same shape:
       to skip diarization entirely even with a token present.
 
       **Reading the output**: pick a microphone; the transcript table shows
-      Start/End/Speaker/Text rows, and clicking a row seeks audio playback.
-      The active row highlights automatically during playback. See
-      :doc:`math/speaker_diarization` for the max-overlap speaker-assignment
-      rule.
+      Start/End/Speaker/Text rows, colored and lightly tinted per speaker,
+      and clicking a row seeks audio playback. The active row highlights
+      automatically during playback. The waveform above the table is
+      shaded with a matching color band (a subtle background wash plus a
+      crisp top/bottom edge strip) for every diarized speaker turn, with a
+      color-swatch legend underneath — clicking anywhere on the waveform
+      also seeks playback. A stretch of waveform with no color band means
+      no speaker was confidently attributed there, not a rendering gap.
+      See :doc:`math/speaker_diarization` for the max-overlap
+      speaker-assignment rule.
 
       .. important::
 
@@ -172,9 +257,17 @@ sitting alongside **Live**. The workflow is always the same shape:
         pretrained 8-class ONNX CNN (downloads an extra ~34MB model on first
         use), generally more accurate and the only backend that can report
         "Contempt," at the cost of being a less transparent black box than
-        the heuristic. Blendshape scores themselves are always computed and
+        the heuristic. **py-feat**: the most detailed of the three — real
+        FACS Action Units (20 individually-scored muscle movements, e.g.
+        AU12 = lip corner puller), not just a single emotion label —
+        meaningfully slower (~0.1–0.8s/frame on CPU) and pulls in the
+        heaviest dependency (torch + torchcodec, needing a compatible
+        FFmpeg discoverable on ``PATH``); pick it when the research
+        question is about *which muscles moved*, not just an overall
+        emotion. Blendshape scores themselves are always computed and
         stored regardless of which backend is selected — only the
-        *dominant-expression* label/score differs.
+        *dominant-expression* label/score (and, for py-feat, the AU values)
+        differs.
       - **Max faces** (default 5) — the most faces detected simultaneously
         in one frame. Raise it for a session with more people in frame at
         once; extra faces beyond this cap are simply not detected, they
@@ -226,6 +319,93 @@ sitting alongside **Live**. The workflow is always the same shape:
       with a valid target point. See :doc:`math/gaze_fusion` for the
       triangulation math and :doc:`math/room_calibration` for how camera
       positions are solved.
+
+   .. tab-item:: 3D Pose Reconstruction
+
+      **What it does**: triangulates every camera's already-computed 2D
+      keypoints (the **Pose** plugin's own output — run Pose on at least
+      one camera first, or this plugin refuses to run with a clear error)
+      into full 3D skeletons, one per detected person, per frame, with a
+      stable identity across frames. Also needs
+      :ref:`room (extrinsic) calibration <room-extrinsic-calibration>`
+      completed first, exactly like Gaze Fusion.
+
+      **Controls**: minimum-cameras-to-triangulate (2–6, default 2),
+      maximum reprojection error in pixels (default 15 — a keypoint whose
+      3D triangulation reprojects further than this from any contributing
+      camera's real observation is dropped rather than trusted), and a
+      frame-skip spinbox.
+
+      **Reading the output**: an interactive 3D room view — drag to orbit,
+      scroll to zoom, double-click to reset — shows a floor grid, every
+      calibrated camera's position, and every currently-tracked person's
+      3D skeleton, color-coded by track ID. A **Track** dropdown filters
+      the stats/CSV export to one track or "All." The selected camera's
+      video also shows the reprojected 2D skeleton overlay, letting you
+      visually confirm the 3D reconstruction actually lines up with what
+      that camera really saw. See :doc:`math/pose3d_reconstruction` for the
+      triangulation, cross-camera association, and tracking math — and
+      its important caveat about 2-camera rigs with multiple people.
+
+   .. tab-item:: Remote Heart Rate (rPPG)
+
+      .. important::
+
+         **EXPERIMENTAL.** This is a research-grade heart-rate estimate
+         only — not a medical device, not clinically validated. A
+         persistent banner in the results panel says so for exactly this
+         reason. See :doc:`math/remote_heart_rate` before trusting any
+         output number, and cross-check against a real reference (pulse
+         oximeter, manual pulse count) if accuracy actually matters.
+
+      **What it does**: estimates heart rate from subtle, camera-visible
+      color changes in facial skin (remote photoplethysmography) — no
+      contact sensor needed, but correspondingly less reliable than one.
+      Detects a face-skin region per frame, combines its color signal into
+      a pulse waveform, and extracts a BPM estimate per sliding time
+      window.
+
+      **Controls**: a **Backend** dropdown — **Green** (fast naive
+      baseline, no motion compensation), **CHROM** (chrominance-based),
+      **POS** (default — generally the most robust classical method) —
+      plus **Window** and **Hop** length in seconds (defaults 10s/2s) and
+      a smoothing-windows spinbox. There is deliberately no frame-skip
+      control here, unlike every other plugin: skipping frames would
+      undersample the pulse signal itself below what's needed to resolve a
+      heart rate at all.
+
+      **Reading the output**: a BPM-over-time chart (toggle raw vs.
+      smoothed), a stats readout (mean/median/min/max BPM, % of windows
+      that produced a reliable estimate), and a quality badge combining
+      signal-to-noise ratio and face-detection density into one
+      Excellent/Good/Acceptable/Poor tier — treat "Poor" as "don't trust
+      this number." A debug overlay on the video shows the tracked
+      face-skin ROI box plus a live BPM readout, so you can visually
+      confirm the algorithm is tracking real skin, not hair or background.
+      A window with insufficient face detection reports no BPM at all
+      rather than a guessed one — this is expected on footage where the
+      subject doesn't hold still facing the camera, not a bug.
+
+   .. tab-item:: EEG/Trigger ↔ Frame Sync
+
+      **What it does**: resolves every logged trigger event (keyboard,
+      serial, parallel-port — e.g. an EEG amplifier's trigger-out cable)
+      to its nearest captured frame in every camera, so you know exactly
+      what each camera recorded at the instant of each external event.
+      Unlike every other plugin on this page, this one runs **synchronously
+      in the app itself** — no subprocess, no progress bar, just a
+      near-instant table once you click Run (or automatically, if it's
+      already been run for this session).
+
+      **Reading the output**: one row per trigger event (elapsed time,
+      wall clock, source, label, value) plus a resolved frame number and
+      timing offset (``Δms``) for every camera. Click a row to seek the
+      currently-selected camera's video to that frame. Export as CSV for
+      use in external EEG-analysis tooling (e.g. MNE-Python). See
+      :doc:`recording`'s "Aligning streams in Python" section for the
+      manual/scripted equivalent, and why ``trigger.csv``'s
+      ``elapsed_ns`` column — not ``elapsed_ms`` — is the one safe to
+      compare across files.
 
 .. _motion-tracking-note:
 
@@ -316,12 +496,46 @@ Tips and troubleshooting
 
       Pose, diarization, and gaze fusion all auto-select CUDA if a working
       GPU is available, falling back to CPU otherwise — no manual device
-      flag needed. FER+ and face-mask detectors run CPU-only by design
-      (the models are small enough that GPU wouldn't meaningfully help).
+      flag needed. FER+, face-mask detectors, py-feat, rPPG, and 3D Pose
+      Reconstruction all run CPU-only by design — the models are small
+      enough (FER+, face-mask), the underlying library doesn't auto-select
+      a device (py-feat), or there's simply no GPU-acceleratable step at
+      all (rPPG's classical signal processing; 3D Pose Reconstruction's
+      pure linear algebra) — for all of these, a GPU wouldn't meaningfully
+      help.
 
    .. grid-item-card:: 🧑‍🤝‍🧑  Subject identity across frames
 
       No plugin tracks *which* physical subject is which across frames in
-      a multi-subject session — "subject 0" just means "first detection in
-      that frame." Kinematics/expression stats are only meaningful for
-      single-subject sessions today.
+      a multi-subject session — "subject 0"/"track 0" just means "first
+      detection in that frame" (or, for 3D Pose Reconstruction, the
+      nearest-centroid match from the previous tick). Kinematics/
+      expression stats are only fully reliable for single-subject sessions;
+      multi-subject Pose kinematics and 3D Pose Reconstruction track
+      identity best-effort, not guaranteed.
+
+   .. grid-item-card:: ❤️  rPPG is experimental — verify before trusting
+
+      Remote Heart Rate estimates are research-grade only, not clinically
+      validated. They also need a subject holding reasonably still and
+      facing a camera for the whole analysis window (10s by default) —
+      footage where nobody looks steadily at a camera will correctly
+      report no reliable estimate rather than a fabricated number. See
+      :doc:`math/remote_heart_rate` for the full accuracy discussion.
+
+   .. grid-item-card:: 🎬  py-feat's FFmpeg requirement
+
+      The py-feat Facial Expression backend needs a torchcodec-compatible
+      FFmpeg (versions 4–8, a shared/DLL build) discoverable on ``PATH`` —
+      even though it never touches video I/O directly. If this backend
+      fails to construct, check ``where ffmpeg`` before suspecting a code
+      issue.
+
+   .. grid-item-card:: 📁  Where recordings actually live
+
+      Each profile's sessions live under its own
+      ``recordings/<username>/`` folder, resolved relative to wherever the
+      app is running from — not a single shared folder. Only an admin
+      profile sees every profile's sessions at once (see the note above);
+      a regular profile's Record Settings directory field is read-only for
+      exactly this reason.

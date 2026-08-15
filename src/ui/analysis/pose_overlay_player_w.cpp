@@ -427,6 +427,25 @@ struct PoseOverlayPlayerW::Impl {
         if (skeleton3dResult.frames().isEmpty()) { return 0; }
         return skeleton3dResult.frames().first().timestampNs + positionMs * 1000000LL;
     }
+
+    // RppgResult's frames()/windows() are NOT video-relative — run_rppg.py's
+    // timestamp_ms comes straight from timestamps_camN.csv's elapsed_ns
+    // column (app-launch-relative, per this project's elapsed_ns() clock
+    // convention) whenever real hardware timestamps exist, which is true
+    // for every real recorded session; only the synthetic frame_idx/fps
+    // fallback (no timestamps CSV at all) happens to start near zero.
+    // Confirmed on a real session: the first frame's timestamp_ms was
+    // ~68s, so passing the player's raw (video-relative, 0-based) position
+    // straight into nearest_frame()/nearest_window() clamped to the very
+    // first entry for the ENTIRE video — the overlay never updated during
+    // playback. Same "player position 0 ≈ result's own first frame's
+    // timestamp" offset approximation as gaze_timestamp_estimate()/
+    // skeleton3d_timestamp_estimate() above, just no ns->ms conversion
+    // needed since both sides are already milliseconds.
+    [[nodiscard]] int64_t rppg_timestamp_estimate(int64_t positionMs) const {
+        if (rppgResult.frames().isEmpty()) { return positionMs; }
+        return rppgResult.frames().first().timestampMs + positionMs;
+    }
 };
 
 // ── Construction ─────────────────────────────────────────────────────────
@@ -556,12 +575,9 @@ PoseOverlayPlayerW::PoseOverlayPlayerW(QWidget* parent)
                 d->expressionResult.nearest_frame(d->frame_estimate(pos));
             d->overlay->set_expression_frame(frame);
         } else if (d->rppgResult.is_valid()) {
-            // RppgResult's timestamps are already video-relative
-            // milliseconds (see run_rppg.py's timestamp handling) — no
-            // separate _timestamp_estimate() conversion needed, unlike
-            // gaze/skeleton3d's shared-master-timeline results above.
-            const RppgFrame* frame = d->rppgResult.nearest_frame(pos);
-            const RppgWindow* window = d->rppgResult.nearest_window(pos);
+            const int64_t rppgPos = d->rppg_timestamp_estimate(pos);
+            const RppgFrame* frame = d->rppgResult.nearest_frame(rppgPos);
+            const RppgWindow* window = d->rppgResult.nearest_window(rppgPos);
             d->overlay->set_rppg_frame(frame, window);
         } else {
             const PoseFrame* frame = d->poseResult.is_valid()
@@ -661,10 +677,11 @@ void PoseOverlayPlayerW::set_rppg_result(const RppgResult& result, int cameraInd
     d->skeleton3dResult   = Skeleton3DResult();
     d->rppgResult         = result;
     d->rppgCameraIndex    = cameraIndex;
+    const int64_t rppgPos = d->rppg_timestamp_estimate(d->player->position());
     const RppgFrame*  frame  = d->rppgResult.is_valid()
-        ? d->rppgResult.nearest_frame(d->player->position()) : nullptr;
+        ? d->rppgResult.nearest_frame(rppgPos) : nullptr;
     const RppgWindow* window = d->rppgResult.is_valid()
-        ? d->rppgResult.nearest_window(d->player->position()) : nullptr;
+        ? d->rppgResult.nearest_window(rppgPos) : nullptr;
     d->overlay->set_rppg_frame(frame, window);
 }
 
