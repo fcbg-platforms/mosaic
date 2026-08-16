@@ -31,6 +31,25 @@ import numpy as np
 
 @dataclass
 class CameraGeom:
+    """One calibrated camera's geometry, as needed for triangulation.
+
+    Attributes
+    ----------
+    index : int
+        Camera index, matching the session's ``camN`` numbering.
+    camera_matrix : numpy.ndarray
+        Real (distorted-space) intrinsic matrix, reshaped to ``(3, 3)``.
+    dist_coeffs : numpy.ndarray
+        OpenCV distortion coefficients, reshaped to a flat vector.
+    extrinsic_rt : numpy.ndarray
+        Row-major rigid transform, reshaped to ``(4, 4)`` —
+        room-from-camera (``point_room = R @ point_camera + t``), matching
+        ``CalibrationData::extrinsicRt`` exactly (see
+        :doc:`/math/room_calibration`).
+    camera_from_room : numpy.ndarray
+        Computed automatically as ``invert_rt(extrinsic_rt)`` — the inverse
+        transform every projection in this module actually uses.
+    """
     index: int
     camera_matrix: np.ndarray      # (3,3)
     dist_coeffs: np.ndarray        # (5,)
@@ -45,11 +64,28 @@ class CameraGeom:
 
 
 def invert_rt(m: np.ndarray) -> np.ndarray:
-    """Rigid-transform inverse: [R|t] -> [R^T | -R^T t]. Must stay
-    mathematically identical to room_frame::invert()
-    (src/calibration/room_frame_solver.cpp) — Python cannot call the C++
-    function directly, so this is a small, deliberate reimplementation.
-    Accepts (4,4) or flat length-16 row-major; always returns (4,4)."""
+    """Invert a rigid-body (rotation + translation) transform.
+
+    Parameters
+    ----------
+    m : array_like
+        A row-major rigid transform, as a ``(4, 4)`` matrix or a flat
+        length-16 array — ``[R | t]`` with the bottom row implicitly
+        ``[0, 0, 0, 1]``.
+
+    Returns
+    -------
+    numpy.ndarray
+        The inverse transform, shape ``(4, 4)``: ``[R^T | -R^T @ t]``.
+
+    Notes
+    -----
+    Must stay mathematically identical to ``room_frame::invert()``
+    (``src/calibration/room_frame_solver.cpp``) — Python cannot call the
+    C++ function directly, so this is a small, deliberate reimplementation
+    of the exact same formula. See :doc:`/math/pose3d_reconstruction` for
+    the room-frame convention this assumes.
+    """
     m = np.asarray(m, dtype=np.float64).reshape(4, 4)
     r = m[:3, :3]
     t = m[:3, 3]
@@ -60,29 +96,83 @@ def invert_rt(m: np.ndarray) -> np.ndarray:
 
 
 def normalize_point(uv_px, cam: CameraGeom) -> np.ndarray:
-    """Undistorts a single pixel (u, v) into ideal, K-free normalized camera
-    coordinates via cv2.undistortPoints (no P= argument — K is deliberately
-    left out of the result, since triangulate_point_dlt() only ever
-    consumes already-normalized points and its projection matrices carry no
-    K term either). Returns a length-2 array."""
+    """Undistort a single pixel into ideal, K-free normalized coordinates.
+
+    Parameters
+    ----------
+    uv_px : array_like
+        A single pixel coordinate ``(u, v)``, in that camera's real
+        distorted pixel space.
+    cam : CameraGeom
+        The camera whose intrinsics/distortion coefficients to undistort
+        against.
+
+    Returns
+    -------
+    numpy.ndarray
+        Length-2 array, the ideal (undistorted, ``K``-free) normalized
+        coordinate.
+
+    Notes
+    -----
+    Uses :func:`cv2.undistortPoints` with no ``P=`` argument — ``K`` is
+    deliberately left out of the result, since :func:`triangulate_point_dlt`
+    only ever consumes already-normalized points and its projection
+    matrices (see :func:`projection_matrix`) carry no ``K`` term either.
+    """
     pts = np.asarray(uv_px, dtype=np.float64).reshape(1, 1, 2)
     undistorted = cv2.undistortPoints(pts, cam.camera_matrix, cam.dist_coeffs)
     return undistorted.reshape(2)
 
 
 def projection_matrix(cam: CameraGeom) -> np.ndarray:
-    """P_i = camera_from_room[:3, :4] — no K term, matching normalize_point()'s
-    already-K-free output."""
+    """Build a camera's ``K``-free ``(3, 4)`` projection matrix.
+
+    Parameters
+    ----------
+    cam : CameraGeom
+        The camera to build a projection matrix for.
+
+    Returns
+    -------
+    numpy.ndarray
+        ``P = camera_from_room[:3, :4]``, shape ``(3, 4)`` — no ``K`` term,
+        matching :func:`normalize_point`'s already-``K``-free output, so the
+        two combine directly in :func:`triangulate_point_dlt`.
+    """
     return cam.camera_from_room[:3, :4]
 
 
 def triangulate_point_dlt(points_normalized, projection_matrices) -> Optional[np.ndarray]:
-    """Classic linear DLT triangulation, pure numpy, zero cv2. Each view i
-    contributes 2 homogeneous rows (u_i*P_i[2,:]-P_i[0,:], v_i*P_i[2,:]-P_i[1,:])
-    to one (2N,4) system; the 3D point is the right-singular-vector for the
+    """Classic linear multi-view DLT (Direct Linear Transform) triangulation.
+
+    Parameters
+    ----------
+    points_normalized : sequence of array_like
+        One ideal, ``K``-free normalized ``(u, v)`` point per contributing
+        view (see :func:`normalize_point`), same order as
+        `projection_matrices`.
+    projection_matrices : sequence of array_like
+        One ``(3, 4)`` ``K``-free projection matrix per contributing view
+        (see :func:`projection_matrix`), same order as
+        `points_normalized`.
+
+    Returns
+    -------
+    numpy.ndarray or None
+        The triangulated 3D point in room space (mm), shape ``(3,)``, or
+        ``None`` if triangulation isn't possible (see Notes).
+
+    Notes
+    -----
+    Pure numpy, zero cv2. Each view *i* contributes 2 homogeneous rows
+    (``u_i * P_i[2,:] - P_i[0,:]`` and ``v_i * P_i[2,:] - P_i[1,:]``) to one
+    ``(2N, 4)`` system; the 3D point is the right-singular-vector for the
     smallest singular value, dehomogenized. Requires at least 2 views.
-    Returns None on too few views, a failed SVD, or a degenerate
-    (near-zero homogeneous coordinate) solution."""
+    Returns ``None`` on too few views, a failed SVD, or a degenerate
+    (near-zero homogeneous coordinate) solution — never a fabricated point.
+    See :doc:`/math/pose3d_reconstruction` for the full derivation.
+    """
     if len(points_normalized) < 2 or len(points_normalized) != len(projection_matrices):
         return None
 
@@ -104,11 +194,30 @@ def triangulate_point_dlt(points_normalized, projection_matrices) -> Optional[np
 
 
 def project_point_px(point_room, cam: CameraGeom) -> np.ndarray:
-    """Projects a 3D room-space point through cam's REAL (distorted)
-    intrinsics into that camera's pixel space — the shared primitive behind
-    both reproject_error_px() (triangulation quality) and
-    run_pose3d.py's per-camera overlay precomputation (Skeleton3DPerson::
-    reprojectedPx). Returns a length-2 array."""
+    """Project a 3D room-space point into one camera's real pixel space.
+
+    Parameters
+    ----------
+    point_room : array_like
+        A 3D point in room space (mm), shape ``(3,)``.
+    cam : CameraGeom
+        The camera to project through — its **real** (distorted)
+        intrinsics are used, not the K-free normalized-coordinate space
+        the rest of this module operates in.
+
+    Returns
+    -------
+    numpy.ndarray
+        Length-2 array, the projected pixel coordinate.
+
+    Notes
+    -----
+    The shared primitive behind both :func:`reproject_error_px`
+    (triangulation quality) and ``run_pose3d.py``'s per-camera overlay
+    precomputation (``Skeleton3DPerson::reprojectedPx``, consumed by
+    :cpp:class:`mosaic::Skeleton3DResult` with zero calibration math on the
+    C++ side).
+    """
     r_wc = cam.camera_from_room[:3, :3]
     t_wc = cam.camera_from_room[:3, 3]
     rvec, _ = cv2.Rodrigues(r_wc)
@@ -119,10 +228,27 @@ def project_point_px(point_room, cam: CameraGeom) -> np.ndarray:
 
 
 def reproject_error_px(point_room, cam: CameraGeom, pixel_observed) -> float:
-    """Reprojects point_room via project_point_px() and returns the
-    Euclidean pixel distance to pixel_observed — an interpretable,
-    distortion-aware quality metric, consistent with RoomCalibrationManager's
-    own extrinsic-solve reprojection-RMS report."""
+    """Compute one view's reprojection error for a triangulated point.
+
+    Parameters
+    ----------
+    point_room : array_like
+        A triangulated 3D point in room space (mm), shape ``(3,)``.
+    cam : CameraGeom
+        The camera to reproject through.
+    pixel_observed : array_like
+        The originally observed 2D pixel coordinate this camera actually
+        detected, to compare the reprojection against.
+
+    Returns
+    -------
+    float
+        Euclidean pixel distance between the reprojected point and
+        `pixel_observed` — an interpretable, distortion-aware quality
+        metric, consistent with ``RoomCalibrationManager``'s own
+        extrinsic-solve reprojection-RMS report (see
+        :doc:`/math/room_calibration`).
+    """
     projected_px = project_point_px(point_room, cam)
     observed_px = np.asarray(pixel_observed, dtype=np.float64).reshape(2)
     return float(np.linalg.norm(projected_px - observed_px))
@@ -130,6 +256,20 @@ def reproject_error_px(point_room, cam: CameraGeom, pixel_observed) -> float:
 
 @dataclass
 class TriangulationResult:
+    """The outcome of a single :func:`triangulate_with_rejection` call.
+
+    Attributes
+    ----------
+    point_room : numpy.ndarray
+        The triangulated 3D point in room space (mm), shape ``(3,)``.
+    used_views : list of int
+        Camera indices that actually contributed to `point_room` — after
+        visibility filtering and, if a re-triangulation happened, after
+        outlier rejection too.
+    per_view_error_px : dict of int to float
+        Each entry in `used_views`' own reprojection error (px) against
+        `point_room`, keyed by camera index.
+    """
     point_room: np.ndarray
     used_views: list
     per_view_error_px: dict
@@ -138,14 +278,38 @@ class TriangulationResult:
 def triangulate_with_rejection(observations, cameras,
                                 max_reprojection_error_px: float = 15.0,
                                 min_visibility: float = 0.1) -> Optional[TriangulationResult]:
-    """observations: {cam_idx: (pixel_uv, visibility)}. Filters by
-    min_visibility, requires >=2 remaining cameras, triangulates via
-    normalize_point()+triangulate_point_dlt(), then drops any view whose
-    real reprojection error exceeds max_reprojection_error_px and
-    re-triangulates ONCE from the remainder (no iterative chase — matches
-    pose_kinematics.cpp's "skip, don't fabricate" discipline). Returns None
-    if fewer than 2 views survive visibility filtering, the initial
-    triangulation fails, or fewer than 2 views survive outlier rejection."""
+    """Triangulate one keypoint across cameras, rejecting bad views once.
+
+    Parameters
+    ----------
+    observations : dict of int to tuple
+        ``{cam_idx: (pixel_uv, visibility)}`` — one observation per camera
+        that detected this keypoint at all, regardless of confidence.
+    cameras : dict of int to CameraGeom
+        Every calibrated camera available for this session, keyed by index.
+    max_reprojection_error_px : float, default 15.0
+        A view whose reprojection error exceeds this (px) after the first
+        triangulation pass is dropped before a single re-triangulation.
+    min_visibility : float, default 0.1
+        Observations below this visibility/confidence are excluded before
+        triangulation even starts.
+
+    Returns
+    -------
+    TriangulationResult or None
+        ``None`` if fewer than 2 views survive visibility filtering, the
+        initial triangulation fails, or fewer than 2 views survive outlier
+        rejection — never a fabricated point.
+
+    Notes
+    -----
+    Filters by `min_visibility`, requires ``>=2`` remaining cameras,
+    triangulates via :func:`normalize_point` + :func:`triangulate_point_dlt`,
+    then drops any view whose real reprojection error exceeds
+    `max_reprojection_error_px` and re-triangulates **once** from the
+    remainder — no iterative chase, matching ``pose_kinematics.cpp``'s
+    "skip, don't fabricate" discipline (see :doc:`/math/pose_kinematics`).
+    """
     visible = {idx: uv for idx, (uv, vis) in observations.items()
                if vis >= min_visibility and idx in cameras}
     if len(visible) < 2:

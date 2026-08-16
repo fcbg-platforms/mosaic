@@ -16,11 +16,9 @@ Directory audio
 Files
 -----
 
-- :ref:`file_src_audio_audio_manager.cpp`
+- :ref:`file_src_audio_audio_envelope.hpp`
 - :ref:`file_src_audio_audio_manager.hpp`
-- :ref:`file_src_audio_audio_recorder.cpp`
 - :ref:`file_src_audio_audio_recorder.hpp`
-- :ref:`file_src_audio_wav_writer.cpp`
 - :ref:`file_src_audio_wav_writer.hpp`
 
 

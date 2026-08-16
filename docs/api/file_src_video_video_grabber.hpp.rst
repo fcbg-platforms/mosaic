@@ -50,14 +50,6 @@ Includes
 
 
 
-Included By
------------
-
-
-- :ref:`file_src_video_video_grabber.cpp`
-
-- :ref:`file_src_video_video_manager.cpp`
-
 
 
 

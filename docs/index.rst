@@ -14,7 +14,7 @@ MOSAIC Documentation
    user_guide
    analysis_api
    math/index
-   api/library_root
+   cpp_api
 
 .. raw:: html
 
@@ -120,13 +120,13 @@ MOSAIC Documentation
       The derivations behind each analysis plugin: gaze-ray triangulation,
       room-frame pose averaging, kinematics, and more.
 
-   .. grid-item-card:: 📖  API reference
-      :link: api/library_root
+   .. grid-item-card:: 📖  C++ API reference
+      :link: cpp_api
       :link-type: doc
       :class-card: sd-border-0
 
-      Full C++ class and function documentation generated from source
-      via Doxygen + Breathe.
+      A curated, subsystem-grouped tour of the app's C++ classes, with a
+      link out to the full Doxygen + Breathe generated reference.
 
 ----
 

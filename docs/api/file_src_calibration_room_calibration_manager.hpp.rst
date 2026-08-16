@@ -44,12 +44,6 @@ Includes
 
 
 
-Included By
------------
-
-
-- :ref:`file_src_calibration_room_calibration_manager.cpp`
-
 
 
 

@@ -17,7 +17,13 @@ INPUT               = @CMAKE_SOURCE_DIR@/src \
                       @CMAKE_SOURCE_DIR@/README.md
 INPUT_ENCODING      = UTF-8
 RECURSIVE           = YES
-FILE_PATTERNS       = *.hpp *.cpp *.md
+# .cpp files are deliberately NOT scanned: real public API is declared (and
+# ///-documented) in headers here, and scanning .cpp implementation files
+# only produces noise in the generated API reference — a raw source-code
+# dump page and a file-listing page per .cpp file, plus a page per
+# anonymous `namespace { ... }` block (a .cpp-only C++ idiom, never used in
+# headers in this codebase) and per one-off .cpp-local helper/constant.
+FILE_PATTERNS       = *.hpp *.md
 EXCLUDE_PATTERNS    = */ui/* */moc_* *_autogen*
 USE_MDFILE_AS_MAINPAGE = @CMAKE_SOURCE_DIR@/README.md
 
@@ -34,8 +40,15 @@ INTERNAL_DOCS           = NO
 ENABLED_SECTIONS        =
 
 # Exclude private Pimpl structs — they are implementation details and would
-# just create duplicate-declaration warnings in Breathe.
-EXCLUDE_SYMBOLS         = *::Impl k_switch_exit_code k_ring_capacity k_accents k_pbkdf2_iterations k_key_bytes k_salt_bytes
+# just create duplicate-declaration warnings in Breathe. (The real
+# tree-view/sidebar suppression for these lives in docs/conf.py's
+# exhale_args["listingExclude"] — EXCLUDE_SYMBOLS here does not reliably
+# stop Exhale from still generating a page for an excluded symbol, only
+# from feeding it into Doxygen's own class list in the first place.) The
+# k_switch_exit_code/k_ring_capacity/etc. entries that used to live here
+# were file-scope constants in .cpp files — moot now that FILE_PATTERNS no
+# longer scans .cpp files at all.
+EXCLUDE_SYMBOLS         = *::Impl
 
 #---------------------------------------------------------------------------
 # Output

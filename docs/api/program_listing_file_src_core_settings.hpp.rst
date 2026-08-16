@@ -60,19 +60,37 @@ Program Listing for File settings.hpp
        int     offsetX         = 0;
        int     offsetY         = 0;
        bool    reverseX        = false;
+       // No longer offered in CameraCardW — confirmed on real room-11
+       // hardware that this camera generation's ReverseY node exists but
+       // rejects writes outright ("Node is not writable", every camera, every
+       // session). Field kept so an already-persisted value round-trips
+       // rather than silently vanishing on next save.
        bool    reverseY        = false;
        QString pixelFormat     = "BGR8";
        bool    specifyFps      = true;
        double  fps             = 25.0;  // acA1920-25gc's max sustained rate
    
-       // Exposure
-       QString exposureAuto        = "Off";    // "Off" | "Once" | "Continuous"
+       // Exposure. Defaults to "Once" rather than "Off": this camera generation
+       // (acA1920-25gc) has no working manual-gain path (see gainAuto below),
+       // and auto-calibrating once at preview start then holding steady for
+       // the whole recording gives a scene-matched image without the
+       // brightness/color drift "Continuous" can introduce mid-recording —
+       // real risk for anything downstream that assumes consistent lighting
+       // frame-to-frame (e.g. expression/gaze confidence, luminance measures).
+       QString exposureAuto        = "Once";   // "Off" | "Once" | "Continuous"
        double  exposureTimeUs      = 10000.0;
        double  exposureAutoLowerUs = 100.0;
        double  exposureAutoUpperUs = 50000.0;
    
-       // Gain
-       QString gainAuto        = "Off";        // "Off" | "Once" | "Continuous"
+       // Gain. Defaults to "Once", not "Off": this camera generation only
+       // exposes the older SFNC 1.x "GainRaw" node, not the modern "Gain" (dB)
+       // node — manual/"Off" gain is a silent no-op here (see the "Gain" write
+       // in video_grabber.cpp's apply_image_params(), which only fires when
+       // gainAuto=="Off" and simply skips if the modern node isn't present).
+       // CameraCardW no longer offers "Off" or a manual gainDb field for
+       // exactly this reason — gainDb is kept so an already-persisted value
+       // round-trips, but has no effect on this hardware.
+       QString gainAuto        = "Once";       // "Off" | "Once" | "Continuous" (UI: Once/Continuous only)
        double  gainDb          = 0.0;
        double  gainAutoLowerDb = 0.0;
        double  gainAutoUpperDb = 24.0;
@@ -80,17 +98,32 @@ Program Listing for File settings.hpp
        // Processing
        double  gamma            = 1.0;
        double  blackLevel       = 0.0;
-       QString balanceWhiteAuto = "Off";       // "Off" | "Once" | "Continuous"
+       QString balanceWhiteAuto = "Once";      // "Off" | "Once" | "Continuous"
+       // Saturation/contrast/brightness have no GenICam node on this camera
+       // generation at all (no on-camera ISP) — CameraCardW no longer offers
+       // them. Fields kept for persistence/forward-compat only (a future
+       // camera model might expose the matching node).
        double  saturation       = 1.0;         // 0.0–2.0
        double  contrast         = 1.0;         // 0.0–2.0
        double  brightness       = 0.5;         // 0.0–1.0
        double  autoTargetBrightness = 0.5;     // 0.0–1.0
        int     digitalShift     = 0;           // 0–4 bits (12→8 or 16→8 conversions)
    
-       // Hardware trigger input (e.g. TTL pulse on Basler Line1)
-       bool    hwTriggerEnabled = false;
-       QString hwTriggerSource  = "Line1";     // "Line1" | "Line2" | "Line3" | "Software"
+       // Hardware trigger input (e.g. TTL pulse on Basler Line1, or a GigE
+       // Vision Action Command broadcast when set to "Action1" — see
+       // gige_action_command.hpp). Defaults to Action1 enabled: room 11's
+       // camera fleet is meant to be synchronized this way out of the box for
+       // any newly-added camera, without a manual per-camera opt-in step.
+       bool    hwTriggerEnabled = true;
+       QString hwTriggerSource  = "Action1";   // "Line1" | "Line2" | "Line3" | "Software" | "Action1"
        double  hwTriggerDelayUs = 0.0;         // microseconds
+   
+       // Live pose/gaze analysis (Real-time tab) opt-out for this camera. The
+       // live pipeline shares one MediaPipe subprocess across every camera at a
+       // fixed ~2fps/camera budget (see MainWindow's throttle lambda) — turning
+       // this off for a camera the user doesn't care about live frees up that
+       // camera's slice of the shared budget without touching recording at all.
+       bool    liveAnalysisEnabled = true;
    
        // Test pattern — shown in monitor when no real camera is connected
        QString testPattern      = "Off";       // "Off" | "ColorBars" | "Horizontal" | "Vertical"
@@ -109,6 +142,21 @@ Program Listing for File settings.hpp
        QString preset   = "p4";            // GPU: p1-p7  |  CPU: fast, medium, slow
        int     crf      = 23;              // quality for CPU encoder (17=best, 28=worst)
        int     bitrate  = 5000;            // kbit/s (GPU encoder)
+   
+       // Upper bound on the number of configured cameras this app will ever
+       // treat as a live rig (room 11 has 6; 32 is a generous safety margin,
+       // not a hardware limit). Every code path that populates `cameras`
+       // before a VideoManager::open() call — VideoSettings::from_json() and
+       // Application::initialize()'s programmatic room-11 seed — must reserve
+       // at least this much capacity first. VideoManager::open() binds a raw
+       // `const CameraParameters&` into each VideoGrabber for that grabber's
+       // entire lifetime (see VideoGrabber::Impl::params in video_grabber.cpp);
+       // any reallocation of this vector after that point (e.g. from
+       // push_back() growing past capacity) silently invalidates every such
+       // reference, causing a use-after-free the next time a camera control is
+       // edited. VideoSettingsW's constructor also reserves this same cap for
+       // the identical reason on behalf of CameraCardW's references.
+       static constexpr int kMaxCameras = 32;
    
        // Per-camera configurations (one entry per added camera)
        std::vector<CameraParameters> cameras;
@@ -133,6 +181,19 @@ Program Listing for File settings.hpp
    struct AudioSettings {
        // Global encoding applied to all recordings
        QString codec = "pcm_s16le";        // "pcm_s16le" | "flac" | "aac" | "mp3"
+   
+       // Upper bound on the number of configured microphones this app will ever
+       // treat as a live monitoring/recording rig — mirrors VideoSettings::
+       // kMaxCameras exactly, see its doc comment for the full use-after-free
+       // rationale. AudioManager::start_monitoring()/start() bind a raw
+       // `const MicrophoneParameters&` into each AudioRecorder for that
+       // recorder's entire lifetime (see AudioRecorder::m_params), and
+       // AudioSettingsW's constructor reserve()s this same cap against the
+       // same vector on behalf of MicrophoneCardW's references. 16 matches the
+       // reserve(16) call AudioSettingsW's constructor already made before
+       // this fix (a literal, not a hardware limit) — no known rig needs
+       // anywhere close to this many microphones.
+       static constexpr int kMaxMicrophones = 16;
    
        // Per-device configurations
        std::vector<MicrophoneParameters> microphones;
@@ -185,35 +246,24 @@ Program Listing for File settings.hpp
        bool          invertLogic = false;     // true = active-low (common in TTL circuits)
        TriggerAction action      = TriggerAction::Log;
    
+       // Drives the Control register's INIT pin (bit 2, portAddr+2 — physically
+       // separate from the Data register this class reads, so no conflict) high
+       // when a recording starts and low when it stops, so an external device
+       // listening on that pin (e.g. an EEG amplifier) logs a marker for
+       // MOSAIC's own recording start/stop. See ParallelPortTrigger::
+       // set_recording_marker().
+       bool          sendRecordingMarker = false;
+   
        [[nodiscard]] QJsonObject to_json() const;
        [[nodiscard]] static std::optional<ParallelPortConfig> from_json(const QJsonObject&);
-   };
-   
-   // ── Per-LSL-inlet configuration ────────────────────────────────────────────
-   struct LslInletConfig {
-       QString       name       = "LSL Inlet";
-       QString       streamName = "Markers";
-       QString       streamType = "Markers";
-       bool          enabled    = true;
-       TriggerAction action     = TriggerAction::Log;
-   
-       [[nodiscard]] QJsonObject to_json() const;
-       [[nodiscard]] static std::optional<LslInletConfig> from_json(const QJsonObject&);
    };
    
    // ── Trigger ────────────────────────────────────────────────────────────────
    struct TriggerSettings {
        bool    receiveEnabled   = true;
    
-       // LSL outlet — publishes one sample per video frame so other tools can
-       // align their data to MOSAIC's timeline.
-       bool    lslOutletEnabled = true;
-       QString lslOutletName    = "MOSAIC";
-       double  lslOutletRate    = 30.0;  // nominal sample rate published to LSL
-   
        std::vector<KeyTriggerConfig>      keyboardTriggers;
        std::vector<SerialTriggerConfig>   serialTriggers;
-       std::vector<LslInletConfig>        lslInlets;
        std::vector<ParallelPortConfig>    parallelPorts;
    
        [[nodiscard]] QJsonObject                        to_json()               const;
@@ -267,6 +317,19 @@ Program Listing for File settings.hpp
        [[nodiscard]] static std::optional<RoomSettings> from_json(const QJsonObject&);
    };
    
+   // ── Real-time tab settings ──────────────────────────────────────────────────
+   // Preferences for the live pose/gaze analytics dashboard (Real-time tab).
+   // Per-camera opt-out lives on CameraParameters::liveAnalysisEnabled instead
+   // of a field here, so it travels correctly with its camera on reorder/removal.
+   struct RealtimeSettings {
+       bool enabled                  = true;   // show live analysis in the tab at all
+       bool autoPauseDuringRecording = true;   // pause pose/gaze inference while recording
+       int  detectionWindowBuckets   = 24;     // sparkline rolling-window bucket count (~2min @ 5s/bucket)
+   
+       [[nodiscard]] QJsonObject                     to_json()   const;
+       [[nodiscard]] static std::optional<RealtimeSettings> from_json(const QJsonObject&);
+   };
+   
    // ── Application aggregate ──────────────────────────────────────────────────
    struct AppSettings {
        static constexpr int k_schema_version = 1;
@@ -277,6 +340,7 @@ Program Listing for File settings.hpp
        RecordSettings   record;
        AnalysisSettings analysis;
        RoomSettings     room;
+       RealtimeSettings realtime;
    
        // Persist to / restore from a JSON file.
        // save() returns false only on I/O error (not on validation issues).

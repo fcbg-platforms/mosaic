@@ -100,6 +100,23 @@ exhale_args = {
 
     # Link to source in a "View source" button
     "contentsDirectives": True,
+
+    # Curation — cuts the generated tree down to genuinely browsable API.
+    # listingExclude hides matches from the class/namespace hierarchy tree
+    # views (the page itself may still exist and be cross-linked from a
+    # "Nested Types" section, which is fine — this only stops it cluttering
+    # the flat top-level nav). *::Impl structs are pImpl-idiom internals,
+    # never meant to be browsed to directly.
+    "listingExclude": [r".*::Impl$", r".*_1_1_Impl$"],
+
+    # unabridgedOrphanKinds excludes an entity *kind* from the flat "Full
+    # API" listing (unabridged_api.rst.include) that otherwise gives every
+    # single extracted entity its own top-level sidebar toctree entry.
+    # "function" is deliberately NOT orphaned here — after excluding .cpp
+    # files from the Doxygen scan (see Doxyfile.in), remaining function
+    # pages are genuine header-declared public API, not one-off internal
+    # helpers.
+    "unabridgedOrphanKinds": {"dir", "file", "page", "variable", "define"},
 }
 
 # ---------------------------------------------------------------------------

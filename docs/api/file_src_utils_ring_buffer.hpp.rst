@@ -46,8 +46,6 @@ Included By
 
 - :ref:`file_src_video_video_grabber.hpp`
 
-- :ref:`file_src_video_video_manager.cpp`
-
 
 
 

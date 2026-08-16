@@ -143,8 +143,8 @@ Program Listing for File analysis_manager.hpp
    
        /// @brief Detect faces and classify a dominant basic-emotion label per
        /// face in all .mp4 files in @p sessionPath, writing a
-       /// "<name>.expression.json" sidecar next to each one — originals are
-       /// never modified.
+       /// "<name>.expression.json" file per camera into the session's own
+       /// expression/ subfolder — originals are never modified.
        ///
        /// Always runs when called directly, exactly like analyze_session(). If a
        /// previous analysis is still running, this queues the new job.
@@ -179,6 +179,58 @@ Program Listing for File analysis_manager.hpp
        /// @param frameSkip      Process every Nth frame per camera (1 = every frame).
        void run_gaze_fusion(const QString& sessionPath, int minCameras,
                              double minConfidence, int frameSkip);
+   
+       /// @brief Triangulate each camera's already-computed 2D pose keypoints
+       /// (analyze_session()'s ".pose.json" sidecars — must already exist for
+       /// at least 2 cameras) into 3D room-space skeletons, using the room
+       /// extrinsic calibration and real cross-camera person association
+       /// (multi-person capable, unlike run_gaze_fusion()'s single-subject
+       /// design). Writes a session-root "skeleton3d.json" sidecar —
+       /// originals are never modified.
+       ///
+       /// Always runs when called directly, exactly like analyze_session(). If a
+       /// previous analysis is still running, this queues the new job.
+       ///
+       /// Proactively generates+saves sync_manifest.json first if the session
+       /// doesn't already have one, same as run_gaze_fusion().
+       ///
+       /// @param sessionPath              Absolute path to the recorded session directory.
+       /// @param minCameras               Minimum cameras a person cluster must span to
+       ///                                 be reconstructed at all (>=2, the mathematical
+       ///                                 minimum for triangulation).
+       /// @param maxReprojectionErrorPx   Per-view reprojection error threshold (px) for
+       ///                                 outlier-view rejection during triangulation.
+       /// @param frameSkip                Process every Nth master tick (1 = every tick).
+       void run_pose3d_reconstruction(const QString& sessionPath, int minCameras,
+                                       double maxReprojectionErrorPx, int frameSkip);
+   
+       /// @brief Estimate a remote (camera-based) heart rate over the course of
+       /// a recorded session's video, using classical (non-deep-learning)
+       /// signal-processing algorithms. Writes one
+       /// "<video_stem>.<backend>.rppg.json" per camera into the session's own
+       /// rppg/ subfolder — originals are never modified.
+       ///
+       /// EXPERIMENTAL — research-grade heart-rate estimate only, not a
+       /// medical device and not clinically validated. No blood-pressure or
+       /// heart-rate-variability estimate is attempted (see item 21's plan
+       /// section for why both were deliberately descoped).
+       ///
+       /// Always runs when called directly, exactly like analyze_session(). If a
+       /// previous analysis is still running, this queues the new job. No
+       /// sync_manifest.json dependency, unlike run_gaze_fusion()/
+       /// run_pose3d_reconstruction() — this is a single-camera analysis with
+       /// no cross-camera synchronization need.
+       ///
+       /// @param sessionPath        Absolute path to the recorded session directory.
+       /// @param backend            "green" (naive baseline), "chrom", or "pos"
+       ///                           (default, generally the most robust classical
+       ///                           method).
+       /// @param windowSec          HR-analysis window length, in seconds.
+       /// @param hopSec             Sliding-window hop length, in seconds.
+       /// @param smoothingWindows   Centered median-filter width, in windows, for
+       ///                           the smoothed_bpm series (1 = no smoothing).
+       void run_rppg_analysis(const QString& sessionPath, const QString& backend,
+                               double windowSec, double hopSec, int smoothingWindows);
    
        /// @brief Stop the currently running analysis process immediately.
        void stop();

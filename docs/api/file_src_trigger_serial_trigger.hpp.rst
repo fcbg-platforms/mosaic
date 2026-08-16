@@ -42,12 +42,6 @@ Includes
 
 
 
-Included By
------------
-
-
-- :ref:`file_src_trigger_serial_trigger.cpp`
-
 
 
 

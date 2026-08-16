@@ -16,8 +16,86 @@ documents each package's importable **library** surface, not the CLI
 argument parsing — see each subsection's linked math page for the
 algorithm behind its output.
 
+.. grid:: 2 2 3 3
+   :gutter: 3
+
+   .. grid-item-card:: 🚶 Pose Estimation
+      :link: analysis-api-pose
+      :link-type: ref
+
+      2D COCO keypoints via YOLOv8-pose — the foundational signal every
+      derived plugin below builds on.
+
+   .. grid-item-card:: 🫥 Face Masking
+      :link: analysis-api-facemask
+      :link-type: ref
+
+      Detect and blur/box faces for anonymized sharing outside the lab.
+
+   .. grid-item-card:: 🗣️ Speaker Diarization
+      :link: analysis-api-diarize
+      :link-type: ref
+
+      faster-whisper transcription + pyannote speaker turns, merged by
+      max overlap.
+
+   .. grid-item-card:: 🙂 Facial Expression
+      :link: analysis-api-expression
+      :link-type: ref
+
+      3 backends: a transparent blendshape heuristic, FER+, and real FACS
+      Action Units via py-feat.
+
+   .. grid-item-card:: 🎯 Multi-Camera Gaze Fusion
+      :link: analysis-api-gaze
+      :link-type: ref
+
+      Per-camera 3D gaze rays, triangulated into one fused ray + target
+      point.
+
+   .. grid-item-card:: 🧍 3D Pose Reconstruction
+      :link: analysis-api-pose3d
+      :link-type: ref
+
+      Multi-view DLT triangulation and cross-camera person tracking, from
+      the Pose plugin's own 2D output.
+
+   .. grid-item-card:: ❤️ Remote Heart Rate
+      :link: analysis-api-rppg
+      :link-type: ref
+
+      Camera-based pulse-rate estimation (rPPG). **Experimental.**
+
+   .. grid-item-card:: 🐭 Motion Tracking
+      :link: analysis-api-motion
+      :link-type: ref
+
+      Background-subtraction centroid tracking, run from the Session
+      Browser.
+
+   .. grid-item-card:: 💬 Live Transcription
+      :link: analysis-api-transcribe
+      :link-type: ref
+
+      Rolling-buffer streaming speech-to-text behind the Real-time tab's
+      captions.
+
+.. _analysis-api-pose:
+
 Pose Estimation
 -------------------
+
+YOLOv8-pose detection over a session's videos, producing per-frame,
+per-subject 2D keypoints in COCO format. This is the foundational 2D
+signal every derived plugin consumes: :doc:`math/pose_kinematics`'s
+speed/acceleration, and the 3D Pose Reconstruction plugin below.
+
+.. code-block:: python
+
+   from pose import HumanPoseEstimator
+
+   estimator = HumanPoseEstimator(model_name="yolov8n-pose.pt")
+   result = estimator.infer(frame_bgr, frame_index=0, timestamp_ns=0, camera_index=0)
 
 .. automodule:: pose
    :no-members:
@@ -43,8 +121,33 @@ See :doc:`math/pose_kinematics` for the Speed/Acceleration math applied to
 this plugin's output (implemented in C++, not here — see
 :cpp:func:`mosaic::compute_kinematics`).
 
+.. tip::
+
+   ``run_pose.py`` has two operating modes: **session mode**
+   (``--session <dir>``, the common post-processing path used by the
+   Analysis tab) and **pipe mode** (``--pipe``, base64-JPEG frames over
+   stdin/stdout), which is how MOSAIC's live Real-time tab drives the same
+   model internally.
+
+.. _analysis-api-facemask:
+
 Face Masking
 ----------------
+
+Anonymizes a session's videos by detecting and blurring/boxing faces,
+writing the result into a sibling ``anonymized/`` folder — the originals
+are never touched. Three interchangeable detector backends
+(:class:`~facemask.MediaPipeFaceDetector`, default;
+:class:`~facemask.YoloFaceDetector`; :class:`~facemask.OpenCVDnnFaceDetector`,
+YuNet) share one ``detect() -> list[Box]`` interface.
+
+.. code-block:: python
+
+   from facemask import make_detector, expand_and_clip, apply_mask
+
+   detector = make_detector("mediapipe", model=None, conf_threshold=0.5)
+   boxes = [expand_and_clip(b, 0.25, frame_w, frame_h) for b in detector.detect(frame_bgr)]
+   masked = apply_mask(frame_bgr, boxes, style="blur")
 
 .. automodule:: facemask
    :no-members:
@@ -84,8 +187,33 @@ Face Masking
 
 See :doc:`math/face_masking`.
 
+.. _analysis-api-diarize:
+
 Speaker Diarization
 ------------------------
+
+Transcribes each microphone's audio with faster-whisper, diarizes speaker
+turns with pyannote.audio, then assigns each transcript segment to
+whichever diarization turn overlaps it most
+(:func:`~diarize.assign_speakers`) — the standard WhisperX-style recipe.
+Diarization is optional: without a Hugging Face token, transcription still
+runs and every segment's speaker is left ``None``.
+
+.. important::
+
+   pyannote's diarization models are **gated** on Hugging Face — you must
+   accept both ``pyannote/speaker-diarization-3.1`` and
+   ``pyannote/segmentation-3.0``'s terms of use and generate an access
+   token before diarization (not just transcription) will work. See
+   :doc:`user_guide` for where to configure the token in the app.
+
+.. code-block:: python
+
+   from diarize import resolve_device, load_whisper_model, transcribe_audio
+
+   device = resolve_device(device_arg=None)
+   model = load_whisper_model("small", device)
+   segments, detected_language = transcribe_audio(model, audio_path, language=None)
 
 .. automodule:: diarize
    :no-members:
@@ -123,8 +251,24 @@ Speaker Diarization
 
 See :doc:`math/speaker_diarization`.
 
+.. _analysis-api-expression:
+
 Facial Expression
 ----------------------
+
+Detects faces and their MediaPipe blendshapes per frame, then classifies
+a dominant expression via one of three interchangeable backends: a
+transparent, dependency-free weighted-blendshape heuristic (default), a
+pretrained FER+ ONNX model, or py-feat for real, continuous FACS Action
+Unit intensities (see the dedicated subsection below).
+
+.. code-block:: python
+
+   from expression import MediaPipeExpressionDetector, classify_expression, BLENDSHAPE_NAMES
+
+   detector = MediaPipeExpressionDetector()
+   faces = detector.detect(frame_bgr)
+   label, score = classify_expression(BLENDSHAPE_NAMES, faces[0].blendshape_scores)
 
 .. automodule:: expression
    :no-members:
@@ -211,8 +355,25 @@ backend: real FACS Action Units, not just a dominant-emotion label.
 
 See :doc:`math/facial_expression`.
 
+.. _analysis-api-gaze:
+
 Multi-Camera Gaze Fusion
 ------------------------------
+
+For each camera that sees a face, solves a real (not weak-perspective) 3D
+head pose via ``cv2.solvePnP``, perturbs it by a small iris-offset
+heuristic into one camera-local gaze ray, transforms every contributing
+camera's ray into shared room coordinates, and triangulates them into one
+fused ray and (if a target plane is calibrated) a target point.
+
+.. code-block:: python
+
+   from gaze import transform_ray_to_room, closest_point_of_rays
+
+   rays_room = [transform_ray_to_room(origin, direction, cam.extrinsic_rt)
+                for origin, direction, cam in per_camera_rays]
+   origins, directions = zip(*rays_room)
+   fused_point, residual_rms = closest_point_of_rays(origins, directions)
 
 .. automodule:: gaze
    :no-members:
@@ -243,8 +404,26 @@ Multi-Camera Gaze Fusion
 See :doc:`math/gaze_fusion` and :doc:`math/room_calibration` (this plugin
 consumes the room/extrinsic calibration solved there).
 
+.. _analysis-api-pose3d:
+
 3D Pose Reconstruction
 ----------------------------
+
+Triangulates each camera's already-computed 2D COCO keypoints (from the
+Pose plugin above) into one 3D skeleton per detected person, per frame.
+Three stages: multi-view DLT triangulation with one-shot reprojection-
+error outlier rejection (:func:`~pose3d.triangulate_with_rejection`),
+cross-camera person association by reusing that same triangulation cost
+as a matching score (:func:`~pose3d.cluster_people`), and greedy
+nearest-centroid tracking across frames (:class:`~pose3d.PersonTracker3D`).
+
+.. important::
+
+   Needs the Pose plugin to have already been run on at least 2 cameras in
+   the session (for the 2D keypoints) **and** room/extrinsic calibration
+   to have been solved (:doc:`math/room_calibration`) — running this
+   plugin against a session missing either prerequisite fails with a
+   clear error rather than a fabricated result.
 
 .. automodule:: pose3d
    :no-members:
@@ -304,6 +483,8 @@ calibration solved in :doc:`math/room_calibration`, and the Pose plugin's
 own per-camera ``.pose.json`` output (:doc:`math/pose_kinematics`'s data
 source) as its 2D input.
 
+.. _analysis-api-rppg:
+
 Remote Heart Rate (rPPG)
 ------------------------------
 
@@ -313,6 +494,24 @@ Remote Heart Rate (rPPG)
    medical device, not clinically validated. See
    :doc:`math/remote_heart_rate` for the full accuracy discussion before
    relying on any output.
+
+Extracts a forehead/cheek skin-color signal per frame
+(:class:`~rppg.MediaPipeFaceRoiExtractor`), combines its RGB channels into
+one pulse signal via a selectable backend (naive Green, or the more
+motion-robust CHROM/POS chrominance methods — POS is the default), then
+bandpass-filters and Welch-periodogram-analyzes each sliding time window
+to estimate BPM and a pulse-SNR quality score. Deliberately offers **no**
+frame-skip option, unlike every sibling plugin — skipping frames would
+downsample the pulse signal itself below what Nyquist needs for the
+physiological frequency band.
+
+.. code-block:: python
+
+   from rppg import BACKENDS, bandpass_filter, estimate_hr_welch
+
+   pulse_signal = BACKENDS["pos"](rgb_means)          # (N, 3) -> (N,)
+   filtered = bandpass_filter(pulse_signal, fs=frame_rate_hz)
+   bpm, snr_db = estimate_hr_welch(filtered, fs=frame_rate_hz)
 
 .. automodule:: rppg
    :no-members:
@@ -359,11 +558,23 @@ Remote Heart Rate (rPPG)
 
 See :doc:`math/remote_heart_rate`.
 
+.. _analysis-api-motion:
+
 Motion Tracking
 --------------------
 
 Run from the Session Browser, not a live Analysis-tab plugin — see
-:doc:`user_guide`.
+:doc:`user_guide`. Background-subtraction blob detection
+(:class:`~motion.CentroidTracker`) plus greedy nearest-centroid tracking
+across frames, independent of the Pose plugin's keypoint-based approach —
+see :doc:`math/motion_tracking` for an explicit contrast between the two.
+
+.. code-block:: python
+
+   from motion import CentroidTracker
+
+   tracker = CentroidTracker(mm_per_px=1.0)
+   tracks = tracker.update(frame_bgr, timestamp_ns=0, fps=30.0)
 
 .. automodule:: motion
    :no-members:
@@ -405,6 +616,15 @@ persistent subprocess started by :cpp:class:`mosaic::TranscriptWorker`; see
 :doc:`user_guide`). Documented here because it's real, importable,
 independently-testable library code, not because it fits the "run a
 session, get a result file" shape every plugin above does.
+
+.. code-block:: python
+
+   from transcribe import pcm16_to_mono_float32, resample_to_16k, confirm_segments
+
+   mono = resample_to_16k(pcm16_to_mono_float32(pcm_bytes, channels=2), source_rate_hz=48000)
+   # ... run whisper over the rolling buffer, then split its segments ...
+   confirmed, tentative_text, watermark_sec = confirm_segments(
+       segments, buffer_duration_sec=8.0, trailing_margin_sec=1.0)
 
 .. automodule:: transcribe
    :no-members:

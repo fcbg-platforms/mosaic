@@ -16,7 +16,6 @@ Directory record
 Files
 -----
 
-- :ref:`file_src_record_record_manager.cpp`
 - :ref:`file_src_record_record_manager.hpp`
 
 

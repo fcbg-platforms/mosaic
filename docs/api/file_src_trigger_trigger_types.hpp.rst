@@ -40,15 +40,9 @@ Included By
 -----------
 
 
-- :ref:`file_src_core_application.cpp`
-
-- :ref:`file_src_core_settings.cpp`
-
 - :ref:`file_src_core_settings.hpp`
 
 - :ref:`file_src_trigger_keyboard_trigger.hpp`
-
-- :ref:`file_src_trigger_lsl_inlet.hpp`
 
 - :ref:`file_src_trigger_parallel_port_trigger.hpp`
 
