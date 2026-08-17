@@ -442,6 +442,20 @@ void CameraCardW::build_advanced_tab(QWidget* tab) {
     auto* bwCombo = make_combo(kAutoModes, m_params.balanceWhiteAuto);
     form->addRow("Auto mode:", bwCombo);
 
+    // "Once" re-converges fresh on every camera open with no readback of
+    // the result anywhere in this codebase, so the resulting tint can
+    // drift session to session (real-world symptom: the live preview
+    // looking "a bit red" some days). These two fixed ratios only take
+    // effect once Auto mode is "Off" — tune by eye against the live
+    // preview under the room's actual lighting, then it's reproducible on
+    // every future launch.
+    auto* wbRedSpin  = make_dspin(0.10, 4.00, m_params.balanceRatioRed, 0.05, 2);
+    auto* wbBlueSpin = make_dspin(0.10, 4.00, m_params.balanceRatioBlue, 0.05, 2);
+    wbRedSpin->setEnabled(m_params.balanceWhiteAuto == "Off");
+    wbBlueSpin->setEnabled(m_params.balanceWhiteAuto == "Off");
+    form->addRow("Red balance:", wbRedSpin);
+    form->addRow("Blue balance:", wbBlueSpin);
+
     add_separator(form);
     add_section(form, "Test pattern (simulation)");
 
@@ -465,8 +479,19 @@ void CameraCardW::build_advanced_tab(QWidget* tab) {
         m_params.digitalShift = val;
         emit params_changed();
     });
-    connect(bwCombo, &QComboBox::currentTextChanged, this, [this](const QString& val) {
-        m_params.balanceWhiteAuto = val;
+    connect(bwCombo, &QComboBox::currentTextChanged, this,
+            [this, wbRedSpin, wbBlueSpin](const QString& val) {
+                m_params.balanceWhiteAuto = val;
+                wbRedSpin->setEnabled(val == "Off");
+                wbBlueSpin->setEnabled(val == "Off");
+                emit params_changed();
+            });
+    connect(wbRedSpin, qOverload<double>(&QDoubleSpinBox::valueChanged), this, [this](double val) {
+        m_params.balanceRatioRed = val;
+        emit params_changed();
+    });
+    connect(wbBlueSpin, qOverload<double>(&QDoubleSpinBox::valueChanged), this, [this](double val) {
+        m_params.balanceRatioBlue = val;
         emit params_changed();
     });
     connect(patCombo, &QComboBox::currentTextChanged, this, [this](const QString& val) {

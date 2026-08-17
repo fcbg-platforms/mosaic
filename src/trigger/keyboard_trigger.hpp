@@ -38,6 +38,16 @@ class KeyboardTrigger : public QObject {
     QKeySequence m_keySeq;
     bool m_active{false};
     int m_fireCount{0};
+
+    // Explicit key-down state, so a physical press only ever fires once
+    // regardless of *why* the platform delivered more than one KeyPress
+    // event for it (OS auto-repeat — see isAutoRepeat() below — or any
+    // other source of duplicate delivery). Reset on the matching
+    // KeyRelease. m_keyDownAtNs guards against a release that's never
+    // seen at all (e.g. focus moves to another application mid-press) —
+    // without it, one lost release would permanently wedge this trigger.
+    bool m_keyDown{false};
+    int64_t m_keyDownAtNs{0};
 };
 
 } // namespace mosaic

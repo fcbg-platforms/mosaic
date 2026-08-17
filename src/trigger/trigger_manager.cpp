@@ -60,6 +60,17 @@ void TriggerManager::reload() {
     // ── Keyboard triggers ──────────────────────────────────────────────────
     d->settings.keyboardTriggers.reserve(32);
     for (auto& cfg : d->settings.keyboardTriggers) {
+        // A trigger defaults to enabled=true, keySeq="" — it looks active
+        // but KeyboardTrigger::eventFilter() silently returns on every key
+        // press until a key is actually bound. Warn here the same way
+        // serial/parallel-port triggers already warn on a failed open,
+        // below — this one has no equivalent open()/start() failure to
+        // hang the warning off, so it's checked explicitly instead.
+        if (cfg.enabled && cfg.keySeq.isEmpty()) {
+            log_warning(QString("[TriggerManager] Keyboard trigger '%1' is Active but has no "
+                                "key bound — it will never fire. Bind a key in the Triggers tab.")
+                            .arg(cfg.name));
+        }
         auto kt = std::make_unique<KeyboardTrigger>(cfg, this);
         connect(kt.get(), &KeyboardTrigger::triggered, this, &TriggerManager::on_trigger_fired);
         kt->set_active(true);
