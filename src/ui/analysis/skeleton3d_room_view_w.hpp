@@ -43,6 +43,17 @@ public:
     // PoseOverlayPlayerW's skeleton3d-mode overlay uses.
     void set_position_ms(int64_t positionMs);
 
+    // Toggles between each keypoint's raw (Skeleton3DKeypoint::positionRoom,
+    // the default) and centered-median-smoothed
+    // (Skeleton3DKeypoint::positionRoomSmoothed) trajectory for drawing.
+    // Room-view-only — the 2D video overlay (PoseOverlayPlayerW::
+    // set_skeleton3d_result()) always draws raw positions regardless of
+    // this setting, since its reprojected_px values are precomputed from
+    // the raw point specifically to show ground truth against real video
+    // pixels. Does not require a new set_result() call — takes effect on
+    // the next repaint.
+    void set_show_smoothed(bool showSmoothed);
+
 protected:
     void paintEvent(QPaintEvent*) override;
     void mousePressEvent(QMouseEvent*) override;

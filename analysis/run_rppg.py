@@ -21,6 +21,7 @@ Frame-skip genuinely doesn't fit this domain's cost structure the way it
 does for pose/expression (which only thin out *recorded* keypoints, not a
 signal being frequency-analyzed).
 """
+
 from __future__ import annotations
 
 import argparse
@@ -29,48 +30,71 @@ import re
 import sys
 import time
 from pathlib import Path
-from typing import Optional
 
 import cv2
 import numpy as np
-
 from rppg.algorithms import BACKENDS
 from rppg.hr_estimation import bandpass_filter, estimate_hr_welch, median_smooth
 from rppg.roi import MediaPipeFaceRoiExtractor
 
-LOW_HZ = 0.7    # 42 BPM
-HIGH_HZ = 3.0   # 180 BPM
-MIN_VALID_FRACTION = 0.6   # a window needs >=60% of its frames face-detected to attempt HR
+LOW_HZ = 0.7  # 42 BPM
+HIGH_HZ = 3.0  # 180 BPM
+MIN_VALID_FRACTION = 0.6  # a window needs >=60% of its frames face-detected to attempt HR
 
 # ── CLI ───────────────────────────────────────────────────────────────────────
 
-def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="MOSAIC remote heart-rate (rPPG) analysis "
-                                                  "— EXPERIMENTAL, not clinically validated")
-    group = parser.add_mutually_exclusive_group(required=True)
-    group.add_argument("--session", metavar="DIR",
-                        help="Process all .mp4 files in a recorded session directory")
-    group.add_argument("--video",   metavar="FILE",
-                        help="Process a single video file")
 
-    parser.add_argument("--backend", choices=["green", "chrom", "pos"], default="pos",
-                         help="Signal-combination algorithm: naive green-channel baseline "
-                              "(fastest, most motion-sensitive), CHROM (chrominance-based, "
-                              "de Haan & Jeanne 2013), or POS (Plane-Orthogonal-to-Skin, "
-                              "Wang et al. 2017 — default, generally the most robust classical "
-                              "method)")
-    parser.add_argument("--window-sec", type=float, default=10.0,
-                         help="HR-analysis window length in seconds (default: 10.0)")
-    parser.add_argument("--hop-sec", type=float, default=2.0,
-                         help="Sliding-window hop length in seconds (default: 2.0)")
-    parser.add_argument("--smoothing-windows", type=int, default=1,
-                         help="Centered median-filter width, in windows, for the smoothed_bpm "
-                              "series (default: 1 = no smoothing; raw bpm is always also kept)")
-    parser.add_argument("--min-confidence", type=float, default=0.5,
-                         help="Face detection/presence confidence threshold (default: 0.5)")
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="MOSAIC remote heart-rate (rPPG) analysis "
+        "— EXPERIMENTAL, not clinically validated"
+    )
+    group = parser.add_mutually_exclusive_group(required=True)
+    group.add_argument(
+        "--session", metavar="DIR", help="Process all .mp4 files in a recorded session directory"
+    )
+    group.add_argument("--video", metavar="FILE", help="Process a single video file")
+
+    parser.add_argument(
+        "--backend",
+        choices=["green", "chrom", "pos"],
+        default="pos",
+        help="Signal-combination algorithm: naive green-channel baseline "
+        "(fastest, most motion-sensitive), CHROM (chrominance-based, "
+        "de Haan & Jeanne 2013), or POS (Plane-Orthogonal-to-Skin, "
+        "Wang et al. 2017 — default, generally the most robust classical "
+        "method)",
+    )
+    parser.add_argument(
+        "--window-sec",
+        type=float,
+        default=10.0,
+        help="HR-analysis window length in seconds (default: 10.0)",
+    )
+    parser.add_argument(
+        "--hop-sec",
+        type=float,
+        default=2.0,
+        help="Sliding-window hop length in seconds (default: 2.0)",
+    )
+    parser.add_argument(
+        "--smoothing-windows",
+        type=int,
+        default=1,
+        help="Centered median-filter width, in windows, for the smoothed_bpm "
+        "series (default: 1 = no smoothing; raw bpm is always also kept)",
+    )
+    parser.add_argument(
+        "--min-confidence",
+        type=float,
+        default=0.5,
+        help="Face detection/presence confidence threshold (default: 0.5)",
+    )
     return parser.parse_args()
 
+
 # ── Session mode ─────────────────────────────────────────────────────────────
+
 
 def _camera_index_from_filename(video_path: Path) -> int:
     """Parses the real camera index from a MOSAIC-recorded video's own
@@ -82,14 +106,23 @@ def _camera_index_from_filename(video_path: Path) -> int:
     filename doesn't match "video_N.<ext>"."""
     m = re.search(r"video_(\d+)", video_path.stem)
     if not m:
-        print(f"[run_rppg] Warning: could not parse a camera index from "
-              f"{video_path.name}, defaulting to 0", file=sys.stderr)
+        print(
+            f"[run_rppg] Warning: could not parse a camera index from "
+            f"{video_path.name}, defaulting to 0",
+            file=sys.stderr,
+        )
         return 0
     return int(m.group(1))
 
 
-def process_session(session_dir: Path, backend: str, window_sec: float, hop_sec: float,
-                     smoothing_windows: int, min_confidence: float) -> None:
+def process_session(
+    session_dir: Path,
+    backend: str,
+    window_sec: float,
+    hop_sec: float,
+    smoothing_windows: int,
+    min_confidence: float,
+) -> None:
     videos = sorted((session_dir / "video").glob("*.mp4"))
     if not videos:
         print(f"[run_rppg] No .mp4 files found in {session_dir / 'video'}", file=sys.stderr)
@@ -111,8 +144,16 @@ def process_session(session_dir: Path, backend: str, window_sec: float, hop_sec:
     for position, video_path in enumerate(videos, start=1):
         camera_index = _camera_index_from_filename(video_path)
         print(f"[run_rppg] Camera {position}/{len(videos)}: {video_path.name}", flush=True)
-        process_video(video_path, extractor, backend, window_sec, hop_sec, smoothing_windows,
-                      camera_index=camera_index, output_dir=rppg_dir)
+        process_video(
+            video_path,
+            extractor,
+            backend,
+            window_sec,
+            hop_sec,
+            smoothing_windows,
+            camera_index=camera_index,
+            output_dir=rppg_dir,
+        )
 
 
 def _read_timestamps_ms(video_path: Path, camera_index: int) -> list[float]:
@@ -126,6 +167,7 @@ def _read_timestamps_ms(video_path: Path, camera_index: int) -> list[float]:
     timestamps_ms: list[float] = []
     if ts_csv.exists():
         import csv
+
         with ts_csv.open() as f:
             for row in csv.DictReader(f):
                 try:
@@ -135,9 +177,16 @@ def _read_timestamps_ms(video_path: Path, camera_index: int) -> list[float]:
     return timestamps_ms
 
 
-def process_video(video_path: Path, extractor: MediaPipeFaceRoiExtractor, backend: str,
-                   window_sec: float, hop_sec: float, smoothing_windows: int,
-                   camera_index: int = 0, output_dir: Optional[Path] = None) -> None:
+def process_video(
+    video_path: Path,
+    extractor: MediaPipeFaceRoiExtractor,
+    backend: str,
+    window_sec: float,
+    hop_sec: float,
+    smoothing_windows: int,
+    camera_index: int = 0,
+    output_dir: Path | None = None,
+) -> None:
     cap = cv2.VideoCapture(str(video_path))
     if not cap.isOpened():
         print(f"[run_rppg] Cannot open {video_path}", file=sys.stderr)
@@ -145,8 +194,11 @@ def process_video(video_path: Path, extractor: MediaPipeFaceRoiExtractor, backen
 
     fps = cap.get(cv2.CAP_PROP_FPS) or 25.0
     total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-    print(f"[run_rppg] Processing {video_path.name}  ({total} frames @ {fps:.1f} fps, "
-          f"backend={backend})", flush=True)
+    print(
+        f"[run_rppg] Processing {video_path.name}  ({total} frames @ {fps:.1f} fps, "
+        f"backend={backend})",
+        flush=True,
+    )
 
     # Scales to the video's own length instead of a fixed stride, matching
     # every sibling analysis script's identical fix.
@@ -155,8 +207,8 @@ def process_video(video_path: Path, extractor: MediaPipeFaceRoiExtractor, backen
     timestamps_ms = _read_timestamps_ms(video_path, camera_index)
 
     # ── Pass 1: per-frame face-ROI extraction (the expensive MediaPipe pass) ──
-    frame_records: list[dict] = []          # for the "frames" JSON block (debug overlay)
-    all_timestamps_ms: list[float] = []     # every processed frame, real or synthesized
+    frame_records: list[dict] = []  # for the "frames" JSON block (debug overlay)
+    all_timestamps_ms: list[float] = []  # every processed frame, real or synthesized
     sample_timestamps_ms: list[float] = []  # only frames with a detected face
     sample_rgb: list[tuple[float, float, float]] = []
 
@@ -179,19 +231,33 @@ def process_video(video_path: Path, extractor: MediaPipeFaceRoiExtractor, backen
             break
 
         if have_real_timestamps:
-            ts_ms = timestamps_ms[frame_idx] if frame_idx < len(timestamps_ms) else timestamps_ms[-1]
+            ts_ms = (
+                timestamps_ms[frame_idx] if frame_idx < len(timestamps_ms) else timestamps_ms[-1]
+            )
         else:
             ts_ms = frame_idx / fps * 1000.0
         all_timestamps_ms.append(ts_ms)
         sample = extractor.extract(frame)
         if sample is not None:
-            frame_records.append({"frame_index": frame_idx, "timestamp_ms": round(ts_ms),
-                                   "face_detected": True, "roi_bbox_px": list(sample.roi_bbox_px)})
+            frame_records.append(
+                {
+                    "frame_index": frame_idx,
+                    "timestamp_ms": round(ts_ms),
+                    "face_detected": True,
+                    "roi_bbox_px": list(sample.roi_bbox_px),
+                }
+            )
             sample_timestamps_ms.append(ts_ms)
             sample_rgb.append(sample.rgb_mean)
         else:
-            frame_records.append({"frame_index": frame_idx, "timestamp_ms": round(ts_ms),
-                                   "face_detected": False, "roi_bbox_px": None})
+            frame_records.append(
+                {
+                    "frame_index": frame_idx,
+                    "timestamp_ms": round(ts_ms),
+                    "face_detected": False,
+                    "roi_bbox_px": None,
+                }
+            )
 
         frame_idx += 1
         if frame_idx % progress_interval == 0:
@@ -201,25 +267,36 @@ def process_video(video_path: Path, extractor: MediaPipeFaceRoiExtractor, backen
 
     cap.release()
     elapsed = time.perf_counter() - t_start
-    print(f"[run_rppg] Done. {frame_idx} frames in {elapsed:.1f}s "
-          f"({frame_idx / max(elapsed, 1e-9):.1f} fps throughput)", flush=True)
+    print(
+        f"[run_rppg] Done. {frame_idx} frames in {elapsed:.1f}s "
+        f"({frame_idx / max(elapsed, 1e-9):.1f} fps throughput)",
+        flush=True,
+    )
 
     # ── Pass 2: sliding-window HR extraction (fast, pure numpy) ───────────────
-    windows = _compute_windows(sample_timestamps_ms, sample_rgb, all_timestamps_ms, fps,
-                               backend, window_sec, hop_sec)
+    windows = _compute_windows(
+        sample_timestamps_ms, sample_rgb, all_timestamps_ms, fps, backend, window_sec, hop_sec
+    )
 
     raw_bpm = np.array([w["bpm"] if w["bpm"] is not None else np.nan for w in windows])
     smoothed = median_smooth(raw_bpm, smoothing_windows)
-    for w, s in zip(windows, smoothed):
+    for w, s in zip(windows, smoothed, strict=False):
         w["smoothed_bpm"] = None if np.isnan(s) else round(float(s), 1)
 
-    _write_results(video_path, windows, frame_records, backend, window_sec, hop_sec,
-                   camera_index, output_dir)
+    _write_results(
+        video_path, windows, frame_records, backend, window_sec, hop_sec, camera_index, output_dir
+    )
 
 
-def _compute_windows(sample_ts_ms: list[float], sample_rgb: list[tuple[float, float, float]],
-                     all_ts_ms: list[float], fps: float, backend: str,
-                     window_sec: float, hop_sec: float) -> list[dict]:
+def _compute_windows(
+    sample_ts_ms: list[float],
+    sample_rgb: list[tuple[float, float, float]],
+    all_ts_ms: list[float],
+    fps: float,
+    backend: str,
+    window_sec: float,
+    hop_sec: float,
+) -> list[dict]:
     if not all_ts_ms:
         return []
 
@@ -286,22 +363,33 @@ def _compute_windows(sample_ts_ms: list[float], sample_rgb: list[tuple[float, fl
                 filtered = bandpass_filter(pulse, eff_fs, LOW_HZ, HIGH_HZ)
                 bpm, snr_db = estimate_hr_welch(filtered, eff_fs, LOW_HZ, HIGH_HZ)
             except ValueError:
-                bpm, snr_db = None, None   # degenerate window (e.g. all-black ROI) — skip, don't crash
+                # degenerate window (e.g. all-black ROI) — skip, don't crash
+                bpm, snr_db = None, None
 
-        windows.append({
-            "start_ms": round(start_ms), "end_ms": round(win_end_ms),
-            "bpm": round(bpm, 1) if bpm is not None else None,
-            "snr_db": round(snr_db, 1) if snr_db is not None else None,
-            "valid_frame_fraction": round(valid_fraction, 3),
-        })
+        windows.append(
+            {
+                "start_ms": round(start_ms),
+                "end_ms": round(win_end_ms),
+                "bpm": round(bpm, 1) if bpm is not None else None,
+                "snr_db": round(snr_db, 1) if snr_db is not None else None,
+                "valid_frame_fraction": round(valid_fraction, 3),
+            }
+        )
         start_ms += hop_ms
 
     return windows
 
 
-def _write_results(video_path: Path, windows: list[dict], frames: list[dict], backend: str,
-                   window_sec: float, hop_sec: float, camera_index: int,
-                   output_dir: Optional[Path] = None) -> None:
+def _write_results(
+    video_path: Path,
+    windows: list[dict],
+    frames: list[dict],
+    backend: str,
+    window_sec: float,
+    hop_sec: float,
+    camera_index: int,
+    output_dir: Path | None = None,
+) -> None:
     if output_dir is not None:
         output_dir.mkdir(parents=True, exist_ok=True)
         out_path = output_dir / f"{video_path.stem}.{backend}.rppg.json"
@@ -334,19 +422,34 @@ def _write_results(video_path: Path, windows: list[dict], frames: list[dict], ba
     out_path.write_text(json.dumps(doc, indent=2))
     print(f"[run_rppg] Heart-rate data → {out_path}", flush=True)
 
+
 # ── Entry point ───────────────────────────────────────────────────────────────
+
 
 def main() -> None:
     args = parse_args()
 
     if args.session:
-        process_session(Path(args.session), args.backend, args.window_sec, args.hop_sec,
-                        args.smoothing_windows, args.min_confidence)
+        process_session(
+            Path(args.session),
+            args.backend,
+            args.window_sec,
+            args.hop_sec,
+            args.smoothing_windows,
+            args.min_confidence,
+        )
     elif args.video:
         extractor = MediaPipeFaceRoiExtractor(min_confidence=args.min_confidence)
         video_path = Path(args.video)
-        process_video(video_path, extractor, args.backend, args.window_sec, args.hop_sec,
-                     args.smoothing_windows, camera_index=_camera_index_from_filename(video_path))
+        process_video(
+            video_path,
+            extractor,
+            args.backend,
+            args.window_sec,
+            args.hop_sec,
+            args.smoothing_windows,
+            camera_index=_camera_index_from_filename(video_path),
+        )
 
 
 if __name__ == "__main__":

@@ -33,7 +33,6 @@ import json
 import sys
 import time
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
 
 import cv2
 import numpy as np
@@ -42,24 +41,24 @@ import numpy as np
 _HERE = Path(__file__).parent
 sys.path.insert(0, str(_HERE))
 
-from motion.centroid_tracker import CentroidTracker, Track, draw_tracks
-from motion.heatmap import (
+from motion.centroid_tracker import CentroidTracker, draw_tracks  # noqa: E402
+from motion.heatmap import (  # noqa: E402
     generate_heatmap,
     generate_trajectory_plot,
     generate_velocity_histogram,
 )
 
-
 # ── Timestamp loader ──────────────────────────────────────────────────────────
 
-def load_timestamps(csv_path: Optional[str]) -> Optional[List[int]]:
+
+def load_timestamps(csv_path: str | None) -> list[int] | None:
     """Return list of per-frame nanosecond timestamps from a MOSAIC timestamps CSV."""
     if not csv_path:
         return None
     p = Path(csv_path)
     if not p.exists():
         return None
-    ts: List[int] = []
+    ts: list[int] = []
     with p.open() as f:
         reader = csv.reader(f)
         for row in reader:
@@ -70,13 +69,14 @@ def load_timestamps(csv_path: Optional[str]) -> Optional[List[int]]:
 
 # ── Core video processor ──────────────────────────────────────────────────────
 
+
 def process_video(
     video_path: Path,
     tracker: CentroidTracker,
-    timestamps: Optional[List[int]],
+    timestamps: list[int] | None,
     skip: int,
     preview: bool,
-) -> Tuple[List[dict], Dict[int, List[Tuple[float, float]]], List[float], Tuple[int, int]]:
+) -> tuple[list[dict], dict[int, list[tuple[float, float]]], list[float], tuple[int, int]]:
     """
     Run the tracker on a single video file.
 
@@ -96,17 +96,18 @@ def process_video(
         print(f"[motion] Cannot open {video_path}", file=sys.stderr)
         return [], {}, [], (640, 480)
 
-    fps    = cap.get(cv2.CAP_PROP_FPS) or 30.0
-    width  = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
+    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-    total  = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
 
-    print(f"[motion] {video_path.name}  {width}×{height}  {fps:.1f} fps  {total} frames",
-          flush=True)
+    print(
+        f"[motion] {video_path.name}  {width}×{height}  {fps:.1f} fps  {total} frames", flush=True
+    )
 
-    rows: List[dict] = []
-    trajectories: Dict[int, List[Tuple[float, float]]] = {}
-    velocities: List[float] = []
+    rows: list[dict] = []
+    trajectories: dict[int, list[tuple[float, float]]] = {}
+    velocities: list[float] = []
     frame_idx = 0
 
     tracker.reset()
@@ -116,7 +117,11 @@ def process_video(
         if not ret:
             break
 
-        ts_ns = timestamps[frame_idx] if timestamps and frame_idx < len(timestamps) else int(time.time_ns())
+        ts_ns = (
+            timestamps[frame_idx]
+            if timestamps and frame_idx < len(timestamps)
+            else int(time.time_ns())
+        )
 
         if frame_idx % skip == 0:
             tracks = tracker.update(frame, timestamp_ns=ts_ns, fps=fps)
@@ -127,25 +132,26 @@ def process_video(
                 cx, cy = t.position
                 vel_mm = t.velocity_mm_per_s(tracker.mm_per_px, fps)
 
-                rows.append({
-                    "frame":         frame_idx,
-                    "timestamp_ns":  ts_ns,
-                    "animal_id":     t.id,
-                    "cx_px":         round(cx, 2),
-                    "cy_px":         round(cy, 2),
-                    "cx_mm":         round(cx * tracker.mm_per_px, 3),
-                    "cy_mm":         round(cy * tracker.mm_per_px, 3),
-                    "velocity_mm_s": round(vel_mm, 3),
-                    "area_px":       round(t.mean_area, 1),
-                })
+                rows.append(
+                    {
+                        "frame": frame_idx,
+                        "timestamp_ns": ts_ns,
+                        "animal_id": t.id,
+                        "cx_px": round(cx, 2),
+                        "cy_px": round(cy, 2),
+                        "cx_mm": round(cx * tracker.mm_per_px, 3),
+                        "cy_mm": round(cy * tracker.mm_per_px, 3),
+                        "velocity_mm_s": round(vel_mm, 3),
+                        "area_px": round(t.mean_area, 1),
+                    }
+                )
 
                 trajectories.setdefault(t.id, []).append((cx, cy))
                 if vel_mm > 0:
                     velocities.append(vel_mm)
 
             if preview:
-                annotated = draw_tracks(frame, tracks,
-                                        mm_per_px=tracker.mm_per_px, fps=fps)
+                annotated = draw_tracks(frame, tracks, mm_per_px=tracker.mm_per_px, fps=fps)
                 cv2.imshow(f"MOSAIC Motion — {video_path.name}", annotated)
                 if cv2.waitKey(1) & 0xFF == ord("q"):
                     break
@@ -162,7 +168,8 @@ def process_video(
 
 # ── Output writers ────────────────────────────────────────────────────────────
 
-def write_csv(rows: List[dict], out_path: Path) -> None:
+
+def write_csv(rows: list[dict], out_path: Path) -> None:
     if not rows:
         return
     fields = list(rows[0].keys())
@@ -172,13 +179,14 @@ def write_csv(rows: List[dict], out_path: Path) -> None:
         writer.writerows(rows)
 
 
-def write_json(rows: List[dict], out_path: Path) -> None:
+def write_json(rows: list[dict], out_path: Path) -> None:
     with out_path.open("w") as f:
         json.dump(rows, f, indent=2)
 
 
-def write_hdf5(rows: List[dict], out_path: Path) -> None:
+def write_hdf5(rows: list[dict], out_path: Path) -> None:
     import h5py
+
     if not rows:
         return
     keys = list(rows[0].keys())
@@ -189,6 +197,7 @@ def write_hdf5(rows: List[dict], out_path: Path) -> None:
 
 
 # ── Session mode ──────────────────────────────────────────────────────────────
+
 
 def process_session(args: argparse.Namespace) -> None:
     session_dir = Path(args.session)
@@ -214,20 +223,21 @@ def process_session(args: argparse.Namespace) -> None:
         n_animals=args.n_animals,
     )
 
-    all_rows: List[dict] = []
-    all_trajectories: Dict[int, List[Tuple[float, float]]] = {}
-    all_velocities: List[float] = []
+    all_rows: list[dict] = []
+    all_trajectories: dict[int, list[tuple[float, float]]] = {}
+    all_velocities: list[float] = []
     frame_size = (640, 480)
 
     for vid in video_files:
         # Look for matching timestamps CSV (timestamps_cam0.csv for video_0.mp4)
         stem = vid.stem  # e.g. "video_0"
-        idx  = stem.split("_")[-1] if "_" in stem else "0"
+        idx = stem.split("_")[-1] if "_" in stem else "0"
         ts_csv = video_dir / f"timestamps_cam{idx}.csv"
         timestamps = load_timestamps(str(ts_csv) if ts_csv.exists() else None)
 
         rows, trajectories, velocities, frame_size = process_video(
-            vid, tracker, timestamps, skip=args.skip, preview=args.preview)
+            vid, tracker, timestamps, skip=args.skip, preview=args.preview
+        )
 
         all_rows.extend(rows)
         all_velocities.extend(velocities)
@@ -253,27 +263,36 @@ def process_session(args: argparse.Namespace) -> None:
     # ── Visualisations ─────────────────────────────────────────────────────────
     if not args.no_heatmap and all_trajectories:
         heatmap_out = str(session_dir / "motion_heatmap.png")
-        generate_heatmap(all_trajectories, frame_size, heatmap_out,
-                         title=f"Position Heatmap — {session_dir.name}")
+        generate_heatmap(
+            all_trajectories,
+            frame_size,
+            heatmap_out,
+            title=f"Position Heatmap — {session_dir.name}",
+        )
         print(f"[motion] Wrote {heatmap_out}", flush=True)
 
     if not args.no_trajectory and all_trajectories:
         traj_out = str(session_dir / "motion_trajectories.png")
-        generate_trajectory_plot(all_trajectories, frame_size, traj_out,
-                                 title=f"Trajectories — {session_dir.name}")
+        generate_trajectory_plot(
+            all_trajectories, frame_size, traj_out, title=f"Trajectories — {session_dir.name}"
+        )
         print(f"[motion] Wrote {traj_out}", flush=True)
 
     if all_velocities:
         vel_out = str(session_dir / "motion_velocity_hist.png")
-        generate_velocity_histogram(all_velocities, vel_out,
-                                    mm_per_px=args.mm_per_px,
-                                    title=f"Velocity Distribution — {session_dir.name}")
+        generate_velocity_histogram(
+            all_velocities,
+            vel_out,
+            mm_per_px=args.mm_per_px,
+            title=f"Velocity Distribution — {session_dir.name}",
+        )
         print(f"[motion] Wrote {vel_out}", flush=True)
 
     print(f"[motion] Done. {len(all_rows)} total detections.", flush=True)
 
 
 # ── Single video mode ─────────────────────────────────────────────────────────
+
 
 def process_single(args: argparse.Namespace) -> None:
     video_path = Path(args.video)
@@ -289,7 +308,8 @@ def process_single(args: argparse.Namespace) -> None:
 
     timestamps = load_timestamps(args.timestamps)
     rows, trajectories, velocities, frame_size = process_video(
-        video_path, tracker, timestamps, skip=args.skip, preview=args.preview)
+        video_path, tracker, timestamps, skip=args.skip, preview=args.preview
+    )
 
     stem = out_dir / f"motion_{video_path.stem}"
 
@@ -301,20 +321,23 @@ def process_single(args: argparse.Namespace) -> None:
         write_hdf5(rows, stem.with_suffix(".h5"))
 
     if not args.no_heatmap and trajectories:
-        generate_heatmap(trajectories, frame_size,
-                         str(stem.parent / f"{stem.name}_heatmap.png"))
+        generate_heatmap(trajectories, frame_size, str(stem.parent / f"{stem.name}_heatmap.png"))
     if not args.no_trajectory and trajectories:
-        generate_trajectory_plot(trajectories, frame_size,
-                                 str(stem.parent / f"{stem.name}_trajectories.png"))
+        generate_trajectory_plot(
+            trajectories, frame_size, str(stem.parent / f"{stem.name}_trajectories.png")
+        )
     if velocities:
-        generate_velocity_histogram(velocities,
-                                    str(stem.parent / f"{stem.name}_velocity_hist.png"),
-                                    mm_per_px=args.mm_per_px)
+        generate_velocity_histogram(
+            velocities,
+            str(stem.parent / f"{stem.name}_velocity_hist.png"),
+            mm_per_px=args.mm_per_px,
+        )
 
     print(f"[motion] Done. {len(rows)} detections.", flush=True)
 
 
 # ── CLI ───────────────────────────────────────────────────────────────────────
+
 
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
@@ -322,22 +345,20 @@ def build_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     group = p.add_mutually_exclusive_group(required=True)
-    group.add_argument("--session", metavar="DIR",
-                       help="Path to a MOSAIC session directory")
-    group.add_argument("--video", metavar="FILE",
-                       help="Path to a single video file")
+    group.add_argument("--session", metavar="DIR", help="Path to a MOSAIC session directory")
+    group.add_argument("--video", metavar="FILE", help="Path to a single video file")
 
-    p.add_argument("--n-animals",   type=int,   default=0,    metavar="N")
-    p.add_argument("--min-area",    type=int,   default=400,  metavar="PX2")
-    p.add_argument("--max-area",    type=int,   default=7000, metavar="PX2")
-    p.add_argument("--max-dist",    type=float, default=80.0, metavar="PX")
-    p.add_argument("--mm-per-px",   type=float, default=1.0,  metavar="F")
-    p.add_argument("--skip",        type=int,   default=1,    metavar="N")
-    p.add_argument("--out-format",  choices=["csv", "json", "hdf5"], default="csv")
-    p.add_argument("--timestamps",  default=None, metavar="CSV")
-    p.add_argument("--no-heatmap",    action="store_true")
+    p.add_argument("--n-animals", type=int, default=0, metavar="N")
+    p.add_argument("--min-area", type=int, default=400, metavar="PX2")
+    p.add_argument("--max-area", type=int, default=7000, metavar="PX2")
+    p.add_argument("--max-dist", type=float, default=80.0, metavar="PX")
+    p.add_argument("--mm-per-px", type=float, default=1.0, metavar="F")
+    p.add_argument("--skip", type=int, default=1, metavar="N")
+    p.add_argument("--out-format", choices=["csv", "json", "hdf5"], default="csv")
+    p.add_argument("--timestamps", default=None, metavar="CSV")
+    p.add_argument("--no-heatmap", action="store_true")
     p.add_argument("--no-trajectory", action="store_true")
-    p.add_argument("--preview",       action="store_true")
+    p.add_argument("--preview", action="store_true")
     return p
 
 

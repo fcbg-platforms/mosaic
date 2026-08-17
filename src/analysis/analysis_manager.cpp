@@ -150,7 +150,8 @@ void AnalysisManager::run_gaze_fusion(const QString& sessionPath, int minCameras
 }
 
 void AnalysisManager::run_pose3d_reconstruction(const QString& sessionPath, int minCameras,
-                                                 double maxReprojectionErrorPx, int frameSkip) {
+                                                 double maxReprojectionErrorPx, int frameSkip,
+                                                 int smoothingWindow) {
     if (sync_manifest_is_stale(sessionPath)) {
         SyncManifest::generate(sessionPath).save(sessionPath);
     }
@@ -160,6 +161,7 @@ void AnalysisManager::run_pose3d_reconstruction(const QString& sessionPath, int 
         "--min-cameras",               QString::number(qMax(1, minCameras)),
         "--max-reprojection-error-px", QString::number(maxReprojectionErrorPx),
         "--skip",                      QString::number(qMax(1, frameSkip)),
+        "--smoothing-window",          QString::number(qMax(1, smoothingWindow)),
     };
     // No secrets involved, unlike run_diarization()'s hfToken.
     enqueue_or_launch(sessionPath, "analysis/run_pose3d.py", args, {});

@@ -6,13 +6,13 @@ a silent bug here (wrong clip order, off-by-one on the margin) means a face
 that should have been anonymized isn't fully covered — a privacy leak, not
 just a cosmetic bug.
 """
+
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import numpy as np
-
 from facemask.masking import apply_mask, expand_and_clip
 
 

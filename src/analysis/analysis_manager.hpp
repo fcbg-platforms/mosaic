@@ -189,8 +189,13 @@ public:
     /// @param maxReprojectionErrorPx   Per-view reprojection error threshold (px) for
     ///                                 outlier-view rejection during triangulation.
     /// @param frameSkip                Process every Nth master tick (1 = every tick).
+    /// @param smoothingWindow          Centered per-track median filter width (in valid
+    ///                                 ticks) for the output's "keypoints_room_smoothed"
+    ///                                 field (1 = off, the default — raw
+    ///                                 "keypoints_room" is always written regardless).
     void run_pose3d_reconstruction(const QString& sessionPath, int minCameras,
-                                    double maxReprojectionErrorPx, int frameSkip);
+                                    double maxReprojectionErrorPx, int frameSkip,
+                                    int smoothingWindow);
 
     /// @brief Estimate a remote (camera-based) heart rate over the course of
     /// a recorded session's video, using classical (non-deep-learning)

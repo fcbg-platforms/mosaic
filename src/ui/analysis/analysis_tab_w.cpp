@@ -718,6 +718,8 @@ struct AnalysisTabW::Impl {
     QSpinBox*        pose3dMinCamerasSpin      = nullptr;   // pose3d
     QDoubleSpinBox*  maxReprojectionErrorSpin  = nullptr;   // pose3d
     QSpinBox*        pose3dSkipSpin            = nullptr;   // pose3d
+    QSpinBox*        pose3dSmoothingWindowSpin = nullptr;   // pose3d
+    QCheckBox*       showSmoothedCheck         = nullptr;   // pose3d — room view only, see set_show_smoothed()
     QComboBox*       rppgBackendCombo   = nullptr;   // rppg
     QDoubleSpinBox*  rppgWindowSecSpin  = nullptr;   // rppg
     QDoubleSpinBox*  rppgHopSecSpin     = nullptr;   // rppg
@@ -1325,6 +1327,17 @@ void AnalysisTabW::build_ui() {
     d->pose3dSkipSpin->setValue(1);
     d->pose3dSkipSpin->setPrefix("skip ");
     pose3dCtlLay->addWidget(d->pose3dSkipSpin);
+
+    d->pose3dSmoothingWindowSpin = new QSpinBox;
+    d->pose3dSmoothingWindowSpin->setRange(1, 15);
+    d->pose3dSmoothingWindowSpin->setSingleStep(2);
+    d->pose3dSmoothingWindowSpin->setValue(1);
+    d->pose3dSmoothingWindowSpin->setPrefix("smooth ");
+    d->pose3dSmoothingWindowSpin->setToolTip(
+        "Centered per-track median filter width (in valid ticks), for the room view's "
+        "optional smoothed display only — 1 = off. The raw triangulated positions are "
+        "always kept too; see the \"Show smoothed\" checkbox in the results view.");
+    pose3dCtlLay->addWidget(d->pose3dSmoothingWindowSpin);
     d->controlsStack->addWidget(pose3dPage);
 
     // ── EEG/Trigger ↔ Frame Sync controls page ──────────────────────────
@@ -1711,11 +1724,30 @@ void AnalysisTabW::build_ui() {
     d->pose3dStatsLbl->setStyleSheet("color:#7070a0; font-size:11px;");
     pose3dRow->addWidget(d->pose3dStatsLbl, 1);
 
+    // Scoped to the 3D room view only, not the 2D video overlay
+    // (PoseOverlayPlayerW::set_skeleton3d_result()) — the overlay's
+    // reprojected_px values are precomputed in Python from the RAW
+    // triangulated point specifically so it shows ground truth against
+    // real video pixels; reprojecting the smoothed point would need a
+    // second Python-side reprojection pass, a deliberate future extension,
+    // not built here.
+    d->showSmoothedCheck = new QCheckBox("Show smoothed");
+    d->showSmoothedCheck->setChecked(false);
+    d->showSmoothedCheck->setToolTip(
+        "Room view only: draw the centered-median-smoothed trajectory (set via the "
+        "\"smooth\" control above, before running) instead of the raw triangulated "
+        "positions. The 2D video overlay always shows raw positions, regardless of "
+        "this toggle.");
+    connect(d->showSmoothedCheck, &QCheckBox::toggled, this, [this](bool checked) {
+        d->skeleton3dRoomView->set_show_smoothed(checked);
+    });
+    pose3dRow->addWidget(d->showSmoothedCheck);
+
     d->exportPose3dBtn = new QPushButton("Export CSV");
     d->exportPose3dBtn->setToolTip(
-        "Exports tick/timestamp/track/keypoint/position/validity/reprojection-error "
-        "for every reconstructed keypoint as CSV (long format), filtered by the "
-        "Track picker above (or every track if \"All\").");
+        "Exports tick/timestamp/track/keypoint/raw position/smoothed position/validity/"
+        "reprojection-error for every reconstructed keypoint as CSV (long format), "
+        "filtered by the Track picker above (or every track if \"All\").");
     connect(d->exportPose3dBtn, &QPushButton::clicked, this, &AnalysisTabW::export_skeleton3d_csv);
     pose3dRow->addWidget(d->exportPose3dBtn);
 
@@ -3070,7 +3102,13 @@ void AnalysisTabW::export_skeleton3d_csv() {
     const auto& names = d->currentSkeleton3D.keypoint_names();
 
     export_csv(this, "Export 3D Pose", suggested, [&](QTextStream& ts) {
-        ts << "tick,timestamp_ns,track_id,keypoint_name,x_mm,y_mm,z_mm,valid,reprojection_error_px\n";
+        // Raw AND smoothed columns, always both — matches this codebase's
+        // established convention of never overwriting raw with smoothed
+        // (item 16 pose kinematics, rPPG's own export_rppg_csv() bpm/
+        // smoothed_bpm columns just above).
+        ts << "tick,timestamp_ns,track_id,keypoint_name,"
+              "x_mm,y_mm,z_mm,x_mm_smoothed,y_mm_smoothed,z_mm_smoothed,"
+              "valid,reprojection_error_px\n";
         for (const auto& frame : d->currentSkeleton3D.frames()) {
             for (const auto& person : frame.people) {
                 if (trackFilter >= 0 && person.trackId != trackFilter) { continue; }
@@ -3082,6 +3120,9 @@ void AnalysisTabW::export_skeleton3d_csv() {
                        << (kp.valid ? QString::number(kp.positionRoom[0]) : QString()) << ","
                        << (kp.valid ? QString::number(kp.positionRoom[1]) : QString()) << ","
                        << (kp.valid ? QString::number(kp.positionRoom[2]) : QString()) << ","
+                       << (kp.valid ? QString::number(kp.positionRoomSmoothed[0]) : QString()) << ","
+                       << (kp.valid ? QString::number(kp.positionRoomSmoothed[1]) : QString()) << ","
+                       << (kp.valid ? QString::number(kp.positionRoomSmoothed[2]) : QString()) << ","
                        << (kp.valid ? "1" : "0") << ","
                        << (kp.valid ? QString::number(kp.reprojectionErrorPx) : QString())
                        << "\n";
@@ -3352,7 +3393,8 @@ void AnalysisTabW::run_analysis() {
         d->analysisMgr->run_pose3d_reconstruction(d->currentSessionPath,
             d->pose3dMinCamerasSpin->value(),
             d->maxReprojectionErrorSpin->value(),
-            d->pose3dSkipSpin->value());
+            d->pose3dSkipSpin->value(),
+            d->pose3dSmoothingWindowSpin->value());
     } else if (plugin == "rppg") {
         d->analysisMgr->run_rppg_analysis(d->currentSessionPath,
             d->rppgBackendCombo->currentData().toString(),

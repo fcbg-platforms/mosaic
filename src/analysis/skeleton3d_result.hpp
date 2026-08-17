@@ -34,7 +34,16 @@ struct Skeleton3DRoomCamera {
 /// (0/-1/absent) whenever !valid, never independently encoded.
 struct Skeleton3DKeypoint {
     bool           valid = false;
-    Skeleton3DVec3 positionRoom = {0, 0, 0};   ///< mm, room space.
+    Skeleton3DVec3 positionRoom = {0, 0, 0};   ///< mm, room space, raw (unsmoothed) triangulation.
+    /// Centered per-track median-filtered version of positionRoom, from
+    /// run_pose3d.py's "keypoints_room_smoothed" field — same
+    /// valid-gated meaning as positionRoom. Equal to positionRoom itself
+    /// when smoothing is off (--smoothing-window 1, the default) or when
+    /// loading an older file written before this field existed — never
+    /// silently zero, so a caller that always renders this field never
+    /// needs to special-case "no smoothing available" as "sits at the
+    /// room origin."
+    Skeleton3DVec3 positionRoomSmoothed = {0, 0, 0};
     double         reprojectionErrorPx = -1.0;  ///< -1 = n/a (!valid).
 };
 

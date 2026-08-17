@@ -15,6 +15,7 @@ point-to-epipolar-line distance, and it reuses machinery this plugin
 already needs for the real reconstruction step anyway — no separate
 fundamental-matrix code path to keep in sync.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -34,14 +35,19 @@ from .triangulation import (
 @dataclass
 class PersonObservation:
     camera_index: int
-    person_index: int          # per-frame YOLO enumeration index from .pose.json — NOT a track id
-    keypoints_px: np.ndarray   # (K,2)
+    person_index: int  # per-frame YOLO enumeration index from .pose.json — NOT a track id
+    keypoints_px: np.ndarray  # (K,2)
     visibilities: np.ndarray  # (K,)
 
 
-def pairwise_cost(a: PersonObservation, b: PersonObservation,
-                   cam_a: CameraGeom, cam_b: CameraGeom,
-                   min_shared_keypoints: int = 4, min_visibility: float = 0.1) -> float:
+def pairwise_cost(
+    a: PersonObservation,
+    b: PersonObservation,
+    cam_a: CameraGeom,
+    cam_b: CameraGeom,
+    min_shared_keypoints: int = 4,
+    min_visibility: float = 0.1,
+) -> float:
     """Average 2-view reprojection error (px) across every keypoint index
     visible (>=min_visibility) in BOTH a and b. inf if fewer than
     min_shared_keypoints such indices exist, or if 2-view triangulation
@@ -49,16 +55,21 @@ def pairwise_cost(a: PersonObservation, b: PersonObservation,
     not evidence of a real match either way, so treated as "can't assess",
     not "definitely different people")."""
     n = min(len(a.visibilities), len(b.visibilities))
-    shared = [i for i in range(n)
-              if a.visibilities[i] >= min_visibility and b.visibilities[i] >= min_visibility]
+    shared = [
+        i
+        for i in range(n)
+        if a.visibilities[i] >= min_visibility and b.visibilities[i] >= min_visibility
+    ]
     if len(shared) < min_shared_keypoints:
         return float("inf")
 
     errors = []
     failures = 0
     for i in shared:
-        norm_pts = [normalize_point(a.keypoints_px[i], cam_a),
-                    normalize_point(b.keypoints_px[i], cam_b)]
+        norm_pts = [
+            normalize_point(a.keypoints_px[i], cam_a),
+            normalize_point(b.keypoints_px[i], cam_b),
+        ]
         p_mats = [projection_matrix(cam_a), projection_matrix(cam_b)]
         point = triangulate_point_dlt(norm_pts, p_mats)
         if point is None:
@@ -73,9 +84,14 @@ def pairwise_cost(a: PersonObservation, b: PersonObservation,
     return float(np.mean(errors))
 
 
-def match_camera_pair(obs_a, obs_b, cam_a: CameraGeom, cam_b: CameraGeom,
-                       max_pair_cost_px: float = 20.0,
-                       min_shared_keypoints: int = 4):
+def match_camera_pair(
+    obs_a,
+    obs_b,
+    cam_a: CameraGeom,
+    cam_b: CameraGeom,
+    max_pair_cost_px: float = 20.0,
+    min_shared_keypoints: int = 4,
+):
     """Hungarian-assigns obs_a<->obs_b by pairwise_cost(), then discards any
     assigned pair whose cost exceeds max_pair_cost_px — Hungarian minimizes
     TOTAL cost but doesn't itself refuse an individually-bad pair when one
@@ -96,13 +112,15 @@ def match_camera_pair(obs_a, obs_b, cam_a: CameraGeom, cam_b: CameraGeom,
     # that only "won" because everything else was worse, not because it was
     # actually a good match.
     finite = cost_matrix[np.isfinite(cost_matrix)]
-    sentinel = (float(finite.max()) + max_pair_cost_px + 1.0) if finite.size else (max_pair_cost_px + 1.0)
+    sentinel = (
+        (float(finite.max()) + max_pair_cost_px + 1.0) if finite.size else (max_pair_cost_px + 1.0)
+    )
     safe_matrix = np.where(np.isfinite(cost_matrix), cost_matrix, sentinel)
 
     row_idx, col_idx = linear_sum_assignment(safe_matrix)
 
     matches = []
-    for r, c in zip(row_idx, col_idx):
+    for r, c in zip(row_idx, col_idx, strict=False):
         cost = cost_matrix[r, c]
         if np.isfinite(cost) and cost <= max_pair_cost_px:
             matches.append((int(r), int(c), float(cost)))
@@ -126,9 +144,9 @@ class _UnionFind:
             self._parent[ra] = rb
 
 
-def cluster_people(observations, cameras,
-                    max_pair_cost_px: float = 20.0,
-                    min_shared_keypoints: int = 4):
+def cluster_people(
+    observations, cameras, max_pair_cost_px: float = 20.0, min_shared_keypoints: int = 4
+):
     """observations: {camera_index: [PersonObservation, ...]}. Runs
     match_camera_pair() over EVERY camera pair (not just adjacent ones — a
     room-scale rig may have non-adjacent pairs with better mutual
@@ -165,9 +183,13 @@ def cluster_people(observations, cameras,
             if cam_a_idx not in cameras or cam_b_idx not in cameras:
                 continue
             matches = match_camera_pair(
-                observations[cam_a_idx], observations[cam_b_idx],
-                cameras[cam_a_idx], cameras[cam_b_idx],
-                max_pair_cost_px, min_shared_keypoints)
+                observations[cam_a_idx],
+                observations[cam_b_idx],
+                cameras[cam_a_idx],
+                cameras[cam_b_idx],
+                max_pair_cost_px,
+                min_shared_keypoints,
+            )
             for pi, pj, _cost in matches:
                 uf.union((cam_a_idx, pi), (cam_b_idx, pj))
 
@@ -175,5 +197,4 @@ def cluster_people(observations, cameras,
     for node in nodes:
         groups.setdefault(uf.find(node), []).append(node)
 
-    return [sorted(members) for members in groups.values()
-            if len({cam for cam, _ in members}) >= 2]
+    return [sorted(members) for members in groups.values() if len({cam for cam, _ in members}) >= 2]

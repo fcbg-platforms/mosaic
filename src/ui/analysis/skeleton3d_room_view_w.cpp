@@ -26,11 +26,19 @@ QVector3D to_qvec3(const Skeleton3DVec3& p) {
     return QVector3D(static_cast<float>(p[0]), static_cast<float>(p[1]), static_cast<float>(p[2]));
 }
 
+// Picks positionRoom vs positionRoomSmoothed for drawing — the room view's
+// only draw-time consumer of this choice (the 2D video overlay always uses
+// raw positionRoom, see set_show_smoothed()'s own doc comment for why).
+const Skeleton3DVec3& drawn_position(const Skeleton3DKeypoint& kp, bool smoothed) {
+    return smoothed ? kp.positionRoomSmoothed : kp.positionRoom;
+}
+
 } // namespace
 
 struct Skeleton3DRoomViewW::Impl {
     Skeleton3DResult result;
     int64_t          positionMs = 0;
+    bool             showSmoothed = false;
 
     // Orbit-camera spherical coordinates around `target`, room Z-up (same
     // "XY is the floor plane, Z is height" convention GazeRoomViewW's
@@ -123,6 +131,11 @@ void Skeleton3DRoomViewW::set_result(const Skeleton3DResult& result) {
 
 void Skeleton3DRoomViewW::set_position_ms(int64_t positionMs) {
     d->positionMs = positionMs;
+    update();
+}
+
+void Skeleton3DRoomViewW::set_show_smoothed(bool showSmoothed) {
+    d->showSmoothed = showSmoothed;
     update();
 }
 
@@ -273,8 +286,8 @@ void Skeleton3DRoomViewW::paintEvent(QPaintEvent*) {
                     continue;
                 }
                 if (!person.keypoints[a].valid || !person.keypoints[b].valid) { continue; }
-                const QVector3D wa = to_qvec3(person.keypoints[a].positionRoom);
-                const QVector3D wb = to_qvec3(person.keypoints[b].positionRoom);
+                const QVector3D wa = to_qvec3(drawn_position(person.keypoints[a], d->showSmoothed));
+                const QVector3D wb = to_qvec3(drawn_position(person.keypoints[b], d->showSmoothed));
                 const auto pa = project(wa);
                 const auto pb = project(wb);
                 if (!pa || !pb) { continue; }
@@ -289,7 +302,7 @@ void Skeleton3DRoomViewW::paintEvent(QPaintEvent*) {
             for (int i = 0; i < person.keypoints.size(); ++i) {
                 if (!person.keypoints[i].valid) { continue; }
                 if (firstValid < 0) { firstValid = i; }
-                const QVector3D w = to_qvec3(person.keypoints[i].positionRoom);
+                const QVector3D w = to_qvec3(drawn_position(person.keypoints[i], d->showSmoothed));
                 const auto pt = project(w);
                 if (!pt) { continue; }
                 ops.append({eye_depth(w), [pt, color](QPainter& p) {
@@ -300,7 +313,8 @@ void Skeleton3DRoomViewW::paintEvent(QPaintEvent*) {
             }
 
             if (firstValid >= 0) {
-                const QVector3D w = to_qvec3(person.keypoints[firstValid].positionRoom);
+                const QVector3D w =
+                    to_qvec3(drawn_position(person.keypoints[firstValid], d->showSmoothed));
                 const auto pt = project(w);
                 if (pt) {
                     const int trackId = person.trackId;

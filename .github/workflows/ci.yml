@@ -15,6 +15,42 @@ permissions:
 # camera hardware isn't available on hosted runners, so that flag
 # can't be exercised here — only local/lab builds cover that surface.
 jobs:
+  lint-python:
+    runs-on: ubuntu-latest
+
+    # ruff.toml/pre-commit already declared this policy; nothing enforced it
+    # anywhere until now. No Qt/vcpkg/uv-sync needed — ruff only needs its
+    # own binary and the source tree.
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install ruff
+        # Pinned to match .pre-commit-config.yaml's `rev: v0.8.4` so local
+        # pre-commit and CI never disagree on findings.
+        run: pip install ruff==0.8.4
+
+      - name: ruff check
+        run: ruff check --config ruff.toml .
+
+      - name: ruff format --check
+        run: ruff format --config ruff.toml --check .
+
+  lint-cpp:
+    runs-on: ubuntu-latest
+
+    # clang-format needs no Qt/MSVC/vcpkg context at all, so this runs on
+    # the lighter/faster Linux runner rather than windows-latest.
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install clang-format
+        run: sudo apt-get update && sudo apt-get install -y clang-format
+
+      - name: Check formatting
+        run: |
+          files=$(find src tests -name '*.cpp' -o -name '*.hpp')
+          clang-format --dry-run --Werror $files
+
   build-and-test:
     runs-on: windows-latest
 

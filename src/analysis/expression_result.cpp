@@ -1,9 +1,9 @@
 #include "analysis/expression_result.hpp"
+#include "analysis/nearest_by_key.hpp"
 #include <QFile>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
-#include <algorithm>
 
 namespace mosaic {
 
@@ -84,25 +84,8 @@ ExpressionResult ExpressionResult::load(const QString& jsonPath) {
 }
 
 const ExpressionFrame* ExpressionResult::nearest_frame(int frameIndexEstimate) const {
-    if (frames_.isEmpty()) {
-        return nullptr;
-    }
-
-    const auto it = std::lower_bound(
-        frames_.begin(), frames_.end(), frameIndexEstimate,
-        [](const ExpressionFrame& f, int idx) { return f.frameIndex < idx; });
-
-    if (it == frames_.begin()) {
-        return &(*it);
-    }
-    if (it == frames_.end()) {
-        return &(*std::prev(it));
-    }
-
-    const auto prevIt = std::prev(it);
-    const int afterDelta  = it->frameIndex - frameIndexEstimate;
-    const int beforeDelta = frameIndexEstimate - prevIt->frameIndex;
-    return (beforeDelta <= afterDelta) ? &(*prevIt) : &(*it);
+    return nearest_by_key(frames_, frameIndexEstimate,
+                           [](const ExpressionFrame& f) { return f.frameIndex; });
 }
 
 } // namespace mosaic

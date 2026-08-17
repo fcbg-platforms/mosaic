@@ -3,6 +3,7 @@ Pure-logic tests for pose3d/tracker.py — cross-frame 3D track identity.
 No cv2/numpy-heavy geometry needed here (unlike triangulation/association),
 just the greedy nearest-centroid assignment itself.
 """
+
 import sys
 from pathlib import Path
 
@@ -26,7 +27,7 @@ def test_new_centroid_far_from_existing_track_gets_a_new_id():
     ids0 = tracker.update(0, [np.array([0.0, 0.0, 0.0])])
     ids1 = tracker.update(1, [np.array([0.0, 0.0, 0.0]), np.array([5000.0, 5000.0, 0.0])])
     assert ids0[0] in ids1
-    assert len(set(ids1)) == 2   # the far centroid did not reuse the existing track
+    assert len(set(ids1)) == 2  # the far centroid did not reuse the existing track
 
 
 def test_track_ends_after_max_gap_ticks_with_no_match():
@@ -34,9 +35,9 @@ def test_track_ends_after_max_gap_ticks_with_no_match():
     ids0 = tracker.update(0, [np.array([0.0, 0.0, 0.0])])
     original_id = ids0[0]
 
-    tracker.update(1, [])   # gap tick 1
-    tracker.update(2, [])   # gap tick 2 (== max_gap_ticks, still alive)
-    tracker.update(3, [])   # gap tick 3 (> max_gap_ticks, track must be pruned)
+    tracker.update(1, [])  # gap tick 1
+    tracker.update(2, [])  # gap tick 2 (== max_gap_ticks, still alive)
+    tracker.update(3, [])  # gap tick 3 (> max_gap_ticks, track must be pruned)
 
     # A centroid reappearing at the ORIGINAL position after the track was
     # pruned must get a brand-new id, not silently resurrect the old one.
@@ -51,7 +52,7 @@ def test_track_survives_exactly_max_gap_ticks_of_absence():
 
     tracker.update(1, [])
     tracker.update(2, [])
-    tracker.update(3, [])   # tick - last_tick == 3 == max_gap_ticks, not yet pruned
+    tracker.update(3, [])  # tick - last_tick == 3 == max_gap_ticks, not yet pruned
     ids4 = tracker.update(4, [np.array([1.0, 1.0, 0.0])])
     assert ids4[0] == original_id
 

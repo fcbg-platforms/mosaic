@@ -1,5 +1,6 @@
 """Per-camera 3D gaze-ray estimation and multi-camera ray-fusion math for
 MOSAIC's Multi-Camera Gaze Fusion analysis plugin."""
+
 from .estimator import FaceGazeSample, MediaPipeGazeEstimator3D
 from .ray_math import (
     camera_ray_from_pose,

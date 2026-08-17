@@ -1,11 +1,13 @@
 """Multi-view DLT triangulation, cross-camera person association, and 3D
 track identity for MOSAIC's 3D Pose Reconstruction analysis plugin."""
+
 from .association import (
     PersonObservation,
     cluster_people,
     match_camera_pair,
     pairwise_cost,
 )
+from .smoothing import smooth_track_positions
 from .tracker import PersonTracker3D, TrackedPerson3D
 from .triangulation import (
     CameraGeom,
@@ -35,4 +37,5 @@ __all__ = [
     "cluster_people",
     "TrackedPerson3D",
     "PersonTracker3D",
+    "smooth_track_positions",
 ]

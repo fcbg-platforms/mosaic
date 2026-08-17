@@ -1,5 +1,6 @@
 """Transcription + speaker-diarization pipeline for MOSAIC's Speaker
 Diarization analysis plugin."""
+
 from .pipeline import (
     DiarizationTurn,
     TranscriptSegment,
