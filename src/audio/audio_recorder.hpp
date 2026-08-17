@@ -35,7 +35,7 @@ class AudioRecorder : public QObject {
     [[nodiscard]] double duration_sec() const;
 
    signals:
-    void level_rms_changed(float rms);                       // 10–20 × per second, main-thread safe
+    void level_rms_changed(float rms); // 10–20 × per second, main-thread safe
     void envelope_changed(float minSample, float maxSample); // same cadence, [-1, 1]
     // Same cadence as envelope_changed — the already-16-bit-PCM-normalized
     // `data` from on_data_ready() (see m_captureFormat's doc comment),

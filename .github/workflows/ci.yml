@@ -54,7 +54,19 @@ jobs:
           fetch-depth: 0
 
       - name: Install clang-format
-        run: sudo apt-get update && sudo apt-get install -y clang-format
+        # Pinned to match .pre-commit-config.yaml's `rev: v18.1.8` (same
+        # rationale as lint-python's ruff pin above) — plain `apt-get install
+        # clang-format` resolves to whatever Ubuntu's repo currently ships
+        # (an experimental pre-release snapshot at the time this was added,
+        # e.g. 18.0-59~exp2), which can disagree with the pinned stable
+        # release on edge-case formatting decisions even at the "same"
+        # major version, producing false-positive CI failures on code that
+        # local pre-commit / a real 18.1.8 binary already considers clean.
+        # pipx (not plain pip) because ubuntu-latest's system Python is
+        # PEP 668 "externally managed" — pipx is the pre-installed,
+        # sandboxed way to get a CLI tool onto PATH on GitHub's hosted
+        # Ubuntu runners without a venv or --break-system-packages.
+        run: pipx install clang-format==18.1.8
 
       - name: Determine merge-base with main
         id: base

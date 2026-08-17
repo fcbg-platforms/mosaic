@@ -756,8 +756,8 @@ struct AnalysisTabW::Impl {
     QDoubleSpinBox* maxReprojectionErrorSpin = nullptr; // pose3d
     QSpinBox* pose3dSkipSpin                 = nullptr; // pose3d
     QSpinBox* pose3dSmoothingWindowSpin      = nullptr; // pose3d
-    QCheckBox* showSmoothedCheck      = nullptr; // pose3d — room view only, see set_show_smoothed()
-    QComboBox* rppgBackendCombo       = nullptr; // rppg
+    QCheckBox* showSmoothedCheck = nullptr; // pose3d — room view only, see set_show_smoothed()
+    QComboBox* rppgBackendCombo  = nullptr; // rppg
     QDoubleSpinBox* rppgWindowSecSpin = nullptr; // rppg
     QDoubleSpinBox* rppgHopSecSpin    = nullptr; // rppg
     QSpinBox* rppgSmoothingSpin       = nullptr; // rppg
@@ -850,11 +850,11 @@ struct AnalysisTabW::Impl {
     // to. rppgDisclaimerLbl is deliberately a persistent, always-visible
     // banner (not a tooltip) — this plugin's whole safety framing depends
     // on the "experimental, not clinical" caveat never being missable.
-    QWidget* rppgRowW                = nullptr; // rppg only
-    QLabel* rppgDisclaimerLbl        = nullptr; // rppg only
+    QWidget* rppgRowW         = nullptr;        // rppg only
+    QLabel* rppgDisclaimerLbl = nullptr;        // rppg only
     QCheckBox* rppgShowSmoothedCheck = nullptr; // rppg only — toggles which series the chart plots
-    QLabel* rppgStatsLbl             = nullptr; // rppg only
-    QLabel* rppgQualityBadge         = nullptr; // rppg only — rppg_quality_for() tier, reusing
+    QLabel* rppgStatsLbl     = nullptr;         // rppg only
+    QLabel* rppgQualityBadge = nullptr;         // rppg only — rppg_quality_for() tier, reusing
                                                 // the same RmsQuality/badge_stylesheet() vocabulary
                                                 // pose_tracking_quality_for() already established
     QPushButton* exportRppgBtn = nullptr;       // rppg only
