@@ -1,8 +1,9 @@
 #pragma once
-#include "core/settings.hpp"
 #include <QLabel>
 #include <QWidget>
 #include <memory>
+
+#include "core/settings.hpp"
 
 namespace mosaic {
 
@@ -16,19 +17,18 @@ class SerialTrigger;
 /// referenced @c SerialTriggerConfig and emit @c config_changed().
 class SerialCardW : public QWidget {
     Q_OBJECT
-public:
-    explicit SerialCardW(SerialTriggerConfig& config, int index,
-                          QWidget* parent = nullptr);
+   public:
+    explicit SerialCardW(SerialTriggerConfig& config, int index, QWidget* parent = nullptr);
     ~SerialCardW() override;
 
     void on_count_changed(int count);
     void set_index(int index);
 
-signals:
+   signals:
     void config_changed();
     void remove_requested(int index);
 
-private:
+   private:
     void build_header();
     void build_body();
     void toggle_expanded();
@@ -36,14 +36,14 @@ private:
     void update_enabled_states();
 
     SerialTriggerConfig& m_config;
-    int   m_index;
-    bool  m_expanded{true};
+    int m_index;
+    bool m_expanded{true};
 
     QWidget* m_body{nullptr};
     QWidget* m_expandBtn{nullptr};
-    QLabel*  m_nameLabel{nullptr};
-    QLabel*  m_summaryLabel{nullptr};
-    QLabel*  m_counterLabel{nullptr};
+    QLabel* m_nameLabel{nullptr};
+    QLabel* m_summaryLabel{nullptr};
+    QLabel* m_counterLabel{nullptr};
 };
 
 } // namespace mosaic

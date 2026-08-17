@@ -1,18 +1,20 @@
-#include "analysis/sync_manifest.hpp"
 #include <gtest/gtest.h>
+
 #include <QDir>
 #include <QFile>
 #include <QTemporaryDir>
 #include <QTextStream>
 #include <tuple>
 
+#include "analysis/sync_manifest.hpp"
+
 using mosaic::SyncManifest;
 
 namespace {
 
 // Writes a timestamps_camN.csv with the given (frame_id, elapsed_ns, wall_ns) rows.
-void write_timestamps_csv(const QString&                                     path,
-                           const QVector<std::tuple<int, int64_t, int64_t>>& rows) {
+void write_timestamps_csv(const QString& path,
+                          const QVector<std::tuple<int, int64_t, int64_t>>& rows) {
     QFile f(path);
     ASSERT_TRUE(f.open(QIODevice::WriteOnly | QIODevice::Text));
     QTextStream ts(&f);
@@ -83,8 +85,8 @@ TEST(SyncManifest, DetectsGenuineElapsedNsOffset) {
     QTemporaryDir dir;
     ASSERT_TRUE(dir.isValid());
 
-    const int64_t stepNs  = 40'000'000LL; // 25 fps
-    const int64_t offset  = 5'000'000LL;  // 5 ms late, every frame
+    const int64_t stepNs = 40'000'000LL; // 25 fps
+    const int64_t offset = 5'000'000LL;  // 5 ms late, every frame
 
     QVector<std::tuple<int, int64_t, int64_t>> cam0, cam1;
     for (int i = 0; i < 5; ++i) {

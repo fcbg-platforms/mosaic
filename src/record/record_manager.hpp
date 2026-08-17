@@ -1,10 +1,11 @@
 #pragma once
+#include <QObject>
+#include <memory>
+
 #include "audio/audio_manager.hpp"
 #include "core/settings.hpp"
 #include "trigger/trigger_manager.hpp"
 #include "video/video_manager.hpp"
-#include <QObject>
-#include <memory>
 
 namespace mosaic {
 
@@ -40,7 +41,7 @@ namespace mosaic {
 /// @see AppSettings::RecordSettings, VideoManager, AudioManager, TriggerManager
 class RecordManager : public QObject {
     Q_OBJECT
-public:
+   public:
     /// @param settings    Application settings (record, video, audio, trigger sub-structs).
     /// @param triggerMgr  Trigger manager — receives start/stop_recording() calls.
     ///                    May be @c nullptr (triggers are then skipped).
@@ -49,12 +50,9 @@ public:
     /// @param username    Profile name embedded in @c session_meta.json as
     ///                    @c "recorded_by".  Defaults to @c "guest".
     /// @param parent      Qt parent object.
-    explicit RecordManager(AppSettings&     settings,
-                           TriggerManager*  triggerMgr,
-                           AudioManager*    audioMgr,
-                           VideoManager*    videoMgr  = nullptr,
-                           const QString&   username  = "guest",
-                           QObject*         parent    = nullptr);
+    explicit RecordManager(AppSettings& settings, TriggerManager* triggerMgr,
+                           AudioManager* audioMgr, VideoManager* videoMgr = nullptr,
+                           const QString& username = "guest", QObject* parent = nullptr);
     ~RecordManager() override;
 
     /// @brief Begins a new recording session.
@@ -73,16 +71,16 @@ public:
     void stop();
 
     /// @returns @c true while a session is active.
-    [[nodiscard]] bool    is_recording()        const;
+    [[nodiscard]] bool is_recording() const;
 
     /// @returns Milliseconds elapsed since the session started (0 when idle).
-    [[nodiscard]] int     elapsed_ms()          const;
+    [[nodiscard]] int elapsed_ms() const;
 
     /// @returns Absolute path to the current session folder, or an empty
     ///          string when no session has been started yet.
     [[nodiscard]] QString current_session_path() const;
 
-signals:
+   signals:
     /// Emitted when a session starts successfully.
     /// @param sessionPath  Absolute path to the session folder.
     void recording_started(QString sessionPath);
@@ -100,14 +98,13 @@ signals:
     /// @param message  Human-readable error description (also logged).
     void error_occurred(QString message);
 
-private slots:
+   private slots:
     void tick();
 
-private:
+   private:
     void write_session_meta() const;
     [[nodiscard]] QString build_session_path() const;
-    [[nodiscard]] QString build_file_path(const QString& basename,
-                                          const QString& ext) const;
+    [[nodiscard]] QString build_file_path(const QString& basename, const QString& ext) const;
 
     struct Impl;
     std::unique_ptr<Impl> d;

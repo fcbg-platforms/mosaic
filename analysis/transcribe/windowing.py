@@ -28,6 +28,7 @@ detected VAD gap will never confirm mid-utterance; the caller forces a trim
 at that point anyway to bound memory, at the cost of a possibly-truncated
 final segment in that rare case — documented, not silently handled.
 """
+
 from __future__ import annotations
 
 from typing import NamedTuple

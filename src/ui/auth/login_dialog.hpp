@@ -1,8 +1,9 @@
 #pragma once
-#include "auth/profile_manager.hpp"
 #include <QDialog>
 #include <functional>
 #include <memory>
+
+#include "auth/profile_manager.hpp"
 
 namespace mosaic {
 
@@ -23,18 +24,18 @@ namespace mosaic {
 
 class LoginDialog : public QDialog {
     Q_OBJECT
-public:
+   public:
     explicit LoginDialog(ProfileManager& profileMgr, QWidget* parent = nullptr);
     ~LoginDialog() override;
 
     [[nodiscard]] QString active_username() const;
 
-protected:
+   protected:
     void keyPressEvent(QKeyEvent* event) override;  // disable Escape
-    void showEvent(QShowEvent* event) override;      // gentle fade-in on first show
-    void resizeEvent(QResizeEvent* event) override;  // keep the close button pinned top-right
+    void showEvent(QShowEvent* event) override;     // gentle fade-in on first show
+    void resizeEvent(QResizeEvent* event) override; // keep the close button pinned top-right
 
-private slots:
+   private slots:
     void on_card_selected(const QString& username);
     void on_login_clicked();
     void on_guest_clicked();
@@ -42,7 +43,7 @@ private slots:
     void on_cancel_register_clicked();
     void on_password_return_pressed();
 
-private:
+   private:
     void build_ui();
     void rebuild_profile_grid();
     void show_login_mode();

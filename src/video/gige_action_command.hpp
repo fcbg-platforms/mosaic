@@ -31,9 +31,9 @@ namespace mosaic {
 // One camera's resolved GigE Vision Action Command target, computed once in
 // VideoGrabber::open() and consumed by VideoManager's start sequencing.
 struct ActionCommandTarget {
-    int      cameraIndex = -1;   // VideoGrabber::cameraIndex, for logging only
-    uint32_t deviceKey   = 0;
-    QString  broadcastAddress;   // dotted-quad, this camera's own subnet broadcast
+    int cameraIndex    = -1; // VideoGrabber::cameraIndex, for logging only
+    uint32_t deviceKey = 0;
+    QString broadcastAddress; // dotted-quad, this camera's own subnet broadcast
 };
 
 // MOSAIC-wide constants, shared between VideoGrabber::open() (writes
@@ -89,9 +89,8 @@ inline constexpr double k_default_action_margin = 0.85;
 // k_default_action_margin's doc comment above for why this is needed.
 // Values outside (0, 1] are treated as 1.0 (no margin) rather than
 // producing a negative/infinite period from a caller mistake.
-[[nodiscard]] double action_command_period_ms(
-    const std::vector<double>& targetFps,
-    double                     marginFactor = k_default_action_margin);
+[[nodiscard]] double action_command_period_ms(const std::vector<double>& targetFps,
+                                              double marginFactor = k_default_action_margin);
 
 // Default minimum time a camera must have been actively grabbing before a
 // freshly-read ResultingFrameRate/ResultingFrameRateAbs is trusted at all —
@@ -127,8 +126,7 @@ inline constexpr double k_default_fps_warmup_seconds = 3.0;
 // start_grabbing() is ever called) and is always rejected, regardless of
 // warmupSeconds.
 [[nodiscard]] bool is_achievable_fps_measurement_warmed_up(
-    double secondsSinceGrabbingStarted,
-    double warmupSeconds = k_default_fps_warmup_seconds);
+    double secondsSinceGrabbingStarted, double warmupSeconds = k_default_fps_warmup_seconds);
 
 // Owns the GigE transport layer handle for the lifetime of a continuous,
 // per-frame Action-Command-triggered recording/preview session, so
@@ -141,7 +139,7 @@ inline constexpr double k_default_fps_warmup_seconds = 3.0;
 // defined) — is_valid() is simply always false there, and fire() always
 // returns 0.
 class ActionCommandSession {
-public:
+   public:
     ActionCommandSession();
     ~ActionCommandSession();
     ActionCommandSession(const ActionCommandSession&)            = delete;
@@ -165,10 +163,10 @@ public:
     //
     // Returns the number of IssueActionCommand() calls that did not throw.
     // Always 0 if targets is empty or !is_valid().
-    int fire(const std::vector<ActionCommandTarget>& targets,
-             uint32_t groupKey, uint32_t groupMask);
+    int fire(const std::vector<ActionCommandTarget>& targets, uint32_t groupKey,
+             uint32_t groupMask);
 
-private:
+   private:
     struct Impl;
     std::unique_ptr<Impl> d;
 };

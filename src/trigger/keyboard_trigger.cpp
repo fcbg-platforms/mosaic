@@ -1,21 +1,20 @@
 #include "trigger/keyboard_trigger.hpp"
-#include "utils/timestamp.hpp"
+
 #include <QApplication>
 #include <QEvent>
 #include <QKeyEvent>
 #include <QKeySequenceEdit>
 
+#include "utils/timestamp.hpp"
+
 namespace mosaic {
 
 KeyboardTrigger::KeyboardTrigger(KeyTriggerConfig& config, QObject* parent)
-    : QObject(parent), m_config(config)
-{
+    : QObject(parent), m_config(config) {
     reload_key_sequence();
 }
 
-KeyboardTrigger::~KeyboardTrigger() {
-    set_active(false);
-}
+KeyboardTrigger::~KeyboardTrigger() { set_active(false); }
 
 void KeyboardTrigger::set_active(bool active) {
     if (m_active == active) return;
@@ -47,8 +46,8 @@ namespace {
 // "is this key currently down" and refuse a second fire until a matching
 // KeyRelease is seen, however many duplicate KeyPress events arrive in
 // between and whatever produced them.
-constexpr int64_t k_stale_key_down_ns = 3'000'000'000LL;  // 3s
-}
+constexpr int64_t k_stale_key_down_ns = 3'000'000'000LL; // 3s
+} // namespace
 
 bool KeyboardTrigger::eventFilter(QObject* /*obj*/, QEvent* event) {
     const bool isPress   = event->type() == QEvent::KeyPress;
@@ -75,7 +74,9 @@ bool KeyboardTrigger::eventFilter(QObject* /*obj*/, QEvent* event) {
     // (e.g. focus moved to another application mid-press), in which case
     // treat this as a fresh press rather than staying stuck forever.
     const int64_t nowNs = elapsed_ns();
-    if (m_keyDown && (nowNs - m_keyDownAtNs) < k_stale_key_down_ns) { return false; }
+    if (m_keyDown && (nowNs - m_keyDownAtNs) < k_stale_key_down_ns) {
+        return false;
+    }
 
     m_keyDown     = true;
     m_keyDownAtNs = nowNs;
@@ -90,7 +91,7 @@ bool KeyboardTrigger::eventFilter(QObject* /*obj*/, QEvent* event) {
     ev.value       = 0.0;
     emit triggered(ev);
 
-    return false;  // never consume — other widgets should still handle the key
+    return false; // never consume — other widgets should still handle the key
 }
 
 } // namespace mosaic

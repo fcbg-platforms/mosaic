@@ -1,29 +1,37 @@
 #include "utils/logger.hpp"
-#include "utils/timestamp.hpp"
+
+#include <QDebug>
+#include <QFile>
 #include <QMutex>
 #include <QMutexLocker>
-#include <QFile>
 #include <QTextStream>
-#include <QDebug>
+
+#include "utils/timestamp.hpp"
 
 namespace mosaic {
 
 const char* log_level_label(LogLevel l) noexcept {
     switch (l) {
-    case LogLevel::Trace:    return "TRACE";
-    case LogLevel::Debug:    return "DEBUG";
-    case LogLevel::Info:     return "INFO ";
-    case LogLevel::Warning:  return "WARN ";
-    case LogLevel::Error:    return "ERROR";
-    case LogLevel::Critical: return "CRIT ";
+        case LogLevel::Trace:
+            return "TRACE";
+        case LogLevel::Debug:
+            return "DEBUG";
+        case LogLevel::Info:
+            return "INFO ";
+        case LogLevel::Warning:
+            return "WARN ";
+        case LogLevel::Error:
+            return "ERROR";
+        case LogLevel::Critical:
+            return "CRIT ";
     }
     return "?????";
 }
 
 struct Logger::Impl {
-    QMutex   mutex;
+    QMutex mutex;
     LogLevel minLevel{LogLevel::Debug};
-    QFile    logFile;
+    QFile logFile;
 };
 
 Logger& Logger::instance() {
@@ -32,15 +40,15 @@ Logger& Logger::instance() {
 }
 
 Logger::Logger() : QObject(nullptr), d(std::make_unique<Impl>()) {}
-Logger::~Logger() = default;  // Impl is complete here — unique_ptr can call delete
+Logger::~Logger() = default; // Impl is complete here — unique_ptr can call delete
 
 void Logger::log(LogLevel level, const QString& message, std::source_location loc) {
     if (static_cast<int>(level) < static_cast<int>(d->minLevel)) return;
 
-    const QString ts      = wall_clock_string();
-    const QString locStr  = QString("%1:%2").arg(loc.file_name()).arg(loc.line());
-    const QString fullLine = QString("[%1] [%2] [%3] %4")
-                                 .arg(ts, log_level_label(level), locStr, message);
+    const QString ts     = wall_clock_string();
+    const QString locStr = QString("%1:%2").arg(loc.file_name()).arg(loc.line());
+    const QString fullLine =
+        QString("[%1] [%2] [%3] %4").arg(ts, log_level_label(level), locStr, message);
 
     {
         QMutexLocker lock(&d->mutex);
@@ -76,11 +84,23 @@ void Logger::close_log_file() {
     d->logFile.close();
 }
 
-void log_trace   (const QString& msg, std::source_location loc) { Logger::instance().log(LogLevel::Trace,    msg, loc); }
-void log_debug   (const QString& msg, std::source_location loc) { Logger::instance().log(LogLevel::Debug,    msg, loc); }
-void log_info    (const QString& msg, std::source_location loc) { Logger::instance().log(LogLevel::Info,     msg, loc); }
-void log_warning (const QString& msg, std::source_location loc) { Logger::instance().log(LogLevel::Warning,  msg, loc); }
-void log_error   (const QString& msg, std::source_location loc) { Logger::instance().log(LogLevel::Error,    msg, loc); }
-void log_critical(const QString& msg, std::source_location loc) { Logger::instance().log(LogLevel::Critical, msg, loc); }
+void log_trace(const QString& msg, std::source_location loc) {
+    Logger::instance().log(LogLevel::Trace, msg, loc);
+}
+void log_debug(const QString& msg, std::source_location loc) {
+    Logger::instance().log(LogLevel::Debug, msg, loc);
+}
+void log_info(const QString& msg, std::source_location loc) {
+    Logger::instance().log(LogLevel::Info, msg, loc);
+}
+void log_warning(const QString& msg, std::source_location loc) {
+    Logger::instance().log(LogLevel::Warning, msg, loc);
+}
+void log_error(const QString& msg, std::source_location loc) {
+    Logger::instance().log(LogLevel::Error, msg, loc);
+}
+void log_critical(const QString& msg, std::source_location loc) {
+    Logger::instance().log(LogLevel::Critical, msg, loc);
+}
 
 } // namespace mosaic

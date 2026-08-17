@@ -1,5 +1,5 @@
 #include "analysis/pose_worker.hpp"
-#include "utils/logger.hpp"
+
 #include <QByteArray>
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -8,17 +8,18 @@
 #include <QTimer>
 #include <cstring>
 
+#include "utils/logger.hpp"
+
 namespace mosaic {
 
 struct PoseWorker::Impl {
     std::unique_ptr<QProcess> proc;
-    QTimer*                   readTimer{nullptr};
-    QByteArray                readBuf;
-    bool                      paused{false};
+    QTimer* readTimer{nullptr};
+    QByteArray readBuf;
+    bool paused{false};
 };
 
-PoseWorker::PoseWorker(QObject* parent)
-    : QObject(parent), d(std::make_unique<Impl>()) {}
+PoseWorker::PoseWorker(QObject* parent) : QObject(parent), d(std::make_unique<Impl>()) {}
 
 PoseWorker::~PoseWorker() { stop(); }
 
@@ -41,8 +42,8 @@ bool PoseWorker::start(const QString& interpreter, const QString& scriptPath) {
             if (!doc.isObject()) continue;
             const auto obj = doc.object();
 
-            const int camIdx  = obj["camera"].toInt();
-            const auto kpArr  = obj["keypoints"].toArray();
+            const int camIdx = obj["camera"].toInt();
+            const auto kpArr = obj["keypoints"].toArray();
 
             QVariantList kps;
             kps.reserve(kpArr.size());
@@ -59,21 +60,21 @@ bool PoseWorker::start(const QString& interpreter, const QString& scriptPath) {
             emit pose_ready(camIdx, kps);
 
             if (!obj["gaze"].isNull() && obj["gaze"].isObject()) {
-                const auto gz   = obj["gaze"].toObject();
-                const auto fb   = gz["face_box"].toObject();
-                const auto li   = gz["left_iris"].toObject();
-                const auto ri   = gz["right_iris"].toObject();
+                const auto gz = obj["gaze"].toObject();
+                const auto fb = gz["face_box"].toObject();
+                const auto li = gz["left_iris"].toObject();
+                const auto ri = gz["right_iris"].toObject();
                 QVariantMap gazeMap;
-                gazeMap["face_box"]  = QVariantMap{{"x", fb["x"].toDouble()},
-                                                    {"y", fb["y"].toDouble()},
-                                                    {"w", fb["w"].toDouble()},
-                                                    {"h", fb["h"].toDouble()}};
-                gazeMap["left_iris"] = QVariantMap{{"x", li["x"].toDouble()},
-                                                    {"y", li["y"].toDouble()}};
-                gazeMap["right_iris"]= QVariantMap{{"x", ri["x"].toDouble()},
-                                                    {"y", ri["y"].toDouble()}};
-                gazeMap["gaze_dx"]   = gz["gaze_dx"].toDouble();
-                gazeMap["gaze_dy"]   = gz["gaze_dy"].toDouble();
+                gazeMap["face_box"] = QVariantMap{{"x", fb["x"].toDouble()},
+                                                  {"y", fb["y"].toDouble()},
+                                                  {"w", fb["w"].toDouble()},
+                                                  {"h", fb["h"].toDouble()}};
+                gazeMap["left_iris"] =
+                    QVariantMap{{"x", li["x"].toDouble()}, {"y", li["y"].toDouble()}};
+                gazeMap["right_iris"] =
+                    QVariantMap{{"x", ri["x"].toDouble()}, {"y", ri["y"].toDouble()}};
+                gazeMap["gaze_dx"] = gz["gaze_dx"].toDouble();
+                gazeMap["gaze_dy"] = gz["gaze_dy"].toDouble();
                 emit gaze_ready(camIdx, gazeMap);
             }
         }
@@ -84,8 +85,7 @@ bool PoseWorker::start(const QString& interpreter, const QString& scriptPath) {
         if (!msg.isEmpty()) log_warning("[PoseWorker] " + msg);
     });
 
-    connect(d->proc.get(), &QProcess::errorOccurred, this,
-            [this](QProcess::ProcessError err) {
+    connect(d->proc.get(), &QProcess::errorOccurred, this, [this](QProcess::ProcessError err) {
         const QString msg = QString("Pose process error: %1").arg(static_cast<int>(err));
         log_error(msg);
         emit process_error(msg);
@@ -106,14 +106,11 @@ bool PoseWorker::start(const QString& interpreter, const QString& scriptPath) {
 void PoseWorker::stop() {
     if (!d->proc) return;
     d->proc->closeWriteChannel();
-    if (!d->proc->waitForFinished(3000))
-        d->proc->kill();
+    if (!d->proc->waitForFinished(3000)) d->proc->kill();
     d->proc.reset();
 }
 
-bool PoseWorker::is_running() const {
-    return d->proc && d->proc->state() == QProcess::Running;
-}
+bool PoseWorker::is_running() const { return d->proc && d->proc->state() == QProcess::Running; }
 
 void PoseWorker::set_paused(bool paused) {
     if (d->paused == paused) return;
@@ -128,14 +125,14 @@ void PoseWorker::submit_frame(int cameraIndex, QImage frame) {
 
     // Convert to BGR888 for the Python script.
     const QImage bgr = frame.convertToFormat(QImage::Format_BGR888);
-    const int w = bgr.width();
-    const int h = bgr.height();
+    const int w      = bgr.width();
+    const int h      = bgr.height();
 
     // Protocol: 16-byte header [cam_idx, w, h, 0] then raw BGR bytes.
     QByteArray header(16, 0);
-    std::memcpy(header.data() + 0, &cameraIndex,    4);
-    std::memcpy(header.data() + 4, &w,              4);
-    std::memcpy(header.data() + 8, &h,              4);
+    std::memcpy(header.data() + 0, &cameraIndex, 4);
+    std::memcpy(header.data() + 4, &w, 4);
+    std::memcpy(header.data() + 8, &h, 4);
 
     d->proc->write(header);
     for (int row = 0; row < h; ++row) {

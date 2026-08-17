@@ -1,7 +1,9 @@
-#include "audio/audio_envelope.hpp"
 #include <gtest/gtest.h>
+
 #include <cstdint>
 #include <vector>
+
+#include "audio/audio_envelope.hpp"
 
 using mosaic::compute_envelope;
 using mosaic::compute_rms;
@@ -17,7 +19,7 @@ TEST(ComputeEnvelope, EmptyBufferIsZero) {
 TEST(ComputeEnvelope, FindsPositiveAndNegativePeaksIndependently) {
     const std::vector<int16_t> samples = {0, 16384, -8192, 100, -32768, 32767, 0};
     const auto env = compute_envelope(reinterpret_cast<const char*>(samples.data()),
-                                       static_cast<qint64>(samples.size() * sizeof(int16_t)));
+                                      static_cast<qint64>(samples.size() * sizeof(int16_t)));
     EXPECT_NEAR(env.minSample, -1.0f, 1e-4f);
     EXPECT_NEAR(env.maxSample, 32767.0f / 32768.0f, 1e-4f);
 }
@@ -25,7 +27,7 @@ TEST(ComputeEnvelope, FindsPositiveAndNegativePeaksIndependently) {
 TEST(ComputeEnvelope, ConstantBufferHasEqualMinAndMax) {
     const std::vector<int16_t> samples(32, 1000);
     const auto env = compute_envelope(reinterpret_cast<const char*>(samples.data()),
-                                       static_cast<qint64>(samples.size() * sizeof(int16_t)));
+                                      static_cast<qint64>(samples.size() * sizeof(int16_t)));
     EXPECT_NEAR(env.minSample, env.maxSample, 1e-6f);
     EXPECT_NEAR(env.minSample, 1000.0f / 32768.0f, 1e-4f);
 }
@@ -37,20 +39,18 @@ TEST(ComputeEnvelope, MinNeverExceedsMax) {
     // report a correct, non-degenerate envelope.
     const std::vector<int16_t> samples = {-500};
     const auto env = compute_envelope(reinterpret_cast<const char*>(samples.data()),
-                                       static_cast<qint64>(samples.size() * sizeof(int16_t)));
+                                      static_cast<qint64>(samples.size() * sizeof(int16_t)));
     EXPECT_LE(env.minSample, env.maxSample);
     EXPECT_NEAR(env.minSample, -500.0f / 32768.0f, 1e-4f);
     EXPECT_NEAR(env.maxSample, -500.0f / 32768.0f, 1e-4f);
 }
 
-TEST(ComputeRms, EmptyBufferIsZero) {
-    EXPECT_FLOAT_EQ(compute_rms(nullptr, 0), 0.0f);
-}
+TEST(ComputeRms, EmptyBufferIsZero) { EXPECT_FLOAT_EQ(compute_rms(nullptr, 0), 0.0f); }
 
 TEST(ComputeRms, SilenceIsZero) {
     const std::vector<int16_t> samples(64, 0);
     EXPECT_FLOAT_EQ(compute_rms(reinterpret_cast<const char*>(samples.data()),
-                                 static_cast<qint64>(samples.size() * sizeof(int16_t))),
+                                static_cast<qint64>(samples.size() * sizeof(int16_t))),
                     0.0f);
 }
 
@@ -60,7 +60,7 @@ TEST(ComputeRms, FullScaleConstantSignalIsOne) {
     // divide evenly and would only approximate 1.0.
     const std::vector<int16_t> samples(16, -32768);
     EXPECT_NEAR(compute_rms(reinterpret_cast<const char*>(samples.data()),
-                             static_cast<qint64>(samples.size() * sizeof(int16_t))),
+                            static_cast<qint64>(samples.size() * sizeof(int16_t))),
                 1.0f, 1e-6f);
 }
 
@@ -79,7 +79,7 @@ TEST(ConvertFloat32ToInt16, EmptyBufferProducesEmptyOutput) {
 TEST(ConvertFloat32ToInt16, RoundTripsKnownValues) {
     const std::vector<float> samples = {0.0f, 1.0f, -1.0f, 0.5f, -0.5f};
     const auto out = convert_float32_to_int16(reinterpret_cast<const char*>(samples.data()),
-                                               static_cast<qint64>(samples.size() * sizeof(float)));
+                                              static_cast<qint64>(samples.size() * sizeof(float)));
     ASSERT_EQ(out.size(), static_cast<qsizetype>(samples.size() * sizeof(int16_t)));
     const auto* result = reinterpret_cast<const int16_t*>(out.constData());
     EXPECT_EQ(result[0], 0);
@@ -93,8 +93,8 @@ TEST(ConvertFloat32ToInt16, ClampsOutOfRangeValues) {
     // A misbehaving/clipping source could exceed [-1, 1] — must not wrap
     // around int16 instead of saturating.
     const std::vector<float> samples = {2.0f, -2.0f};
-    const auto out = convert_float32_to_int16(reinterpret_cast<const char*>(samples.data()),
-                                               static_cast<qint64>(samples.size() * sizeof(float)));
+    const auto out     = convert_float32_to_int16(reinterpret_cast<const char*>(samples.data()),
+                                                  static_cast<qint64>(samples.size() * sizeof(float)));
     const auto* result = reinterpret_cast<const int16_t*>(out.constData());
     EXPECT_EQ(result[0], 32767);
     EXPECT_EQ(result[1], -32767);
@@ -108,7 +108,7 @@ TEST(ConvertInt32ToInt16, EmptyBufferProducesEmptyOutput) {
 TEST(ConvertInt32ToInt16, KeepsMostSignificantBits) {
     const std::vector<int32_t> samples = {0, 1 << 30, -(1 << 30)};
     const auto out = convert_int32_to_int16(reinterpret_cast<const char*>(samples.data()),
-                                             static_cast<qint64>(samples.size() * sizeof(int32_t)));
+                                            static_cast<qint64>(samples.size() * sizeof(int32_t)));
     ASSERT_EQ(out.size(), static_cast<qsizetype>(samples.size() * sizeof(int16_t)));
     const auto* result = reinterpret_cast<const int16_t*>(out.constData());
     EXPECT_EQ(result[0], 0);

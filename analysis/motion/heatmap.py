@@ -4,15 +4,12 @@ Trajectory density heatmaps and trajectory plots for mouse tracking data.
 
 from __future__ import annotations
 
-from pathlib import Path
-from typing import Dict, List, Optional, Tuple
-
 import numpy as np
 
 
 def generate_heatmap(
-    trajectories: Dict[int, List[Tuple[float, float]]],
-    frame_size: Tuple[int, int],
+    trajectories: dict[int, list[tuple[float, float]]],
+    frame_size: tuple[int, int],
     output_path: str,
     sigma: float = 20.0,
     cmap: str = "hot",
@@ -77,12 +74,16 @@ def generate_heatmap(
 
     if show_trails and trajectories:
         palette = plt.cm.Set1(np.linspace(0, 1, max(len(trajectories), 1)))
-        for (aid, positions), color in zip(trajectories.items(), palette):
+        for (aid, positions), color in zip(trajectories.items(), palette, strict=False):
             if len(positions) > 1:
                 pts = np.array(positions)
                 ax.plot(
-                    pts[:, 0], pts[:, 1],
-                    "-", color=color, alpha=0.45, linewidth=0.6,
+                    pts[:, 0],
+                    pts[:, 1],
+                    "-",
+                    color=color,
+                    alpha=0.45,
+                    linewidth=0.6,
                     label=f"Animal {aid}",
                 )
         if len(trajectories) <= 8:
@@ -98,14 +99,13 @@ def generate_heatmap(
         spine.set_edgecolor("#444444")
 
     fig.tight_layout()
-    fig.savefig(output_path, dpi=dpi, bbox_inches="tight",
-                facecolor=fig.get_facecolor())
+    fig.savefig(output_path, dpi=dpi, bbox_inches="tight", facecolor=fig.get_facecolor())
     plt.close(fig)
 
 
 def generate_trajectory_plot(
-    trajectories: Dict[int, List[Tuple[float, float]]],
-    frame_size: Tuple[int, int],
+    trajectories: dict[int, list[tuple[float, float]]],
+    frame_size: tuple[int, int],
     output_path: str,
     title: str = "Trajectory Plot",
     dpi: int = 150,
@@ -130,8 +130,8 @@ def generate_trajectory_plot(
     Each trajectory is colour-coded by time (start = transparent, end =
     opaque); start marker is a circle, end marker is a square.
     """
-    import matplotlib.pyplot as plt
     import matplotlib.patches as mpatches
+    import matplotlib.pyplot as plt
 
     w, h = frame_size
 
@@ -144,7 +144,7 @@ def generate_trajectory_plot(
     palette = plt.cm.tab10(np.linspace(0, 1, max(len(trajectories), 1)))
     legend_patches = []
 
-    for (aid, positions), color in zip(sorted(trajectories.items()), palette):
+    for (aid, positions), color in zip(sorted(trajectories.items()), palette, strict=False):
         if not positions:
             continue
         pts = np.array(positions)
@@ -153,19 +153,23 @@ def generate_trajectory_plot(
         n = len(pts)
         for i in range(1, n):
             alpha = 0.2 + 0.8 * (i / n)
-            ax.plot(pts[i-1:i+1, 0], pts[i-1:i+1, 1],
-                    "-", color=color, alpha=alpha, linewidth=0.9)
+            ax.plot(
+                pts[i - 1 : i + 1, 0],
+                pts[i - 1 : i + 1, 1],
+                "-",
+                color=color,
+                alpha=alpha,
+                linewidth=0.9,
+            )
 
         # Start / end markers
         ax.plot(pts[0, 0], pts[0, 1], "o", color=color, markersize=5, alpha=0.9)
         ax.plot(pts[-1, 0], pts[-1, 1], "s", color=color, markersize=5, alpha=0.9)
 
-        legend_patches.append(
-            mpatches.Patch(color=color, label=f"Animal {aid}  ({n} frames)"))
+        legend_patches.append(mpatches.Patch(color=color, label=f"Animal {aid}  ({n} frames)"))
 
     if legend_patches:
-        leg = ax.legend(handles=legend_patches, loc="upper right",
-                        fontsize=8, framealpha=0.35)
+        leg = ax.legend(handles=legend_patches, loc="upper right", fontsize=8, framealpha=0.35)
         for text in leg.get_texts():
             text.set_color("white")
 
@@ -179,13 +183,12 @@ def generate_trajectory_plot(
     ax.grid(color="#222240", linewidth=0.4)
 
     fig.tight_layout()
-    fig.savefig(output_path, dpi=dpi, bbox_inches="tight",
-                facecolor=fig.get_facecolor())
+    fig.savefig(output_path, dpi=dpi, bbox_inches="tight", facecolor=fig.get_facecolor())
     plt.close(fig)
 
 
 def generate_velocity_histogram(
-    velocities: List[float],
+    velocities: list[float],
     output_path: str,
     mm_per_px: float = 1.0,
     title: str = "Velocity Distribution",
@@ -219,10 +222,19 @@ def generate_velocity_histogram(
     vals = np.array([v for v in velocities if v > 0], dtype=np.float32)
     if vals.size:
         ax.hist(vals, bins=60, color="#5588ff", edgecolor="#2244aa", alpha=0.85)
-        ax.axvline(float(np.median(vals)), color="#ffcc44", linewidth=1.2,
-                   label=f"Median: {np.median(vals):.1f} {unit}")
-        ax.axvline(float(np.mean(vals)),   color="#ff6644", linewidth=1.2,
-                   linestyle="--", label=f"Mean: {np.mean(vals):.1f} {unit}")
+        ax.axvline(
+            float(np.median(vals)),
+            color="#ffcc44",
+            linewidth=1.2,
+            label=f"Median: {np.median(vals):.1f} {unit}",
+        )
+        ax.axvline(
+            float(np.mean(vals)),
+            color="#ff6644",
+            linewidth=1.2,
+            linestyle="--",
+            label=f"Mean: {np.mean(vals):.1f} {unit}",
+        )
         leg = ax.legend(fontsize=9, framealpha=0.4)
         for text in leg.get_texts():
             text.set_color("white")
@@ -235,6 +247,5 @@ def generate_velocity_histogram(
         spine.set_edgecolor("#444444")
 
     fig.tight_layout()
-    fig.savefig(output_path, dpi=dpi, bbox_inches="tight",
-                facecolor=fig.get_facecolor())
+    fig.savefig(output_path, dpi=dpi, bbox_inches="tight", facecolor=fig.get_facecolor())
     plt.close(fig)

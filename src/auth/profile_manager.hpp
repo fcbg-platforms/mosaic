@@ -1,8 +1,9 @@
 #pragma once
-#include "auth/profile.hpp"
 #include <QObject>
 #include <memory>
 #include <vector>
+
+#include "auth/profile.hpp"
 
 namespace mosaic {
 
@@ -44,7 +45,7 @@ namespace mosaic {
 /// @see Profile, AppSettings
 class ProfileManager : public QObject {
     Q_OBJECT
-public:
+   public:
     explicit ProfileManager(QObject* parent = nullptr);
     ~ProfileManager() override;
 
@@ -91,10 +92,9 @@ public:
     ///                     a password-free profile.
     /// @param role         Privilege level for the new profile (default: User).
     /// @returns            RegisterResult::Ok on success, or an error code.
-    RegisterResult register_profile(const QString&  username,
-                                     const QString&  displayName,
-                                     const QString&  password,
-                                     Profile::Role   role = Profile::Role::User);
+    RegisterResult register_profile(const QString& username, const QString& displayName,
+                                    const QString& password,
+                                    Profile::Role role = Profile::Role::User);
 
     /// @returns @c true if at least one profile with Admin role exists.
     [[nodiscard]] bool has_admin() const;
@@ -186,14 +186,13 @@ public:
     /// @returns             A hex RGB string like ``"#5566dd"``.
     [[nodiscard]] static QString next_accent_colour(int profileIndex);
 
-signals:
+   signals:
     /// Emitted after any change to the profile list (register, delete, rename).
     void profiles_changed();
 
-private:
+   private:
     [[nodiscard]] bool save() const;
-    [[nodiscard]] static QString hash_password(const QString& password,
-                                                const QByteArray& salt);
+    [[nodiscard]] static QString hash_password(const QString& password, const QByteArray& salt);
     [[nodiscard]] static QString generate_initials(const QString& displayName);
 
     struct Impl;

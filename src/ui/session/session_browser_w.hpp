@@ -1,9 +1,10 @@
 #pragma once
-#include "analysis/analysis_manager.hpp"
 #include <QDialog>
 #include <QString>
 #include <QStringList>
 #include <memory>
+
+#include "analysis/analysis_manager.hpp"
 
 namespace mosaic {
 
@@ -19,20 +20,18 @@ namespace mosaic {
 
 class SessionBrowserW : public QDialog {
     Q_OBJECT
-public:
+   public:
     // extraDirectories: additional session-root directories to scan and
     // merge alongside recordsDir — used for per-user recording access
     // control (item 27): empty for a regular user (recordsDir alone is
     // already that user's own, correctly-scoped folder), or every other
     // known profile's own recording directory when the active profile is
     // an admin, so the browser shows an aggregated, all-users view.
-    explicit SessionBrowserW(const QString&     recordsDir,
-                              AnalysisManager*   analysisMgr = nullptr,
-                              const QStringList& extraDirectories = {},
-                              QWidget*           parent      = nullptr);
+    explicit SessionBrowserW(const QString& recordsDir, AnalysisManager* analysisMgr = nullptr,
+                             const QStringList& extraDirectories = {}, QWidget* parent = nullptr);
     ~SessionBrowserW() override;
 
-private:
+   private:
     void build_left_panel();
     void build_right_panel();
     void rebuild_session_list();

@@ -34,26 +34,26 @@ namespace mosaic {
 /// @endcode
 ///
 /// @tparam T  Element type.  Must be default-constructible.
-template<typename T>
+template <typename T>
 class RingBuffer {
 #ifdef _MSC_VER
-#  pragma warning(push)
-#  pragma warning(disable: 4324) // structure padded due to alignas — intentional
+#pragma warning(push)
+#pragma warning(disable : 4324) // structure padded due to alignas — intentional
 #endif
     struct alignas(64) AlignedAtomic {
         std::atomic<std::size_t> v{0};
     };
 #ifdef _MSC_VER
-#  pragma warning(pop)
+#pragma warning(pop)
 #endif
 
-    AlignedAtomic   m_head;     ///< Producer counter (written by producer, read by consumer).
-    AlignedAtomic   m_tail;     ///< Consumer counter (written by consumer, read by producer).
-    std::size_t     m_capacity{0};
-    std::size_t     m_mask{0};
-    std::vector<T>  m_storage;
+    AlignedAtomic m_head; ///< Producer counter (written by producer, read by consumer).
+    AlignedAtomic m_tail; ///< Consumer counter (written by consumer, read by producer).
+    std::size_t m_capacity{0};
+    std::size_t m_mask{0};
+    std::vector<T> m_storage;
 
-public:
+   public:
     /// @param capacity  Desired capacity.  Rounded up to the next power of two.
     explicit RingBuffer(std::size_t capacity = 0) { reset(capacity); }
 
@@ -119,9 +119,8 @@ public:
     }
 
     /// @returns Number of items available for reading.
-    [[nodiscard]] std::size_t available_read()  const noexcept {
-        return m_head.v.load(std::memory_order_acquire) -
-               m_tail.v.load(std::memory_order_acquire);
+    [[nodiscard]] std::size_t available_read() const noexcept {
+        return m_head.v.load(std::memory_order_acquire) - m_tail.v.load(std::memory_order_acquire);
     }
 
     /// @returns Number of additional items that can be pushed before the buffer is full.
@@ -136,7 +135,7 @@ public:
     [[nodiscard]] bool empty() const noexcept { return available_read() == 0; }
 
     /// @returns @c true if no more items can be pushed without dropping.
-    [[nodiscard]] bool full()  const noexcept { return available_read() >= m_capacity; }
+    [[nodiscard]] bool full() const noexcept { return available_read() >= m_capacity; }
 };
 
 } // namespace mosaic

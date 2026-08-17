@@ -1,4 +1,5 @@
 #include "analysis/pose_kinematics.hpp"
+
 #include <algorithm>
 #include <cmath>
 
@@ -21,14 +22,20 @@ struct RawSample {
 // any length — there's no max-gap cutoff, since there's no empirical basis
 // for picking one; a long gap yields a low-but-real average rather than a
 // fabricated spike or a divide-by-assumed-frame-rate error).
-QVector<RawSample> collect_valid_samples(const PoseAnalysisResult& result,
-                                          int keypointIndex, int subjectIndex) {
+QVector<RawSample> collect_valid_samples(const PoseAnalysisResult& result, int keypointIndex,
+                                         int subjectIndex) {
     QVector<RawSample> raw;
     for (const auto& frame : result.frames()) {
-        if (subjectIndex < 0 || subjectIndex >= frame.subjects.size()) { continue; }
+        if (subjectIndex < 0 || subjectIndex >= frame.subjects.size()) {
+            continue;
+        }
         const auto& subject = frame.subjects[subjectIndex];
-        if (keypointIndex < 0 || keypointIndex >= subject.keypoints.size()) { continue; }
-        if (!is_keypoint_visible(subject, keypointIndex)) { continue; }
+        if (keypointIndex < 0 || keypointIndex >= subject.keypoints.size()) {
+            continue;
+        }
+        if (!is_keypoint_visible(subject, keypointIndex)) {
+            continue;
+        }
         raw.append({frame.timestampNs, subject.keypoints[keypointIndex]});
     }
     return raw;
@@ -50,17 +57,19 @@ QVector<QPointF> smooth_positions(const QVector<RawSample>& raw, int smoothingWi
     smoothed.reserve(raw.size());
 
     if (smoothingWindow <= 1) {
-        for (const auto& s : raw) { smoothed.append(s.position); }
+        for (const auto& s : raw) {
+            smoothed.append(s.position);
+        }
         return smoothed;
     }
 
     const int halfWidth = smoothingWindow / 2;
-    const int lastIndex  = static_cast<int>(raw.size()) - 1;
+    const int lastIndex = static_cast<int>(raw.size()) - 1;
     for (int i = 0; i < raw.size(); ++i) {
         const int lo = std::max(0, i - halfWidth);
         const int hi = std::min(lastIndex, i + halfWidth);
-        double sx = 0.0;
-        double sy = 0.0;
+        double sx    = 0.0;
+        double sy    = 0.0;
         for (int j = lo; j <= hi; ++j) {
             sx += raw[j].position.x();
             sy += raw[j].position.y();
@@ -73,14 +82,17 @@ QVector<QPointF> smooth_positions(const QVector<RawSample>& raw, int smoothingWi
 
 } // namespace
 
-KinematicsSeries compute_kinematics(const PoseAnalysisResult& result,
-                                     int keypointIndex, int subjectIndex,
-                                     int smoothingWindow) {
+KinematicsSeries compute_kinematics(const PoseAnalysisResult& result, int keypointIndex,
+                                    int subjectIndex, int smoothingWindow) {
     KinematicsSeries out;
-    if (!result.is_valid()) { return out; }
+    if (!result.is_valid()) {
+        return out;
+    }
 
     const QVector<RawSample> raw = collect_valid_samples(result, keypointIndex, subjectIndex);
-    if (raw.isEmpty()) { return out; }
+    if (raw.isEmpty()) {
+        return out;
+    }
 
     const QVector<QPointF> smoothed = smooth_positions(raw, smoothingWindow);
 
@@ -88,7 +100,7 @@ KinematicsSeries compute_kinematics(const PoseAnalysisResult& result,
     for (int i = 0; i < raw.size(); ++i) {
         KinematicSample sample;
         sample.timestampNs = raw[i].timestampNs;
-        sample.position     = smoothed[i];
+        sample.position    = smoothed[i];
         out.samples.append(sample);
     }
 
@@ -103,8 +115,8 @@ KinematicsSeries compute_kinematics(const PoseAnalysisResult& result,
 
         const double dt = (raw[i].timestampNs - raw[i - 1].timestampNs) / 1e9;
         if (dt > 0.0) {
-            const double sdx = smoothed[i].x() - smoothed[i - 1].x();
-            const double sdy = smoothed[i].y() - smoothed[i - 1].y();
+            const double sdx           = smoothed[i].x() - smoothed[i - 1].x();
+            const double sdy           = smoothed[i].y() - smoothed[i - 1].y();
             out.samples[i].speedPxPerS = std::hypot(sdx, sdy) / dt;
         }
     }
@@ -115,7 +127,9 @@ KinematicsSeries compute_kinematics(const PoseAnalysisResult& result,
     for (int i = 2; i < raw.size(); ++i) {
         const double speedPrev = out.samples[i - 1].speedPxPerS;
         const double speedCur  = out.samples[i].speedPxPerS;
-        if (std::isnan(speedPrev) || std::isnan(speedCur)) { continue; }
+        if (std::isnan(speedPrev) || std::isnan(speedCur)) {
+            continue;
+        }
 
         const double dt = (raw[i].timestampNs - raw[i - 1].timestampNs) / 1e9;
         if (dt > 0.0) {
@@ -124,10 +138,12 @@ KinematicsSeries compute_kinematics(const PoseAnalysisResult& result,
     }
 
     out.stats.totalDistancePx = totalDistance;
-    double maxSpeed  = std::numeric_limits<double>::lowest();
-    bool   anySpeed  = false;
+    double maxSpeed           = std::numeric_limits<double>::lowest();
+    bool anySpeed             = false;
     for (const auto& sample : out.samples) {
-        if (std::isnan(sample.speedPxPerS)) { continue; }
+        if (std::isnan(sample.speedPxPerS)) {
+            continue;
+        }
         anySpeed = true;
         maxSpeed = std::max(maxSpeed, sample.speedPxPerS);
     }
@@ -140,8 +156,7 @@ KinematicsSeries compute_kinematics(const PoseAnalysisResult& result,
         // gap), so averaging them as if each carried equal weight would
         // over-count fast dense intervals. This is exactly the case this
         // function's whole gap-handling design is meant to report honestly.
-        const double totalDurationS =
-            (raw.last().timestampNs - raw.first().timestampNs) / 1e9;
+        const double totalDurationS = (raw.last().timestampNs - raw.first().timestampNs) / 1e9;
         if (totalDurationS > 0.0) {
             out.stats.avgSpeedPxPerS = totalDistance / totalDurationS;
         }

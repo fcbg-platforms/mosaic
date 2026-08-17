@@ -2,12 +2,10 @@
 
 namespace mosaic {
 
-VideoFeedProvider::VideoFeedProvider()
-    : QQuickImageProvider(QQuickImageProvider::Image) {}
+VideoFeedProvider::VideoFeedProvider() : QQuickImageProvider(QQuickImageProvider::Image) {}
 
-QImage VideoFeedProvider::requestImage(const QString& id,
-                                        QSize* size,
-                                        const QSize& /*requestedSize*/) {
+QImage VideoFeedProvider::requestImage(const QString& id, QSize* size,
+                                       const QSize& /*requestedSize*/) {
     // id is "<index>" or "<index>?v=<gen>"; strip the query string.
     const int idx = id.split('?').first().toInt();
 
@@ -35,8 +33,7 @@ QImage VideoFeedProvider::requestImage(const QString& id,
 
 void VideoFeedProvider::update_frame(int idx, const QImage& img) {
     QWriteLocker lock(&m_lock);
-    if (idx >= static_cast<int>(m_frames.size()))
-        m_frames.resize(static_cast<size_t>(idx) + 1);
+    if (idx >= static_cast<int>(m_frames.size())) m_frames.resize(static_cast<size_t>(idx) + 1);
     m_frames[static_cast<size_t>(idx)] = img;
 }
 

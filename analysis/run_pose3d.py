@@ -27,6 +27,7 @@ gaze_fusion.json.
 
 See analysis/README.rst for full documentation.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -37,15 +38,15 @@ import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
 
 import numpy as np
-
 from pose3d.association import PersonObservation, cluster_people
+from pose3d.smoothing import smooth_track_positions
 from pose3d.tracker import PersonTracker3D
 from pose3d.triangulation import CameraGeom, project_point_px, triangulate_with_rejection
 
 # ── Data ──────────────────────────────────────────────────────────────────
+
 
 @dataclass
 class _AnalysedFrame:
@@ -55,34 +56,70 @@ class _AnalysedFrame:
     # assumed to equal the .pose.json frame's 0-based list position.
     frame_id: int
     timestamp_ns: int
-    subjects: list   # list of {"keypoints_px": (K,2) ndarray, "visibilities": (K,) ndarray}
+    subjects: list  # list of {"keypoints_px": (K,2) ndarray, "visibilities": (K,) ndarray}
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="MOSAIC multi-camera 3D pose reconstruction")
-    parser.add_argument("--session", required=True, metavar="DIR",
-                         help="Recorded session directory")
-    parser.add_argument("--min-cameras", type=int, default=2,
-                         help="Minimum cameras a person cluster must span to be "
-                              "reconstructed (default: 2 — the mathematical minimum "
-                              "for triangulation)")
-    parser.add_argument("--max-reprojection-error-px", type=float, default=15.0,
-                         help="Per-view reprojection error threshold (px) for outlier-view "
-                              "rejection during keypoint triangulation (default: 15.0)")
-    parser.add_argument("--max-pair-cost-px", type=float, default=20.0,
-                         help="Cross-camera person-association cost threshold (px) — "
-                              "pairs above this are treated as different people (default: 20.0)")
-    parser.add_argument("--min-shared-keypoints", type=int, default=4,
-                         help="Minimum mutually-visible keypoints required to assess "
-                              "whether two detections are the same person (default: 4)")
-    parser.add_argument("--max-track-gap-ticks", type=int, default=5,
-                         help="Ticks a track may go unmatched before it's considered ended "
-                              "(default: 5)")
-    parser.add_argument("--max-track-jump-mm", type=float, default=400.0,
-                         help="Maximum centroid movement (mm) between ticks for the same "
-                              "track (default: 400.0)")
-    parser.add_argument("--skip", type=int, default=1,
-                         help="Process every Nth master tick (default: 1 = every tick)")
+    parser.add_argument(
+        "--session", required=True, metavar="DIR", help="Recorded session directory"
+    )
+    parser.add_argument(
+        "--min-cameras",
+        type=int,
+        default=2,
+        help="Minimum cameras a person cluster must span to be "
+        "reconstructed (default: 2 — the mathematical minimum "
+        "for triangulation)",
+    )
+    parser.add_argument(
+        "--max-reprojection-error-px",
+        type=float,
+        default=15.0,
+        help="Per-view reprojection error threshold (px) for outlier-view "
+        "rejection during keypoint triangulation (default: 15.0)",
+    )
+    parser.add_argument(
+        "--max-pair-cost-px",
+        type=float,
+        default=20.0,
+        help="Cross-camera person-association cost threshold (px) — "
+        "pairs above this are treated as different people (default: 20.0)",
+    )
+    parser.add_argument(
+        "--min-shared-keypoints",
+        type=int,
+        default=4,
+        help="Minimum mutually-visible keypoints required to assess "
+        "whether two detections are the same person (default: 4)",
+    )
+    parser.add_argument(
+        "--max-track-gap-ticks",
+        type=int,
+        default=5,
+        help="Ticks a track may go unmatched before it's considered ended " "(default: 5)",
+    )
+    parser.add_argument(
+        "--max-track-jump-mm",
+        type=float,
+        default=400.0,
+        help="Maximum centroid movement (mm) between ticks for the same " "track (default: 400.0)",
+    )
+    parser.add_argument(
+        "--skip",
+        type=int,
+        default=1,
+        help="Process every Nth master tick (default: 1 = every tick)",
+    )
+    parser.add_argument(
+        "--smoothing-window",
+        type=int,
+        default=1,
+        help="Centered per-track median filter width (in valid ticks, not "
+        "raw tick count) applied to each track's 'keypoints_room_smoothed' "
+        "output field (default: 1 = off). The raw 'keypoints_room' field is "
+        "always written unchanged regardless of this setting.",
+    )
     return parser.parse_args()
 
 
@@ -97,20 +134,30 @@ def main() -> None:
 
     manifest = _load_json(session_dir / "sync_manifest.json")
     if manifest is None:
-        print(f"[run_pose3d] No sync_manifest.json in {session_dir} — "
-              "the caller (AnalysisManager) generates one before launching this script; "
-              "if running standalone, generate it via the app first.", file=sys.stderr)
+        print(
+            f"[run_pose3d] No sync_manifest.json in {session_dir} — "
+            "the caller (AnalysisManager) generates one before launching this script; "
+            "if running standalone, generate it via the app first.",
+            file=sys.stderr,
+        )
         sys.exit(1)
 
     cameras = _resolve_cameras(meta, manifest)
     if not cameras:
-        print("[run_pose3d] No camera has both intrinsic AND extrinsic calibration — "
-              "nothing to reconstruct. Run Room (Extrinsics) calibration first.", file=sys.stderr)
+        print(
+            "[run_pose3d] No camera has both intrinsic AND extrinsic calibration — "
+            "nothing to reconstruct. Run Room (Extrinsics) calibration first.",
+            file=sys.stderr,
+        )
         sys.exit(1)
 
     camera_geoms = {
-        idx: CameraGeom(index=idx, camera_matrix=info["camera_matrix"],
-                         dist_coeffs=info["dist_coeffs"], extrinsic_rt=info["extrinsic_rt"])
+        idx: CameraGeom(
+            index=idx,
+            camera_matrix=info["camera_matrix"],
+            dist_coeffs=info["dist_coeffs"],
+            extrinsic_rt=info["extrinsic_rt"],
+        )
         for idx, info in cameras.items()
     }
 
@@ -126,8 +173,9 @@ def main() -> None:
         # most recently written one rather than assuming a fixed bare
         # filename (which the C++ side no longer ever writes).
         stem = Path(info["video_file"]).stem
-        candidates = sorted((session_dir / "pose").glob(f"{stem}.*.pose.json"),
-                             key=lambda p: p.stat().st_mtime)
+        candidates = sorted(
+            (session_dir / "pose").glob(f"{stem}.*.pose.json"), key=lambda p: p.stat().st_mtime
+        )
         if not candidates:
             continue
         pose_json = candidates[-1]
@@ -135,24 +183,33 @@ def main() -> None:
 
     n_with_pose = sum(1 for v in frames_by_camera.values() if v)
     if n_with_pose == 0:
-        print("[run_pose3d] No .pose.json found for any calibrated camera — "
-              "run the Pose plugin first.", file=sys.stderr)
+        print(
+            "[run_pose3d] No .pose.json found for any calibrated camera — "
+            "run the Pose plugin first.",
+            file=sys.stderr,
+        )
         sys.exit(1)
     if n_with_pose < args.min_cameras:
-        print(f"[run_pose3d] Only {n_with_pose} camera(s) have .pose.json output "
-              f"(need >= {args.min_cameras}) — run the Pose plugin on more cameras.",
-              file=sys.stderr)
+        print(
+            f"[run_pose3d] Only {n_with_pose} camera(s) have .pose.json output "
+            f"(need >= {args.min_cameras}) — run the Pose plugin on more cameras.",
+            file=sys.stderr,
+        )
         sys.exit(1)
 
     frame_results, keypoint_count = _reconstruct_ticks(
-        manifest, camera_geoms, frames_by_camera, args)
+        manifest, camera_geoms, frames_by_camera, args
+    )
+
+    _apply_temporal_smoothing(frame_results, keypoint_count, args.smoothing_window)
 
     _write_results(session_dir, cameras, manifest, keypoint_count, args, frame_results)
 
 
 # ── Session metadata ────────────────────────────────────────────────────────
 
-def _load_json(path: Path) -> Optional[dict]:
+
+def _load_json(path: Path) -> dict | None:
     if not path.exists():
         return None
     try:
@@ -192,8 +249,10 @@ def _resolve_cameras(meta: dict, manifest: dict) -> dict:
 
 # ── Per-camera .pose.json loading ────────────────────────────────────────────
 
-def _load_pose_json(pose_json_path: Path, video_path: Path,
-                     camera_index: int) -> list[_AnalysedFrame]:
+
+def _load_pose_json(
+    pose_json_path: Path, video_path: Path, camera_index: int
+) -> list[_AnalysedFrame]:
     """Loads a .pose.json sidecar (written by analysis/run_pose.py) and
     keys each frame by its real hardware frame_id, read from
     timestamps_camN.csv — NOT the .pose.json's own "frame_index" (which,
@@ -238,8 +297,9 @@ def _load_pose_json(pose_json_path: Path, video_path: Path,
                 continue
             subjects.append({"keypoints_px": kps, "visibilities": vis})
 
-        results.append(_AnalysedFrame(frame_id=frame_id, timestamp_ns=timestamp_ns,
-                                       subjects=subjects))
+        results.append(
+            _AnalysedFrame(frame_id=frame_id, timestamp_ns=timestamp_ns, subjects=subjects)
+        )
 
     results.sort(key=lambda f: f.frame_id)
     return results
@@ -266,8 +326,10 @@ def _nearest_analysed_frame(sorted_ids: list, frames: list, frame_id_target: int
 
 # ── Reconstruction ───────────────────────────────────────────────────────────
 
-def _reconstruct_ticks(manifest: dict, cameras: dict, frames_by_camera: dict,
-                        args: argparse.Namespace):
+
+def _reconstruct_ticks(
+    manifest: dict, cameras: dict, frames_by_camera: dict, args: argparse.Namespace
+):
     total_ticks = int(manifest.get("total_ticks", 0))
     ticks_obj = manifest.get("ticks", {}) or {}
 
@@ -276,18 +338,19 @@ def _reconstruct_ticks(manifest: dict, cameras: dict, frames_by_camera: dict,
     # O(total_ticks) rebuild on every single lookup (the exact bug item
     # 19's own code review caught and fixed for run_gaze_fusion.py).
     sorted_ids_by_camera = {
-        idx: [f.frame_id for f in frames]
-        for idx, frames in frames_by_camera.items() if frames
+        idx: [f.frame_id for f in frames] for idx, frames in frames_by_camera.items() if frames
     }
     tick_ids_by_camera = {
         idx: ticks_obj.get(f"cam{idx}_frame_ids", [])
-        for idx in frames_by_camera if frames_by_camera.get(idx)
+        for idx in frames_by_camera
+        if frames_by_camera.get(idx)
     }
 
-    tracker = PersonTracker3D(max_gap_ticks=args.max_track_gap_ticks,
-                               max_jump_mm=args.max_track_jump_mm)
+    tracker = PersonTracker3D(
+        max_gap_ticks=args.max_track_gap_ticks, max_jump_mm=args.max_track_jump_mm
+    )
 
-    keypoint_count = 17   # COCO fallback — see analysis/pose/keypoints.py::COCO_KEYPOINTS
+    keypoint_count = 17  # COCO fallback — see analysis/pose/keypoints.py::COCO_KEYPOINTS
     found = False
     for frames in frames_by_camera.values():
         for f in frames:
@@ -310,23 +373,27 @@ def _reconstruct_ticks(manifest: dict, cameras: dict, frames_by_camera: dict,
                 continue
             frame_id = ids[tick]
             if frame_id < 0:
-                continue   # SyncManifest's own "-1 = no frame for this camera at this tick"
+                continue  # SyncManifest's own "-1 = no frame for this camera at this tick"
 
             analysed = _nearest_analysed_frame(sorted_ids_by_camera[idx], frames, frame_id)
             if analysed is None or not analysed.subjects:
                 continue
 
             observations_by_camera[idx] = [
-                PersonObservation(camera_index=idx, person_index=p_idx,
-                                   keypoints_px=subj["keypoints_px"],
-                                   visibilities=subj["visibilities"])
+                PersonObservation(
+                    camera_index=idx,
+                    person_index=p_idx,
+                    keypoints_px=subj["keypoints_px"],
+                    visibilities=subj["visibilities"],
+                )
                 for p_idx, subj in enumerate(analysed.subjects)
             ]
 
         people_entries = []
         cluster_centroids = []
-        clusters = cluster_people(observations_by_camera, cameras,
-                                   args.max_pair_cost_px, args.min_shared_keypoints)
+        clusters = cluster_people(
+            observations_by_camera, cameras, args.max_pair_cost_px, args.min_shared_keypoints
+        )
 
         for cluster in clusters:
             # cluster: list of (camera_index, person_index). --min-cameras
@@ -356,14 +423,16 @@ def _reconstruct_ticks(manifest: dict, cameras: dict, frames_by_camera: dict,
                     per_kp_obs[cam_idx] = (obs.keypoints_px[kp_i], obs.visibilities[kp_i])
 
                 tri = triangulate_with_rejection(
-                    per_kp_obs, cameras, args.max_reprojection_error_px)
+                    per_kp_obs, cameras, args.max_reprojection_error_px
+                )
                 if tri is None:
                     continue
 
                 keypoints_room[kp_i] = tri.point_room.tolist()
                 keypoints_valid[kp_i] = True
                 reprojection_error[kp_i] = round(
-                    float(np.mean(list(tri.per_view_error_px.values()))), 2)
+                    float(np.mean(list(tri.per_view_error_px.values()))), 2
+                )
                 n_valid_kps += 1
 
                 for cam_idx in cameras:
@@ -373,36 +442,44 @@ def _reconstruct_ticks(manifest: dict, cameras: dict, frames_by_camera: dict,
             if n_valid_kps == 0:
                 continue
 
-            valid_points = np.array([p for p, v in zip(keypoints_room, keypoints_valid) if v])
+            zipped_kps = zip(keypoints_room, keypoints_valid, strict=False)
+            valid_points = np.array([p for p, v in zipped_kps if v])
             centroid = valid_points.mean(axis=0)
 
-            people_entries.append({
-                "source_cameras": sorted(obs_by_cam.keys()),
-                "keypoints_room": keypoints_room,
-                "keypoints_valid": keypoints_valid,
-                "reprojection_error_px": reprojection_error,
-                "reprojected_px": reprojected_px,
-                "_centroid": centroid,
-            })
+            people_entries.append(
+                {
+                    "source_cameras": sorted(obs_by_cam.keys()),
+                    "keypoints_room": keypoints_room,
+                    "keypoints_valid": keypoints_valid,
+                    "reprojection_error_px": reprojection_error,
+                    "reprojected_px": reprojected_px,
+                    "_centroid": centroid,
+                }
+            )
             cluster_centroids.append(centroid)
 
         track_ids = tracker.update(tick, cluster_centroids)
-        for entry, tid in zip(people_entries, track_ids):
+        for entry, tid in zip(people_entries, track_ids, strict=False):
             entry["track_id"] = tid
             entry["num_contributing_cameras"] = len(entry["source_cameras"])
             del entry["_centroid"]
 
         tick_timestamp_ns = _tick_timestamp_ns(manifest, tick)
-        results.append({
-            "tick": tick,
-            "timestamp_ns": tick_timestamp_ns,
-            "people": people_entries,
-        })
+        results.append(
+            {
+                "tick": tick,
+                "timestamp_ns": tick_timestamp_ns,
+                "people": people_entries,
+            }
+        )
 
         if tick % 100 == 0:
             elapsed = time.perf_counter() - t_start
-            print(f"[run_pose3d]  tick {tick}/{total_ticks}  "
-                  f"({len(people_entries)} people)  {elapsed:.1f}s elapsed", flush=True)
+            print(
+                f"[run_pose3d]  tick {tick}/{total_ticks}  "
+                f"({len(people_entries)} people)  {elapsed:.1f}s elapsed",
+                flush=True,
+            )
 
     return results, keypoint_count
 
@@ -414,58 +491,126 @@ def _tick_timestamp_ns(manifest: dict, tick: int) -> int:
     return t_origin_ns + tick * step_ns
 
 
+# ── Temporal smoothing ───────────────────────────────────────────────────────
+
+
+def _apply_temporal_smoothing(results: list[dict], keypoint_count: int, window: int) -> None:
+    """Adds a "keypoints_room_smoothed" field to every person entry across
+    `results`, mutated in place. Groups occurrences by track_id first (each
+    track's own trajectory is smoothed independently — never bleeding
+    across different people or across a track-id reassignment), then per
+    keypoint index applies smooth_track_positions() over that track's
+    per-tick positions (None at exactly the ticks "keypoints_valid" is
+    False for that keypoint, mirroring "keypoints_room"'s own convention).
+
+    Always runs, even at window<=1 — smooth_track_positions() treats that
+    as a documented no-op, so "keypoints_room_smoothed" is always present
+    (equal to the raw values when smoothing is off), matching this schema's
+    "raw is always written, smoothed is additive" convention (item 16 pose
+    kinematics, rPPG's bpm/smoothed_bpm) rather than omitting the field."""
+    occurrences_by_track: dict[int, list[tuple[int, int]]] = {}
+    for entry_idx, entry in enumerate(results):
+        for person_idx, person in enumerate(entry["people"]):
+            occurrences_by_track.setdefault(person["track_id"], []).append((entry_idx, person_idx))
+            person["keypoints_room_smoothed"] = [None] * keypoint_count
+
+    for occurrences in occurrences_by_track.values():
+        for kp_i in range(keypoint_count):
+            positions: list[np.ndarray | None] = []
+            for entry_idx, person_idx in occurrences:
+                person = results[entry_idx]["people"][person_idx]
+                if person["keypoints_valid"][kp_i]:
+                    positions.append(np.array(person["keypoints_room"][kp_i], dtype=float))
+                else:
+                    positions.append(None)
+
+            smoothed = smooth_track_positions(positions, window)
+
+            for (entry_idx, person_idx), value in zip(occurrences, smoothed, strict=False):
+                person = results[entry_idx]["people"][person_idx]
+                person["keypoints_room_smoothed"][kp_i] = (
+                    None if value is None else [round(float(v), 2) for v in value]
+                )
+
+
 # ── Output ────────────────────────────────────────────────────────────────
 
-def _write_results(session_dir: Path, cameras: dict, manifest: dict, keypoint_count: int,
-                    args: argparse.Namespace, frame_results: list) -> None:
+
+def _write_results(
+    session_dir: Path,
+    cameras: dict,
+    manifest: dict,
+    keypoint_count: int,
+    args: argparse.Namespace,
+    frame_results: list,
+) -> None:
     from pose.keypoints import COCO_KEYPOINTS, COCO_SKELETON
 
-    keypoint_names = COCO_KEYPOINTS if keypoint_count == len(COCO_KEYPOINTS) else \
-        [f"kp{i}" for i in range(keypoint_count)]
+    keypoint_names = (
+        COCO_KEYPOINTS
+        if keypoint_count == len(COCO_KEYPOINTS)
+        else [f"kp{i}" for i in range(keypoint_count)]
+    )
     skeleton_edges = COCO_SKELETON if keypoint_count == len(COCO_KEYPOINTS) else []
 
     out_frames = []
     for entry in frame_results:
         people = []
         for p in entry["people"]:
-            people.append({
-                "track_id": p["track_id"],
-                "num_contributing_cameras": p["num_contributing_cameras"],
-                "source_cameras": p["source_cameras"],
-                "keypoints_room": p["keypoints_room"],
-                "keypoints_valid": p["keypoints_valid"],
-                "reprojection_error_px": p["reprojection_error_px"],
-                "reprojected_px": {str(k): v for k, v in p["reprojected_px"].items()},
-            })
-        out_frames.append({
-            "tick": entry["tick"],
-            "timestamp_ns": entry["timestamp_ns"],
-            "people": people,
-        })
+            people.append(
+                {
+                    "track_id": p["track_id"],
+                    "num_contributing_cameras": p["num_contributing_cameras"],
+                    "source_cameras": p["source_cameras"],
+                    "keypoints_room": p["keypoints_room"],
+                    "keypoints_room_smoothed": p["keypoints_room_smoothed"],
+                    "keypoints_valid": p["keypoints_valid"],
+                    "reprojection_error_px": p["reprojection_error_px"],
+                    "reprojected_px": {str(k): v for k, v in p["reprojected_px"].items()},
+                }
+            )
+        out_frames.append(
+            {
+                "tick": entry["tick"],
+                "timestamp_ns": entry["timestamp_ns"],
+                "people": people,
+            }
+        )
 
     out_path = session_dir / "skeleton3d.json"
-    out_path.write_text(json.dumps({
-        "schema": "mosaic-skeleton3d-v1",
-        "source_videos": [info["video_file"] for info in cameras.values()],
-        "cameras": [
-            {"index": idx, "position_room": [float(info["extrinsic_rt"][0, 3]),
-                                              float(info["extrinsic_rt"][1, 3]),
-                                              float(info["extrinsic_rt"][2, 3])]}
-            for idx, info in cameras.items()
-        ],
-        "keypoint_names": keypoint_names,
-        "skeleton_edges": [list(e) for e in skeleton_edges],
-        "master_fps": manifest.get("master_fps", 25.0),
-        "params": {
-            "min_cameras": args.min_cameras,
-            "max_reprojection_error_px": args.max_reprojection_error_px,
-            "max_pair_cost_px": args.max_pair_cost_px,
-            "min_shared_keypoints": args.min_shared_keypoints,
-            "max_track_gap_ticks": args.max_track_gap_ticks,
-            "max_track_jump_mm": args.max_track_jump_mm,
-        },
-        "frames": out_frames,
-    }, indent=2))
+    out_path.write_text(
+        json.dumps(
+            {
+                "schema": "mosaic-skeleton3d-v1",
+                "source_videos": [info["video_file"] for info in cameras.values()],
+                "cameras": [
+                    {
+                        "index": idx,
+                        "position_room": [
+                            float(info["extrinsic_rt"][0, 3]),
+                            float(info["extrinsic_rt"][1, 3]),
+                            float(info["extrinsic_rt"][2, 3]),
+                        ],
+                    }
+                    for idx, info in cameras.items()
+                ],
+                "keypoint_names": keypoint_names,
+                "skeleton_edges": [list(e) for e in skeleton_edges],
+                "master_fps": manifest.get("master_fps", 25.0),
+                "params": {
+                    "min_cameras": args.min_cameras,
+                    "max_reprojection_error_px": args.max_reprojection_error_px,
+                    "max_pair_cost_px": args.max_pair_cost_px,
+                    "min_shared_keypoints": args.min_shared_keypoints,
+                    "max_track_gap_ticks": args.max_track_gap_ticks,
+                    "max_track_jump_mm": args.max_track_jump_mm,
+                    "smoothing_window": args.smoothing_window,
+                },
+                "frames": out_frames,
+            },
+            indent=2,
+        )
+    )
     print(f"[run_pose3d] 3D pose reconstruction → {out_path}", flush=True)
 
 

@@ -1,11 +1,12 @@
 #pragma once
+#include <QWidget>
+#include <memory>
+
 #include "analysis/expression_result.hpp"
 #include "analysis/gaze_fusion_result.hpp"
 #include "analysis/pose_analysis_result.hpp"
 #include "analysis/rppg_result.hpp"
 #include "analysis/skeleton3d_result.hpp"
-#include <QWidget>
-#include <memory>
 
 namespace mosaic {
 
@@ -30,7 +31,7 @@ namespace mosaic {
 //           &MetricsChartW::set_playhead_ms);
 class PoseOverlayPlayerW : public QWidget {
     Q_OBJECT
-public:
+   public:
     explicit PoseOverlayPlayerW(QWidget* parent = nullptr);
     ~PoseOverlayPlayerW() override;
 
@@ -89,17 +90,17 @@ public:
     [[nodiscard]] int64_t position_ms() const;
     [[nodiscard]] int64_t duration_ms() const;
 
-public slots:
+   public slots:
     void play();
     void pause();
     void seek(int64_t positionMs);
 
-signals:
+   signals:
     // Emitted as playback advances (and on manual seeks), so a companion
     // metrics chart can keep its playhead in sync.
     void position_changed(int64_t positionMs);
 
-private:
+   private:
     struct Impl;
     std::unique_ptr<Impl> d;
 };

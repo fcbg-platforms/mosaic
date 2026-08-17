@@ -1,11 +1,5 @@
 #include "video/video_manager.hpp"
-#include "trigger/trigger_manager.hpp"
-#include "utils/ring_buffer.hpp"
-#include "utils/timestamp.hpp"
-#include "video/gige_action_command.hpp"
-#include "video/video_encoder.hpp"
-#include "video/video_grabber.hpp"
-#include "utils/logger.hpp"
+
 #include <QCoreApplication>
 #include <QDir>
 #include <QSet>
@@ -15,6 +9,14 @@
 #include <atomic>
 #include <chrono>
 #include <cmath>
+
+#include "trigger/trigger_manager.hpp"
+#include "utils/logger.hpp"
+#include "utils/ring_buffer.hpp"
+#include "utils/timestamp.hpp"
+#include "video/gige_action_command.hpp"
+#include "video/video_encoder.hpp"
+#include "video/video_grabber.hpp"
 
 namespace mosaic {
 
@@ -37,7 +39,7 @@ static constexpr std::size_t k_ring_capacity = 128;
 // requestInterruption() is noticed promptly rather than only after a full
 // period elapses.
 class ActionCommandTicker : public QThread {
-public:
+   public:
     // session must already be valid (caller checks ActionCommandSession::
     // is_valid() and handles the failure case BEFORE constructing a ticker
     // at all — see arm_and_fire_action_commands()). Constructing the session
@@ -56,13 +58,14 @@ public:
     // reads) for the per-camera missed-trigger diagnostic in run() — never
     // written to from this thread.
     ActionCommandTicker(std::unique_ptr<ActionCommandSession> session,
-                         std::vector<ActionCommandTarget> targets,
-                         std::vector<VideoGrabber*> grabbers, double periodMs)
-        : m_session(std::move(session)), m_targets(std::move(targets))
-        , m_grabbers(std::move(grabbers))
-        , m_period(std::chrono::duration<double, std::milli>(periodMs)) {}
+                        std::vector<ActionCommandTarget> targets,
+                        std::vector<VideoGrabber*> grabbers, double periodMs)
+        : m_session(std::move(session)),
+          m_targets(std::move(targets)),
+          m_grabbers(std::move(grabbers)),
+          m_period(std::chrono::duration<double, std::milli>(periodMs)) {}
 
-protected:
+   protected:
     void run() override {
         // ActionCommandSession::fire() already catches per-target
         // Pylon::GenericException internally, but this outer net catches
@@ -70,8 +73,8 @@ protected:
         // fatal to the whole process (std::terminate()), and this thread is
         // meant to run unattended for an entire recording session.
         try {
-            auto nextTick = SteadyClock::now();
-            auto lastDiagTime = nextTick;
+            auto nextTick      = SteadyClock::now();
+            auto lastDiagTime  = nextTick;
             int64_t ticksFired = 0;
             while (!isInterruptionRequested()) {
                 const auto now = SteadyClock::now();
@@ -80,12 +83,14 @@ protected:
                     continue;
                 }
                 nextTick += std::chrono::duration_cast<SteadyClock::duration>(m_period);
-                const int fired = m_session->fire(m_targets, k_action_group_key, k_action_group_mask);
+                const int fired =
+                    m_session->fire(m_targets, k_action_group_key, k_action_group_mask);
                 ++ticksFired;
                 if (fired < static_cast<int>(m_targets.size())) {
                     log_warning(QString("[VideoManager] ActionCommandTicker: only %1/%2 action-"
                                         "command broadcasts succeeded this tick.")
-                                    .arg(fired).arg(m_targets.size()));
+                                    .arg(fired)
+                                    .arg(m_targets.size()));
                 }
 
                 // Per-camera missed-trigger diagnostic, ~every 5s (same
@@ -104,7 +109,9 @@ protected:
                 if (std::chrono::duration<double>(now - lastDiagTime).count() >= 5.0) {
                     lastDiagTime = now;
                     for (size_t i = 0; i < m_targets.size() && i < m_grabbers.size(); ++i) {
-                        if (!m_grabbers[i]) { continue; }
+                        if (!m_grabbers[i]) {
+                            continue;
+                        }
                         const int64_t captured = m_grabbers[i]->frames_grabbed();
                         // A little slack: the readiness barrier still lets a
                         // camera join a few ticks late, and a healthy camera
@@ -118,7 +125,9 @@ protected:
                                                 "(%4 missing) — this camera is likely missing "
                                                 "trigger broadcasts, not just corrupted frames.")
                                             .arg(m_targets[i].cameraIndex)
-                                            .arg(ticksFired).arg(captured).arg(missed));
+                                            .arg(ticksFired)
+                                            .arg(captured)
+                                            .arg(missed));
                         }
                     }
 
@@ -142,9 +151,12 @@ protected:
                     std::vector<double> freshTargetFps;
                     freshTargetFps.reserve(m_grabbers.size());
                     for (auto* g : m_grabbers) {
-                        if (!g) { continue; }
+                        if (!g) {
+                            continue;
+                        }
                         const double achievable = g->achievable_fps();
-                        freshTargetFps.push_back(achievable > 0.0 ? achievable : g->configured_fps());
+                        freshTargetFps.push_back(achievable > 0.0 ? achievable
+                                                                  : g->configured_fps());
                     }
                     const auto newPeriod = std::chrono::duration<double, std::milli>(
                         action_command_period_ms(freshTargetFps));
@@ -167,22 +179,23 @@ protected:
                               "stopping firing for the rest of this session: %1")
                           .arg(QString::fromUtf8(e.what())));
         } catch (...) {
-            log_error("[VideoManager] ActionCommandTicker: unknown non-standard exception, "
-                      "stopping firing for the rest of this session.");
+            log_error(
+                "[VideoManager] ActionCommandTicker: unknown non-standard exception, "
+                "stopping firing for the rest of this session.");
         }
     }
 
-private:
+   private:
     std::unique_ptr<ActionCommandSession> m_session;
-    std::vector<ActionCommandTarget>      m_targets;
-    std::vector<VideoGrabber*>            m_grabbers;
+    std::vector<ActionCommandTarget> m_targets;
+    std::vector<VideoGrabber*> m_grabbers;
     std::chrono::duration<double, std::milli> m_period;
 };
 
 struct CameraUnit {
     std::unique_ptr<RingBuffer<std::shared_ptr<VideoFrame>>> buffer;
-    std::unique_ptr<VideoGrabber>                            grabber;
-    std::unique_ptr<VideoEncoder>                            encoder;
+    std::unique_ptr<VideoGrabber> grabber;
+    std::unique_ptr<VideoEncoder> encoder;
     bool encoderDone{false};
     // Position in the *configured* settings.cameras array this unit was
     // opened from — NOT necessarily this unit's position in d->units, since
@@ -196,13 +209,13 @@ struct CameraUnit {
 
 struct VideoManager::Impl {
     std::vector<CameraUnit> units;
-    bool                    recording{false};
-    bool                    previewing{false};
-    std::atomic<int>        stoppedCount{0};
-    int                     cameraCount{0};
+    bool recording{false};
+    bool previewing{false};
+    std::atomic<int> stoppedCount{0};
+    int cameraCount{0};
 
-    std::atomic<int64_t>    totalEncoded{0};
-    std::atomic<int64_t>    totalDropped{0};
+    std::atomic<int64_t> totalEncoded{0};
+    std::atomic<int64_t> totalDropped{0};
 
     // Owns the background thread continuously firing GigE Vision Action
     // Commands while any Action1-armed camera is grabbing (preview or
@@ -211,11 +224,12 @@ struct VideoManager::Impl {
     std::unique_ptr<ActionCommandTicker> actionTicker;
 };
 
-VideoManager::VideoManager(QObject* parent)
-    : QObject(parent), d(std::make_unique<Impl>()) {
-}
+VideoManager::VideoManager(QObject* parent) : QObject(parent), d(std::make_unique<Impl>()) {}
 
-VideoManager::~VideoManager() { stop(); close(); }
+VideoManager::~VideoManager() {
+    stop();
+    close();
+}
 
 // ── Open / Close ───────────────────────────────────────────────────────────
 
@@ -234,8 +248,13 @@ int VideoManager::open(const VideoSettings& settings) {
     QSet<QString> duplicateSerials;
     int emptySerialCount = 0;
     for (const auto& cam : settings.cameras) {
-        if (cam.serialNumber.isEmpty()) { ++emptySerialCount; continue; }
-        if (seenSerials.contains(cam.serialNumber)) { duplicateSerials.insert(cam.serialNumber); }
+        if (cam.serialNumber.isEmpty()) {
+            ++emptySerialCount;
+            continue;
+        }
+        if (seenSerials.contains(cam.serialNumber)) {
+            duplicateSerials.insert(cam.serialNumber);
+        }
         seenSerials.insert(cam.serialNumber);
     }
     const bool ambiguousEmpty = emptySerialCount > 1;
@@ -248,54 +267,58 @@ int VideoManager::open(const VideoSettings& settings) {
 
         if (!cam.serialNumber.isEmpty() && duplicateSerials.contains(cam.serialNumber)) {
             log_error(QString("[VideoManager] open: cam %1 serial '%2' is used by more than "
-                               "one configured camera — skipping to avoid two grabbers "
-                               "attaching to the same physical device. Fix the serial numbers "
-                               "in the Video settings.")
-                          .arg(i).arg(cam.serialNumber));
+                              "one configured camera — skipping to avoid two grabbers "
+                              "attaching to the same physical device. Fix the serial numbers "
+                              "in the Video settings.")
+                          .arg(i)
+                          .arg(cam.serialNumber));
             continue;
         }
         if (cam.serialNumber.isEmpty() && ambiguousEmpty) {
             log_error(QString("[VideoManager] open: cam %1 has no serial number configured, "
-                               "and more than one configured camera is missing a serial — "
-                               "skipping rather than risk two grabbers attaching to the same "
-                               "\"first device found\". Set this camera's serial number in the "
-                               "Video settings.")
+                              "and more than one configured camera is missing a serial — "
+                              "skipping rather than risk two grabbers attaching to the same "
+                              "\"first device found\". Set this camera's serial number in the "
+                              "Video settings.")
                           .arg(i));
             continue;
         }
 
-        auto unit       = CameraUnit{};
+        auto unit        = CameraUnit{};
         unit.configIndex = i;
         unit.buffer  = std::make_unique<RingBuffer<std::shared_ptr<VideoFrame>>>(k_ring_capacity);
         unit.grabber = std::make_unique<VideoGrabber>(i, cam, *unit.buffer);
 
-        connect(unit.grabber.get(), &VideoGrabber::opened,
-                this,               &VideoManager::camera_opened,   Qt::QueuedConnection);
-        connect(unit.grabber.get(), &VideoGrabber::closed,
-                this,               &VideoManager::camera_closed,   Qt::QueuedConnection);
-        connect(unit.grabber.get(), &VideoGrabber::frame_dropped,
-                this,               &VideoManager::frame_dropped,   Qt::QueuedConnection);
-        connect(unit.grabber.get(), &VideoGrabber::grab_error,
-                this,               &VideoManager::camera_error,    Qt::QueuedConnection);
-
-        connect(unit.grabber.get(), &VideoGrabber::preview_frame,
-                this,               &VideoManager::frame_preview,   Qt::QueuedConnection);
-        connect(unit.grabber.get(), &VideoGrabber::calibration_frame_ready,
-                this,               &VideoManager::calibration_frame_ready, Qt::QueuedConnection);
-        connect(unit.grabber.get(), &VideoGrabber::action_command_capability,
-                this,               &VideoManager::action_command_capability, Qt::QueuedConnection);
-
+        connect(unit.grabber.get(), &VideoGrabber::opened, this, &VideoManager::camera_opened,
+                Qt::QueuedConnection);
+        connect(unit.grabber.get(), &VideoGrabber::closed, this, &VideoManager::camera_closed,
+                Qt::QueuedConnection);
         connect(unit.grabber.get(), &VideoGrabber::frame_dropped, this,
-                [this](int /*cam*/, int64_t /*id*/) {
-                    d->totalDropped.fetch_add(1);
-                }, Qt::QueuedConnection);
+                &VideoManager::frame_dropped, Qt::QueuedConnection);
+        connect(unit.grabber.get(), &VideoGrabber::grab_error, this, &VideoManager::camera_error,
+                Qt::QueuedConnection);
+
+        connect(unit.grabber.get(), &VideoGrabber::preview_frame, this,
+                &VideoManager::frame_preview, Qt::QueuedConnection);
+        connect(unit.grabber.get(), &VideoGrabber::calibration_frame_ready, this,
+                &VideoManager::calibration_frame_ready, Qt::QueuedConnection);
+        connect(unit.grabber.get(), &VideoGrabber::action_command_capability, this,
+                &VideoManager::action_command_capability, Qt::QueuedConnection);
+
+        connect(
+            unit.grabber.get(), &VideoGrabber::frame_dropped, this,
+            [this](int /*cam*/, int64_t /*id*/) { d->totalDropped.fetch_add(1); },
+            Qt::QueuedConnection);
 
         log_info(QString("[VideoManager] open: calling open() for cam %1 (serial %2)")
-                     .arg(i).arg(cam.serialNumber));
+                     .arg(i)
+                     .arg(cam.serialNumber));
         if (unit.grabber->open()) {
             log_info(QString("[VideoManager] open: cam %1 open() returned, pushing unit").arg(i));
             d->units.push_back(std::move(unit));
-            log_info(QString("[VideoManager] open: cam %1 unit pushed, opened=%2").arg(i).arg(opened + 1));
+            log_info(QString("[VideoManager] open: cam %1 unit pushed, opened=%2")
+                         .arg(i)
+                         .arg(opened + 1));
             ++opened;
         } else {
             log_warning(QString("[VideoManager] open: cam %1 open() failed").arg(i));
@@ -304,13 +327,16 @@ int VideoManager::open(const VideoSettings& settings) {
 
     d->cameraCount = opened;
     log_info(QString("[VideoManager] %1 of %2 camera(s) opened.")
-                 .arg(opened).arg(settings.cameras.size()));
+                 .arg(opened)
+                 .arg(settings.cameras.size()));
     return opened;
 }
 
 void VideoManager::close() {
     log_info(QString("[VideoManager] close() units=%1 rec=%2 prev=%3")
-                 .arg(d->units.size()).arg(d->recording).arg(d->previewing));
+                 .arg(d->units.size())
+                 .arg(d->recording)
+                 .arg(d->previewing));
     if (d->recording) {
         stop();
     } else {
@@ -327,7 +353,9 @@ void VideoManager::close() {
     }
     log_info("[VideoManager] close: closing Pylon devices");
     for (auto& unit : d->units) {
-        if (unit.grabber) { unit.grabber->close(); }
+        if (unit.grabber) {
+            unit.grabber->close();
+        }
     }
     // Flush any queued MetaCallEvents (preview_frame, closed) that were posted
     // to this object by the now-stopped grabbers.  Removing them before
@@ -343,16 +371,19 @@ void VideoManager::close() {
 // ── Recording lifecycle ────────────────────────────────────────────────────
 
 void VideoManager::start_preview() {
-    if (d->units.empty()) { return; }
+    if (d->units.empty()) {
+        return;
+    }
     arm_and_fire_action_commands();
     d->previewing = true;
     log_info(QString("[VideoManager] Preview started for %1 camera(s).").arg(d->units.size()));
 }
 
-void VideoManager::start(const QString&       sessionDir,
-                          const QString&       videoBasename,
-                          const VideoSettings& settings) {
-    if (d->recording || d->units.empty()) { return; }
+void VideoManager::start(const QString& sessionDir, const QString& videoBasename,
+                         const VideoSettings& settings) {
+    if (d->recording || d->units.empty()) {
+        return;
+    }
 
     // Stop preview grabbers so ring buffers can be safely reset before recording.
     if (d->previewing) {
@@ -381,12 +412,12 @@ void VideoManager::start(const QString&       sessionDir,
         // in d->units — those diverge as soon as any earlier camera fails
         // to open, and pairing positionally here would silently apply the
         // wrong camera's width/height/fps and write to the wrong filename.
-        const int i = unit.configIndex;
+        const int i     = unit.configIndex;
         const auto& cam = (i < static_cast<int>(settings.cameras.size()))
-            ? settings.cameras[static_cast<size_t>(i)]
-            : CameraParameters{};
+                              ? settings.cameras[static_cast<size_t>(i)]
+                              : CameraParameters{};
 
-        const QString suffix   = QString("_%1").arg(i);
+        const QString suffix    = QString("_%1").arg(i);
         const QString videoPath = sessionDir + "/" + videoBasename + suffix + ".mp4";
         const QString tsPath    = sessionDir + "/timestamps_cam" + QString::number(i) + ".csv";
 
@@ -407,10 +438,10 @@ void VideoManager::start(const QString&       sessionDir,
 
         unit.encoder = std::make_unique<VideoEncoder>(cfg, *unit.buffer);
 
-        connect(unit.encoder.get(), &VideoEncoder::encoding_stopped,
-                this, &VideoManager::on_encoder_stopped, Qt::QueuedConnection);
-        connect(unit.encoder.get(), &VideoEncoder::encoding_error,
-                this, &VideoManager::camera_error,        Qt::QueuedConnection);
+        connect(unit.encoder.get(), &VideoEncoder::encoding_stopped, this,
+                &VideoManager::on_encoder_stopped, Qt::QueuedConnection);
+        connect(unit.encoder.get(), &VideoEncoder::encoding_error, this,
+                &VideoManager::camera_error, Qt::QueuedConnection);
 
         unit.encoder->start_encoding();
 
@@ -430,20 +461,30 @@ void VideoManager::start(const QString&       sessionDir,
 }
 
 void VideoManager::stop() {
-    if (!d->recording) { return; }
+    if (!d->recording) {
+        return;
+    }
     d->recording = false;
 
     stop_action_ticker();
 
     // Signal grabbers to stop producing — encoders will drain and finish on their own.
     for (auto& unit : d->units) {
-        if (unit.grabber) { unit.grabber->stop_grabbing(); }
-        if (unit.encoder) { unit.encoder->stop_encoding(); }
+        if (unit.grabber) {
+            unit.grabber->stop_grabbing();
+        }
+        if (unit.encoder) {
+            unit.encoder->stop_encoding();
+        }
     }
     // Wait for all threads to exit.
     for (auto& unit : d->units) {
-        if (unit.grabber) { unit.grabber->wait(5000); }
-        if (unit.encoder) { unit.encoder->wait(10000); }
+        if (unit.grabber) {
+            unit.grabber->wait(5000);
+        }
+        if (unit.encoder) {
+            unit.encoder->wait(10000);
+        }
     }
 }
 
@@ -471,7 +512,9 @@ void VideoManager::arm_and_fire_action_commands() {
     std::vector<CameraUnit*> pending;       // all not-yet-running units
     std::vector<CameraUnit*> actionTargets; // subset that are Action1-ready
     for (auto& unit : d->units) {
-        if (!unit.grabber || unit.grabber->isRunning()) { continue; } // already armed
+        if (!unit.grabber || unit.grabber->isRunning()) {
+            continue;
+        } // already armed
         pending.push_back(&unit);
         if (unit.grabber->action_command_ready()) {
             actionTargets.push_back(&unit);
@@ -482,8 +525,12 @@ void VideoManager::arm_and_fire_action_commands() {
     // configured for Action1 are now parked waiting for FrameStart
     // triggers (see VideoGrabber::open()) — nothing arrives until the
     // ticker below starts.
-    for (auto* u : pending) { u->grabber->start_grabbing(); }
-    if (actionTargets.empty()) { return; }
+    for (auto* u : pending) {
+        u->grabber->start_grabbing();
+    }
+    if (actionTargets.empty()) {
+        return;
+    }
 
     // start_grabbing() only confirms QThread::start() was scheduled, not
     // that Pylon's StartGrabbing() has actually run yet (that call itself
@@ -497,20 +544,24 @@ void VideoManager::arm_and_fire_action_commands() {
     // just gets whatever tick catches it next, self-correcting rather than
     // held up entirely.
     {
-        constexpr int k_readinessPollTimeoutMs = 500;
+        constexpr int k_readinessPollTimeoutMs  = 500;
         constexpr int k_readinessPollIntervalMs = 2;
-        int waitedMs = 0;
+        int waitedMs                            = 0;
         while (waitedMs < k_readinessPollTimeoutMs) {
-            const bool allReady = std::all_of(actionTargets.begin(), actionTargets.end(),
-                [](CameraUnit* u) { return u->grabber->is_actually_grabbing(); });
-            if (allReady) { break; }
+            const bool allReady =
+                std::all_of(actionTargets.begin(), actionTargets.end(),
+                            [](CameraUnit* u) { return u->grabber->is_actually_grabbing(); });
+            if (allReady) {
+                break;
+            }
             QThread::msleep(k_readinessPollIntervalMs);
             waitedMs += k_readinessPollIntervalMs;
         }
         if (waitedMs >= k_readinessPollTimeoutMs) {
-            log_warning("[VideoManager] Timed out waiting for all Action1-armed cameras to "
-                        "actually start grabbing — firing anyway; any camera not yet ready "
-                        "will pick up on a later tick instead of the first one.");
+            log_warning(
+                "[VideoManager] Timed out waiting for all Action1-armed cameras to "
+                "actually start grabbing — firing anyway; any camera not yet ready "
+                "will pick up on a later tick instead of the first one.");
         }
     }
 
@@ -524,12 +575,12 @@ void VideoManager::arm_and_fire_action_commands() {
     stop_action_ticker();
 
     std::vector<ActionCommandTarget> targets;
-    std::vector<VideoGrabber*>       grabbers; // parallel to targets — see ActionCommandTicker
-    std::vector<double>              targetFps;
-    QStringList                      targetDesc;
+    std::vector<VideoGrabber*> grabbers; // parallel to targets — see ActionCommandTicker
+    std::vector<double> targetFps;
+    QStringList targetDesc;
     for (auto* u : actionTargets) {
         targets.push_back({u->configIndex, u->grabber->action_device_key(),
-                            u->grabber->action_broadcast_address()});
+                           u->grabber->action_broadcast_address()});
         grabbers.push_back(u->grabber.get());
         // Prefer the camera's real, measured achievable rate over the
         // requested one — a camera GigE-bandwidth/exposure/ROI-limited
@@ -554,9 +605,10 @@ void VideoManager::arm_and_fire_action_commands() {
     // it here lets us fail loudly and per-camera instead.
     auto session = std::make_unique<ActionCommandSession>();
     if (!session->is_valid()) {
-        const QString msg = "GigE transport layer unavailable — Action Command triggering "
-                             "cannot start this session; this camera will produce zero frames "
-                             "until Action1 is deselected or the camera is reopened.";
+        const QString msg =
+            "GigE transport layer unavailable — Action Command triggering "
+            "cannot start this session; this camera will produce zero frames "
+            "until Action1 is deselected or the camera is reopened.";
         log_error(QString("[VideoManager] %1").arg(msg));
         for (auto* u : actionTargets) {
             emit camera_error(u->configIndex, msg);
@@ -565,15 +617,19 @@ void VideoManager::arm_and_fire_action_commands() {
     }
 
     log_info(QString("[VideoManager] Starting continuous GigE Action Command firing "
-                      "(every %1 ms) for %2 camera(s): %3")
-                 .arg(periodMs, 0, 'f', 1).arg(targets.size()).arg(targetDesc.join(", ")));
+                     "(every %1 ms) for %2 camera(s): %3")
+                 .arg(periodMs, 0, 'f', 1)
+                 .arg(targets.size())
+                 .arg(targetDesc.join(", ")));
     d->actionTicker = std::make_unique<ActionCommandTicker>(std::move(session), std::move(targets),
-                                                             std::move(grabbers), periodMs);
+                                                            std::move(grabbers), periodMs);
     d->actionTicker->start();
 }
 
 void VideoManager::stop_action_ticker() {
-    if (!d->actionTicker) { return; }
+    if (!d->actionTicker) {
+        return;
+    }
     d->actionTicker->requestInterruption();
     if (!d->actionTicker->wait(5000)) {
         log_warning("[VideoManager] ActionCommandTicker did not finish in 5 s — forcing terminate");
@@ -585,8 +641,8 @@ void VideoManager::stop_action_ticker() {
 
 void VideoManager::on_encoder_stopped(int cameraIndex, int64_t frames) {
     d->totalEncoded.fetch_add(frames);
-    log_info(QString("[VideoManager] Camera %1 encoder done (%2 frames).")
-                 .arg(cameraIndex).arg(frames));
+    log_info(
+        QString("[VideoManager] Camera %1 encoder done (%2 frames).").arg(cameraIndex).arg(frames));
     const int done = d->stoppedCount.fetch_add(1) + 1;
     if (done >= d->cameraCount) {
         emit recording_stopped();
@@ -595,15 +651,17 @@ void VideoManager::on_encoder_stopped(int cameraIndex, int64_t frames) {
 
 // ── Accessors ──────────────────────────────────────────────────────────────
 
-bool    VideoManager::is_recording()        const { return d->recording; }
-bool    VideoManager::is_previewing()       const { return d->previewing; }
-int     VideoManager::camera_count()        const { return d->cameraCount; }
+bool VideoManager::is_recording() const { return d->recording; }
+bool VideoManager::is_previewing() const { return d->previewing; }
+int VideoManager::camera_count() const { return d->cameraCount; }
 int64_t VideoManager::total_frames_encoded() const { return d->totalEncoded.load(); }
 int64_t VideoManager::total_frames_dropped() const { return d->totalDropped.load(); }
 
 VideoManager::CameraStats VideoManager::camera_stats(int index) const {
     CameraStats stats;
-    if (index < 0 || index >= static_cast<int>(d->units.size())) { return stats; }
+    if (index < 0 || index >= static_cast<int>(d->units.size())) {
+        return stats;
+    }
     const auto& unit = d->units[static_cast<size_t>(index)];
     if (unit.grabber) {
         stats.fps                = unit.grabber->current_fps();
@@ -616,11 +674,9 @@ VideoManager::CameraStats VideoManager::camera_stats(int index) const {
         stats.framesEncoded = unit.encoder->frames_encoded();
     }
     if (unit.buffer) {
-        const auto avail = unit.buffer->available_read();
-        const auto cap   = unit.buffer->capacity();
-        stats.ringFillPct = (cap > 0)
-            ? static_cast<int>((avail * 100ULL) / cap)
-            : 0;
+        const auto avail  = unit.buffer->available_read();
+        const auto cap    = unit.buffer->capacity();
+        stats.ringFillPct = (cap > 0) ? static_cast<int>((avail * 100ULL) / cap) : 0;
     }
     return stats;
 }

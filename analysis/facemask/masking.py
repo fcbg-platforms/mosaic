@@ -2,6 +2,7 @@
 Pure geometry/pixel helpers for face anonymization — kept dependency-free
 (only numpy/opencv) and side-effect-free so they're cheap to unit test.
 """
+
 from __future__ import annotations
 
 import cv2
@@ -78,7 +79,7 @@ def apply_mask(frame: np.ndarray, boxes: list[Box], style: str) -> np.ndarray:
     -----
     See :doc:`/math/face_masking` for the blur-kernel sizing formula.
     """
-    for (x1, y1, x2, y2) in boxes:
+    for x1, y1, x2, y2 in boxes:
         ix1, iy1 = int(round(x1)), int(round(y1))
         ix2, iy2 = int(round(x2)), int(round(y2))
         if ix2 <= ix1 or iy2 <= iy1:

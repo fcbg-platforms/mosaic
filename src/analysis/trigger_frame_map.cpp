@@ -1,5 +1,5 @@
 #include "analysis/trigger_frame_map.hpp"
-#include "utils/logger.hpp"
+
 #include <QDateTime>
 #include <QDir>
 #include <QFile>
@@ -9,6 +9,8 @@
 #include <QTextStream>
 #include <algorithm>
 #include <cmath>
+
+#include "utils/logger.hpp"
 
 namespace mosaic {
 
@@ -46,38 +48,56 @@ QStringList TriggerFrameMap::split_csv_line(const QString& line) {
     return out;
 }
 
-QVector<TriggerFrameMap::RawTrigger> TriggerFrameMap::read_trigger_csv(
-        const QString& csvPath, bool& hasElapsedNsColumn) {
+QVector<TriggerFrameMap::RawTrigger> TriggerFrameMap::read_trigger_csv(const QString& csvPath,
+                                                                       bool& hasElapsedNsColumn) {
     QVector<RawTrigger> out;
     hasElapsedNsColumn = false;
 
     QFile f(csvPath);
-    if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) { return out; }
+    if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        return out;
+    }
     QTextStream ts(&f);
 
     const QStringList header = ts.readLine().split(',');
-    const int idxElapsedNs = header.indexOf("elapsed_ns");
-    const int idxElapsedMs = header.indexOf("elapsed_ms");
-    const int idxWallClock = header.indexOf("wall_clock");
-    const int idxSource    = header.indexOf("source");
-    const int idxLabel     = header.indexOf("label");
-    const int idxValue     = header.indexOf("value");
-    if (idxElapsedNs < 0) { return out; }   // old-format file, predates this column
+    const int idxElapsedNs   = header.indexOf("elapsed_ns");
+    const int idxElapsedMs   = header.indexOf("elapsed_ms");
+    const int idxWallClock   = header.indexOf("wall_clock");
+    const int idxSource      = header.indexOf("source");
+    const int idxLabel       = header.indexOf("label");
+    const int idxValue       = header.indexOf("value");
+    if (idxElapsedNs < 0) {
+        return out;
+    } // old-format file, predates this column
     hasElapsedNsColumn = true;
 
     while (!ts.atEnd()) {
         const QString line = ts.readLine();
-        if (line.trimmed().isEmpty()) { continue; }
+        if (line.trimmed().isEmpty()) {
+            continue;
+        }
         const QStringList fields = split_csv_line(line);
-        if (fields.size() <= idxElapsedNs) { continue; }
+        if (fields.size() <= idxElapsedNs) {
+            continue;
+        }
 
         RawTrigger t;
         t.elapsedNs = fields[idxElapsedNs].toLongLong();
-        if (idxElapsedMs >= 0 && idxElapsedMs < fields.size()) { t.elapsedMs  = fields[idxElapsedMs].toDouble(); }
-        if (idxWallClock >= 0 && idxWallClock < fields.size()) { t.wallClock = fields[idxWallClock]; }
-        if (idxSource    >= 0 && idxSource    < fields.size()) { t.source    = fields[idxSource]; }
-        if (idxLabel     >= 0 && idxLabel     < fields.size()) { t.label     = fields[idxLabel]; }
-        if (idxValue     >= 0 && idxValue     < fields.size()) { t.value     = fields[idxValue].toDouble(); }
+        if (idxElapsedMs >= 0 && idxElapsedMs < fields.size()) {
+            t.elapsedMs = fields[idxElapsedMs].toDouble();
+        }
+        if (idxWallClock >= 0 && idxWallClock < fields.size()) {
+            t.wallClock = fields[idxWallClock];
+        }
+        if (idxSource >= 0 && idxSource < fields.size()) {
+            t.source = fields[idxSource];
+        }
+        if (idxLabel >= 0 && idxLabel < fields.size()) {
+            t.label = fields[idxLabel];
+        }
+        if (idxValue >= 0 && idxValue < fields.size()) {
+            t.value = fields[idxValue].toDouble();
+        }
         out.append(t);
     }
     return out;
@@ -86,14 +106,20 @@ QVector<TriggerFrameMap::RawTrigger> TriggerFrameMap::read_trigger_csv(
 QVector<TriggerFrameMap::FrameTs> TriggerFrameMap::read_timestamps(const QString& csvPath) {
     QVector<FrameTs> out;
     QFile f(csvPath);
-    if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) { return out; }
+    if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        return out;
+    }
     QTextStream ts(&f);
-    ts.readLine();   // skip header: frame_id,elapsed_ns,wall_ns,hw_timestamp_ns
+    ts.readLine(); // skip header: frame_id,elapsed_ns,wall_ns,hw_timestamp_ns
     while (!ts.atEnd()) {
         const QString line = ts.readLine().trimmed();
-        if (line.isEmpty()) { continue; }
+        if (line.isEmpty()) {
+            continue;
+        }
         const QStringList cols = line.split(',');
-        if (cols.size() < 2) { continue; }
+        if (cols.size() < 2) {
+            continue;
+        }
         FrameTs ft;
         ft.frameId   = cols[0].toInt();
         ft.elapsedNs = cols[1].toLongLong();
@@ -108,24 +134,27 @@ TriggerFrameMap TriggerFrameMap::generate(const QString& sessionPath) {
     TriggerFrameMap m;
 
     bool hasElapsedNsColumn = false;
-    auto rawTriggers = read_trigger_csv(
-        QDir(sessionPath).filePath("trigger.csv"), hasElapsedNsColumn);
-    if (!hasElapsedNsColumn || rawTriggers.isEmpty()) { return m; }
+    auto rawTriggers =
+        read_trigger_csv(QDir(sessionPath).filePath("trigger.csv"), hasElapsedNsColumn);
+    if (!hasElapsedNsColumn || rawTriggers.isEmpty()) {
+        return m;
+    }
 
     // Defensive: guarantee ascending elapsed_ns order for the two-pointer
     // merge below, regardless of any edge case in dispatch/write ordering
     // (stable_sort so ties keep their original file order).
-    std::stable_sort(rawTriggers.begin(), rawTriggers.end(),
-                      [](const RawTrigger& a, const RawTrigger& b) {
-                          return a.elapsedNs < b.elapsedNs;
-                      });
+    std::stable_sort(
+        rawTriggers.begin(), rawTriggers.end(),
+        [](const RawTrigger& a, const RawTrigger& b) { return a.elapsedNs < b.elapsedNs; });
 
     const QDir videoDir(sessionPath + "/video");
     constexpr int kMaxCams = 16;
     QVector<QVector<FrameTs>> camTs;
     for (int i = 0; i < kMaxCams; ++i) {
         auto ts = read_timestamps(videoDir.filePath(QString("timestamps_cam%1.csv").arg(i)));
-        if (ts.isEmpty()) { break; }
+        if (ts.isEmpty()) {
+            break;
+        }
 
         TriggerFrameCamera tc;
         tc.index          = i;
@@ -134,7 +163,9 @@ TriggerFrameMap TriggerFrameMap::generate(const QString& sessionPath) {
         m.cameras_.append(tc);
         camTs.append(std::move(ts));
     }
-    if (m.cameras_.isEmpty()) { return m; }
+    if (m.cameras_.isEmpty()) {
+        return m;
+    }
 
     m.generatedAt_ = QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs);
     m.rows_.reserve(rawTriggers.size());
@@ -160,7 +191,7 @@ TriggerFrameMap TriggerFrameMap::generate(const QString& sessionPath) {
             TriggerFrameHit hit;
             hit.cameraIndex = c;
             if (frames.isEmpty()) {
-                row.frames.append(hit);   // frameId stays -1: no data for this camera
+                row.frames.append(hit); // frameId stays -1: no data for this camera
                 continue;
             }
 
@@ -168,9 +199,8 @@ TriggerFrameMap TriggerFrameMap::generate(const QString& sessionPath) {
             // tie-break exactly: an exact tie stays on the earlier frame
             // rather than advancing to the later one.
             int& p = ptr[c];
-            while (p + 1 < frames.size() &&
-                   std::llabs(frames[p + 1].elapsedNs - rt.elapsedNs) <
-                   std::llabs(frames[p].elapsedNs - rt.elapsedNs)) {
+            while (p + 1 < frames.size() && std::llabs(frames[p + 1].elapsedNs - rt.elapsedNs) <
+                                                std::llabs(frames[p].elapsedNs - rt.elapsedNs)) {
                 ++p;
             }
             hit.frameId         = frames[p].frameId;
@@ -196,8 +226,8 @@ bool TriggerFrameMap::save(const QString& sessionPath) const {
     QJsonArray cams;
     for (const auto& c : cameras_) {
         cams.append(QJsonObject{
-            {"index",           c.index},
-            {"video_file",      c.videoFile},
+            {"index", c.index},
+            {"video_file", c.videoFile},
             {"frames_captured", c.framesCaptured},
         });
     }
@@ -208,21 +238,21 @@ bool TriggerFrameMap::save(const QString& sessionPath) const {
         QJsonArray frames;
         for (const auto& hit : row.frames) {
             frames.append(QJsonObject{
-                {"camera_index",      hit.cameraIndex},
-                {"frame_id",          hit.frameId},
-                {"delta_ms",          hit.deltaMs},
+                {"camera_index", hit.cameraIndex},
+                {"frame_id", hit.frameId},
+                {"delta_ms", hit.deltaMs},
                 {"video_position_ms", hit.videoPositionMs},
             });
         }
         triggers.append(QJsonObject{
-            {"row",         row.rowIndex},
-            {"elapsed_ns",  QString::number(row.elapsedNs)},
-            {"elapsed_ms",  row.elapsedMs},
-            {"wall_clock",  row.wallClock},
-            {"source",      row.source},
-            {"label",       row.label},
-            {"value",       row.value},
-            {"frames",      frames},
+            {"row", row.rowIndex},
+            {"elapsed_ns", QString::number(row.elapsedNs)},
+            {"elapsed_ms", row.elapsedMs},
+            {"wall_clock", row.wallClock},
+            {"source", row.source},
+            {"label", row.label},
+            {"value", row.value},
+            {"frames", frames},
         });
     }
     root["triggers"] = triggers;
@@ -243,10 +273,14 @@ bool TriggerFrameMap::save(const QString& sessionPath) const {
 TriggerFrameMap TriggerFrameMap::load(const QString& sessionPath) {
     TriggerFrameMap m;
     QFile f(QDir(sessionPath).filePath("trigger_frame_map.json"));
-    if (!f.open(QIODevice::ReadOnly)) { return m; }
+    if (!f.open(QIODevice::ReadOnly)) {
+        return m;
+    }
 
     const QJsonObject root = QJsonDocument::fromJson(f.readAll()).object();
-    if (root.isEmpty()) { return m; }
+    if (root.isEmpty()) {
+        return m;
+    }
 
     m.generatedAt_ = root["generated_at_utc"].toString();
 
@@ -290,7 +324,9 @@ TriggerFrameMap TriggerFrameMap::load(const QString& sessionPath) {
 
 bool TriggerFrameMap::export_csv(const QString& csvPath) const {
     QFile f(csvPath);
-    if (!f.open(QIODevice::WriteOnly | QIODevice::Text)) { return false; }
+    if (!f.open(QIODevice::WriteOnly | QIODevice::Text)) {
+        return false;
+    }
     QTextStream out(&f);
 
     out << "trigger_row,elapsed_ns,elapsed_ms,wall_clock,source,label,value";
@@ -300,9 +336,8 @@ bool TriggerFrameMap::export_csv(const QString& csvPath) const {
     out << "\n";
 
     for (const auto& row : rows_) {
-        out << row.rowIndex << "," << row.elapsedNs << ","
-            << QString::number(row.elapsedMs, 'f', 3) << ","
-            << row.wallClock << "," << row.source << ","
+        out << row.rowIndex << "," << row.elapsedNs << "," << QString::number(row.elapsedMs, 'f', 3)
+            << "," << row.wallClock << "," << row.source << ","
             << "\"" << QString(row.label).replace('"', "\"\"") << "\","
             << QString::number(row.value, 'f', 6);
         for (const auto& hit : row.frames) {
@@ -316,11 +351,11 @@ bool TriggerFrameMap::export_csv(const QString& csvPath) const {
 // ── queries ───────────────────────────────────────────────────────────────
 
 bool TriggerFrameMap::is_valid() const { return valid_; }
-int  TriggerFrameMap::camera_count()  const { return static_cast<int>(cameras_.size()); }
-int  TriggerFrameMap::trigger_count() const { return static_cast<int>(rows_.size()); }
+int TriggerFrameMap::camera_count() const { return static_cast<int>(cameras_.size()); }
+int TriggerFrameMap::trigger_count() const { return static_cast<int>(rows_.size()); }
 
 const TriggerFrameCamera& TriggerFrameMap::camera_info(int idx) const { return cameras_[idx]; }
-const TriggerFrameRow&    TriggerFrameMap::row(int idx)         const { return rows_[idx]; }
-const QVector<TriggerFrameRow>& TriggerFrameMap::rows()         const { return rows_; }
+const TriggerFrameRow& TriggerFrameMap::row(int idx) const { return rows_[idx]; }
+const QVector<TriggerFrameRow>& TriggerFrameMap::rows() const { return rows_; }
 
 } // namespace mosaic

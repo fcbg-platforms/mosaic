@@ -1,8 +1,9 @@
 #pragma once
-#include "core/settings.hpp"
 #include <QVBoxLayout>
 #include <QWidget>
 #include <memory>
+
+#include "core/settings.hpp"
 
 namespace mosaic {
 
@@ -15,7 +16,7 @@ namespace mosaic {
 
 class VideoSettingsW : public QWidget {
     Q_OBJECT
-public:
+   public:
     explicit VideoSettingsW(VideoSettings& settings, QWidget* parent = nullptr);
     ~VideoSettingsW() override;
 
@@ -32,7 +33,7 @@ public:
     // convention as camera_params_changed's index). No-op if out of range.
     void set_action_command_capability(int cameraIndex, bool supported);
 
-signals:
+   signals:
     void settings_changed();
     // Fired only when cameras are added or removed (not on per-camera param changes).
     // Connect this to trigger a VideoManager hardware reload.
@@ -44,12 +45,12 @@ signals:
     // waiting for the next full reopen.
     void camera_params_changed(int index);
 
-private:
+   private:
     void build_encoding_section(QVBoxLayout* parent);
     void build_cameras_section(QVBoxLayout* parent);
-    void make_card(int index);          // create a card for cameras[index], no push_back
+    void make_card(int index);                     // create a card for cameras[index], no push_back
     void add_camera(CameraParameters params = {}); // push_back + make_card
-    void discover_cameras();            // enumerate Pylon devices, add_camera() for new ones
+    void discover_cameras(); // enumerate Pylon devices, add_camera() for new ones
 
     VideoSettings& m_settings;
 

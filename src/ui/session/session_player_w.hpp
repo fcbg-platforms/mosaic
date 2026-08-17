@@ -1,8 +1,9 @@
 #pragma once
-#include "analysis/sync_manifest.hpp"
-#include "session/session_info.hpp"
 #include <QDialog>
 #include <memory>
+
+#include "analysis/sync_manifest.hpp"
+#include "session/session_info.hpp"
 
 namespace mosaic {
 
@@ -26,26 +27,25 @@ namespace mosaic {
 
 class SessionPlayerW : public QDialog {
     Q_OBJECT
-public:
-    explicit SessionPlayerW(const SessionInfo& session,
-                             QWidget*           parent = nullptr);
+   public:
+    explicit SessionPlayerW(const SessionInfo& session, QWidget* parent = nullptr);
     ~SessionPlayerW() override;
 
-protected:
+   protected:
     void keyPressEvent(QKeyEvent* event) override;
     void resizeEvent(QResizeEvent* event) override;
 
-private slots:
+   private slots:
     void on_play_pause();
     void on_stop();
-    void on_step(int direction);      // direction: -1 or +1
+    void on_step(int direction); // direction: -1 or +1
     void on_scrub_moved(int valueMs);
     void on_speed_changed(int index);
     void on_volume_changed(int value);
     void on_sync_tick();
     void on_master_timer_tick();
 
-private:
+   private:
     void build_ui();
     void setup_players();
     void seek_all(int64_t masterMs);

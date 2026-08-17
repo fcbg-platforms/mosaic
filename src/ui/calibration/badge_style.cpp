@@ -6,8 +6,8 @@ namespace {
 
 QString pill_stylesheet(const QString& fg, const QString& bgAlpha) {
     return QString(
-        "QLabel { color: %1; background: %2; border: 1px solid %1; "
-        "border-radius: 4px; padding: 1px 8px; font-weight: 600; }")
+               "QLabel { color: %1; background: %2; border: 1px solid %1; "
+               "border-radius: 4px; padding: 1px 8px; font-weight: 600; }")
         .arg(fg, bgAlpha);
 }
 
@@ -28,7 +28,7 @@ QString badge_stylesheet(RmsQuality quality) {
 
 QString badge_stylesheet(bool goodState) {
     return goodState ? pill_stylesheet("#44cc88", "rgba(68, 204, 136, 0.15)")
-                      : pill_stylesheet("#cc4444", "rgba(204, 68, 68, 0.15)");
+                     : pill_stylesheet("#cc4444", "rgba(204, 68, 68, 0.15)");
 }
 
 } // namespace mosaic

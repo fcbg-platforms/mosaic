@@ -1,7 +1,9 @@
-#include "analysis/transcript_result.hpp"
 #include <gtest/gtest.h>
+
 #include <QFile>
 #include <QTemporaryDir>
+
+#include "analysis/transcript_result.hpp"
 
 using mosaic::TranscriptResult;
 

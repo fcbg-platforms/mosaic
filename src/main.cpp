@@ -1,40 +1,42 @@
+#include <QApplication>
+#include <exception>
+
 #include "auth/profile_manager.hpp"
 #include "core/application.hpp"
 #include "ui/auth/admin_panel_dialog.hpp"
 #include "ui/auth/login_dialog.hpp"
 #include "ui/style.hpp"
 #include "utils/logger.hpp"
-#include <QApplication>
-#include <exception>
 
 #ifdef _WIN32
+// clang-format off
+// windows.h MUST come before dbghelp.h — dbghelp.h relies on types/macros
+// (HANDLE, CALLBACK, PCSTR, ...) that windows.h defines and doesn't include
+// windows.h itself, so alphabetical include sorting would silently break
+// this (real compile failure, not a style nit).
 #include <windows.h>
 #include <dbghelp.h>
+// clang-format on
 #pragma comment(lib, "dbghelp.lib")
 
-static LONG WINAPI mosaic_exception_filter(EXCEPTION_POINTERS* ep)
-{
+static LONG WINAPI mosaic_exception_filter(EXCEPTION_POINTERS* ep) {
     // Write mosaic_crash.dmp next to the executable so the developer can open
     // it in Visual Studio or WinDbg to get the full thread call stacks.
-    HANDLE file = ::CreateFileA("mosaic_crash.dmp",
-                                GENERIC_WRITE, 0, nullptr,
-                                CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+    HANDLE file = ::CreateFileA("mosaic_crash.dmp", GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS,
+                                FILE_ATTRIBUTE_NORMAL, nullptr);
     if (file != INVALID_HANDLE_VALUE) {
         MINIDUMP_EXCEPTION_INFORMATION info{};
         info.ThreadId          = ::GetCurrentThreadId();
         info.ExceptionPointers = ep;
         info.ClientPointers    = FALSE;
-        ::MiniDumpWriteDump(::GetCurrentProcess(),
-                            ::GetCurrentProcessId(),
-                            file,
-                            static_cast<MINIDUMP_TYPE>(
-                                MiniDumpWithThreadInfo |
-                                MiniDumpWithProcessThreadData |
-                                MiniDumpWithUnloadedModules),
-                            &info, nullptr, nullptr);
+        ::MiniDumpWriteDump(
+            ::GetCurrentProcess(), ::GetCurrentProcessId(), file,
+            static_cast<MINIDUMP_TYPE>(MiniDumpWithThreadInfo | MiniDumpWithProcessThreadData |
+                                       MiniDumpWithUnloadedModules),
+            &info, nullptr, nullptr);
         ::CloseHandle(file);
     }
-    return EXCEPTION_CONTINUE_SEARCH;   // let the default handler terminate
+    return EXCEPTION_CONTINUE_SEARCH; // let the default handler terminate
 }
 #endif
 
@@ -49,7 +51,7 @@ static LONG WINAPI mosaic_exception_filter(EXCEPTION_POINTERS* ep)
 // VideoGrabber's own try_set() helper, just at the one place that covers
 // every main-thread slot at once rather than one call site at a time.
 class MosaicApplication : public QApplication {
-public:
+   public:
     using QApplication::QApplication;
 
     bool notify(QObject* receiver, QEvent* event) override {
@@ -57,7 +59,7 @@ public:
             return QApplication::notify(receiver, event);
         } catch (const std::exception& e) {
             mosaic::log_error(QString("[MosaicApplication] Uncaught exception in a Qt slot: %1")
-                                   .arg(QString::fromUtf8(e.what())));
+                                  .arg(QString::fromUtf8(e.what())));
         } catch (...) {
             mosaic::log_error("[MosaicApplication] Uncaught non-standard exception in a Qt slot.");
         }
@@ -68,8 +70,7 @@ public:
 // Exit code returned by MainWindow when the user picks "Switch profile".
 static constexpr int k_switch_exit_code = 42;
 
-int main(int argc, char* argv[])
-{
+int main(int argc, char* argv[]) {
 #ifdef _WIN32
     ::SetUnhandledExceptionFilter(mosaic_exception_filter);
 #endif
@@ -100,7 +101,7 @@ int main(int argc, char* argv[])
             if (prof && prof->is_admin()) {
                 mosaic::AdminPanelDialog adminDlg(profileMgr, username);
                 if (adminDlg.exec() != QDialog::Accepted) {
-                    continue;   // admin chose "Back to Login"
+                    continue; // admin chose "Back to Login"
                 }
                 username = adminDlg.selected_username();
             }
@@ -121,7 +122,7 @@ int main(int argc, char* argv[])
 
         const int exitCode = app.exec();
         if (exitCode == k_switch_exit_code) {
-            continue;   // re-show the login dialog
+            continue; // re-show the login dialog
         }
         return exitCode;
     }

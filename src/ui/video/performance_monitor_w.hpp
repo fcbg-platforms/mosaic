@@ -1,9 +1,10 @@
 #pragma once
+#include <QWidget>
+#include <memory>
+
 #include "analysis/analysis_manager.hpp"
 #include "audio/audio_manager.hpp"
 #include "video/video_manager.hpp"
-#include <QWidget>
-#include <memory>
 
 namespace mosaic {
 
@@ -18,17 +19,15 @@ namespace mosaic {
 
 class PerformanceMonitorW : public QWidget {
     Q_OBJECT
-public:
-    explicit PerformanceMonitorW(VideoManager*    videoMgr,
-                                  AudioManager*    audioMgr,
-                                  AnalysisManager* analysisMgr = nullptr,
-                                  QWidget*         parent      = nullptr);
+   public:
+    explicit PerformanceMonitorW(VideoManager* videoMgr, AudioManager* audioMgr,
+                                 AnalysisManager* analysisMgr = nullptr, QWidget* parent = nullptr);
     ~PerformanceMonitorW() override;
 
-private slots:
+   private slots:
     void on_tick();
 
-private:
+   private:
     void build_ui();
     void rebuild_camera_rows();
 

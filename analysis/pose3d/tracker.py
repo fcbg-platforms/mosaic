@@ -8,6 +8,7 @@ room-mm centroids rather than shared/generalized, matching this codebase's
 established per-plugin-owns-its-math precedent (e.g. item 18's gaze/pose
 iris-heuristic duplication).
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -47,7 +48,7 @@ class PersonTracker3D:
             track_pos = np.array([self._tracks[tid].last_centroid_room for tid in active_ids])
             cent_pos = np.array(cluster_centroids)
             diffs = track_pos[:, np.newaxis, :] - cent_pos[np.newaxis, :, :]
-            cost = np.linalg.norm(diffs, axis=2)   # (n_tracks, n_centroids)
+            cost = np.linalg.norm(diffs, axis=2)  # (n_tracks, n_centroids)
 
             while True:
                 if cost.size == 0:
@@ -69,14 +70,14 @@ class PersonTracker3D:
                 new_id = self._next_id
                 self._next_id += 1
                 self._tracks[new_id] = TrackedPerson3D(
-                    track_id=new_id, last_tick=tick, last_centroid_room=np.asarray(centroid))
+                    track_id=new_id, last_tick=tick, last_centroid_room=np.asarray(centroid)
+                )
                 result_ids[ci] = new_id
 
         self._age_all(tick)
         return result_ids
 
     def _age_all(self, tick: int) -> None:
-        stale = [tid for tid, t in self._tracks.items()
-                 if tick - t.last_tick > self.max_gap_ticks]
+        stale = [tid for tid, t in self._tracks.items() if tick - t.last_tick > self.max_gap_ticks]
         for tid in stale:
             del self._tracks[tid]

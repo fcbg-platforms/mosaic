@@ -1,7 +1,7 @@
 #pragma once
 #include <QImage>
-#include <QReadWriteLock>
 #include <QQuickImageProvider>
+#include <QReadWriteLock>
 #include <vector>
 
 namespace mosaic {
@@ -14,7 +14,7 @@ namespace mosaic {
 //   Image { cache: false; source: "image://videofeed/" + cameraIndex + "?v=" + backend.frameGen }
 //   Changing the ?v= query string forces a re-request even for the same index.
 class VideoFeedProvider : public QQuickImageProvider {
-public:
+   public:
     VideoFeedProvider();
 
     // Called by the image loader thread — must be thread-safe.
@@ -26,9 +26,9 @@ public:
     // Pre-allocate slots so requestImage never returns an index-out-of-range image.
     void set_camera_count(int count);
 
-private:
+   private:
     mutable QReadWriteLock m_lock;
-    std::vector<QImage>    m_frames;
+    std::vector<QImage> m_frames;
 };
 
 } // namespace mosaic

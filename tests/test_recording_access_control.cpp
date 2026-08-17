@@ -1,5 +1,6 @@
-#include "core/recording_access_control.hpp"
 #include <gtest/gtest.h>
+
+#include "core/recording_access_control.hpp"
 
 using mosaic::default_record_directory_for;
 using mosaic::is_legacy_shared_record_directory;

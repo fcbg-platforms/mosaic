@@ -1,8 +1,8 @@
 #pragma once
+#include <QDateTime>
+#include <QString>
 #include <chrono>
 #include <cstdint>
-#include <QString>
-#include <QDateTime>
 
 namespace mosaic {
 
@@ -11,7 +11,7 @@ namespace mosaic {
 using SteadyClock = std::chrono::steady_clock;
 
 /// @brief A point in time on the SteadyClock.
-using TimePoint   = SteadyClock::time_point;
+using TimePoint = SteadyClock::time_point;
 
 /// @brief Nanoseconds elapsed since the first call to any elapsed_* function
 ///        (effectively since application start).
@@ -23,15 +23,14 @@ using TimePoint   = SteadyClock::time_point;
 /// @returns Nanoseconds elapsed (always non-negative, starts near 0).
 [[nodiscard]] inline int64_t elapsed_ns() noexcept {
     static const TimePoint start = SteadyClock::now();
-    return std::chrono::duration_cast<std::chrono::nanoseconds>(
-        SteadyClock::now() - start).count();
+    return std::chrono::duration_cast<std::chrono::nanoseconds>(SteadyClock::now() - start).count();
 }
 
 /// @returns elapsed_ns() converted to milliseconds (truncated, not rounded).
 [[nodiscard]] inline int64_t elapsed_ms() noexcept { return elapsed_ns() / 1'000'000; }
 
 /// @returns elapsed_ns() as seconds (floating point).
-[[nodiscard]] inline double  elapsed_s()  noexcept { return elapsed_ns() / 1e9; }
+[[nodiscard]] inline double elapsed_s() noexcept { return elapsed_ns() / 1e9; }
 
 /// @brief Nanoseconds since the Unix epoch (@c system_clock).
 ///
@@ -45,8 +44,7 @@ using TimePoint   = SteadyClock::time_point;
 /// @returns Nanoseconds since 1970-01-01T00:00:00Z.
 [[nodiscard]] inline int64_t wall_clock_ns() noexcept {
     using namespace std::chrono;
-    return duration_cast<nanoseconds>(
-        system_clock::now().time_since_epoch()).count();
+    return duration_cast<nanoseconds>(system_clock::now().time_since_epoch()).count();
 }
 
 /// @brief Formatted wall-clock string for log lines.

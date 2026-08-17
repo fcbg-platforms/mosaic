@@ -1,9 +1,10 @@
 #pragma once
-#include "core/settings.hpp"
-#include "trigger/trigger_types.hpp"
 #include <QObject>
 #include <QSerialPort>
 #include <memory>
+
+#include "core/settings.hpp"
+#include "trigger/trigger_types.hpp"
 
 namespace mosaic {
 
@@ -28,7 +29,7 @@ namespace mosaic {
 /// @see SerialTriggerConfig, TriggerManager
 class SerialTrigger : public QObject {
     Q_OBJECT
-public:
+   public:
     explicit SerialTrigger(SerialTriggerConfig& config, QObject* parent = nullptr);
     ~SerialTrigger() override;
 
@@ -50,7 +51,7 @@ public:
     /// @returns A list of all available serial port names on this system.
     [[nodiscard]] static QStringList available_ports();
 
-signals:
+   signals:
     /// Emitted on the main thread each time a matching byte is received.
     void triggered(mosaic::TriggerEvent event);
 
@@ -60,17 +61,17 @@ signals:
     /// Emitted when QSerialPort reports a non-NoError state.
     void error_occurred(QString message);
 
-private slots:
+   private slots:
     void on_data_ready();
     void on_error(QSerialPort::SerialPortError error);
 
-private:
+   private:
     [[nodiscard]] bool byte_matches(quint8 byte) const;
 
     SerialTriggerConfig& m_config;
-    QSerialPort*         m_port{nullptr};
-    int                  m_fireCount{0};
-    quint8               m_matchByte{0};     // cached parsed value for "Exact" mode
+    QSerialPort* m_port{nullptr};
+    int m_fireCount{0};
+    quint8 m_matchByte{0}; // cached parsed value for "Exact" mode
 };
 
 } // namespace mosaic

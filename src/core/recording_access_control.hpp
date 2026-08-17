@@ -43,6 +43,6 @@ namespace mosaic {
 // "_unassigned" fallback (covers both an empty recordedBy and one that
 // doesn't match any currently-known profile).
 [[nodiscard]] QString resolve_migration_target(const QString& recordedBy,
-                                                const QSet<QString>& knownUsernames);
+                                               const QSet<QString>& knownUsernames);
 
 } // namespace mosaic

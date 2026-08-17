@@ -1,7 +1,9 @@
-#include "calibration/room_frame_solver.hpp"
+#include <gtest/gtest.h>
+
 #include <cmath>
 #include <numbers>
-#include <gtest/gtest.h>
+
+#include "calibration/room_frame_solver.hpp"
 
 using mosaic::room_frame::average;
 using mosaic::room_frame::bfs_resolve;
@@ -18,10 +20,7 @@ namespace {
 Mat4 rot_z_translate(double angleDeg, double tx, double ty, double tz) {
     const double a = angleDeg * std::numbers::pi / 180.0;
     const double c = std::cos(a), s = std::sin(a);
-    return {c, -s, 0, tx,
-            s,  c, 0, ty,
-            0,  0, 1, tz,
-            0,  0, 0, 1};
+    return {c, -s, 0, tx, s, c, 0, ty, 0, 0, 1, tz, 0, 0, 0, 1};
 }
 
 void expect_mat4_near(const Mat4& a, const Mat4& b, double tol = 1e-6) {
@@ -42,10 +41,10 @@ TEST(RoomFrameSolver, ComposeInvertRoundTrip) {
 }
 
 TEST(RoomFrameSolver, ComposeAppliesRightOperandFirst) {
-    Mat4 a = identity();
-    a[3]   = 1.0;   // translate x by 1
-    Mat4 b = identity();
-    b[7]   = 1.0;   // translate y by 1
+    Mat4 a       = identity();
+    a[3]         = 1.0; // translate x by 1
+    Mat4 b       = identity();
+    b[7]         = 1.0; // translate y by 1
     const Mat4 c = compose(a, b);
     EXPECT_NEAR(c[3], 1.0, 1e-9);
     EXPECT_NEAR(c[7], 1.0, 1e-9);
@@ -61,8 +60,8 @@ TEST(RoomFrameSolver, ComposeAppliesRightOperandFirst) {
 TEST(RoomFrameSolver, ComposeArgumentOrderMattersWithRotation) {
     const Mat4 rot90 = rot_z_translate(90.0, 0, 0, 0);
     Mat4 translateX  = identity();
-    translateX[3]    = 1.0;   // translate x by 1
-    const Mat4 c = compose(rot90, translateX);
+    translateX[3]    = 1.0; // translate x by 1
+    const Mat4 c     = compose(rot90, translateX);
     EXPECT_NEAR(c[3], 0.0, 1e-9);
     EXPECT_NEAR(c[7], 1.0, 1e-9);
     EXPECT_NEAR(c[11], 0.0, 1e-9);
@@ -79,10 +78,10 @@ TEST(RoomFrameSolver, AverageReturnsRotationBisector) {
 }
 
 TEST(RoomFrameSolver, AverageAveragesTranslationArithmetically) {
-    Mat4 a = identity();
-    a[3] = 2.0;
-    Mat4 b = identity();
-    b[3] = 4.0;
+    Mat4 a         = identity();
+    a[3]           = 2.0;
+    Mat4 b         = identity();
+    b[3]           = 4.0;
     const Mat4 avg = average({a, b});
     EXPECT_NEAR(avg[3], 3.0, 1e-9);
 }
@@ -100,9 +99,9 @@ TEST(RoomFrameSolver, AverageAveragesTranslationArithmetically) {
 // confirmed with an independent numeric reimplementation of the conversion
 // before writing this test.
 TEST(RoomFrameSolver, AverageSignAlignsQuaternionsAcrossHemisphereBoundary) {
-    const Mat4 a        = rot_z_translate(239.0, 0, 0, 0);
-    const Mat4 b        = rot_z_translate(300.0, 0, 0, 0);
-    const Mat4 avg      = average({a, b});
+    const Mat4 a   = rot_z_translate(239.0, 0, 0, 0);
+    const Mat4 b   = rot_z_translate(300.0, 0, 0, 0);
+    const Mat4 avg = average({a, b});
     // Correct short-path bisector between 239 deg and 300 deg is 269.5 deg.
     const Mat4 expected = rot_z_translate(269.5, 0, 0, 0);
     expect_mat4_near(avg, expected, 1e-6);
@@ -113,9 +112,7 @@ TEST(RoomFrameSolver, AverageOfSingleSampleIsUnchanged) {
     expect_mat4_near(average({a}), a);
 }
 
-TEST(RoomFrameSolver, AverageOfEmptyIsIdentity) {
-    expect_mat4_near(average({}), identity());
-}
+TEST(RoomFrameSolver, AverageOfEmptyIsIdentity) { expect_mat4_near(average({}), identity()); }
 
 // ── bfs_resolve ───────────────────────────────────────────────────────────
 //
@@ -132,14 +129,14 @@ TEST(RoomFrameSolver, ChainResolvesTransitivelyThroughIntermediateCamera) {
     const Mat4 e2 = rot_z_translate(-20.0, -0.5, 2.0, 0.1);
 
     Edge edge01;
-    edge01.camA = 0;
-    edge01.camB = 1;
+    edge01.camA        = 0;
+    edge01.camB        = 1;
     edge01.boardToCamA = {invert(identity())};
     edge01.boardToCamB = {invert(e1)};
 
     Edge edge12;
-    edge12.camA = 1;
-    edge12.camB = 2;
+    edge12.camA        = 1;
+    edge12.camB        = 2;
     edge12.boardToCamA = {invert(e1)};
     edge12.boardToCamB = {invert(e2)};
 
@@ -157,8 +154,8 @@ TEST(RoomFrameSolver, DisconnectedCameraIsReportedUnresolved) {
     const Mat4 e1 = rot_z_translate(15.0, 0.2, 0.0, 0.0);
 
     Edge edge01;
-    edge01.camA = 0;
-    edge01.camB = 1;
+    edge01.camA        = 0;
+    edge01.camB        = 1;
     edge01.boardToCamA = {invert(identity())};
     edge01.boardToCamB = {invert(e1)};
 

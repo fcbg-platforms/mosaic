@@ -20,6 +20,7 @@ gaze_dy) into an actual 3D ray, and later fuses multiple cameras' rays,
 lives in ray_math.py with zero cv2/mediapipe imports, so that module stays
 unit-testable without either heavy dependency installed.
 """
+
 from __future__ import annotations
 
 import urllib.request
@@ -41,10 +42,10 @@ _MEDIAPIPE_MODEL_URL = (
 # uses for its 2D-only heuristic; duplicated rather than imported (see
 # module docstring).
 _LEFT_IRIS_CENTER, _RIGHT_IRIS_CENTER = 468, 473
-_LEFT_EYE_OUTER, _LEFT_EYE_INNER      = 33, 133
-_LEFT_EYE_TOP, _LEFT_EYE_BOTTOM       = 159, 145
-_RIGHT_EYE_INNER, _RIGHT_EYE_OUTER    = 362, 263
-_RIGHT_EYE_TOP, _RIGHT_EYE_BOTTOM     = 386, 374
+_LEFT_EYE_OUTER, _LEFT_EYE_INNER = 33, 133
+_LEFT_EYE_TOP, _LEFT_EYE_BOTTOM = 159, 145
+_RIGHT_EYE_INNER, _RIGHT_EYE_OUTER = 362, 263
+_RIGHT_EYE_TOP, _RIGHT_EYE_BOTTOM = 386, 374
 
 _NOSE_TIP, _CHIN = 1, 152
 _LEFT_MOUTH, _RIGHT_MOUTH = 61, 291
@@ -53,7 +54,12 @@ _LEFT_MOUTH, _RIGHT_MOUTH = 61, 291
 # below — the standard correspondence set used by most OpenCV
 # head-pose-estimation references.
 _HEAD_POSE_LANDMARK_IDS = [
-    _NOSE_TIP, _CHIN, _LEFT_EYE_OUTER, _RIGHT_EYE_OUTER, _LEFT_MOUTH, _RIGHT_MOUTH,
+    _NOSE_TIP,
+    _CHIN,
+    _LEFT_EYE_OUTER,
+    _RIGHT_EYE_OUTER,
+    _LEFT_MOUTH,
+    _RIGHT_MOUTH,
 ]
 
 # Generic 3D face model, millimetres, nose-tip-relative. Not
@@ -61,14 +67,17 @@ _HEAD_POSE_LANDMARK_IDS = [
 # is an approximation — acceptable here since gaze fusion only needs an
 # eye-region ray origin + forward direction, not millimetre head-shape
 # accuracy.
-HEAD_POSE_MODEL_MM = np.array([
-    [0.0, 0.0, 0.0],          # nose tip
-    [0.0, -330.0, -65.0],     # chin
-    [-225.0, 170.0, -135.0],  # left eye outer corner
-    [225.0, 170.0, -135.0],   # right eye outer corner
-    [-150.0, -150.0, -125.0], # left mouth corner
-    [150.0, -150.0, -125.0],  # right mouth corner
-], dtype=np.float64)
+HEAD_POSE_MODEL_MM = np.array(
+    [
+        [0.0, 0.0, 0.0],  # nose tip
+        [0.0, -330.0, -65.0],  # chin
+        [-225.0, 170.0, -135.0],  # left eye outer corner
+        [225.0, 170.0, -135.0],  # right eye outer corner
+        [-150.0, -150.0, -125.0],  # left mouth corner
+        [150.0, -150.0, -125.0],  # right mouth corner
+    ],
+    dtype=np.float64,
+)
 
 # Midpoint between the two eye-outer-corner model points — used as the
 # gaze ray's metric origin (a stand-in for "between the eyes").
@@ -94,11 +103,12 @@ class FaceGazeSample:
         2D iris-offset heuristic, each in ``[-1, 1]`` — same heuristic as
         ``python/pose/gaze_estimator.py``.
     """
-    bbox_xyxy: tuple[float, float, float, float]   # pixel coords
+
+    bbox_xyxy: tuple[float, float, float, float]  # pixel coords
     confidence: float
-    head_rotation: np.ndarray      # 3x3, camera-local
-    head_translation: np.ndarray   # length-3, camera-local, mm
-    gaze_dx: float                 # -1..1, same heuristic as python/pose/gaze_estimator.py
+    head_rotation: np.ndarray  # 3x3, camera-local
+    head_translation: np.ndarray  # length-3, camera-local, mm
+    gaze_dx: float  # -1..1, same heuristic as python/pose/gaze_estimator.py
     gaze_dy: float
 
 
@@ -137,8 +147,9 @@ class MediaPipeGazeEstimator3D:
         self._mp = mp
         self._landmarker = mp_vision.FaceLandmarker.create_from_options(options)
 
-    def detect(self, frame_bgr: np.ndarray,
-               camera_matrix: np.ndarray, dist_coeffs: np.ndarray) -> list[FaceGazeSample]:
+    def detect(
+        self, frame_bgr: np.ndarray, camera_matrix: np.ndarray, dist_coeffs: np.ndarray
+    ) -> list[FaceGazeSample]:
         """Detect faces and solve each one's 3D head pose in one BGR frame.
 
         Parameters
@@ -168,24 +179,28 @@ class MediaPipeGazeEstimator3D:
         result = self._landmarker.detect(mp_image)
 
         camera_matrix = np.asarray(camera_matrix, dtype=np.float64)
-        dist_coeffs   = np.asarray(dist_coeffs, dtype=np.float64)
+        dist_coeffs = np.asarray(dist_coeffs, dtype=np.float64)
 
         samples: list[FaceGazeSample] = []
         for lm in result.face_landmarks:
             if len(lm) < 478:
-                continue   # iris landmarks not present in this model output
+                continue  # iris landmarks not present in this model output
 
             xs = [p.x for p in lm[:468]]
             ys = [p.y for p in lm[:468]]
             bbox = (min(xs) * w, min(ys) * h, max(xs) * w, max(ys) * h)
 
             image_points = np.array(
-                [[lm[i].x * w, lm[i].y * h] for i in _HEAD_POSE_LANDMARK_IDS],
-                dtype=np.float64)
+                [[lm[i].x * w, lm[i].y * h] for i in _HEAD_POSE_LANDMARK_IDS], dtype=np.float64
+            )
 
             ok, rvec, tvec = cv2.solvePnP(
-                HEAD_POSE_MODEL_MM, image_points, camera_matrix, dist_coeffs,
-                flags=cv2.SOLVEPNP_ITERATIVE)
+                HEAD_POSE_MODEL_MM,
+                image_points,
+                camera_matrix,
+                dist_coeffs,
+                flags=cv2.SOLVEPNP_ITERATIVE,
+            )
             if not ok:
                 continue
 
@@ -195,14 +210,16 @@ class MediaPipeGazeEstimator3D:
             if gaze_dx is None:
                 continue
 
-            samples.append(FaceGazeSample(
-                bbox_xyxy=bbox,
-                confidence=1.0,
-                head_rotation=rotation,
-                head_translation=tvec.reshape(3),
-                gaze_dx=gaze_dx,
-                gaze_dy=gaze_dy,
-            ))
+            samples.append(
+                FaceGazeSample(
+                    bbox_xyxy=bbox,
+                    confidence=1.0,
+                    head_rotation=rotation,
+                    head_translation=tvec.reshape(3),
+                    gaze_dx=gaze_dx,
+                    gaze_dy=gaze_dy,
+                )
+            )
         return samples
 
 
@@ -232,11 +249,11 @@ def _iris_offset(lm):
 
     left_cx = (lm[_LEFT_EYE_OUTER].x + lm[_LEFT_EYE_INNER].x) / 2
     left_cy = (lm[_LEFT_EYE_TOP].y + lm[_LEFT_EYE_BOTTOM].y) / 2
-    left_w  = abs(lm[_LEFT_EYE_OUTER].x - lm[_LEFT_EYE_INNER].x)
+    left_w = abs(lm[_LEFT_EYE_OUTER].x - lm[_LEFT_EYE_INNER].x)
 
     right_cx = (lm[_RIGHT_EYE_INNER].x + lm[_RIGHT_EYE_OUTER].x) / 2
     right_cy = (lm[_RIGHT_EYE_TOP].y + lm[_RIGHT_EYE_BOTTOM].y) / 2
-    right_w  = abs(lm[_RIGHT_EYE_INNER].x - lm[_RIGHT_EYE_OUTER].x)
+    right_w = abs(lm[_RIGHT_EYE_INNER].x - lm[_RIGHT_EYE_OUTER].x)
 
     eye_w = (left_w + right_w) / 2
     if eye_w < 1e-6:

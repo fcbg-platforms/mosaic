@@ -20,13 +20,20 @@ mouthStretchLeft/Right (Fearful) — real faces can activate both
 simultaneously, so misclassification between these two specific categories
 is expected and acceptable.
 """
+
 from __future__ import annotations
 
 #: The 7 basic-emotion categories this heuristic classifies into, in
 #: argmax tie-break order (``"Neutral"`` listed first — see
 #: :func:`classify_expression`'s Notes).
 CATEGORIES: list[str] = [
-    "Neutral", "Happy", "Sad", "Surprised", "Angry", "Disgusted", "Fearful",
+    "Neutral",
+    "Happy",
+    "Sad",
+    "Surprised",
+    "Angry",
+    "Disgusted",
+    "Fearful",
 ]
 
 #: ``{category: {blendshape_name: weight}}``. Weighted MEAN (not sum) is
@@ -38,38 +45,55 @@ CATEGORY_WEIGHTS: dict[str, dict[str, float]] = {
     "Neutral": {
         "_neutral": 1.0,
     },
-    "Happy": {                      # AU6 (cheek raiser) + AU12 (lip corner puller)
-        "mouthSmileLeft": 1.0, "mouthSmileRight": 1.0,
-        "cheekSquintLeft": 0.3, "cheekSquintRight": 0.3,
-        "mouthDimpleLeft": 0.2, "mouthDimpleRight": 0.2,
+    "Happy": {  # AU6 (cheek raiser) + AU12 (lip corner puller)
+        "mouthSmileLeft": 1.0,
+        "mouthSmileRight": 1.0,
+        "cheekSquintLeft": 0.3,
+        "cheekSquintRight": 0.3,
+        "mouthDimpleLeft": 0.2,
+        "mouthDimpleRight": 0.2,
     },
-    "Sad": {                        # AU1 (inner brow raiser) + AU15 (lip corner depressor)
-        "mouthFrownLeft": 1.0, "mouthFrownRight": 1.0,
+    "Sad": {  # AU1 (inner brow raiser) + AU15 (lip corner depressor)
+        "mouthFrownLeft": 1.0,
+        "mouthFrownRight": 1.0,
         "browInnerUp": 0.6,
-        "mouthLowerDownLeft": 0.2, "mouthLowerDownRight": 0.2,
+        "mouthLowerDownLeft": 0.2,
+        "mouthLowerDownRight": 0.2,
     },
-    "Surprised": {                  # AU1+AU2 (brow raisers) + AU5 (lid raiser) + AU26 (jaw drop)
+    "Surprised": {  # AU1+AU2 (brow raisers) + AU5 (lid raiser) + AU26 (jaw drop)
         "jawOpen": 0.8,
         "browInnerUp": 0.7,
-        "browOuterUpLeft": 0.7, "browOuterUpRight": 0.7,
-        "eyeWideLeft": 0.5, "eyeWideRight": 0.5,
+        "browOuterUpLeft": 0.7,
+        "browOuterUpRight": 0.7,
+        "eyeWideLeft": 0.5,
+        "eyeWideRight": 0.5,
     },
-    "Angry": {                      # AU4 (brow lowerer) + AU7 (lid tightener) + AU23 (lip tight.)
-        "browDownLeft": 1.0, "browDownRight": 1.0,
-        "eyeSquintLeft": 0.4, "eyeSquintRight": 0.4,
-        "mouthPressLeft": 0.3, "mouthPressRight": 0.3,
-        "noseSneerLeft": 0.2, "noseSneerRight": 0.2,
+    "Angry": {  # AU4 (brow lowerer) + AU7 (lid tightener) + AU23 (lip tight.)
+        "browDownLeft": 1.0,
+        "browDownRight": 1.0,
+        "eyeSquintLeft": 0.4,
+        "eyeSquintRight": 0.4,
+        "mouthPressLeft": 0.3,
+        "mouthPressRight": 0.3,
+        "noseSneerLeft": 0.2,
+        "noseSneerRight": 0.2,
     },
-    "Disgusted": {                  # AU9 (nose wrinkler) + AU10 (upper lip raiser)
-        "noseSneerLeft": 1.0, "noseSneerRight": 1.0,
-        "mouthUpperUpLeft": 0.6, "mouthUpperUpRight": 0.6,
-        "browDownLeft": 0.2, "browDownRight": 0.2,
+    "Disgusted": {  # AU9 (nose wrinkler) + AU10 (upper lip raiser)
+        "noseSneerLeft": 1.0,
+        "noseSneerRight": 1.0,
+        "mouthUpperUpLeft": 0.6,
+        "mouthUpperUpRight": 0.6,
+        "browDownLeft": 0.2,
+        "browDownRight": 0.2,
     },
-    "Fearful": {                    # AU1+AU2+AU5 (like Surprise) + AU20 (lip stretch, no jaw drop)
+    "Fearful": {  # AU1+AU2+AU5 (like Surprise) + AU20 (lip stretch, no jaw drop)
         "browInnerUp": 0.6,
-        "browOuterUpLeft": 0.5, "browOuterUpRight": 0.5,
-        "eyeWideLeft": 0.7, "eyeWideRight": 0.7,
-        "mouthStretchLeft": 0.6, "mouthStretchRight": 0.6,
+        "browOuterUpLeft": 0.5,
+        "browOuterUpRight": 0.5,
+        "eyeWideLeft": 0.7,
+        "eyeWideRight": 0.7,
+        "mouthStretchLeft": 0.6,
+        "mouthStretchRight": 0.6,
     },
 }
 
@@ -78,8 +102,9 @@ CATEGORY_WEIGHTS: dict[str, dict[str, float]] = {
 _MIN_ACTIVATION = 0.15
 
 
-def classify_expression(blendshape_names: list[str],
-                         blendshape_scores: list[float]) -> tuple[str, float]:
+def classify_expression(
+    blendshape_names: list[str], blendshape_scores: list[float]
+) -> tuple[str, float]:
     """Pick the dominant basic-emotion category from blendshape scores.
 
     Parameters
@@ -112,7 +137,7 @@ def classify_expression(blendshape_names: list[str],
     a zero-overlap tie. See :doc:`/math/facial_expression` for the
     formula.
     """
-    lookup = dict(zip(blendshape_names, blendshape_scores))
+    lookup = dict(zip(blendshape_names, blendshape_scores, strict=False))
 
     category_scores: dict[str, float] = {}
     for category, weights in CATEGORY_WEIGHTS.items():

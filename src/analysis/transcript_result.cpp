@@ -1,4 +1,5 @@
 #include "analysis/transcript_result.hpp"
+
 #include <QFile>
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -30,7 +31,7 @@ TranscriptResult TranscriptResult::load(const QString& jsonPath) {
         TranscriptSegment seg;
         seg.startMs = static_cast<int64_t>(segObj["start_ms"].toDouble());
         seg.endMs   = static_cast<int64_t>(segObj["end_ms"].toDouble());
-        seg.speaker = segObj["speaker"].toString();   // JSON null -> empty QString
+        seg.speaker = segObj["speaker"].toString(); // JSON null -> empty QString
         seg.text    = segObj["text"].toString();
 
         result.segments_ << seg;
@@ -61,13 +62,13 @@ const TranscriptSegment* TranscriptResult::segment_at(int64_t ms) const {
         [](int64_t value, const TranscriptSegment& s) { return value < s.startMs; });
 
     if (it == segments_.begin()) {
-        return nullptr;   // ms is before the first segment even starts
+        return nullptr; // ms is before the first segment even starts
     }
     const auto prevIt = std::prev(it);
     if (ms >= prevIt->startMs && ms < prevIt->endMs) {
         return &(*prevIt);
     }
-    return nullptr;   // ms falls in a gap between segments
+    return nullptr; // ms falls in a gap between segments
 }
 
 } // namespace mosaic

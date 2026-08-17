@@ -15,6 +15,76 @@ permissions:
 # camera hardware isn't available on hosted runners, so that flag
 # can't be exercised here — only local/lab builds cover that surface.
 jobs:
+  lint-python:
+    runs-on: ubuntu-latest
+
+    # ruff.toml/pre-commit already declared this policy; nothing enforced it
+    # anywhere until now. No Qt/vcpkg/uv-sync needed — ruff only needs its
+    # own binary and the source tree.
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install ruff
+        # Pinned to match .pre-commit-config.yaml's `rev: v0.8.4` so local
+        # pre-commit and CI never disagree on findings.
+        run: pip install ruff==0.8.4
+
+      - name: ruff check
+        run: ruff check --config ruff.toml .
+
+      - name: ruff format --check
+        run: ruff format --config ruff.toml --check .
+
+  lint-cpp:
+    runs-on: ubuntu-latest
+
+    # clang-format needs no Qt/MSVC/vcpkg context at all, so this runs on
+    # the lighter/faster Linux runner rather than windows-latest.
+    #
+    # Scoped to files changed since diverging from main — git's own
+    # standard pattern for enforcing a formatter on an existing codebase
+    # (cf. `git clang-format`) — rather than the whole src/+tests/ tree.
+    # The entire tree was brought into one-time compliance in the PR that
+    # introduced this job; this check only guards against new drift from
+    # here on, so a future .clang-format tweak can't retroactively fail
+    # untouched files, and CI stays fast.
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install clang-format
+        # Pinned to match .pre-commit-config.yaml's `rev: v18.1.8` (same
+        # rationale as lint-python's ruff pin above) — plain `apt-get install
+        # clang-format` resolves to whatever Ubuntu's repo currently ships
+        # (an experimental pre-release snapshot at the time this was added,
+        # e.g. 18.0-59~exp2), which can disagree with the pinned stable
+        # release on edge-case formatting decisions even at the "same"
+        # major version, producing false-positive CI failures on code that
+        # local pre-commit / a real 18.1.8 binary already considers clean.
+        # pipx (not plain pip) because ubuntu-latest's system Python is
+        # PEP 668 "externally managed" — pipx is the pre-installed,
+        # sandboxed way to get a CLI tool onto PATH on GitHub's hosted
+        # Ubuntu runners without a venv or --break-system-packages.
+        run: pipx install clang-format==18.1.8
+
+      - name: Determine merge-base with main
+        id: base
+        run: |
+          git fetch origin main --quiet
+          echo "sha=$(git merge-base origin/main HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Check formatting of changed files only
+        run: |
+          files=$(git diff --name-only ${{ steps.base.outputs.sha }} -- src tests | grep -E '\.(cpp|hpp)$' || true)
+          if [ -z "$files" ]; then
+            echo "No changed C++ files."
+            exit 0
+          fi
+          echo "Checking:"
+          echo "$files"
+          clang-format --dry-run --Werror $files
+
   build-and-test:
     runs-on: windows-latest
 
