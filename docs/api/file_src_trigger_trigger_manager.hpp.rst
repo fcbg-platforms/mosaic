@@ -48,12 +48,6 @@ Included By
 
 - :ref:`file_src_record_record_manager.hpp`
 
-- :ref:`file_src_trigger_trigger_manager.cpp`
-
-- :ref:`file_src_video_video_grabber.cpp`
-
-- :ref:`file_src_video_video_manager.cpp`
-
 
 
 

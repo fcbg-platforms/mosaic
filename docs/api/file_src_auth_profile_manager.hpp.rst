@@ -40,16 +40,6 @@ Includes
 
 
 
-Included By
------------
-
-
-- :ref:`file_src_auth_profile_manager.cpp`
-
-- :ref:`file_src_core_application.cpp`
-
-- :ref:`file_src_main.cpp`
-
 
 
 

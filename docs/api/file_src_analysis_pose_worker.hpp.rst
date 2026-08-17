@@ -40,12 +40,6 @@ Includes
 
 
 
-Included By
------------
-
-
-- :ref:`file_src_analysis_pose_worker.cpp`
-
 
 
 

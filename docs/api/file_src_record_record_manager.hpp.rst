@@ -50,8 +50,6 @@ Included By
 
 - :ref:`file_src_core_application.hpp`
 
-- :ref:`file_src_record_record_manager.cpp`
-
 
 
 
@@ -66,21 +64,5 @@ Classes
 -------
 
 
-- :ref:`exhale_class_class_record_manager`
-
-
-Functions
----------
-
-
-- :ref:`exhale_function_record__manager_8hpp_1ae6b3028cfe643cd5dcf1a09cbee90a1d`
-
-
-Variables
----------
-
-
-- :ref:`exhale_variable_record__manager_8hpp_1a59a9a5b0f47171d5e985c550e5204654`
-
-- :ref:`exhale_variable_record__manager_8hpp_1aad1b14db5aa6bedc418fd5f04217fe9e`
+- :ref:`exhale_class_classmosaic_1_1_record_manager`
 

@@ -17,7 +17,6 @@ Files
 -----
 
 - :ref:`file_src_auth_profile.hpp`
-- :ref:`file_src_auth_profile_manager.cpp`
 - :ref:`file_src_auth_profile_manager.hpp`
 
 

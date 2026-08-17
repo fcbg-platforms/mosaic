@@ -48,6 +48,24 @@ Program Listing for File parallel_port_trigger.hpp
        [[nodiscard]] bool is_active()       const;
        [[nodiscard]] int  events_fired()    const;
    
+       // Drives the Control register's INIT pin (bit 2, portAddr+2) high or low
+       // — physically separate pins from the Data register this class reads,
+       // so safe to call regardless of poll state, with no bus-contention risk.
+       // Bit 2 (INIT) is used deliberately: unlike Control-register bits 0/1/3
+       // (Strobe/Auto-Feed/Select-In), it is not historically hardware-inverted
+       // at the DB25 connector on a standard parallel port, so "true → pin high"
+       // holds without a confusing surprise. No-op if the port failed to open
+       // or config().sendRecordingMarker is false — callers (TriggerManager)
+       // should check the latter themselves before calling, but this method
+       // stays safe to call unconditionally either way.
+       void set_recording_marker(bool active);
+   
+       // The configuration this instance was constructed with — lets callers
+       // (e.g. TriggerManager::start_recording()/stop_recording()) check
+       // sendRecordingMarker per-instance without needing separate index
+       // bookkeeping, since portTriggers only contains *enabled* ports.
+       [[nodiscard]] const ParallelPortConfig& config() const;
+   
    signals:
        void triggered(mosaic::TriggerEvent event);
        void error_occurred(QString message);

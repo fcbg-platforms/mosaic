@@ -40,30 +40,6 @@ Includes
 
 
 
-Included By
------------
-
-
-- :ref:`file_src_core_application.cpp`
-
-- :ref:`file_src_record_record_manager.cpp`
-
-- :ref:`file_src_trigger_keyboard_trigger.cpp`
-
-- :ref:`file_src_trigger_lsl_inlet.cpp`
-
-- :ref:`file_src_trigger_parallel_port_trigger.cpp`
-
-- :ref:`file_src_trigger_serial_trigger.cpp`
-
-- :ref:`file_src_trigger_trigger_recorder.cpp`
-
-- :ref:`file_src_utils_logger.cpp`
-
-- :ref:`file_src_video_video_encoder.cpp`
-
-- :ref:`file_src_video_video_grabber.cpp`
-
 
 
 

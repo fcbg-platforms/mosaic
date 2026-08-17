@@ -38,14 +38,6 @@ Includes
 
 
 
-Included By
------------
-
-
-- :ref:`file_src_trigger_trigger_manager.cpp`
-
-- :ref:`file_src_trigger_trigger_recorder.cpp`
-
 
 
 

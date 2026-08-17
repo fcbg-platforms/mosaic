@@ -42,14 +42,6 @@ Includes
 
 
 
-Included By
------------
-
-
-- :ref:`file_src_video_video_encoder.cpp`
-
-- :ref:`file_src_video_video_manager.cpp`
-
 
 
 

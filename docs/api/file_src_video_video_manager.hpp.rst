@@ -50,8 +50,6 @@ Included By
 
 - :ref:`file_src_record_record_manager.hpp`
 
-- :ref:`file_src_video_video_manager.cpp`
-
 
 
 

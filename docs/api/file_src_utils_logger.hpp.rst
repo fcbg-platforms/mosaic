@@ -40,54 +40,6 @@ Includes
 
 
 
-Included By
------------
-
-
-- :ref:`file_src_analysis_analysis_manager.cpp`
-
-- :ref:`file_src_analysis_pose_worker.cpp`
-
-- :ref:`file_src_analysis_sync_manifest.cpp`
-
-- :ref:`file_src_audio_audio_manager.cpp`
-
-- :ref:`file_src_audio_audio_recorder.cpp`
-
-- :ref:`file_src_audio_wav_writer.cpp`
-
-- :ref:`file_src_auth_profile_manager.cpp`
-
-- :ref:`file_src_calibration_calibration_manager.cpp`
-
-- :ref:`file_src_calibration_room_calibration_manager.cpp`
-
-- :ref:`file_src_core_application.cpp`
-
-- :ref:`file_src_core_settings.cpp`
-
-- :ref:`file_src_record_record_manager.cpp`
-
-- :ref:`file_src_trigger_lsl_inlet.cpp`
-
-- :ref:`file_src_trigger_lsl_outlet.cpp`
-
-- :ref:`file_src_trigger_parallel_port_trigger.cpp`
-
-- :ref:`file_src_trigger_serial_trigger.cpp`
-
-- :ref:`file_src_trigger_trigger_manager.cpp`
-
-- :ref:`file_src_utils_logger.cpp`
-
-- :ref:`file_src_video_frame_timestamp_writer.cpp`
-
-- :ref:`file_src_video_video_encoder.cpp`
-
-- :ref:`file_src_video_video_grabber.cpp`
-
-- :ref:`file_src_video_video_manager.cpp`
-
 
 
 
@@ -110,4 +62,23 @@ Enums
 
 
 - :ref:`exhale_enum_logger_8hpp_1a16dfd9925815e4b038edcfd896cd5283`
+
+
+Functions
+---------
+
+
+- :ref:`exhale_function_logger_8hpp_1aa7a23b27e5664653f8f06fd566e39e6e`
+
+- :ref:`exhale_function_logger_8hpp_1a17bd12c4d75fe8b47ccdaf260843acb6`
+
+- :ref:`exhale_function_logger_8hpp_1a39fb0c5e0509c10b2cfa0d98810a2463`
+
+- :ref:`exhale_function_logger_8hpp_1ad6cd3b3c6022092497bfe87c7fab301f`
+
+- :ref:`exhale_function_logger_8hpp_1ab0b4c18f8184ba60a40c052873aed418`
+
+- :ref:`exhale_function_logger_8hpp_1accc387b1f7b595c8e8bc7c8e15410372`
+
+- :ref:`exhale_function_logger_8hpp_1a1ee020caeac32a751155c8f97f02b18f`
 

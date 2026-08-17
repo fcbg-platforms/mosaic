@@ -59,14 +59,16 @@ def confirm_segments(
 
     Returns
     -------
-    (confirmed, tentative_text, watermark_sec)
-        confirmed : the newly-final segments this pass (still
-            buffer-relative — caller adds its own running offset to get
-            absolute time).
-        tentative_text : confirmed segments' texts are NOT included;
-            everything after the last confirmed segment, space-joined.
-        watermark_sec : confirmed[-1].end_sec, or 0.0 if nothing confirmed
-            this pass — caller trims the buffer's front up to this point.
+    confirmed : list of Segment
+        The newly-final segments from this pass (still buffer-relative —
+        the caller adds its own running offset to get absolute time).
+    tentative_text : str
+        Everything after the last confirmed segment, space-joined.
+        Confirmed segments' text is NOT included.
+    watermark_sec : float
+        ``confirmed[-1].end_sec``, or ``0.0`` if nothing was confirmed this
+        pass — the caller trims the buffer's front up to this point (see
+        :func:`trim_buffer_samples`).
     """
     cutoff = buffer_duration_sec - trailing_margin_sec
     confirmed = [s for s in segments if s.end_sec <= cutoff]
@@ -77,8 +79,25 @@ def confirm_segments(
 
 
 def trim_buffer_samples(confirmed_watermark_sec: float, sample_rate_hz: int) -> int:
-    """Sample count to drop from the front of the rolling buffer, given how
-    far (in seconds) audio has been confirmed. Pure arithmetic, split out
-    only so the "seconds -> sample index" conversion has one, tested home
-    rather than being re-derived at each call site."""
+    """Convert a confirmation watermark into a sample count to trim.
+
+    Parameters
+    ----------
+    confirmed_watermark_sec : float
+        How far (in seconds) audio has been confirmed — typically
+        :func:`confirm_segments`'s ``watermark_sec`` return value.
+    sample_rate_hz : int
+        The rolling buffer's sample rate.
+
+    Returns
+    -------
+    int
+        Sample count to drop from the front of the rolling buffer.
+
+    Notes
+    -----
+    Pure arithmetic, split out only so the "seconds -> sample index"
+    conversion has one, tested home rather than being re-derived at each
+    call site.
+    """
     return int(confirmed_watermark_sec * sample_rate_hz)

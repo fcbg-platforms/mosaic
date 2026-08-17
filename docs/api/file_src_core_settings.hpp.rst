@@ -60,13 +60,9 @@ Included By
 
 - :ref:`file_src_core_application.hpp`
 
-- :ref:`file_src_core_settings.cpp`
-
 - :ref:`file_src_record_record_manager.hpp`
 
 - :ref:`file_src_trigger_keyboard_trigger.hpp`
-
-- :ref:`file_src_trigger_lsl_inlet.hpp`
 
 - :ref:`file_src_trigger_parallel_port_trigger.hpp`
 
@@ -104,11 +100,11 @@ Classes
 
 - :ref:`exhale_struct_structmosaic_1_1_key_trigger_config`
 
-- :ref:`exhale_struct_structmosaic_1_1_lsl_inlet_config`
-
 - :ref:`exhale_struct_structmosaic_1_1_microphone_parameters`
 
 - :ref:`exhale_struct_structmosaic_1_1_parallel_port_config`
+
+- :ref:`exhale_struct_structmosaic_1_1_realtime_settings`
 
 - :ref:`exhale_struct_structmosaic_1_1_record_settings`
 

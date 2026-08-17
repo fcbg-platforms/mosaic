@@ -16,7 +16,6 @@ Directory utils
 Files
 -----
 
-- :ref:`file_src_utils_logger.cpp`
 - :ref:`file_src_utils_logger.hpp`
 - :ref:`file_src_utils_ring_buffer.hpp`
 - :ref:`file_src_utils_timestamp.hpp`

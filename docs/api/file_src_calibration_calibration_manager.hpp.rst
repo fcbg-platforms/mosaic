@@ -42,12 +42,6 @@ Includes
 
 
 
-Included By
------------
-
-
-- :ref:`file_src_calibration_calibration_manager.cpp`
-
 
 
 

@@ -42,7 +42,9 @@ Program Listing for File record_manager.hpp
    ///     qDebug() << "Recording to" << path;
    /// });
    ///
-   /// if (rm.start()) { /* recording is live */ }
+   /// if (rm.start()) {
+   ///     // recording is live
+   /// }
    /// // ... later ...
    /// rm.stop();
    /// @endcode

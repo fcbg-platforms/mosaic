@@ -42,8 +42,6 @@ Included By
 
 - :ref:`file_src_audio_audio_recorder.hpp`
 
-- :ref:`file_src_audio_wav_writer.cpp`
-
 
 
 

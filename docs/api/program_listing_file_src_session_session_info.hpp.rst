@@ -96,6 +96,8 @@ Program Listing for File session_info.hpp
        bool      hasTranscript     = false;
        bool      hasExpression     = false;
        bool      hasGazeFusion     = false;
+       bool      hasSkeleton3D     = false;
+       bool      hasRppg           = false;
        QStringList videoFiles;
        QStringList audioFiles;
        QStringList analysisFiles;
@@ -123,15 +125,19 @@ Program Listing for File session_info.hpp
                info.audioCodec  = rec["audio_codec"].toString();
            }
    
-           // Video/audio recordings live under video/ and audio/ subfolders;
-           // per-video pose/motion output (written beside its source video by
-           // the analysis scripts) lands in video/ too, while session-level
-           // aggregate motion output (motion_results.*, motion_heatmap.png,
-           // …) stays at the session root — so analysis files are scanned in
-           // both places. Entries are stored as paths relative to the session
-           // dir (e.g. "video/video_0.mp4") so callers can join them onto
-           // `path` directly without needing to know which subfolder a given
-           // file lives in.
+           // Video/audio recordings live under video/ and audio/ subfolders.
+           // Pose output has its own pose/ subfolder (analysis/run_pose.py's
+           // pose_dir), Expression has its own expression/ subfolder
+           // (analysis/run_expression.py's expression_dir), and rPPG has its
+           // own rppg/ subfolder (analysis/run_rppg.py's rppg_dir); per-video
+           // motion output still lands beside its source video in video/;
+           // session-level aggregate motion output (motion_results.*,
+           // motion_heatmap.png, …) stays at the session root — so analysis
+           // files are scanned across all six locations. Entries are stored
+           // as paths relative to the session dir (e.g. "video/video_0.mp4",
+           // "pose/video_0.pose.json") so callers can join them onto `path`
+           // directly without needing to know which subfolder a given file
+           // lives in.
            const auto classify = [&info](const QDir& scanDir, const QString& prefix) {
                if (!scanDir.exists()) { return; }
                for (const auto& fi : scanDir.entryInfoList(QDir::Files, QDir::Name)) {
@@ -145,19 +151,25 @@ Program Listing for File session_info.hpp
                               fi.fileName().contains("keypoint") || fi.fileName().contains("heatmap") ||
                               fi.fileName().contains("trajectory") || fi.fileName().contains("velocity") ||
                               fi.fileName().contains("transcript") || fi.fileName().contains("expression") ||
-                              fi.fileName().contains("gaze")) {
+                              fi.fileName().contains("gaze") || fi.fileName().contains("skeleton") ||
+                              fi.fileName().contains("rppg")) {
                        info.analysisFiles << fn;
                        if (fi.fileName().contains("pose"))       { info.hasPoseAnalysis   = true; }
                        if (fi.fileName().contains("motion"))     { info.hasMotionAnalysis = true; }
                        if (fi.fileName().contains("transcript")) { info.hasTranscript     = true; }
                        if (fi.fileName().contains("expression")) { info.hasExpression     = true; }
                        if (fi.fileName().contains("gaze"))       { info.hasGazeFusion     = true; }
+                       if (fi.fileName().contains("skeleton"))   { info.hasSkeleton3D     = true; }
+                       if (fi.fileName().contains("rppg"))       { info.hasRppg           = true; }
                    }
                }
            };
            classify(QDir(dir), "");
            classify(QDir(dir + "/video"), "video/");
            classify(QDir(dir + "/audio"), "audio/");
+           classify(QDir(dir + "/pose"), "pose/");
+           classify(QDir(dir + "/expression"), "expression/");
+           classify(QDir(dir + "/rppg"), "rppg/");
    
            // Approximate duration: video file mtime vs session start
            if (info.startUtc.isValid()) {

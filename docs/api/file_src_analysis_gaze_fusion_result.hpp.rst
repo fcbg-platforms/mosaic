@@ -44,12 +44,6 @@ Includes
 
 
 
-Included By
------------
-
-
-- :ref:`file_src_analysis_gaze_fusion_result.cpp`
-
 
 
 

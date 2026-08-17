@@ -40,14 +40,6 @@ Includes
 
 
 
-Included By
------------
-
-
-- :ref:`file_src_analysis_analysis_manager.cpp`
-
-- :ref:`file_src_analysis_sync_manifest.cpp`
-
 
 
 

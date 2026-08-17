@@ -42,14 +42,6 @@ Includes
 
 
 
-Included By
------------
-
-
-- :ref:`file_src_analysis_analysis_manager.cpp`
-
-- :ref:`file_src_core_application.cpp`
-
 
 
 

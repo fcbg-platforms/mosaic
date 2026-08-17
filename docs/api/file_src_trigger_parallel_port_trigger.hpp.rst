@@ -40,14 +40,6 @@ Includes
 
 
 
-Included By
------------
-
-
-- :ref:`file_src_trigger_parallel_port_trigger.cpp`
-
-- :ref:`file_src_trigger_trigger_manager.cpp`
-
 
 
 

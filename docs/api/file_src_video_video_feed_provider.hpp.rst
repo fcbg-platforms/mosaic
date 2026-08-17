@@ -40,12 +40,6 @@ Includes
 
 
 
-Included By
------------
-
-
-- :ref:`file_src_video_video_feed_provider.cpp`
-
 
 
 

@@ -19,8 +19,6 @@ Program Listing for File video_manager.hpp
    
    namespace mosaic {
    
-   class TriggerManager;
-   
    /// @brief Orchestrates one VideoGrabber + VideoEncoder pair per configured camera.
    ///
    /// VideoManager owns the complete video pipeline for a session.  It matches
@@ -53,10 +51,7 @@ Program Listing for File video_manager.hpp
    class VideoManager : public QObject {
        Q_OBJECT
    public:
-       // triggerMgr, if non-null, must outlive this object — passed down to
-       // every VideoGrabber opened by open() so each captured frame can be
-       // published as an LSL marker (see TriggerManager::publish_frame_marker()).
-       explicit VideoManager(TriggerManager* triggerMgr = nullptr, QObject* parent = nullptr);
+       explicit VideoManager(QObject* parent = nullptr);
        ~VideoManager() override;
    
        /// @brief Opens camera devices (or stub generators) for all configured cameras.
@@ -115,12 +110,21 @@ Program Listing for File video_manager.hpp
    
        /// @brief Requests one full-resolution frame from the given camera for
        /// room (extrinsic) calibration — see VideoGrabber::request_calibration_frame().
-       /// Delivered asynchronously via calibration_frame_ready(); no-op if no
+       /// Delivered asynchronously via calibration_frame_ready(), echoing token
+       /// back verbatim so a caller that requests one frame per "shot" can
+       /// reject a reply for a shot it has already moved past. No-op if no
        /// open unit matches configIndex.
-       void request_calibration_frame(int configIndex);
+       void request_calibration_frame(int configIndex, uint64_t token = 0);
    
        /// @returns @c true while a recording session is active.
        [[nodiscard]] bool    is_recording()          const;
+   
+       /// @returns @c true while a live preview session is active (started via
+       /// start_preview(), not yet stopped by start()/close()). Used to guard
+       /// actions that would race with a running ActionCommandTicker, which
+       /// touches Pylon's CTlFactory from a background thread for as long as
+       /// either preview or recording keeps it alive.
+       [[nodiscard]] bool    is_previewing()         const;
    
        /// @returns The number of cameras that were successfully opened.
        [[nodiscard]] int     camera_count()           const;
@@ -169,12 +173,35 @@ Program Listing for File video_manager.hpp
        void frame_preview(int cameraIndex, QImage frame);
    
        /// Full-resolution frame delivered in response to request_calibration_frame().
-       void calibration_frame_ready(int cameraIndex, QImage frame);
+       /// token is whatever was passed to request_calibration_frame().
+       void calibration_frame_ready(int cameraIndex, QImage frame, uint64_t token);
+   
+       /// Passthrough of VideoGrabber::action_command_capability() — reports
+       /// whether a camera's firmware supports GigE Vision Action Command
+       /// triggering, once probed at open() time. Only fires for cameras that
+       /// actually requested Action1 triggering (hwTriggerEnabled &&
+       /// hwTriggerSource == "Action1").
+       void action_command_capability(int cameraIndex, bool supported);
    
    private slots:
        void on_encoder_stopped(int cameraIndex, int64_t frames);
    
    private:
+       // Arms every unit's grabber (start_grabbing()) first, then, for every
+       // Action1-ready unit, starts a background ActionCommandTicker that
+       // fires one GigE Vision IssueActionCommand() per frame, continuously,
+       // for as long as the ticker runs — shared by start_preview() and
+       // start(), since a camera configured for Action1 hangs identically
+       // (produces zero frames) in either mode until action commands start
+       // arriving. See gige_action_command.hpp.
+       void arm_and_fire_action_commands();
+   
+       // Stops and destroys the current ActionCommandTicker, if any. Called
+       // from every path that stops grabbers (stop(), close(), and start()'s
+       // preview-teardown step) so the ticker never outlives the cameras it's
+       // firing at. No-op if no ticker is running.
+       void stop_action_ticker();
+   
        struct Impl;
        std::unique_ptr<Impl> d;
    };

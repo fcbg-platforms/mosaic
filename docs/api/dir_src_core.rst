@@ -16,9 +16,8 @@ Directory core
 Files
 -----
 
-- :ref:`file_src_core_application.cpp`
 - :ref:`file_src_core_application.hpp`
-- :ref:`file_src_core_settings.cpp`
+- :ref:`file_src_core_recording_access_control.hpp`
 - :ref:`file_src_core_settings.hpp`
 
 

@@ -42,12 +42,6 @@ Includes
 
 
 
-Included By
------------
-
-
-- :ref:`file_src_analysis_pose_kinematics.cpp`
-
 
 
 
@@ -67,4 +61,11 @@ Classes
 - :ref:`exhale_struct_structmosaic_1_1_kinematics_series`
 
 - :ref:`exhale_struct_structmosaic_1_1_kinematic_stats`
+
+
+Functions
+---------
+
+
+- :ref:`exhale_function_pose__kinematics_8hpp_1a32ce527a653950511f180a8e9d72fc56`
 

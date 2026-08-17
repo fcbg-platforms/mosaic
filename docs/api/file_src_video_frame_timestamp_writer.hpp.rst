@@ -42,8 +42,6 @@ Included By
 -----------
 
 
-- :ref:`file_src_video_frame_timestamp_writer.cpp`
-
 - :ref:`file_src_video_video_encoder.hpp`
 
 

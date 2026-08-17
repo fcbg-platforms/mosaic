@@ -50,8 +50,6 @@ Included By
 -----------
 
 
-- :ref:`file_src_analysis_pose_analysis_result.cpp`
-
 - :ref:`file_src_analysis_pose_kinematics.hpp`
 
 

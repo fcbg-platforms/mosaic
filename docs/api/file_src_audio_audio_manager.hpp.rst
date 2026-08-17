@@ -32,6 +32,8 @@ Includes
 
 - ``QAudioDevice``
 
+- ``QByteArray``
+
 - ``QList``
 
 - ``QObject``
@@ -47,8 +49,6 @@ Includes
 Included By
 -----------
 
-
-- :ref:`file_src_audio_audio_manager.cpp`
 
 - :ref:`file_src_core_application.hpp`
 

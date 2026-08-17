@@ -30,7 +30,11 @@ Includes
 --------
 
 
+- ``QAudioFormat``
+
 - ``QAudioSource``
+
+- ``QByteArray``
 
 - ``QObject``
 
@@ -43,14 +47,6 @@ Includes
 - ``memory``
 
 
-
-Included By
------------
-
-
-- :ref:`file_src_audio_audio_manager.cpp`
-
-- :ref:`file_src_audio_audio_recorder.cpp`
 
 
 

@@ -22,9 +22,4 @@ Subdirectories
 - :ref:`dir_src_video`
 
 
-Files
------
-
-- :ref:`file_src_main.cpp`
-
 

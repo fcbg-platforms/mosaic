@@ -16,11 +16,9 @@ Directory calibration
 Files
 -----
 
-- :ref:`file_src_calibration_calibration_manager.cpp`
 - :ref:`file_src_calibration_calibration_manager.hpp`
-- :ref:`file_src_calibration_room_calibration_manager.cpp`
+- :ref:`file_src_calibration_rms_quality.hpp`
 - :ref:`file_src_calibration_room_calibration_manager.hpp`
-- :ref:`file_src_calibration_room_frame_solver.cpp`
 - :ref:`file_src_calibration_room_frame_solver.hpp`
 
 

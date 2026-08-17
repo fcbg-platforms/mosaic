@@ -14,41 +14,16 @@ Namespaces
 .. toctree::
    :maxdepth: 5
 
-   namespace_mosaic__@050273103173025371361016163227016237060061152171.rst
-
-.. toctree::
-   :maxdepth: 5
-
-   namespace_mosaic__@063360366212055000270365230157025326245206111020.rst
-
-.. toctree::
-   :maxdepth: 5
-
-   namespace_mosaic__@071152272020146326065072113345166374014136321362.rst
-
-.. toctree::
-   :maxdepth: 5
-
-   namespace_mosaic__@103170244000256250243057075330156110101131010131.rst
-
-.. toctree::
-   :maxdepth: 5
-
-   namespace_mosaic__RecordManager.rst
-
-.. toctree::
-   :maxdepth: 5
-
    namespace_mosaic__room_frame.rst
-
-.. toctree::
-   :maxdepth: 5
-
-   namespace_mosaic__room_frame__@344027141204257041333064255274235012161010306110.rst
 
 Classes and Structs
 *******************
 
+
+.. toctree::
+   :maxdepth: 5
+
+   structmosaic_1_1_action_command_target.rst
 
 .. toctree::
    :maxdepth: 5
@@ -69,6 +44,11 @@ Classes and Structs
    :maxdepth: 5
 
    structmosaic_1_1_app_settings.rst
+
+.. toctree::
+   :maxdepth: 5
+
+   structmosaic_1_1_audio_envelope.rst
 
 .. toctree::
    :maxdepth: 5
@@ -98,7 +78,7 @@ Classes and Structs
 .. toctree::
    :maxdepth: 5
 
-   structmosaic_1_1_camera_unit.rst
+   structmosaic_1_1_detection_rate_tracker_1_1_bucket.rst
 
 .. toctree::
    :maxdepth: 5
@@ -133,11 +113,6 @@ Classes and Structs
 .. toctree::
    :maxdepth: 5
 
-   structmosaic_1_1_image_points.rst
-
-.. toctree::
-   :maxdepth: 5
-
    structmosaic_1_1_key_trigger_config.rst
 
 .. toctree::
@@ -158,17 +133,7 @@ Classes and Structs
 .. toctree::
    :maxdepth: 5
 
-   structmosaic_1_1_lsl_inlet_config.rst
-
-.. toctree::
-   :maxdepth: 5
-
    structmosaic_1_1_microphone_parameters.rst
-
-.. toctree::
-   :maxdepth: 5
-
-   structmosaic_1_1_object_point.rst
 
 .. toctree::
    :maxdepth: 5
@@ -189,6 +154,11 @@ Classes and Structs
    :maxdepth: 5
 
    structmosaic_1_1_profile.rst
+
+.. toctree::
+   :maxdepth: 5
+
+   structmosaic_1_1_realtime_settings.rst
 
 .. toctree::
    :maxdepth: 5
@@ -233,12 +203,42 @@ Classes and Structs
 .. toctree::
    :maxdepth: 5
 
+   structmosaic_1_1_rppg_frame.rst
+
+.. toctree::
+   :maxdepth: 5
+
+   structmosaic_1_1_rppg_window.rst
+
+.. toctree::
+   :maxdepth: 5
+
    structmosaic_1_1_serial_trigger_config.rst
 
 .. toctree::
    :maxdepth: 5
 
    structmosaic_1_1_session_info.rst
+
+.. toctree::
+   :maxdepth: 5
+
+   structmosaic_1_1_skeleton3_d_frame.rst
+
+.. toctree::
+   :maxdepth: 5
+
+   structmosaic_1_1_skeleton3_d_keypoint.rst
+
+.. toctree::
+   :maxdepth: 5
+
+   structmosaic_1_1_skeleton3_d_person.rst
+
+.. toctree::
+   :maxdepth: 5
+
+   structmosaic_1_1_skeleton3_d_room_camera.rst
 
 .. toctree::
    :maxdepth: 5
@@ -254,6 +254,31 @@ Classes and Structs
    :maxdepth: 5
 
    structmosaic_1_1_trigger_event.rst
+
+.. toctree::
+   :maxdepth: 5
+
+   structmosaic_1_1_trigger_frame_camera.rst
+
+.. toctree::
+   :maxdepth: 5
+
+   structmosaic_1_1_trigger_frame_hit.rst
+
+.. toctree::
+   :maxdepth: 5
+
+   structmosaic_1_1_trigger_frame_map_1_1_frame_ts.rst
+
+.. toctree::
+   :maxdepth: 5
+
+   structmosaic_1_1_trigger_frame_map_1_1_raw_trigger.rst
+
+.. toctree::
+   :maxdepth: 5
+
+   structmosaic_1_1_trigger_frame_row.rst
 
 .. toctree::
    :maxdepth: 5
@@ -283,6 +308,11 @@ Classes and Structs
 .. toctree::
    :maxdepth: 5
 
+   classmosaic_1_1_action_command_session.rst
+
+.. toctree::
+   :maxdepth: 5
+
    classmosaic_1_1_analysis_manager.rst
 
 .. toctree::
@@ -304,6 +334,11 @@ Classes and Structs
    :maxdepth: 5
 
    classmosaic_1_1_calibration_manager.rst
+
+.. toctree::
+   :maxdepth: 5
+
+   classmosaic_1_1_detection_rate_tracker.rst
 
 .. toctree::
    :maxdepth: 5
@@ -333,21 +368,6 @@ Classes and Structs
 .. toctree::
    :maxdepth: 5
 
-   classmosaic_1_1_lsl_inlet.rst
-
-.. toctree::
-   :maxdepth: 5
-
-   classmosaic_1_1_lsl_outlet.rst
-
-.. toctree::
-   :maxdepth: 5
-
-   classmosaic_1_1_lsl_poll_thread.rst
-
-.. toctree::
-   :maxdepth: 5
-
    classmosaic_1_1_parallel_port_trigger.rst
 
 .. toctree::
@@ -368,6 +388,11 @@ Classes and Structs
 .. toctree::
    :maxdepth: 5
 
+   classmosaic_1_1_record_manager.rst
+
+.. toctree::
+   :maxdepth: 5
+
    classmosaic_1_1_ring_buffer.rst
 
 .. toctree::
@@ -378,7 +403,17 @@ Classes and Structs
 .. toctree::
    :maxdepth: 5
 
+   classmosaic_1_1_rppg_result.rst
+
+.. toctree::
+   :maxdepth: 5
+
    classmosaic_1_1_serial_trigger.rst
+
+.. toctree::
+   :maxdepth: 5
+
+   classmosaic_1_1_skeleton3_d_result.rst
 
 .. toctree::
    :maxdepth: 5
@@ -389,6 +424,16 @@ Classes and Structs
    :maxdepth: 5
 
    classmosaic_1_1_transcript_result.rst
+
+.. toctree::
+   :maxdepth: 5
+
+   classmosaic_1_1_transcript_worker.rst
+
+.. toctree::
+   :maxdepth: 5
+
+   classmosaic_1_1_trigger_frame_map.rst
 
 .. toctree::
    :maxdepth: 5
@@ -425,11 +470,6 @@ Classes and Structs
 
    classmosaic_1_1_wav_writer.rst
 
-.. toctree::
-   :maxdepth: 5
-
-   class_record_manager.rst
-
 Enums
 *****
 
@@ -438,6 +478,11 @@ Enums
    :maxdepth: 5
 
    enum_logger_8hpp_1a16dfd9925815e4b038edcfd896cd5283.rst
+
+.. toctree::
+   :maxdepth: 5
+
+   enum_rms__quality_8hpp_1ac2d221a845cd0434f9e6d14f2268bc58.rst
 
 .. toctree::
    :maxdepth: 5
@@ -451,17 +496,37 @@ Functions
 .. toctree::
    :maxdepth: 5
 
-   function_main_8cpp_1a0ddf1224851353fc92bfbff6f499fa97.rst
+   function_gige__action__command_8hpp_1a09ec1781c8cf39d1a383ce5c38ddb04f.rst
 
 .. toctree::
    :maxdepth: 5
 
-   function_settings_8cpp_1a6de46f13ac66d9c4c98d906a79d3a66f.rst
+   function_audio__envelope_8hpp_1af353d8c303392c080f8f92aded83785c.rst
 
 .. toctree::
    :maxdepth: 5
 
-   function_pose__kinematics_8cpp_1a32ce527a653950511f180a8e9d72fc56.rst
+   function_pose__kinematics_8hpp_1a32ce527a653950511f180a8e9d72fc56.rst
+
+.. toctree::
+   :maxdepth: 5
+
+   function_audio__envelope_8hpp_1ad13db2b2c50cd76b20ce885cb4586e60.rst
+
+.. toctree::
+   :maxdepth: 5
+
+   function_audio__envelope_8hpp_1a7c01d5ed1204a3fa1f38ad5e058585e2.rst
+
+.. toctree::
+   :maxdepth: 5
+
+   function_audio__envelope_8hpp_1a2bd73f588334767559f11bda15900fe9.rst
+
+.. toctree::
+   :maxdepth: 5
+
+   function_recording__access__control_8hpp_1a0f945445984ff77b495ae5206900b4d4.rst
 
 .. toctree::
    :maxdepth: 5
@@ -481,12 +546,32 @@ Functions
 .. toctree::
    :maxdepth: 5
 
-   function_video__encoder_8cpp_1a07cc173598a7cd4a648088a8082a0e0e.rst
+   function_realtime__metrics_8hpp_1a6334d49da0e11c44c76d145b9899b4d8.rst
 
 .. toctree::
    :maxdepth: 5
 
-   function_audio__recorder_8cpp_1aaa44fd2d06ce7211bad9631e120bd41a.rst
+   function_gige__action__command_8hpp_1ac0d62e1a0fe9b729e23bd1e8fe8262c8.rst
+
+.. toctree::
+   :maxdepth: 5
+
+   function_gige__action__command_8hpp_1a18b831823d2e46b39b12bb4a57fedc78.rst
+
+.. toctree::
+   :maxdepth: 5
+
+   function_gige__action__command_8hpp_1abbd3f5aec16b60ecb45d9f3845558073.rst
+
+.. toctree::
+   :maxdepth: 5
+
+   function_gige__action__command_8hpp_1a66564d462c19b761ccf51e277385770b.rst
+
+.. toctree::
+   :maxdepth: 5
+
+   function_pose__models_8hpp_1a8f02801730f5c3632eb0349d43ee7451.rst
 
 .. toctree::
    :maxdepth: 5
@@ -496,47 +581,47 @@ Functions
 .. toctree::
    :maxdepth: 5
 
-   function_settings_8cpp_1af1f9d826a21c43bfce63d0da716477a2.rst
+   function_recording__access__control_8hpp_1a0424cc54d4c8a83cd06a5871748be567.rst
 
 .. toctree::
    :maxdepth: 5
 
-   function_logger_8cpp_1aa7a23b27e5664653f8f06fd566e39e6e.rst
+   function_recording__access__control_8hpp_1a442b2abdc1651bc4ef08803eade97296.rst
 
 .. toctree::
    :maxdepth: 5
 
-   function_logger_8cpp_1a17bd12c4d75fe8b47ccdaf260843acb6.rst
+   function_logger_8hpp_1aa7a23b27e5664653f8f06fd566e39e6e.rst
 
 .. toctree::
    :maxdepth: 5
 
-   function_logger_8cpp_1a39fb0c5e0509c10b2cfa0d98810a2463.rst
+   function_logger_8hpp_1a17bd12c4d75fe8b47ccdaf260843acb6.rst
 
 .. toctree::
    :maxdepth: 5
 
-   function_logger_8cpp_1ad6cd3b3c6022092497bfe87c7fab301f.rst
+   function_logger_8hpp_1a39fb0c5e0509c10b2cfa0d98810a2463.rst
 
 .. toctree::
    :maxdepth: 5
 
-   function_logger_8cpp_1ab0b4c18f8184ba60a40c052873aed418.rst
+   function_logger_8hpp_1ad6cd3b3c6022092497bfe87c7fab301f.rst
 
 .. toctree::
    :maxdepth: 5
 
-   function_logger_8cpp_1accc387b1f7b595c8e8bc7c8e15410372.rst
+   function_logger_8hpp_1ab0b4c18f8184ba60a40c052873aed418.rst
 
 .. toctree::
    :maxdepth: 5
 
-   function_logger_8cpp_1a1ee020caeac32a751155c8f97f02b18f.rst
+   function_logger_8hpp_1accc387b1f7b595c8e8bc7c8e15410372.rst
 
 .. toctree::
    :maxdepth: 5
 
-   function_trigger__manager_8cpp_1a0188091568db2f955200ba68d09bb948.rst
+   function_logger_8hpp_1a1ee020caeac32a751155c8f97f02b18f.rst
 
 .. toctree::
    :maxdepth: 5
@@ -546,7 +631,7 @@ Functions
 .. toctree::
    :maxdepth: 5
 
-   function_wav__writer_8cpp_1a02da6e65d1f7f27b418fc05c7688a74a.rst
+   function_pose__models_8hpp_1a42586f50ad7c2c5d75896c87c9b18f89.rst
 
 .. toctree::
    :maxdepth: 5
@@ -556,32 +641,52 @@ Functions
 .. toctree::
    :maxdepth: 5
 
-   function_room__frame__solver_8cpp_1ac2a6d334bee7a16391b56a74b69dd0ce.rst
+   function_realtime__metrics_8hpp_1aa8cde7fc2c27d21cfcfa1f1a839fda84.rst
 
 .. toctree::
    :maxdepth: 5
 
-   function_room__frame__solver_8cpp_1a8b91d4eb1559cda71468caf827954fc1.rst
+   function_recording__access__control_8hpp_1a4924fbf4e7f57b58492ae86dfac0499b.rst
 
 .. toctree::
    :maxdepth: 5
 
-   function_room__frame__solver_8cpp_1abd7f88df37f1ef203b584ce162bd0479.rst
+   function_rms__quality_8hpp_1a0ac8d79f20cb8ec23253b879d9040936.rst
 
 .. toctree::
    :maxdepth: 5
 
-   function_room__frame__solver_8cpp_1a7eadd10fa4b8f1c854cb608e4a1c09c0.rst
+   function_room__frame__solver_8hpp_1ac2a6d334bee7a16391b56a74b69dd0ce.rst
 
 .. toctree::
    :maxdepth: 5
 
-   function_room__frame__solver_8cpp_1a5c8f578f92e111026e976e384e275ab8.rst
+   function_room__frame__solver_8hpp_1a8b91d4eb1559cda71468caf827954fc1.rst
+
+.. toctree::
+   :maxdepth: 5
+
+   function_room__frame__solver_8hpp_1abd7f88df37f1ef203b584ce162bd0479.rst
+
+.. toctree::
+   :maxdepth: 5
+
+   function_room__frame__solver_8hpp_1a7eadd10fa4b8f1c854cb608e4a1c09c0.rst
+
+.. toctree::
+   :maxdepth: 5
+
+   function_room__frame__solver_8hpp_1a5c8f578f92e111026e976e384e275ab8.rst
 
 .. toctree::
    :maxdepth: 5
 
    function_param__mapping_8hpp_1a3a62785ade2c24d5b132f2a8ae900b39.rst
+
+.. toctree::
+   :maxdepth: 5
+
+   function_realtime__metrics_8hpp_1adc9372d6c4a0c47643e77c6a2c2e2e49.rst
 
 .. toctree::
    :maxdepth: 5
@@ -592,6 +697,11 @@ Functions
    :maxdepth: 5
 
    function_trigger__types_8hpp_1aed84a20b4dfee1e9bf8d96d8cfc4aaa2.rst
+
+.. toctree::
+   :maxdepth: 5
+
+   function_recording__access__control_8hpp_1ac4dc87c17f09c9a47c171ad007aa02df.rst
 
 .. toctree::
    :maxdepth: 5
@@ -608,49 +718,6 @@ Functions
 
    function_timestamp_8hpp_1ae1f875ee69573996eca7b048d51e8752.rst
 
-.. toctree::
-   :maxdepth: 5
-
-   function_wav__writer_8cpp_1a2220200cb6a61a2defbd7f948b9ca3fd.rst
-
-.. toctree::
-   :maxdepth: 5
-
-   function_wav__writer_8cpp_1a6c0c77c8b2ba0c7021816c041f87233c.rst
-
-.. toctree::
-   :maxdepth: 5
-
-   function_record__manager_8hpp_1ae6b3028cfe643cd5dcf1a09cbee90a1d.rst
-
-Variables
-*********
-
-
-.. toctree::
-   :maxdepth: 5
-
-   variable_record__manager_8hpp_1a59a9a5b0f47171d5e985c550e5204654.rst
-
-.. toctree::
-   :maxdepth: 5
-
-   variable_sync__manifest_8cpp_1ad1302e1d69cd0497516b9ab706dc0a00.rst
-
-.. toctree::
-   :maxdepth: 5
-
-   variable_record__manager_8hpp_1aad1b14db5aa6bedc418fd5f04217fe9e.rst
-
-Defines
-*******
-
-
-.. toctree::
-   :maxdepth: 5
-
-   define_video__grabber_8cpp_1a9f918755b601cf4bffca775992e6fb90.rst
-
 Typedefs
 ********
 
@@ -658,12 +725,12 @@ Typedefs
 .. toctree::
    :maxdepth: 5
 
-   typedef_room__calibration__manager_8cpp_1a6ced85eb38a38ab0b8965a3776e849e7.rst
+   typedef_room__frame__solver_8hpp_1a6ced85eb38a38ab0b8965a3776e849e7.rst
 
 .. toctree::
    :maxdepth: 5
 
-   typedef_room__frame__solver_8hpp_1a6ced85eb38a38ab0b8965a3776e849e7.rst
+   typedef_skeleton3d__result_8hpp_1a433f75891954d8a0d75b12c48bd04782.rst
 
 .. toctree::
    :maxdepth: 5

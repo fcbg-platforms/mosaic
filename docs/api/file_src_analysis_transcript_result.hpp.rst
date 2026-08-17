@@ -38,12 +38,6 @@ Includes
 
 
 
-Included By
------------
-
-
-- :ref:`file_src_analysis_transcript_result.cpp`
-
 
 
 
