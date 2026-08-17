@@ -1,7 +1,9 @@
-#include "analysis/expression_result.hpp"
 #include <gtest/gtest.h>
+
 #include <QFile>
 #include <QTemporaryDir>
+
+#include "analysis/expression_result.hpp"
 
 using mosaic::ExpressionResult;
 
@@ -215,10 +217,10 @@ TEST(ExpressionResult, LoadsAuNamesAndActionUnitsForPyfeatBackend) {
     ASSERT_EQ(result.frames().size(), 1);
     ASSERT_EQ(result.frames()[0].subjects.size(), 1);
     const auto& actionUnits = result.frames()[0].subjects[0].actionUnits;
-    ASSERT_EQ(actionUnits.size(), 3);   // parallel to au_names(), not to the JSON object's own keys
-    EXPECT_DOUBLE_EQ(actionUnits[0], 0.12);   // AU01, present
-    EXPECT_DOUBLE_EQ(actionUnits[1], 0.0);    // AU02, absent from the JSON -> defaults to 0.0
-    EXPECT_DOUBLE_EQ(actionUnits[2], 0.9);    // AU06, present
+    ASSERT_EQ(actionUnits.size(), 3); // parallel to au_names(), not to the JSON object's own keys
+    EXPECT_DOUBLE_EQ(actionUnits[0], 0.12); // AU01, present
+    EXPECT_DOUBLE_EQ(actionUnits[1], 0.0);  // AU02, absent from the JSON -> defaults to 0.0
+    EXPECT_DOUBLE_EQ(actionUnits[2], 0.9);  // AU06, present
     // AU99 (unrecognized, not in au_names()) contributes nothing — the
     // parallel array's size is always au_names().size(), never larger.
 }
@@ -226,7 +228,7 @@ TEST(ExpressionResult, LoadsAuNamesAndActionUnitsForPyfeatBackend) {
 TEST(ExpressionResult, HasActionUnitsIsFalseForOlderFilesWithoutAuFields) {
     QTemporaryDir dir;
     ASSERT_TRUE(dir.isValid());
-    const auto result = ExpressionResult::load(write_fixture(dir.path()));   // heuristic fixture
+    const auto result = ExpressionResult::load(write_fixture(dir.path())); // heuristic fixture
 
     ASSERT_TRUE(result.is_valid());
     EXPECT_FALSE(result.has_action_units());

@@ -1,11 +1,12 @@
 #pragma once
-#include "core/settings.hpp"
-#include "record/record_manager.hpp"
-#include "video/video_feed_provider.hpp"
 #include <QImage>
 #include <QObject>
 #include <QString>
 #include <QVariantList>
+
+#include "core/settings.hpp"
+#include "record/record_manager.hpp"
+#include "video/video_feed_provider.hpp"
 
 namespace mosaic {
 
@@ -15,28 +16,27 @@ namespace mosaic {
 class MonitorBridge : public QObject {
     Q_OBJECT
 
-    Q_PROPERTY(bool    recording    READ isRecording  NOTIFY recordingChanged)
-    Q_PROPERTY(int     elapsedMs    READ elapsedMs    NOTIFY elapsedMsChanged)
-    Q_PROPERTY(int     cameraCount  READ cameraCount  NOTIFY cameraCountChanged)
-    Q_PROPERTY(QString sessionPath  READ sessionPath  NOTIFY sessionPathChanged)
+    Q_PROPERTY(bool recording READ isRecording NOTIFY recordingChanged)
+    Q_PROPERTY(int elapsedMs READ elapsedMs NOTIFY elapsedMsChanged)
+    Q_PROPERTY(int cameraCount READ cameraCount NOTIFY cameraCountChanged)
+    Q_PROPERTY(QString sessionPath READ sessionPath NOTIFY sessionPathChanged)
     // Global counter — increments whenever any camera delivers a frame (kept for compat).
-    Q_PROPERTY(int     frameGen     READ frameGen     NOTIFY frameGenChanged)
+    Q_PROPERTY(int frameGen READ frameGen NOTIFY frameGenChanged)
     // Per-camera counters: frameGens[i] increments only when camera i gets a new frame,
     // so each QML slot only reloads when its own camera produces new data.
     Q_PROPERTY(QVariantList frameGens READ frameGens NOTIFY frameGensChanged)
 
-public:
-    explicit MonitorBridge(RecordManager*       recordMgr,
-                            const VideoSettings& videoSettings,
-                            QObject*             parent = nullptr);
+   public:
+    explicit MonitorBridge(RecordManager* recordMgr, const VideoSettings& videoSettings,
+                           QObject* parent = nullptr);
 
     // Q_PROPERTY readers
-    [[nodiscard]] bool          isRecording()     const;
-    [[nodiscard]] int           elapsedMs()       const;
-    [[nodiscard]] int           cameraCount()     const;
-    [[nodiscard]] QString       sessionPath()     const;
-    [[nodiscard]] int           frameGen()        const;
-    [[nodiscard]] QVariantList  frameGens()       const;
+    [[nodiscard]] bool isRecording() const;
+    [[nodiscard]] int elapsedMs() const;
+    [[nodiscard]] int cameraCount() const;
+    [[nodiscard]] QString sessionPath() const;
+    [[nodiscard]] int frameGen() const;
+    [[nodiscard]] QVariantList frameGens() const;
 
     // Called by VideoSettingsW when cameras are added/removed
     void set_camera_count(int count);
@@ -44,14 +44,14 @@ public:
     // Called from MainWindow after the QML engine is set up
     void set_feed_provider(VideoFeedProvider* provider);
 
-public slots:
+   public slots:
     Q_INVOKABLE void startRecording();
     Q_INVOKABLE void stopRecording();
 
     // Connected to VideoManager::frame_preview (already on main thread via queued)
     void on_frame_preview(int cameraIndex, QImage frame);
 
-signals:
+   signals:
     void recordingChanged();
     void elapsedMsChanged();
     void cameraCountChanged();
@@ -59,14 +59,14 @@ signals:
     void frameGenChanged();
     void frameGensChanged();
 
-private:
-    RecordManager*       m_rm;
+   private:
+    RecordManager* m_rm;
     const VideoSettings& m_videoSettings;
-    int                  m_cameraCount{0};
-    QString              m_sessionPath;
-    VideoFeedProvider*   m_feedProvider{nullptr};
-    int                  m_frameGen{0};
-    QVariantList         m_frameGens;          // per-camera generation counters
+    int m_cameraCount{0};
+    QString m_sessionPath;
+    VideoFeedProvider* m_feedProvider{nullptr};
+    int m_frameGen{0};
+    QVariantList m_frameGens; // per-camera generation counters
 };
 
 } // namespace mosaic

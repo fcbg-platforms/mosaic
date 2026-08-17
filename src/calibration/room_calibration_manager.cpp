@@ -1,13 +1,15 @@
 #include "calibration/room_calibration_manager.hpp"
-#include "utils/logger.hpp"
+
 #include <cmath>
 #include <map>
 #include <utility>
 
+#include "utils/logger.hpp"
+
 #if defined(MOSAIC_HAVE_OPENCV)
-#  include <opencv2/calib3d.hpp>
-#  include <opencv2/imgproc.hpp>
-#  include <opencv2/objdetect.hpp>
+#include <opencv2/calib3d.hpp>
+#include <opencv2/imgproc.hpp>
+#include <opencv2/objdetect.hpp>
 #endif
 
 namespace mosaic {
@@ -68,8 +70,8 @@ void mat4_to_rt(const Mat4& m, cv::Mat& rvec, cv::Mat& tvec) {
 
 // One camera's accepted board detection within a single shot.
 struct ShotCameraEntry {
-    int  cameraIndex = -1;
-    Mat4 boardToCam  = room_frame::identity();
+    int cameraIndex = -1;
+    Mat4 boardToCam = room_frame::identity();
 #if defined(MOSAIC_HAVE_OPENCV)
     std::vector<cv::Point2f> corners2d;
     std::vector<cv::Point3f> corners3d;
@@ -86,25 +88,26 @@ struct Shot {
 // ── Impl ──────────────────────────────────────────────────────────────────
 
 struct RoomCalibrationManager::Impl {
-    BoardSpec                    board;
+    BoardSpec board;
     std::map<int, CalibrationData> intrinsics;
-    std::vector<Shot>            shots;
+    std::vector<Shot> shots;
 
-    std::vector<bool>   resolved;
-    std::vector<Mat4>   extrinsicRt;
+    std::vector<bool> resolved;
+    std::vector<Mat4> extrinsicRt;
     std::vector<double> reprojectionRms;
 
 #if defined(MOSAIC_HAVE_OPENCV)
     cv::Ptr<cv::aruco::CharucoBoard> charucoBoard;
 
     void ensure_board() {
-        if (charucoBoard) { return; }
-        const cv::aruco::Dictionary dict = cv::aruco::getPredefinedDictionary(cv::aruco::DICT_5X5_100);
+        if (charucoBoard) {
+            return;
+        }
+        const cv::aruco::Dictionary dict =
+            cv::aruco::getPredefinedDictionary(cv::aruco::DICT_5X5_100);
         charucoBoard = cv::makePtr<cv::aruco::CharucoBoard>(
-            cv::Size(board.cols, board.rows),
-            static_cast<float>(board.squareLengthMm),
-            static_cast<float>(board.markerLengthMm),
-            dict);
+            cv::Size(board.cols, board.rows), static_cast<float>(board.squareLengthMm),
+            static_cast<float>(board.markerLengthMm), dict);
     }
 #endif
 };
@@ -123,7 +126,7 @@ bool RoomCalibrationManager::is_available() {
 void RoomCalibrationManager::set_board(const BoardSpec& spec) {
     d->board = spec;
 #if defined(MOSAIC_HAVE_OPENCV)
-    d->charucoBoard.release();   // rebuilt lazily on next feed_shot()
+    d->charucoBoard.release(); // rebuilt lazily on next feed_shot()
 #endif
 }
 
@@ -131,8 +134,8 @@ void RoomCalibrationManager::set_camera_intrinsics(int cameraIndex, const Calibr
     d->intrinsics[cameraIndex] = data;
 }
 
-QVector<RoomCalibrationManager::CameraShotResult>
-RoomCalibrationManager::feed_shot(const QVector<VideoFrame>& frames) {
+QVector<RoomCalibrationManager::CameraShotResult> RoomCalibrationManager::feed_shot(
+    const QVector<VideoFrame>& frames) {
     QVector<CameraShotResult> results;
 
 #if defined(MOSAIC_HAVE_OPENCV)
@@ -154,15 +157,15 @@ RoomCalibrationManager::feed_shot(const QVector<VideoFrame>& frames) {
         const auto intrinsicsIt = d->intrinsics.find(frame.cameraIndex);
         if (intrinsicsIt == d->intrinsics.end() || !intrinsicsIt->second.calibrated) {
             log_warning(QString("[RoomCalibration] Camera %1 has no intrinsic calibration — "
-                                 "shot skipped for this camera.")
+                                "shot skipped for this camera.")
                             .arg(frame.cameraIndex));
             results.push_back(r);
             continue;
         }
 
         const cv::Mat bgr(frame.height, frame.width, CV_8UC3,
-                           const_cast<uint8_t*>(frame.data.data()),
-                           static_cast<size_t>(frame.stride));
+                          const_cast<uint8_t*>(frame.data.data()),
+                          static_cast<size_t>(frame.stride));
         cv::Mat grey;
         cv::cvtColor(bgr, grey, cv::COLOR_BGR2GRAY);
 
@@ -186,12 +189,12 @@ RoomCalibrationManager::feed_shot(const QVector<VideoFrame>& frames) {
         }
 
         const CalibrationData& intr = intrinsicsIt->second;
-        const cv::Mat K    = make_camera_matrix(intr.cameraMatrix);
-        const cv::Mat dist = make_dist_coeffs(intr.distCoeffs);
+        const cv::Mat K             = make_camera_matrix(intr.cameraMatrix);
+        const cv::Mat dist          = make_dist_coeffs(intr.distCoeffs);
 
         cv::Mat rvec, tvec;
-        const bool solved = cv::solvePnP(objPoints, imgPoints, K, dist, rvec, tvec,
-                                          false, cv::SOLVEPNP_ITERATIVE);
+        const bool solved =
+            cv::solvePnP(objPoints, imgPoints, K, dist, rvec, tvec, false, cv::SOLVEPNP_ITERATIVE);
         if (!solved) {
             results.push_back(r);
             continue;
@@ -222,9 +225,7 @@ RoomCalibrationManager::feed_shot(const QVector<VideoFrame>& frames) {
     return results;
 }
 
-int RoomCalibrationManager::shot_count() const {
-    return static_cast<int>(d->shots.size());
-}
+int RoomCalibrationManager::shot_count() const { return static_cast<int>(d->shots.size()); }
 
 void RoomCalibrationManager::clear_shots() {
     d->shots.clear();
@@ -234,7 +235,7 @@ void RoomCalibrationManager::clear_shots() {
 }
 
 RoomCalibrationManager::SolveResult RoomCalibrationManager::solve(int cameraCount,
-                                                                    int referenceCameraIndex) {
+                                                                  int referenceCameraIndex) {
     SolveResult out;
 
 #if defined(MOSAIC_HAVE_OPENCV)
@@ -245,8 +246,8 @@ RoomCalibrationManager::SolveResult RoomCalibrationManager::solve(int cameraCoun
     for (const auto& shot : d->shots) {
         for (size_t i = 0; i < shot.cameras.size(); ++i) {
             for (size_t j = i + 1; j < shot.cameras.size(); ++j) {
-                int  a = shot.cameras[i].cameraIndex;
-                int  b = shot.cameras[j].cameraIndex;
+                int a      = shot.cameras[i].cameraIndex;
+                int b      = shot.cameras[j].cameraIndex;
                 Mat4 poseA = shot.cameras[i].boardToCam;
                 Mat4 poseB = shot.cameras[j].boardToCam;
                 if (a > b) {
@@ -254,8 +255,8 @@ RoomCalibrationManager::SolveResult RoomCalibrationManager::solve(int cameraCoun
                     std::swap(poseA, poseB);
                 }
                 auto& edge = edgeMap[{a, b}];
-                edge.camA = a;
-                edge.camB = b;
+                edge.camA  = a;
+                edge.camB  = b;
                 edge.boardToCamA.push_back(poseA);
                 edge.boardToCamB.push_back(poseB);
             }
@@ -270,8 +271,8 @@ RoomCalibrationManager::SolveResult RoomCalibrationManager::solve(int cameraCoun
     }
 
     const auto result = room_frame::bfs_resolve(cameraCount, referenceCameraIndex, edges);
-    d->resolved    = result.resolved;
-    d->extrinsicRt = result.extrinsicRt;
+    d->resolved       = result.resolved;
+    d->extrinsicRt    = result.extrinsicRt;
 
     // Per-camera reprojection RMS: how well each camera's OWN solvePnP
     // solution (from every shot where it directly saw the board) fits its
@@ -279,13 +280,17 @@ RoomCalibrationManager::SolveResult RoomCalibrationManager::solve(int cameraCoun
     // reflects detection/solve quality, not accumulated chain error.
     d->reprojectionRms.assign(static_cast<size_t>(cameraCount), -1.0);
     std::vector<double> sumSqErr(static_cast<size_t>(cameraCount), 0.0);
-    std::vector<int>    countPts(static_cast<size_t>(cameraCount), 0);
+    std::vector<int> countPts(static_cast<size_t>(cameraCount), 0);
 
     for (const auto& shot : d->shots) {
         for (const auto& cam : shot.cameras) {
-            if (cam.cameraIndex < 0 || cam.cameraIndex >= cameraCount) { continue; }
+            if (cam.cameraIndex < 0 || cam.cameraIndex >= cameraCount) {
+                continue;
+            }
             const auto intrIt = d->intrinsics.find(cam.cameraIndex);
-            if (intrIt == d->intrinsics.end()) { continue; }
+            if (intrIt == d->intrinsics.end()) {
+                continue;
+            }
 
             const cv::Mat K    = make_camera_matrix(intrIt->second.cameraMatrix);
             const cv::Mat dist = make_dist_coeffs(intrIt->second.distCoeffs);
@@ -323,7 +328,9 @@ RoomCalibrationManager::SolveResult RoomCalibrationManager::solve(int cameraCoun
 }
 
 bool RoomCalibrationManager::is_resolved(int cameraIndex) const {
-    if (cameraIndex < 0 || cameraIndex >= static_cast<int>(d->resolved.size())) { return false; }
+    if (cameraIndex < 0 || cameraIndex >= static_cast<int>(d->resolved.size())) {
+        return false;
+    }
     return d->resolved[static_cast<size_t>(cameraIndex)];
 }
 
@@ -335,17 +342,23 @@ std::array<double, 16> RoomCalibrationManager::extrinsic_for(int cameraIndex) co
 }
 
 double RoomCalibrationManager::reprojection_rms_for(int cameraIndex) const {
-    if (cameraIndex < 0 || cameraIndex >= static_cast<int>(d->reprojectionRms.size())) { return -1.0; }
+    if (cameraIndex < 0 || cameraIndex >= static_cast<int>(d->reprojectionRms.size())) {
+        return -1.0;
+    }
     return d->reprojectionRms[static_cast<size_t>(cameraIndex)];
 }
 
 bool RoomCalibrationManager::use_shot_as_plane(int shotIndex, int cameraIndex,
-                                                std::array<double, 3>& outPoint,
-                                                std::array<double, 3>& outNormal) const {
-    if (shotIndex < 0 || shotIndex >= static_cast<int>(d->shots.size())) { return false; }
-    if (!is_resolved(cameraIndex)) { return false; }
+                                               std::array<double, 3>& outPoint,
+                                               std::array<double, 3>& outNormal) const {
+    if (shotIndex < 0 || shotIndex >= static_cast<int>(d->shots.size())) {
+        return false;
+    }
+    if (!is_resolved(cameraIndex)) {
+        return false;
+    }
 
-    const Shot& shot = d->shots[static_cast<size_t>(shotIndex)];
+    const Shot& shot             = d->shots[static_cast<size_t>(shotIndex)];
     const ShotCameraEntry* entry = nullptr;
     for (const auto& cam : shot.cameras) {
         if (cam.cameraIndex == cameraIndex) {
@@ -353,11 +366,13 @@ bool RoomCalibrationManager::use_shot_as_plane(int shotIndex, int cameraIndex,
             break;
         }
     }
-    if (!entry) { return false; }
+    if (!entry) {
+        return false;
+    }
 
     const Mat4 boardToRoom = room_frame::compose(extrinsic_for(cameraIndex), entry->boardToCam);
 
-    outPoint  = {boardToRoom[3], boardToRoom[7], boardToRoom[11]};
+    outPoint = {boardToRoom[3], boardToRoom[7], boardToRoom[11]};
     // The board's printed-face normal is its local Z axis (ChArUco object
     // points lie in the board's own Z=0 plane) — the 3rd column of the
     // rotation part.

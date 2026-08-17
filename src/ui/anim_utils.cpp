@@ -1,4 +1,5 @@
 #include "ui/anim_utils.hpp"
+
 #include <QAbstractAnimation>
 #include <QEasingCurve>
 #include <QHash>
@@ -20,7 +21,7 @@ QGraphicsOpacityEffect* ensure_opacity_effect(QWidget* w) {
 
 void fade_in_widget(QWidget* w, int durationMs) {
     auto* effect = ensure_opacity_effect(w);
-    auto* anim = new QPropertyAnimation(effect, "opacity", w);
+    auto* anim   = new QPropertyAnimation(effect, "opacity", w);
     anim->setDuration(durationMs);
     anim->setStartValue(0.0);
     anim->setEndValue(1.0);
@@ -29,12 +30,16 @@ void fade_in_widget(QWidget* w, int durationMs) {
 
 void fade_out_widget(QWidget* w, int durationMs, std::function<void()> onFinished) {
     auto* effect = ensure_opacity_effect(w);
-    auto* anim = new QPropertyAnimation(effect, "opacity", w);
+    auto* anim   = new QPropertyAnimation(effect, "opacity", w);
     anim->setDuration(durationMs);
     anim->setStartValue(effect->opacity());
     anim->setEndValue(0.0);
     QObject::connect(anim, &QAbstractAnimation::finished, w, [w, onFinished] {
-        if (onFinished) { onFinished(); } else { w->hide(); }
+        if (onFinished) {
+            onFinished();
+        } else {
+            w->hide();
+        }
     });
     anim->start(QAbstractAnimation::DeleteWhenStopped);
 }
@@ -46,7 +51,10 @@ namespace {
 // in quick succession) resumes from the widget's TRUE rest position instead
 // of wherever it happens to be mid-shake, and cancels the stale group rather
 // than letting two animations race on the same `pos` property.
-struct ShakeState { QPoint basePos; QAbstractAnimation* group = nullptr; };
+struct ShakeState {
+    QPoint basePos;
+    QAbstractAnimation* group = nullptr;
+};
 QHash<QWidget*, ShakeState>& shake_states() {
     static QHash<QWidget*, ShakeState> states;
     return states;
@@ -55,19 +63,23 @@ QHash<QWidget*, ShakeState>& shake_states() {
 } // namespace
 
 void shake_widget(QWidget* w) {
-    if (!w) { return; }
-    auto& states = shake_states();
-    const auto it = states.find(w);
+    if (!w) {
+        return;
+    }
+    auto& states              = shake_states();
+    const auto it             = states.find(w);
     const bool alreadyShaking = (it != states.end());
-    const QPoint base = alreadyShaking ? it->basePos : w->pos();
-    if (alreadyShaking) { it->group->stop(); }
+    const QPoint base         = alreadyShaking ? it->basePos : w->pos();
+    if (alreadyShaking) {
+        it->group->stop();
+    }
 
-    auto* group = new QSequentialAnimationGroup(w);
-    const int offsets[] = { 8, -8, 6, -6, 3, -3, 0 };
-    QPoint prev = base;
+    auto* group         = new QSequentialAnimationGroup(w);
+    const int offsets[] = {8, -8, 6, -6, 3, -3, 0};
+    QPoint prev         = base;
     for (int off : offsets) {
         const QPoint target = base + QPoint(off, 0);
-        auto* anim = new QPropertyAnimation(w, "pos");
+        auto* anim          = new QPropertyAnimation(w, "pos");
         anim->setDuration(45);
         anim->setEasingCurve(QEasingCurve::InOutQuad);
         anim->setStartValue(prev);
@@ -81,9 +93,11 @@ void shake_widget(QWidget* w) {
     // never runs, which is correct: the map entry it would have cleared was
     // already overwritten synchronously by the new shake before this point.
     QObject::connect(group, &QAbstractAnimation::finished, w, [w, group] {
-        auto& s = shake_states();
+        auto& s          = shake_states();
         const auto found = s.find(w);
-        if (found != s.end() && found->group == group) { s.remove(w); }
+        if (found != s.end() && found->group == group) {
+            s.remove(w);
+        }
     });
     // Guards against w being destroyed mid-shake (e.g. dialog teardown)
     // leaving a stale entry keyed by a dangling pointer that a future,
@@ -94,11 +108,10 @@ void shake_widget(QWidget* w) {
 
 QColor lerp_color(const QColor& a, const QColor& b, qreal t) {
     t = std::clamp(t, 0.0, 1.0);
-    return QColor(
-        static_cast<int>(a.red()   + (b.red()   - a.red())   * t),
-        static_cast<int>(a.green() + (b.green() - a.green()) * t),
-        static_cast<int>(a.blue()  + (b.blue()  - a.blue())  * t),
-        static_cast<int>(a.alpha() + (b.alpha() - a.alpha()) * t));
+    return QColor(static_cast<int>(a.red() + (b.red() - a.red()) * t),
+                  static_cast<int>(a.green() + (b.green() - a.green()) * t),
+                  static_cast<int>(a.blue() + (b.blue() - a.blue()) * t),
+                  static_cast<int>(a.alpha() + (b.alpha() - a.alpha()) * t));
 }
 
 void restart_hover_anim(QVariantAnimation* anim, qreal currentT, qreal target) {
@@ -114,7 +127,9 @@ namespace {
 // widget, so a fast double-click starting a second collapse/expand before
 // the first settles cancels the stale animation instead of letting two
 // animations race on the same maximumHeight property.
-struct CollapseState { QPointer<QPropertyAnimation> anim; };
+struct CollapseState {
+    QPointer<QPropertyAnimation> anim;
+};
 QHash<QWidget*, CollapseState>& collapse_states() {
     static QHash<QWidget*, CollapseState> states;
     return states;
@@ -123,9 +138,9 @@ QHash<QWidget*, CollapseState>& collapse_states() {
 } // namespace
 
 QPropertyAnimation* animate_collapse(QWidget* body, bool expand, int durationMs,
-                                      std::function<void()> onFinished) {
+                                     std::function<void()> onFinished) {
     auto& states = collapse_states();
-    auto it = states.find(body);
+    auto it      = states.find(body);
     if (it == states.end()) {
         QObject::connect(body, &QObject::destroyed, [body] { collapse_states().remove(body); });
         it = states.insert(body, CollapseState{});
@@ -144,14 +159,18 @@ QPropertyAnimation* animate_collapse(QWidget* body, bool expand, int durationMs,
         anim->setEndValue(body->sizeHint().height());
         QObject::connect(anim, &QAbstractAnimation::finished, body, [body, onFinished] {
             body->setMaximumHeight(QWIDGETSIZE_MAX);
-            if (onFinished) { onFinished(); }
+            if (onFinished) {
+                onFinished();
+            }
         });
     } else {
         anim->setStartValue(body->height());
         anim->setEndValue(0);
         QObject::connect(anim, &QAbstractAnimation::finished, body, [body, onFinished] {
             body->hide();
-            if (onFinished) { onFinished(); }
+            if (onFinished) {
+                onFinished();
+            }
         });
     }
 
@@ -178,32 +197,40 @@ QHash<QStackedWidget*, StackTransitionState>& stack_transition_states() {
 } // namespace
 
 void crossfade_stacked_widget(QStackedWidget* stack, int newIndex, int durationMs,
-                               std::function<void()> onComplete) {
+                              std::function<void()> onComplete) {
     auto& states = stack_transition_states();
-    auto it = states.find(stack);
+    auto it      = states.find(stack);
     if (it == states.end()) {
         QObject::connect(stack, &QObject::destroyed,
-                          [stack] { stack_transition_states().remove(stack); });
+                         [stack] { stack_transition_states().remove(stack); });
         it = states.insert(stack, StackTransitionState{stack->currentIndex(), nullptr});
     }
 
     // Already showing (or already mid-transition toward) this page — a
     // repeated call (e.g. clicking the same nav control twice) is a no-op.
-    if (it->targetIndex == newIndex) { return; }
+    if (it->targetIndex == newIndex) {
+        return;
+    }
     it->targetIndex = newIndex;
 
     // Cancel whichever phase (out or in) of a still-in-flight transition is
     // currently running — without this, fast repeated switching can start a
     // second crossfade before the first one reaches setCurrentIndex(),
     // leaving two animations racing on the same opacity effect.
-    if (it->anim) { it->anim->stop(); }
+    if (it->anim) {
+        it->anim->stop();
+    }
 
     QWidget* currentPage = stack->currentWidget();
     QWidget* targetPage  = stack->widget(newIndex);
     if (!targetPage || currentPage == targetPage) {
-        if (targetPage) { ensure_opacity_effect(targetPage)->setOpacity(1.0); }
+        if (targetPage) {
+            ensure_opacity_effect(targetPage)->setOpacity(1.0);
+        }
         stack->setCurrentIndex(newIndex);
-        if (targetPage && onComplete) { onComplete(); }
+        if (targetPage && onComplete) {
+            onComplete();
+        }
         return;
     }
 
@@ -216,26 +243,28 @@ void crossfade_stacked_widget(QStackedWidget* stack, int newIndex, int durationM
     it->anim = outAnim; // `it` still valid: no intervening hash mutation since find/insert above
 
     QObject::connect(outAnim, &QAbstractAnimation::finished, stack,
-                      [stack, newIndex, targetPage, durationMs, onComplete] {
-        stack->setCurrentIndex(newIndex);
-        if (onComplete) { onComplete(); }
+                     [stack, newIndex, targetPage, durationMs, onComplete] {
+                         stack->setCurrentIndex(newIndex);
+                         if (onComplete) {
+                             onComplete();
+                         }
 
-        auto* inEffect = ensure_opacity_effect(targetPage);
-        inEffect->setOpacity(0.0);
-        auto* inAnim = new QPropertyAnimation(inEffect, "opacity", targetPage);
-        inAnim->setDuration(durationMs);
-        inAnim->setEasingCurve(QEasingCurve::InOutCubic);
-        inAnim->setStartValue(0.0);
-        inAnim->setEndValue(1.0);
-        // Re-fetch rather than capturing a reference/iterator from the
-        // outer scope: this lambda runs later, after other
-        // crossfade_stacked_widget() calls (for other stacks, or a
-        // re-entrant call for this one) may have inserted into / rehashed
-        // the shared side-table, which would invalidate anything captured
-        // from before.
-        stack_transition_states()[stack].anim = inAnim;
-        inAnim->start(QAbstractAnimation::DeleteWhenStopped);
-    });
+                         auto* inEffect = ensure_opacity_effect(targetPage);
+                         inEffect->setOpacity(0.0);
+                         auto* inAnim = new QPropertyAnimation(inEffect, "opacity", targetPage);
+                         inAnim->setDuration(durationMs);
+                         inAnim->setEasingCurve(QEasingCurve::InOutCubic);
+                         inAnim->setStartValue(0.0);
+                         inAnim->setEndValue(1.0);
+                         // Re-fetch rather than capturing a reference/iterator from the
+                         // outer scope: this lambda runs later, after other
+                         // crossfade_stacked_widget() calls (for other stacks, or a
+                         // re-entrant call for this one) may have inserted into / rehashed
+                         // the shared side-table, which would invalidate anything captured
+                         // from before.
+                         stack_transition_states()[stack].anim = inAnim;
+                         inAnim->start(QAbstractAnimation::DeleteWhenStopped);
+                     });
 
     outAnim->start(QAbstractAnimation::DeleteWhenStopped);
 }

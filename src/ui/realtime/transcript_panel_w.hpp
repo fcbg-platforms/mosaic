@@ -10,7 +10,7 @@ namespace mosaic {
 // fires. Deliberately not a chart — this is textual data.
 class TranscriptPanelW : public QWidget {
     Q_OBJECT
-public:
+   public:
     explicit TranscriptPanelW(QWidget* parent = nullptr);
     ~TranscriptPanelW() override;
 
@@ -31,7 +31,7 @@ public:
     // (tiles/trace still render, they just never receive data).
     void set_unavailable(const QString& reason);
 
-private:
+   private:
     struct Impl;
     std::unique_ptr<Impl> d;
 };

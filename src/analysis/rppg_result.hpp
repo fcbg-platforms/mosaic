@@ -13,12 +13,12 @@ namespace mosaic {
 /// reliable estimate ("no_face"/insufficient-data — never fabricated, see
 /// run_rppg.py's MIN_VALID_FRACTION gate).
 struct RppgWindow {
-    int64_t startMs            = 0;
-    int64_t endMs              = 0;
-    double  bpm                = std::numeric_limits<double>::quiet_NaN();
-    double  smoothedBpm        = std::numeric_limits<double>::quiet_NaN();
-    double  snrDb              = std::numeric_limits<double>::quiet_NaN();
-    double  validFrameFraction = 0.0;
+    int64_t startMs           = 0;
+    int64_t endMs             = 0;
+    double bpm                = std::numeric_limits<double>::quiet_NaN();
+    double smoothedBpm        = std::numeric_limits<double>::quiet_NaN();
+    double snrDb              = std::numeric_limits<double>::quiet_NaN();
+    double validFrameFraction = 0.0;
 };
 
 /// One processed video frame's face-ROI detection, for the debug overlay
@@ -26,10 +26,10 @@ struct RppgWindow {
 /// from RppgWindow's HR-analysis windows. faceDetected == false means
 /// roiBboxPx is meaningless (default-constructed, not a real box).
 struct RppgFrame {
-    int     frameIndex   = 0;
-    int64_t timestampMs  = 0;
-    bool    faceDetected = false;
-    QRect   roiBboxPx;
+    int frameIndex      = 0;
+    int64_t timestampMs = 0;
+    bool faceDetected   = false;
+    QRect roiBboxPx;
 };
 
 /// Parses a "<video_stem>.<backend>.rppg.json" file written by
@@ -46,7 +46,7 @@ struct RppgFrame {
 ///   if (result.is_valid()) { ... }
 /// @endcode
 class RppgResult {
-public:
+   public:
     RppgResult() = default;
 
     /// Parses jsonPath. Returns a default-constructed (is_valid() == false)
@@ -79,20 +79,20 @@ public:
     [[nodiscard]] const RppgWindow* nearest_window(int64_t timestampMsEstimate) const;
     [[nodiscard]] const RppgFrame* nearest_frame(int64_t timestampMsEstimate) const;
 
-private:
-    bool                 valid_    = false;
-    QString              sourceVideo_;
-    QString              backend_;
-    double               windowSec_ = 0.0;
-    double               hopSec_    = 0.0;
-    QVector<RppgWindow>  windows_;
-    QVector<RppgFrame>   frames_;
+   private:
+    bool valid_ = false;
+    QString sourceVideo_;
+    QString backend_;
+    double windowSec_ = 0.0;
+    double hopSec_    = 0.0;
+    QVector<RppgWindow> windows_;
+    QVector<RppgFrame> frames_;
 
     std::optional<double> meanBpm_;
     std::optional<double> medianBpm_;
     std::optional<double> minBpm_;
     std::optional<double> maxBpm_;
-    double                pctWindowsGood_ = 0.0;
+    double pctWindowsGood_ = 0.0;
 };
 
 } // namespace mosaic

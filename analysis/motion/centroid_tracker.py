@@ -21,8 +21,8 @@ from dataclasses import dataclass, field
 import cv2
 import numpy as np
 
-
 # ── Track ──────────────────────────────────────────────────────────────────
+
 
 @dataclass
 class Track:
@@ -46,6 +46,7 @@ class Track:
         detection; pruned once this exceeds
         :attr:`CentroidTracker.max_lost`.
     """
+
     id: int
     positions: deque = field(default_factory=lambda: deque(maxlen=90))
     timestamps_ns: deque = field(default_factory=lambda: deque(maxlen=90))
@@ -98,6 +99,7 @@ class Track:
 
 # ── Detection ──────────────────────────────────────────────────────────────
 
+
 @dataclass
 class Detection:
     """One per-frame foreground blob, before track assignment.
@@ -113,6 +115,7 @@ class Detection:
     contour : numpy.ndarray
         The raw OpenCV contour this detection was built from.
     """
+
     cx: float
     cy: float
     area: float
@@ -121,6 +124,7 @@ class Detection:
 
 
 # ── CentroidTracker ────────────────────────────────────────────────────────
+
 
 class CentroidTracker:
     """Greedy nearest-neighbour multi-object tracker over MOG2 foreground blobs.
@@ -167,15 +171,15 @@ class CentroidTracker:
         mm_per_px: float = 1.0,
         n_animals: int = 0,
     ) -> None:
-        self.min_area     = min_area
-        self.max_area     = max_area
+        self.min_area = min_area
+        self.max_area = max_area
         self.max_distance = max_distance
-        self.max_lost     = max_lost
+        self.max_lost = max_lost
         self.learning_rate = learning_rate
         self.close_kernel = close_kernel
-        self.open_kernel  = open_kernel
-        self.mm_per_px    = mm_per_px
-        self.n_animals    = n_animals
+        self.open_kernel = open_kernel
+        self.mm_per_px = mm_per_px
+        self.n_animals = n_animals
 
         self._fgbg = cv2.createBackgroundSubtractorMOG2(
             history=history,
@@ -188,9 +192,11 @@ class CentroidTracker:
 
         # Pre-build kernels once
         self._close_k = cv2.getStructuringElement(
-            cv2.MORPH_ELLIPSE, (self.close_kernel, self.close_kernel))
-        self._open_k  = cv2.getStructuringElement(
-            cv2.MORPH_ELLIPSE, (self.open_kernel, self.open_kernel))
+            cv2.MORPH_ELLIPSE, (self.close_kernel, self.close_kernel)
+        )
+        self._open_k = cv2.getStructuringElement(
+            cv2.MORPH_ELLIPSE, (self.open_kernel, self.open_kernel)
+        )
 
     # ── Public ──────────────────────────────────────────────────────────────
 
@@ -233,7 +239,8 @@ class CentroidTracker:
         self._next_id = 0
         self._frame_idx = 0
         self._fgbg = cv2.createBackgroundSubtractorMOG2(
-            history=500, varThreshold=16.0, detectShadows=True)
+            history=500, varThreshold=16.0, detectShadows=True
+        )
 
     def set_roi(self, mask: np.ndarray) -> None:
         """Restrict detection to a region of interest.
@@ -257,7 +264,7 @@ class CentroidTracker:
 
         # Morphological clean-up
         fg = cv2.morphologyEx(fg, cv2.MORPH_CLOSE, self._close_k)
-        fg = cv2.morphologyEx(fg, cv2.MORPH_OPEN,  self._open_k)
+        fg = cv2.morphologyEx(fg, cv2.MORPH_OPEN, self._open_k)
 
         # Apply optional ROI mask
         if hasattr(self, "_roi_mask") and self._roi_mask is not None:
@@ -276,8 +283,7 @@ class CentroidTracker:
             cx = M["m10"] / M["m00"]
             cy = M["m01"] / M["m00"]
             x, y, w, h = cv2.boundingRect(cnt)
-            detections.append(Detection(cx=cx, cy=cy, area=area,
-                                        bbox=(x, y, w, h), contour=cnt))
+            detections.append(Detection(cx=cx, cy=cy, area=area, bbox=(x, y, w, h), contour=cnt))
 
         # Sort largest first — helps with occluded blobs
         detections.sort(key=lambda d: d.area, reverse=True)
@@ -302,9 +308,9 @@ class CentroidTracker:
 
         active_ids = list(self._tracks.keys())
         track_positions = np.array(
-            [self._tracks[tid].position for tid in active_ids], dtype=np.float64)
-        det_positions = np.array(
-            [(d.cx, d.cy) for d in detections], dtype=np.float64)
+            [self._tracks[tid].position for tid in active_ids], dtype=np.float64
+        )
+        det_positions = np.array([(d.cx, d.cy) for d in detections], dtype=np.float64)
 
         # Build cost matrix (Euclidean distances)
         if det_positions.size == 0:
@@ -313,17 +319,17 @@ class CentroidTracker:
             return
 
         diffs = track_positions[:, np.newaxis, :] - det_positions[np.newaxis, :, :]
-        cost  = np.hypot(diffs[..., 0], diffs[..., 1])  # shape (n_tracks, n_dets)
+        cost = np.hypot(diffs[..., 0], diffs[..., 1])  # shape (n_tracks, n_dets)
 
         matched_tracks: set = set()
-        matched_dets:   set = set()
+        matched_dets: set = set()
 
         # Greedy assignment: repeatedly pick the minimum-cost pair
         while True:
             if cost.size == 0:
                 break
             min_idx = np.unravel_index(np.argmin(cost), cost.shape)
-            ti, di  = int(min_idx[0]), int(min_idx[1])
+            ti, di = int(min_idx[0]), int(min_idx[1])
             if cost[ti, di] > self.max_distance:
                 break
             tid = active_ids[ti]
@@ -353,9 +359,7 @@ class CentroidTracker:
         self._next_id += 1
         return t
 
-    def _update_track(
-        self, track: Track, det: Detection, ts_ns: int, fps: float
-    ) -> None:
+    def _update_track(self, track: Track, det: Detection, ts_ns: int, fps: float) -> None:
         track.positions.append((det.cx, det.cy))
         track.timestamps_ns.append(ts_ns)
         track.areas.append(det.area)
@@ -363,13 +367,13 @@ class CentroidTracker:
         track.lost_count = 0
 
     def _prune_lost(self) -> None:
-        to_delete = [tid for tid, t in self._tracks.items()
-                     if t.lost_count > self.max_lost]
+        to_delete = [tid for tid, t in self._tracks.items() if t.lost_count > self.max_lost]
         for tid in to_delete:
             del self._tracks[tid]
 
 
 # ── Annotated frame ─────────────────────────────────────────────────────────
+
 
 def draw_tracks(
     frame: np.ndarray,
@@ -401,14 +405,14 @@ def draw_tracks(
         A new BGR frame (copy of ``frame``) with tracks overlaid.
     """
     PALETTE = [
-        (255, 80,  80),
-        (80, 255,  80),
-        (80,  80, 255),
-        (255, 255,  80),
-        (255,  80, 255),
+        (255, 80, 80),
+        (80, 255, 80),
+        (80, 80, 255),
+        (255, 255, 80),
+        (255, 80, 255),
         (80, 255, 255),
-        (200, 140,  60),
-        (140,  60, 200),
+        (200, 140, 60),
+        (140, 60, 200),
     ]
 
     out = frame.copy()
@@ -420,10 +424,14 @@ def draw_tracks(
         for i in range(1, len(pts)):
             alpha = i / len(pts)
             c = tuple(int(v * alpha) for v in color)
-            cv2.line(out,
-                     (int(pts[i-1][0]), int(pts[i-1][1])),
-                     (int(pts[i][0]),   int(pts[i][1])),
-                     c, 1, cv2.LINE_AA)
+            cv2.line(
+                out,
+                (int(pts[i - 1][0]), int(pts[i - 1][1])),
+                (int(pts[i][0]), int(pts[i][1])),
+                c,
+                1,
+                cv2.LINE_AA,
+            )
 
         # Current centroid
         if pts:
@@ -431,7 +439,8 @@ def draw_tracks(
             cv2.circle(out, (cx, cy), 6, color, -1, cv2.LINE_AA)
             vel = track.velocity_mm_per_s(mm_per_px, fps)
             label = f"#{track.id}  {vel:.1f} mm/s"
-            cv2.putText(out, label, (cx + 8, cy - 6),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.42, color, 1, cv2.LINE_AA)
+            cv2.putText(
+                out, label, (cx + 8, cy - 6), cv2.FONT_HERSHEY_SIMPLEX, 0.42, color, 1, cv2.LINE_AA
+            )
 
     return out

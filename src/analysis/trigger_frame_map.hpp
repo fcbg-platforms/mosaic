@@ -8,28 +8,28 @@ namespace mosaic {
 
 // One camera's nearest-frame result for a single trigger event.
 struct TriggerFrameHit {
-    int     cameraIndex     = -1;
-    int     frameId         = -1;   // -1 = no timestamps_camN.csv data for this camera
-    double  deltaMs         = 0.0;  // signed: (frame.elapsedNs - trigger.elapsedNs)/1e6
-    int64_t videoPositionMs = -1;   // seek() position in that camera's own mp4 PTS domain; -1 = n/a
+    int cameraIndex         = -1;
+    int frameId             = -1;  // -1 = no timestamps_camN.csv data for this camera
+    double deltaMs          = 0.0; // signed: (frame.elapsedNs - trigger.elapsedNs)/1e6
+    int64_t videoPositionMs = -1;  // seek() position in that camera's own mp4 PTS domain; -1 = n/a
 };
 
 // One trigger.csv row plus its resolved nearest frame in every camera.
 struct TriggerFrameRow {
-    int     rowIndex  = 0;    // 0-based, order in trigger.csv (excluding header)
-    int64_t elapsedNs = 0;    // raw, shared elapsed_ns() origin — see TriggerRecorder
-    double  elapsedMs = 0.0;  // recording-relative, as originally logged; display only
+    int rowIndex      = 0;   // 0-based, order in trigger.csv (excluding header)
+    int64_t elapsedNs = 0;   // raw, shared elapsed_ns() origin — see TriggerRecorder
+    double elapsedMs  = 0.0; // recording-relative, as originally logged; display only
     QString wallClock;
     QString source;
     QString label;
-    double  value = 0.0;
-    QVector<TriggerFrameHit> frames;  // one entry per camera, index == cameraIndex
+    double value = 0.0;
+    QVector<TriggerFrameHit> frames; // one entry per camera, index == cameraIndex
 };
 
 struct TriggerFrameCamera {
-    int     index          = 0;
-    QString videoFile;         // relative to session dir, e.g. "video/video_0.mp4"
-    int     framesCaptured = 0;
+    int index = 0;
+    QString videoFile; // relative to session dir, e.g. "video/video_0.mp4"
+    int framesCaptured = 0;
 };
 
 // Resolves every trigger event in a recorded session's trigger.csv to the
@@ -56,7 +56,7 @@ struct TriggerFrameCamera {
 //   auto m2 = TriggerFrameMap::load(sessionPath);
 //   player->seek(m2.row(i).frames[camIdx].videoPositionMs);
 class TriggerFrameMap {
-public:
+   public:
     TriggerFrameMap() = default;
 
     // ── Factory ───────────────────────────────────────────────────────────
@@ -76,29 +76,29 @@ public:
     [[nodiscard]] bool is_valid() const;
 
     // ── Queries ───────────────────────────────────────────────────────────
-    [[nodiscard]] int camera_count()  const;
+    [[nodiscard]] int camera_count() const;
     [[nodiscard]] int trigger_count() const;
     [[nodiscard]] const TriggerFrameCamera& camera_info(int idx) const;
-    [[nodiscard]] const TriggerFrameRow&    row(int idx) const;
+    [[nodiscard]] const TriggerFrameRow& row(int idx) const;
     [[nodiscard]] const QVector<TriggerFrameRow>& rows() const;
 
-private:
-    bool     valid_ = false;
-    QString  generatedAt_;
+   private:
+    bool valid_ = false;
+    QString generatedAt_;
     QVector<TriggerFrameCamera> cameras_;
-    QVector<TriggerFrameRow>    rows_;
+    QVector<TriggerFrameRow> rows_;
 
     struct FrameTs {
-        int     frameId   = 0;
+        int frameId       = 0;
         int64_t elapsedNs = 0;
     };
     static QVector<FrameTs> read_timestamps(const QString& csvPath);
 
     struct RawTrigger {
         int64_t elapsedNs = 0;
-        double  elapsedMs = 0.0;
+        double elapsedMs  = 0.0;
         QString wallClock, source, label;
-        double  value = 0.0;
+        double value = 0.0;
     };
     // Quote-aware line split — trigger.csv's label field is "..."-quoted
     // with doubled internal quotes and may itself contain commas (e.g. a

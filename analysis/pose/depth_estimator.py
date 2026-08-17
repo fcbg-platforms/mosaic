@@ -17,15 +17,15 @@ Install: pip install ultralytics (same package as the pose backend — the
 depth task ships in the same YOLO() API surface, just a different
 checkpoint/task type).
 """
-from __future__ import annotations
 
-from typing import Optional
+from __future__ import annotations
 
 import cv2
 import numpy as np
 
 try:
     from ultralytics import YOLO as _YOLO
+
     _ULTRALYTICS_OK = True
 except ImportError:
     _ULTRALYTICS_OK = False
@@ -49,11 +49,9 @@ class DepthEstimator:
         If ``ultralytics`` is not installed.
     """
 
-    def __init__(self, model_name: str = "yolo26n-depth.pt", device: Optional[str] = None) -> None:
+    def __init__(self, model_name: str = "yolo26n-depth.pt", device: str | None = None) -> None:
         if not _ULTRALYTICS_OK:
-            raise ImportError(
-                "ultralytics is not installed.  Run: pip install ultralytics"
-            )
+            raise ImportError("ultralytics is not installed.  Run: pip install ultralytics")
 
         self._device = device or self._auto_device()
         print(f"[DepthEstimator] Loading {model_name} on {self._device} …", flush=True)
@@ -93,6 +91,7 @@ class DepthEstimator:
     def _auto_device() -> str:
         try:
             import torch
+
             if torch.cuda.is_available():
                 return "cuda:0"
             if torch.backends.mps.is_available():

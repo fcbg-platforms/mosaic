@@ -10,6 +10,7 @@ feat installed — that's the whole point of pyfeat.py deferring `from feat
 import Detectorv1`/`import torch`/`import cv2` into PyFeatClassifier
 methods rather than the module top level.
 """
+
 import sys
 from pathlib import Path
 
@@ -19,18 +20,32 @@ from expression.pyfeat import AU_NAMES, _fex_row_to_result
 
 
 def test_dominant_emotion_picked_from_highest_score():
-    emotions = {"anger": 0.1, "disgust": 0.05, "fear": 0.05, "happiness": 0.9,
-                "sadness": 0.02, "surprise": 0.1, "neutral": 0.2}
+    emotions = {
+        "anger": 0.1,
+        "disgust": 0.05,
+        "fear": 0.05,
+        "happiness": 0.9,
+        "sadness": 0.02,
+        "surprise": 0.1,
+        "neutral": 0.2,
+    }
     label, score, _ = _fex_row_to_result({}, emotions)
     assert label == "Happiness"
     assert abs(score - 0.9) < 1e-9
 
 
 def test_emotion_labels_are_title_case_not_raw_column_names():
-    emotions = {"anger": 0.0, "disgust": 0.0, "fear": 0.0, "happiness": 0.0,
-                "sadness": 1.0, "surprise": 0.0, "neutral": 0.0}
+    emotions = {
+        "anger": 0.0,
+        "disgust": 0.0,
+        "fear": 0.0,
+        "happiness": 0.0,
+        "sadness": 1.0,
+        "surprise": 0.0,
+        "neutral": 0.0,
+    }
     label, _, _ = _fex_row_to_result({}, emotions)
-    assert label == "Sadness"   # not the raw "sadness" column name
+    assert label == "Sadness"  # not the raw "sadness" column name
 
 
 def test_au_dict_passthrough_rounds_to_4_decimals():
@@ -41,10 +56,17 @@ def test_au_dict_passthrough_rounds_to_4_decimals():
 
 def test_nan_emotion_value_treated_as_zero_not_propagated():
     nan = float("nan")
-    emotions = {"anger": nan, "disgust": 0.0, "fear": 0.0, "happiness": 0.3,
-                "sadness": 0.0, "surprise": 0.0, "neutral": 0.0}
+    emotions = {
+        "anger": nan,
+        "disgust": 0.0,
+        "fear": 0.0,
+        "happiness": 0.3,
+        "sadness": 0.0,
+        "surprise": 0.0,
+        "neutral": 0.0,
+    }
     label, score, _ = _fex_row_to_result({}, emotions)
-    assert label == "Happiness"   # the NaN entry must not win or crash argmax
+    assert label == "Happiness"  # the NaN entry must not win or crash argmax
     assert abs(score - 0.3) < 1e-9
 
 
@@ -68,7 +90,24 @@ def test_au_names_has_20_entries_matching_detectorv1_xgb_head():
     assert len(AU_NAMES) == 20
     assert AU_NAMES[0] == "AU01"
     assert AU_NAMES == [
-        "AU01", "AU02", "AU04", "AU05", "AU06", "AU07", "AU09", "AU10",
-        "AU11", "AU12", "AU14", "AU15", "AU17", "AU20", "AU23", "AU24",
-        "AU25", "AU26", "AU28", "AU43",
+        "AU01",
+        "AU02",
+        "AU04",
+        "AU05",
+        "AU06",
+        "AU07",
+        "AU09",
+        "AU10",
+        "AU11",
+        "AU12",
+        "AU14",
+        "AU15",
+        "AU17",
+        "AU20",
+        "AU23",
+        "AU24",
+        "AU25",
+        "AU26",
+        "AU28",
+        "AU43",
     ]

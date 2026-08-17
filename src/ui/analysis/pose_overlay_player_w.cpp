@@ -1,5 +1,5 @@
 #include "ui/analysis/pose_overlay_player_w.hpp"
-#include "ui/analysis/subject_colors.hpp"
+
 #include <QCursor>
 #include <QFontMetrics>
 #include <QHBoxLayout>
@@ -17,6 +17,8 @@
 #include <cmath>
 #include <functional>
 
+#include "ui/analysis/subject_colors.hpp"
+
 namespace mosaic {
 
 namespace {
@@ -33,7 +35,7 @@ QString format_ms(int64_t ms) {
 // ── SkeletonOverlayW — transparent widget drawing the current pose frame ──
 
 class SkeletonOverlayW : public QWidget {
-public:
+   public:
     explicit SkeletonOverlayW(QWidget* parent = nullptr) : QWidget(parent) {
         setAttribute(Qt::WA_TransparentForMouseEvents);
         setStyleSheet("background:transparent;");
@@ -45,16 +47,19 @@ public:
     // this repaint, the overlay stays blank until something else (e.g.
     // playback) calls set_frame() again — a user who loads a camera and
     // looks at the paused first frame would see no markers at all.
-    void set_native_size(QSize size) { nativeSize_ = size; update(); }
+    void set_native_size(QSize size) {
+        nativeSize_ = size;
+        update();
+    }
 
     void set_frame(const PoseFrame* frame, QVector<QPair<int, int>> skeletonEdges) {
-        frame_          = frame;
-        skeletonEdges_  = std::move(skeletonEdges);
-        exprFrame_      = nullptr;   // mutually exclusive with expression/gaze/skeleton3d/rppg mode
-        gazeFrame_      = nullptr;
+        frame_           = frame;
+        skeletonEdges_   = std::move(skeletonEdges);
+        exprFrame_       = nullptr; // mutually exclusive with expression/gaze/skeleton3d/rppg mode
+        gazeFrame_       = nullptr;
         skeleton3dFrame_ = nullptr;
-        rppgFrame_      = nullptr;
-        rppgWindow_     = nullptr;
+        rppgFrame_       = nullptr;
+        rppgWindow_      = nullptr;
         update();
     }
 
@@ -64,12 +69,12 @@ public:
     // set_gaze_result()/set_skeleton3d_result()/set_rppg_result() for why
     // every setter clears the others).
     void set_expression_frame(const ExpressionFrame* frame) {
-        exprFrame_     = frame;
-        frame_         = nullptr;
-        gazeFrame_     = nullptr;
+        exprFrame_       = frame;
+        frame_           = nullptr;
+        gazeFrame_       = nullptr;
         skeleton3dFrame_ = nullptr;
-        rppgFrame_     = nullptr;
-        rppgWindow_    = nullptr;
+        rppgFrame_       = nullptr;
+        rppgWindow_      = nullptr;
         skeletonEdges_.clear();
         update();
     }
@@ -97,15 +102,15 @@ public:
     // skeletonEdges is the result's own edge list (drawn purely from
     // precomputed pixel coordinates — zero calibration math here).
     void set_skeleton3d_frame(const Skeleton3DFrame* frame, int cameraIndex,
-                               QVector<QPair<int, int>> skeletonEdges) {
+                              QVector<QPair<int, int>> skeletonEdges) {
         skeleton3dFrame_       = frame;
         skeleton3dCameraIndex_ = cameraIndex;
         skeletonEdges_         = std::move(skeletonEdges);
-        frame_     = nullptr;
-        exprFrame_ = nullptr;
-        gazeFrame_ = nullptr;
-        rppgFrame_  = nullptr;
-        rppgWindow_ = nullptr;
+        frame_                 = nullptr;
+        exprFrame_             = nullptr;
+        gazeFrame_             = nullptr;
+        rppgFrame_             = nullptr;
+        rppgWindow_            = nullptr;
         update();
     }
 
@@ -115,11 +120,11 @@ public:
     // frame isn't (e.g. between windows, or an unreliable one) — the BPM
     // readout is simply omitted in that case, never fabricated.
     void set_rppg_frame(const RppgFrame* frame, const RppgWindow* window) {
-        rppgFrame_  = frame;
-        rppgWindow_ = window;
-        frame_      = nullptr;
-        exprFrame_  = nullptr;
-        gazeFrame_  = nullptr;
+        rppgFrame_       = frame;
+        rppgWindow_      = window;
+        frame_           = nullptr;
+        exprFrame_       = nullptr;
+        gazeFrame_       = nullptr;
         skeleton3dFrame_ = nullptr;
         skeletonEdges_.clear();
         update();
@@ -131,28 +136,27 @@ public:
     // keypoints scaled/offset against the PREVIOUS video's size until that
     // video's first QVideoSink frame arrives to refresh it.
     void clear() {
-        frame_      = nullptr;
-        exprFrame_  = nullptr;
-        gazeFrame_  = nullptr;
+        frame_           = nullptr;
+        exprFrame_       = nullptr;
+        gazeFrame_       = nullptr;
         skeleton3dFrame_ = nullptr;
-        rppgFrame_  = nullptr;
-        rppgWindow_ = nullptr;
-        nativeSize_ = QSize();
+        rppgFrame_       = nullptr;
+        rppgWindow_      = nullptr;
+        nativeSize_      = QSize();
         update();
     }
 
-protected:
+   protected:
     void paintEvent(QPaintEvent*) override {
         if (nativeSize_.isEmpty() || width() <= 0 || height() <= 0) {
             return;
         }
 
-        const double scale = std::min(
-            static_cast<double>(width())  / nativeSize_.width(),
-            static_cast<double>(height()) / nativeSize_.height());
-        const double dispW = nativeSize_.width()  * scale;
+        const double scale = std::min(static_cast<double>(width()) / nativeSize_.width(),
+                                      static_cast<double>(height()) / nativeSize_.height());
+        const double dispW = nativeSize_.width() * scale;
         const double dispH = nativeSize_.height() * scale;
-        const double offX  = (width()  - dispW) / 2.0;
+        const double offX  = (width() - dispW) / 2.0;
         const double offY  = (height() - dispH) / 2.0;
 
         const auto to_widget = [&](QPointF p) {
@@ -192,7 +196,7 @@ protected:
         // found in this frame, not just the charted subset.
         for (int i = 0; i < frame_->subjects.size(); ++i) {
             const auto& subject = frame_->subjects[i];
-            const QColor color = subject_color(i);
+            const QColor color  = subject_color(i);
 
             painter.setPen(QPen(color, 2));
             for (const auto& [a, b] : skeletonEdges_) {
@@ -203,20 +207,21 @@ protected:
                 if (!is_keypoint_visible(subject, a) || !is_keypoint_visible(subject, b)) {
                     continue;
                 }
-                painter.drawLine(to_widget(subject.keypoints[a]),
-                                  to_widget(subject.keypoints[b]));
+                painter.drawLine(to_widget(subject.keypoints[a]), to_widget(subject.keypoints[b]));
             }
 
             painter.setPen(Qt::NoPen);
             painter.setBrush(color);
             for (int k = 0; k < subject.keypoints.size(); ++k) {
-                if (!is_keypoint_visible(subject, k)) { continue; }
+                if (!is_keypoint_visible(subject, k)) {
+                    continue;
+                }
                 painter.drawEllipse(to_widget(subject.keypoints[k]), 3, 3);
             }
         }
     }
 
-private:
+   private:
     // Draws a bbox + "<expression> (<score>%)" label per detected face.
     // Split out from paintEvent() purely to keep that function readable —
     // not reused elsewhere.
@@ -228,16 +233,16 @@ private:
 
         for (const auto& subject : exprFrame_->subjects) {
             const QRectF box(to_widget(subject.bbox.topLeft()),
-                              to_widget(subject.bbox.bottomRight()));
+                             to_widget(subject.bbox.bottomRight()));
             painter.setPen(QPen(QColor(255, 120, 60), 2));
             painter.setBrush(Qt::NoBrush);
             painter.drawRect(box);
 
             const QString label = QString("%1 (%2%)")
-                .arg(subject.dominantExpression)
-                .arg(qRound(subject.dominantScore * 100));
+                                      .arg(subject.dominantExpression)
+                                      .arg(qRound(subject.dominantScore * 100));
             const QRectF labelBg(box.left(), box.top() - fm.height() - 4,
-                                  fm.horizontalAdvance(label) + 8, fm.height() + 4);
+                                 fm.horizontalAdvance(label) + 8, fm.height() + 4);
             painter.setPen(Qt::NoPen);
             painter.setBrush(QColor(0, 0, 0, 160));
             painter.drawRect(labelBg);
@@ -255,14 +260,19 @@ private:
     void paint_gaze(QPainter& painter, const std::function<QPointF(QPointF)>& to_widget) {
         const GazeFusionCamera* cam = nullptr;
         for (const auto& c : gazeFrame_->perCamera) {
-            if (c.cameraIndex == gazeCameraIndex_) { cam = &c; break; }
+            if (c.cameraIndex == gazeCameraIndex_) {
+                cam = &c;
+                break;
+            }
         }
-        if (!cam) { return; }
+        if (!cam) {
+            return;
+        }
 
         const QFontMetrics fm(painter.font());
 
         const QRectF box(to_widget(cam->faceBoxPx.topLeft()),
-                          to_widget(cam->faceBoxPx.bottomRight()));
+                         to_widget(cam->faceBoxPx.bottomRight()));
         painter.setPen(QPen(QColor(80, 220, 220), 2));
         painter.setBrush(Qt::NoBrush);
         painter.drawRect(box);
@@ -272,9 +282,8 @@ private:
         // live monitor overlay uses, just computed in native-video pixel
         // space here (before to_widget scaling) rather than screen space.
         const QPointF centerNative = cam->faceBoxPx.center();
-        const QPointF tipNative(
-            centerNative.x() + cam->gazeDx * cam->faceBoxPx.width()  * 0.5,
-            centerNative.y() + cam->gazeDy * cam->faceBoxPx.height() * 0.5);
+        const QPointF tipNative(centerNative.x() + cam->gazeDx * cam->faceBoxPx.width() * 0.5,
+                                centerNative.y() + cam->gazeDy * cam->faceBoxPx.height() * 0.5);
         painter.setPen(QPen(QColor(255, 220, 60), 2));
         painter.drawLine(to_widget(centerNative), to_widget(tipNative));
         painter.setBrush(QColor(255, 220, 60));
@@ -282,11 +291,11 @@ private:
         painter.drawEllipse(to_widget(tipNative), 3, 3);
 
         const QString label = QString("cam%1  dx%2 dy%3")
-            .arg(cam->cameraIndex)
-            .arg(cam->gazeDx, 0, 'f', 2)
-            .arg(cam->gazeDy, 0, 'f', 2);
+                                  .arg(cam->cameraIndex)
+                                  .arg(cam->gazeDx, 0, 'f', 2)
+                                  .arg(cam->gazeDy, 0, 'f', 2);
         const QRectF labelBg(box.left(), box.top() - fm.height() - 4,
-                              fm.horizontalAdvance(label) + 8, fm.height() + 4);
+                             fm.horizontalAdvance(label) + 8, fm.height() + 4);
         painter.setPen(Qt::NoPen);
         painter.setBrush(QColor(0, 0, 0, 160));
         painter.drawRect(labelBg);
@@ -303,7 +312,9 @@ private:
     void paint_skeleton3d(QPainter& painter, const std::function<QPointF(QPointF)>& to_widget) {
         for (const auto& person : skeleton3dFrame_->people) {
             const auto pts = person.reprojectedPx.value(skeleton3dCameraIndex_);
-            if (pts.isEmpty()) { continue; }
+            if (pts.isEmpty()) {
+                continue;
+            }
 
             const QColor color = subject_color(person.trackId);
 
@@ -313,7 +324,9 @@ private:
                     a >= person.keypoints.size() || b >= person.keypoints.size()) {
                     continue;
                 }
-                if (!person.keypoints[a].valid || !person.keypoints[b].valid) { continue; }
+                if (!person.keypoints[a].valid || !person.keypoints[b].valid) {
+                    continue;
+                }
                 painter.drawLine(to_widget(pts[a]), to_widget(pts[b]));
             }
 
@@ -321,15 +334,19 @@ private:
             painter.setBrush(color);
             int firstValid = -1;
             for (int i = 0; i < pts.size(); ++i) {
-                if (i >= person.keypoints.size() || !person.keypoints[i].valid) { continue; }
+                if (i >= person.keypoints.size() || !person.keypoints[i].valid) {
+                    continue;
+                }
                 painter.drawEllipse(to_widget(pts[i]), 3, 3);
-                if (firstValid < 0) { firstValid = i; }
+                if (firstValid < 0) {
+                    firstValid = i;
+                }
             }
 
             if (firstValid >= 0) {
                 painter.setPen(color);
                 painter.drawText(to_widget(pts[firstValid]) + QPointF(6, -6),
-                                  QString("track %1").arg(person.trackId));
+                                 QString("track %1").arg(person.trackId));
             }
         }
     }
@@ -342,23 +359,27 @@ private:
     // box color (orange for expression, cyan for gaze) — see
     // src/ui/session/session_browser_w.cpp's badge-color comment.
     void paint_rppg(QPainter& painter, const std::function<QPointF(QPointF)>& to_widget) {
-        if (!rppgFrame_->faceDetected) { return; }
+        if (!rppgFrame_->faceDetected) {
+            return;
+        }
 
         const QFontMetrics fm(painter.font());
         const QRectF box(to_widget(rppgFrame_->roiBboxPx.topLeft()),
-                          to_widget(rppgFrame_->roiBboxPx.bottomRight()));
+                         to_widget(rppgFrame_->roiBboxPx.bottomRight()));
         painter.setPen(QPen(QColor(255, 85, 119), 2));
         painter.setBrush(Qt::NoBrush);
         painter.drawRect(box);
 
-        if (!rppgWindow_ || std::isnan(rppgWindow_->bpm)) { return; }
+        if (!rppgWindow_ || std::isnan(rppgWindow_->bpm)) {
+            return;
+        }
 
         // "(exp.)" travels with the label itself, not just AnalysisTabW's
         // separate banner widget — a screenshot of just this video pane
         // still carries a visible, if terse, non-clinical marker.
         const QString label = QString("%1 BPM (exp.)").arg(qRound(rppgWindow_->bpm));
         const QRectF labelBg(box.left(), box.top() - fm.height() - 4,
-                              fm.horizontalAdvance(label) + 8, fm.height() + 4);
+                             fm.horizontalAdvance(label) + 8, fm.height() + 4);
         painter.setPen(Qt::NoPen);
         painter.setBrush(QColor(0, 0, 0, 160));
         painter.drawRect(labelBg);
@@ -366,43 +387,43 @@ private:
         painter.drawText(labelBg, Qt::AlignCenter, label);
     }
 
-    QSize                    nativeSize_;
-    const PoseFrame*         frame_ = nullptr;
+    QSize nativeSize_;
+    const PoseFrame* frame_ = nullptr;
     QVector<QPair<int, int>> skeletonEdges_;
-    const ExpressionFrame*   exprFrame_ = nullptr;
-    const GazeFusionFrame*   gazeFrame_ = nullptr;
-    int                      gazeCameraIndex_ = -1;
-    const Skeleton3DFrame*   skeleton3dFrame_ = nullptr;
-    int                      skeleton3dCameraIndex_ = -1;
-    const RppgFrame*         rppgFrame_  = nullptr;
-    const RppgWindow*        rppgWindow_ = nullptr;
+    const ExpressionFrame* exprFrame_       = nullptr;
+    const GazeFusionFrame* gazeFrame_       = nullptr;
+    int gazeCameraIndex_                    = -1;
+    const Skeleton3DFrame* skeleton3dFrame_ = nullptr;
+    int skeleton3dCameraIndex_              = -1;
+    const RppgFrame* rppgFrame_             = nullptr;
+    const RppgWindow* rppgWindow_           = nullptr;
 };
 
 // ── PoseOverlayPlayerW::Impl ────────────────────────────────────────────
 
 struct PoseOverlayPlayerW::Impl {
-    QMediaPlayer*      player  = nullptr;
-    QVideoSink*        sink    = nullptr;
-    QLabel*            display = nullptr;
-    SkeletonOverlayW*  overlay = nullptr;
-    QWidget*           videoContainer = nullptr;   // hidden via set_video_surface_visible()
-                                                     // for audio-only sources (e.g. Diarization)
+    QMediaPlayer* player      = nullptr;
+    QVideoSink* sink          = nullptr;
+    QLabel* display           = nullptr;
+    SkeletonOverlayW* overlay = nullptr;
+    QWidget* videoContainer   = nullptr; // hidden via set_video_surface_visible()
+                                         // for audio-only sources (e.g. Diarization)
 
-    QPushButton*       playBtn  = nullptr;
-    QSlider*           scrubber = nullptr;
-    QLabel*            timeLbl  = nullptr;
+    QPushButton* playBtn = nullptr;
+    QSlider* scrubber    = nullptr;
+    QLabel* timeLbl      = nullptr;
 
     PoseAnalysisResult poseResult;
-    ExpressionResult   expressionResult;
-    GazeFusionResult   gazeResult;
-    int                gazeCameraIndex = -1;
-    Skeleton3DResult   skeleton3dResult;
-    int                skeleton3dCameraIndex = -1;
-    RppgResult         rppgResult;
-    int                rppgCameraIndex = -1;
-    QSize              nativeSize;
-    double             fps        = 25.0;
-    bool               scrubbing  = false;
+    ExpressionResult expressionResult;
+    GazeFusionResult gazeResult;
+    int gazeCameraIndex = -1;
+    Skeleton3DResult skeleton3dResult;
+    int skeleton3dCameraIndex = -1;
+    RppgResult rppgResult;
+    int rppgCameraIndex = -1;
+    QSize nativeSize;
+    double fps     = 25.0;
+    bool scrubbing = false;
 
     [[nodiscard]] int frame_estimate(int64_t positionMs) const {
         return static_cast<int>(std::llround(positionMs / 1000.0 * fps));
@@ -416,7 +437,9 @@ struct PoseOverlayPlayerW::Impl {
     // codebase's other cross-camera-alignment conveniences, not a
     // replacement for SyncManifest's own precise alignment.
     [[nodiscard]] int64_t gaze_timestamp_estimate(int64_t positionMs) const {
-        if (gazeResult.frames().isEmpty()) { return 0; }
+        if (gazeResult.frames().isEmpty()) {
+            return 0;
+        }
         return gazeResult.frames().first().timestampNs + positionMs * 1000000LL;
     }
 
@@ -424,7 +447,9 @@ struct PoseOverlayPlayerW::Impl {
     // as gaze_timestamp_estimate() above, for Skeleton3DResult's identically
     // timestamp-keyed nearest_frame().
     [[nodiscard]] int64_t skeleton3d_timestamp_estimate(int64_t positionMs) const {
-        if (skeleton3dResult.frames().isEmpty()) { return 0; }
+        if (skeleton3dResult.frames().isEmpty()) {
+            return 0;
+        }
         return skeleton3dResult.frames().first().timestampNs + positionMs * 1000000LL;
     }
 
@@ -443,7 +468,9 @@ struct PoseOverlayPlayerW::Impl {
     // skeleton3d_timestamp_estimate() above, just no ns->ms conversion
     // needed since both sides are already milliseconds.
     [[nodiscard]] int64_t rppg_timestamp_estimate(int64_t positionMs) const {
-        if (rppgResult.frames().isEmpty()) { return positionMs; }
+        if (rppgResult.frames().isEmpty()) {
+            return positionMs;
+        }
         return rppgResult.frames().first().timestampMs + positionMs;
     }
 };
@@ -451,8 +478,7 @@ struct PoseOverlayPlayerW::Impl {
 // ── Construction ─────────────────────────────────────────────────────────
 
 PoseOverlayPlayerW::PoseOverlayPlayerW(QWidget* parent)
-    : QWidget(parent), d(std::make_unique<Impl>())
-{
+    : QWidget(parent), d(std::make_unique<Impl>()) {
     auto* outer = new QVBoxLayout(this);
     outer->setContentsMargins(0, 0, 0, 0);
     outer->setSpacing(4);
@@ -532,24 +558,30 @@ PoseOverlayPlayerW::PoseOverlayPlayerW(QWidget* parent)
     d->player->setVideoSink(d->sink);
 
     connect(d->sink, &QVideoSink::videoFrameChanged, this, [this](const QVideoFrame& vf) {
-        if (!vf.isValid()) { return; }
+        if (!vf.isValid()) {
+            return;
+        }
         if (d->nativeSize.isEmpty() && vf.size().isValid()) {
             d->nativeSize = vf.size();
             d->overlay->set_native_size(d->nativeSize);
         }
         QImage img = vf.toImage();
-        if (img.isNull()) { return; }
+        if (img.isNull()) {
+            return;
+        }
         const QSize sz = d->display->size();
-        if (sz.isEmpty()) { return; }
-        d->display->setPixmap(QPixmap::fromImage(
-            img.scaled(sz, Qt::KeepAspectRatio, Qt::FastTransformation)));
+        if (sz.isEmpty()) {
+            return;
+        }
+        d->display->setPixmap(
+            QPixmap::fromImage(img.scaled(sz, Qt::KeepAspectRatio, Qt::FastTransformation)));
     });
 
     connect(d->player, &QMediaPlayer::metaDataChanged, this, [this] {
-        const double fps = d->player->metaData()
-                                .value(QMediaMetaData::VideoFrameRate)
-                                .toDouble();
-        if (fps > 0.0) { d->fps = fps; }
+        const double fps = d->player->metaData().value(QMediaMetaData::VideoFrameRate).toDouble();
+        if (fps > 0.0) {
+            d->fps = fps;
+        }
     });
 
     connect(d->player, &QMediaPlayer::durationChanged, this, [this](qint64 dur) {
@@ -558,14 +590,16 @@ PoseOverlayPlayerW::PoseOverlayPlayerW(QWidget* parent)
     });
 
     connect(d->player, &QMediaPlayer::positionChanged, this, [this](qint64 pos) {
-        if (!d->scrubbing) { d->scrubber->setValue(static_cast<int>(pos)); }
+        if (!d->scrubbing) {
+            d->scrubber->setValue(static_cast<int>(pos));
+        }
         d->timeLbl->setText(format_ms(pos) + " / " + format_ms(d->player->duration()));
 
         if (d->skeleton3dResult.is_valid()) {
             const Skeleton3DFrame* frame =
                 d->skeleton3dResult.nearest_frame(d->skeleton3d_timestamp_estimate(pos));
             d->overlay->set_skeleton3d_frame(frame, d->skeleton3dCameraIndex,
-                                              d->skeleton3dResult.skeleton_edges());
+                                             d->skeleton3dResult.skeleton_edges());
         } else if (d->gazeResult.is_valid()) {
             const GazeFusionFrame* frame =
                 d->gazeResult.nearest_frame(d->gaze_timestamp_estimate(pos));
@@ -575,30 +609,34 @@ PoseOverlayPlayerW::PoseOverlayPlayerW(QWidget* parent)
                 d->expressionResult.nearest_frame(d->frame_estimate(pos));
             d->overlay->set_expression_frame(frame);
         } else if (d->rppgResult.is_valid()) {
-            const int64_t rppgPos = d->rppg_timestamp_estimate(pos);
-            const RppgFrame* frame = d->rppgResult.nearest_frame(rppgPos);
+            const int64_t rppgPos    = d->rppg_timestamp_estimate(pos);
+            const RppgFrame* frame   = d->rppgResult.nearest_frame(rppgPos);
             const RppgWindow* window = d->rppgResult.nearest_window(rppgPos);
             d->overlay->set_rppg_frame(frame, window);
         } else {
             const PoseFrame* frame = d->poseResult.is_valid()
-                ? d->poseResult.nearest_frame(d->frame_estimate(pos))
-                : nullptr;
+                                         ? d->poseResult.nearest_frame(d->frame_estimate(pos))
+                                         : nullptr;
             d->overlay->set_frame(frame, d->poseResult.skeleton_edges());
         }
 
         emit position_changed(pos);
     });
 
-    connect(d->player, &QMediaPlayer::playbackStateChanged, this, [this](QMediaPlayer::PlaybackState st) {
-        d->playBtn->setText(st == QMediaPlayer::PlayingState ? "⏸" : "▶");
-    });
+    connect(d->player, &QMediaPlayer::playbackStateChanged, this,
+            [this](QMediaPlayer::PlaybackState st) {
+                d->playBtn->setText(st == QMediaPlayer::PlayingState ? "⏸" : "▶");
+            });
 
     connect(d->playBtn, &QPushButton::clicked, this, [this] {
-        if (d->player->playbackState() == QMediaPlayer::PlayingState) { pause(); }
-        else { play(); }
+        if (d->player->playbackState() == QMediaPlayer::PlayingState) {
+            pause();
+        } else {
+            play();
+        }
     });
 
-    connect(d->scrubber, &QSlider::sliderPressed,  this, [this] { d->scrubbing = true; });
+    connect(d->scrubber, &QSlider::sliderPressed, this, [this] { d->scrubbing = true; });
     connect(d->scrubber, &QSlider::sliderReleased, this, [this] {
         d->scrubbing = false;
         seek(d->scrubber->value());
@@ -612,7 +650,7 @@ PoseOverlayPlayerW::~PoseOverlayPlayerW() = default;
 void PoseOverlayPlayerW::set_video(const QString& videoPath) {
     d->nativeSize = QSize();
     d->overlay->clear();
-    d->display->clear();   // drop the outgoing video's last frame, not just the overlay
+    d->display->clear(); // drop the outgoing video's last frame, not just the overlay
     d->player->setSource(QUrl::fromLocalFile(videoPath));
 }
 
@@ -621,78 +659,81 @@ void PoseOverlayPlayerW::set_video_surface_visible(bool visible) {
 }
 
 void PoseOverlayPlayerW::set_pose_result(const PoseAnalysisResult& result) {
-    d->expressionResult = ExpressionResult();   // mutually exclusive, see header doc
-    d->gazeResult        = GazeFusionResult();
-    d->skeleton3dResult  = Skeleton3DResult();
-    d->rppgResult        = RppgResult();
-    d->poseResult = result;
-    const PoseFrame* frame = d->poseResult.is_valid()
-        ? d->poseResult.nearest_frame(d->frame_estimate(d->player->position()))
-        : nullptr;
+    d->expressionResult = ExpressionResult(); // mutually exclusive, see header doc
+    d->gazeResult       = GazeFusionResult();
+    d->skeleton3dResult = Skeleton3DResult();
+    d->rppgResult       = RppgResult();
+    d->poseResult       = result;
+    const PoseFrame* frame =
+        d->poseResult.is_valid()
+            ? d->poseResult.nearest_frame(d->frame_estimate(d->player->position()))
+            : nullptr;
     d->overlay->set_frame(frame, d->poseResult.skeleton_edges());
 }
 
 void PoseOverlayPlayerW::set_expression_result(const ExpressionResult& result) {
-    d->poseResult = PoseAnalysisResult();   // mutually exclusive, see header doc
-    d->gazeResult = GazeFusionResult();
+    d->poseResult       = PoseAnalysisResult(); // mutually exclusive, see header doc
+    d->gazeResult       = GazeFusionResult();
     d->skeleton3dResult = Skeleton3DResult();
-    d->rppgResult = RppgResult();
+    d->rppgResult       = RppgResult();
     d->expressionResult = result;
-    const ExpressionFrame* frame = d->expressionResult.is_valid()
-        ? d->expressionResult.nearest_frame(d->frame_estimate(d->player->position()))
-        : nullptr;
+    const ExpressionFrame* frame =
+        d->expressionResult.is_valid()
+            ? d->expressionResult.nearest_frame(d->frame_estimate(d->player->position()))
+            : nullptr;
     d->overlay->set_expression_frame(frame);
 }
 
 void PoseOverlayPlayerW::set_gaze_result(const GazeFusionResult& result, int cameraIndex) {
-    d->poseResult       = PoseAnalysisResult();   // mutually exclusive, see header doc
+    d->poseResult       = PoseAnalysisResult(); // mutually exclusive, see header doc
     d->expressionResult = ExpressionResult();
-    d->skeleton3dResult  = Skeleton3DResult();
-    d->rppgResult        = RppgResult();
-    d->gazeResult        = result;
-    d->gazeCameraIndex   = cameraIndex;
-    const GazeFusionFrame* frame = d->gazeResult.is_valid()
-        ? d->gazeResult.nearest_frame(d->gaze_timestamp_estimate(d->player->position()))
-        : nullptr;
+    d->skeleton3dResult = Skeleton3DResult();
+    d->rppgResult       = RppgResult();
+    d->gazeResult       = result;
+    d->gazeCameraIndex  = cameraIndex;
+    const GazeFusionFrame* frame =
+        d->gazeResult.is_valid()
+            ? d->gazeResult.nearest_frame(d->gaze_timestamp_estimate(d->player->position()))
+            : nullptr;
     d->overlay->set_gaze_frame(frame, cameraIndex);
 }
 
 void PoseOverlayPlayerW::set_skeleton3d_result(const Skeleton3DResult& result, int cameraIndex) {
-    d->poseResult          = PoseAnalysisResult();   // mutually exclusive, see header doc
-    d->expressionResult    = ExpressionResult();
-    d->gazeResult           = GazeFusionResult();
-    d->rppgResult           = RppgResult();
-    d->skeleton3dResult     = result;
+    d->poseResult            = PoseAnalysisResult(); // mutually exclusive, see header doc
+    d->expressionResult      = ExpressionResult();
+    d->gazeResult            = GazeFusionResult();
+    d->rppgResult            = RppgResult();
+    d->skeleton3dResult      = result;
     d->skeleton3dCameraIndex = cameraIndex;
-    const Skeleton3DFrame* frame = d->skeleton3dResult.is_valid()
-        ? d->skeleton3dResult.nearest_frame(d->skeleton3d_timestamp_estimate(d->player->position()))
-        : nullptr;
+    const Skeleton3DFrame* frame =
+        d->skeleton3dResult.is_valid()
+            ? d->skeleton3dResult.nearest_frame(
+                  d->skeleton3d_timestamp_estimate(d->player->position()))
+            : nullptr;
     d->overlay->set_skeleton3d_frame(frame, cameraIndex, d->skeleton3dResult.skeleton_edges());
 }
 
 void PoseOverlayPlayerW::set_rppg_result(const RppgResult& result, int cameraIndex) {
-    d->poseResult        = PoseAnalysisResult();   // mutually exclusive, see header doc
-    d->expressionResult  = ExpressionResult();
+    d->poseResult         = PoseAnalysisResult(); // mutually exclusive, see header doc
+    d->expressionResult   = ExpressionResult();
     d->gazeResult         = GazeFusionResult();
     d->skeleton3dResult   = Skeleton3DResult();
     d->rppgResult         = result;
     d->rppgCameraIndex    = cameraIndex;
     const int64_t rppgPos = d->rppg_timestamp_estimate(d->player->position());
-    const RppgFrame*  frame  = d->rppgResult.is_valid()
-        ? d->rppgResult.nearest_frame(rppgPos) : nullptr;
-    const RppgWindow* window = d->rppgResult.is_valid()
-        ? d->rppgResult.nearest_window(rppgPos) : nullptr;
+    const RppgFrame* frame =
+        d->rppgResult.is_valid() ? d->rppgResult.nearest_frame(rppgPos) : nullptr;
+    const RppgWindow* window =
+        d->rppgResult.is_valid() ? d->rppgResult.nearest_window(rppgPos) : nullptr;
     d->overlay->set_rppg_frame(frame, window);
 }
 
 int64_t PoseOverlayPlayerW::position_ms() const { return d->player->position(); }
 int64_t PoseOverlayPlayerW::duration_ms() const { return d->player->duration(); }
 
-void PoseOverlayPlayerW::play()  { d->player->play(); }
+void PoseOverlayPlayerW::play() { d->player->play(); }
 void PoseOverlayPlayerW::pause() { d->player->pause(); }
 
-void PoseOverlayPlayerW::seek(int64_t positionMs) {
-    d->player->setPosition(positionMs);
-}
+void PoseOverlayPlayerW::seek(int64_t positionMs) { d->player->setPosition(positionMs); }
 
 } // namespace mosaic

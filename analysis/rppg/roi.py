@@ -32,12 +32,12 @@ specifically because every index in it traces to a real cited source —
 a forehead-specific index set could not be independently verified the same
 way and was deliberately not invented from partial memory.
 """
+
 from __future__ import annotations
 
 import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
 
 import cv2
 import numpy as np
@@ -68,6 +68,7 @@ class FaceRoiSample:
     rgb_mean : tuple of float
         Mean ``(R, G, B)`` pixel value inside the ROI polygon, in ``[0,255]``.
     """
+
     roi_bbox_px: tuple[int, int, int, int]
     rgb_mean: tuple[float, float, float]
 
@@ -86,13 +87,12 @@ class MediaPipeFaceRoiExtractor:
         from mediapipe.tasks import python as mp_python
         from mediapipe.tasks.python import vision as mp_vision
 
-        model_path = _ensure_download(
-            _MODELS_DIR / "face_landmarker.task", _MEDIAPIPE_MODEL_URL)
+        model_path = _ensure_download(_MODELS_DIR / "face_landmarker.task", _MEDIAPIPE_MODEL_URL)
 
         options = mp_vision.FaceLandmarkerOptions(
             base_options=mp_python.BaseOptions(model_asset_path=str(model_path)),
             running_mode=mp_vision.RunningMode.IMAGE,
-            num_faces=1,   # rPPG only ever tracks one subject's pulse per camera
+            num_faces=1,  # rPPG only ever tracks one subject's pulse per camera
             min_face_detection_confidence=min_confidence,
             min_face_presence_confidence=min_confidence,
             output_face_blendshapes=False,
@@ -101,7 +101,7 @@ class MediaPipeFaceRoiExtractor:
         self._mp = mp
         self._landmarker = mp_vision.FaceLandmarker.create_from_options(options)
 
-    def extract(self, frame_bgr: np.ndarray) -> Optional[FaceRoiSample]:
+    def extract(self, frame_bgr: np.ndarray) -> FaceRoiSample | None:
         """Detect a face and sample its lower-face ROI's mean RGB color.
 
         Parameters
@@ -133,7 +133,7 @@ class MediaPipeFaceRoiExtractor:
 
         mask = np.zeros((h, w), dtype=np.uint8)
         cv2.fillPoly(mask, [pts], 255)
-        mean_bgr = cv2.mean(frame_bgr, mask=mask)   # (B, G, R, alpha)
+        mean_bgr = cv2.mean(frame_bgr, mask=mask)  # (B, G, R, alpha)
         rgb_mean = (mean_bgr[2], mean_bgr[1], mean_bgr[0])
 
         x, y, bw, bh = cv2.boundingRect(pts)

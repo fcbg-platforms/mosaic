@@ -1,5 +1,6 @@
-#include "calibration/rms_quality.hpp"
 #include <gtest/gtest.h>
+
+#include "calibration/rms_quality.hpp"
 
 using mosaic::rms_quality_for;
 using mosaic::RmsQuality;

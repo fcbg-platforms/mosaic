@@ -1,10 +1,11 @@
 #pragma once
-#include "analysis/analysis_manager.hpp"
-#include "core/settings.hpp"
 #include <QVector>
 #include <QWidget>
 #include <cstdint>
 #include <memory>
+
+#include "analysis/analysis_manager.hpp"
+#include "core/settings.hpp"
 
 namespace mosaic {
 
@@ -53,19 +54,17 @@ namespace mosaic {
 // optional smoothing and an optional manual px-to-mm scale.
 class AnalysisTabW : public QWidget {
     Q_OBJECT
-public:
+   public:
     // extraDirectories: additional session-root directories to scan and
     // merge alongside settings.record.directory — per-user recording
     // access control (item 27), same convention as SessionBrowserW's own
     // extraDirectories parameter (empty for a regular user, every other
     // known profile's directory for an admin).
-    explicit AnalysisTabW(AppSettings&       settings,
-                          AnalysisManager*    analysisMgr,
-                          const QStringList&  extraDirectories = {},
-                          QWidget*            parent = nullptr);
+    explicit AnalysisTabW(AppSettings& settings, AnalysisManager* analysisMgr,
+                          const QStringList& extraDirectories = {}, QWidget* parent = nullptr);
     ~AnalysisTabW() override;
 
-private:
+   private:
     void build_ui();
     void rebuild_session_list();
     void select_session(const QString& path);

@@ -23,7 +23,7 @@ using Skeleton3DVec3 = std::array<double, 3>;
 /// written once per file — used by Skeleton3DRoomViewW's camera icons.
 /// Mirrors GazeFusionRoomCamera exactly.
 struct Skeleton3DRoomCamera {
-    int            index = -1;
+    int index                   = -1;
     Skeleton3DVec3 positionRoom = {0, 0, 0};
 };
 
@@ -33,18 +33,27 @@ struct Skeleton3DRoomCamera {
 /// owning Skeleton3DPerson::reprojectedPx are all left at their defaults
 /// (0/-1/absent) whenever !valid, never independently encoded.
 struct Skeleton3DKeypoint {
-    bool           valid = false;
-    Skeleton3DVec3 positionRoom = {0, 0, 0};   ///< mm, room space.
-    double         reprojectionErrorPx = -1.0;  ///< -1 = n/a (!valid).
+    bool valid                  = false;
+    Skeleton3DVec3 positionRoom = {0, 0, 0}; ///< mm, room space, raw (unsmoothed) triangulation.
+    /// Centered per-track median-filtered version of positionRoom, from
+    /// run_pose3d.py's "keypoints_room_smoothed" field — same
+    /// valid-gated meaning as positionRoom. Equal to positionRoom itself
+    /// when smoothing is off (--smoothing-window 1, the default) or when
+    /// loading an older file written before this field existed — never
+    /// silently zero, so a caller that always renders this field never
+    /// needs to special-case "no smoothing available" as "sits at the
+    /// room origin."
+    Skeleton3DVec3 positionRoomSmoothed = {0, 0, 0};
+    double reprojectionErrorPx          = -1.0; ///< -1 = n/a (!valid).
 };
 
 /// One reconstructed 3D person within one fused frame. Mirrors
 /// run_pose3d.py's per-person JSON object.
 struct Skeleton3DPerson {
-    int    trackId = -1;
-    int    numContributingCameras = 0;
+    int trackId                = -1;
+    int numContributingCameras = 0;
     QVector<int> sourceCameras;
-    QVector<Skeleton3DKeypoint> keypoints;   ///< Same order/length as keypoint_names().
+    QVector<Skeleton3DKeypoint> keypoints; ///< Same order/length as keypoint_names().
     /// cameraIndex -> one reprojected 2D pixel point per keypoint (same
     /// order/length as keypoints above), precomputed in Python for EVERY
     /// calibrated camera (not just sourceCameras) — mirrors how
@@ -80,7 +89,7 @@ struct Skeleton3DFrame {
 ///   if (result.is_valid()) { ... }
 /// @endcode
 class Skeleton3DResult {
-public:
+   public:
     Skeleton3DResult() = default;
 
     /// Parses jsonPath. Returns a default-constructed (is_valid() == false)
@@ -101,13 +110,13 @@ public:
     /// there are no frames.
     [[nodiscard]] const Skeleton3DFrame* nearest_frame(int64_t timestampNsEstimate) const;
 
-private:
-    bool        valid_ = false;
+   private:
+    bool valid_ = false;
     QStringList sourceVideos_;
     QVector<Skeleton3DRoomCamera> cameras_;
     QStringList keypointNames_;
     QVector<QPair<int, int>> skeletonEdges_;
-    double      masterFps_ = 25.0;
+    double masterFps_ = 25.0;
     QVector<Skeleton3DFrame> frames_;
 };
 

@@ -1,18 +1,20 @@
 #include "trigger/trigger_recorder.hpp"
-#include "utils/timestamp.hpp"
+
+#include <QDateTime>
 #include <QFile>
 #include <QMutex>
 #include <QMutexLocker>
 #include <QTextStream>
-#include <QDateTime>
+
+#include "utils/timestamp.hpp"
 
 namespace mosaic {
 
 struct TriggerRecorder::Impl {
-    QMutex   mutex;
-    QFile    file;
-    bool     open{false};
-    int64_t  startNs{0};
+    QMutex mutex;
+    QFile file;
+    bool open{false};
+    int64_t startNs{0};
 };
 
 TriggerRecorder::TriggerRecorder() : d(std::make_unique<Impl>()) {}
@@ -23,8 +25,7 @@ bool TriggerRecorder::start(const QString& path) {
     if (d->open) stop();
 
     d->file.setFileName(path);
-    if (!d->file.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate))
-        return false;
+    if (!d->file.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate)) return false;
 
     d->startNs = elapsed_ns();
     d->open    = true;
@@ -44,14 +45,11 @@ void TriggerRecorder::record_event(const TriggerEvent& ev) {
     // — display-only, not safe for cross-file alignment. elapsed_ns below is
     // ev.timestampNs raw and unmodified, sharing the exact same elapsed_ns()
     // origin as every frame timestamp — that's the column to join on.
-    const double elapsedMs = static_cast<double>(ev.timestampNs - d->startNs) / 1e6;
-    const QString wallClock = QDateTime::currentDateTime()
-                                  .toString("yyyy-MM-dd hh:mm:ss.zzz");
+    const double elapsedMs  = static_cast<double>(ev.timestampNs - d->startNs) / 1e6;
+    const QString wallClock = QDateTime::currentDateTime().toString("yyyy-MM-dd hh:mm:ss.zzz");
 
     QTextStream out(&d->file);
-    out << QString::number(elapsedMs, 'f', 3) << ","
-        << ev.timestampNs << ","
-        << wallClock << ","
+    out << QString::number(elapsedMs, 'f', 3) << "," << ev.timestampNs << "," << wallClock << ","
         << ev.source << ","
         << "\"" << QString(ev.label).replace('"', "\"\"") << "\","
         << QString::number(ev.value, 'f', 6) << "\n";

@@ -1,7 +1,9 @@
-#include "analysis/skeleton3d_result.hpp"
 #include <gtest/gtest.h>
+
 #include <QFile>
 #include <QTemporaryDir>
+
+#include "analysis/skeleton3d_result.hpp"
 
 using mosaic::Skeleton3DResult;
 
@@ -85,6 +87,44 @@ QString write_fixture(const QString& dirPath) {
     return path;
 }
 
+// A single-person, single-tick fixture WITH "keypoints_room_smoothed" —
+// distinct smoothed values from the raw ones, so a bug that silently reused
+// keypoints_room for the smoothed field would be caught.
+const char* kSmoothedFixtureJson = R"JSON(
+{
+  "schema": "mosaic-skeleton3d-v1",
+  "source_videos": ["video/video_0.mp4"],
+  "cameras": [{"index": 0, "position_room": [0.0, 0.0, 0.0]}],
+  "keypoint_names": ["nose", "left_eye"],
+  "skeleton_edges": [[0, 1]],
+  "master_fps": 25.0,
+  "params": {"min_cameras": 2, "smoothing_window": 5},
+  "frames": [
+    {
+      "tick": 0, "timestamp_ns": 1000000000,
+      "people": [
+        {
+          "track_id": 0, "num_contributing_cameras": 2, "source_cameras": [0],
+          "keypoints_room": [[10.0, 20.0, 900.0], null],
+          "keypoints_room_smoothed": [[11.5, 21.5, 899.0], null],
+          "keypoints_valid": [true, false],
+          "reprojection_error_px": [2.1, null],
+          "reprojected_px": {"0": [[500.0, 300.0], null]}
+        }
+      ]
+    }
+  ]
+}
+)JSON";
+
+QString write_smoothed_fixture(const QString& dirPath) {
+    const QString path = dirPath + "/skeleton3d_smoothed.json";
+    QFile f(path);
+    EXPECT_TRUE(f.open(QIODevice::WriteOnly | QIODevice::Text));
+    f.write(kSmoothedFixtureJson);
+    return path;
+}
+
 } // namespace
 
 TEST(Skeleton3DResult, LoadsValidFileWithFullSchema) {
@@ -157,8 +197,8 @@ TEST(Skeleton3DResult, NearestFrameHandlesGapsAndBoundaries) {
     EXPECT_EQ(result.nearest_frame(9999999999)->tick, 2);
 
     // Mid-gap exact ties resolve to the earlier frame.
-    EXPECT_EQ(result.nearest_frame(1020000000)->tick, 0);   // midpoint of tick 0/1
-    EXPECT_EQ(result.nearest_frame(1060000000)->tick, 1);   // midpoint of tick 1/2
+    EXPECT_EQ(result.nearest_frame(1020000000)->tick, 0); // midpoint of tick 0/1
+    EXPECT_EQ(result.nearest_frame(1060000000)->tick, 1); // midpoint of tick 1/2
 }
 
 TEST(Skeleton3DResult, NearestFrameOnEmptyResultReturnsNull) {
@@ -206,4 +246,45 @@ TEST(Skeleton3DResult, InvalidKeypointsHaveNullFieldsAcrossAllArrays) {
     EXPECT_EQ(p1.reprojectedPx.value(1)[1], QPointF());
     ASSERT_EQ(p1.reprojectedPx.value(2).size(), 3);
     EXPECT_EQ(p1.reprojectedPx.value(2)[1], QPointF());
+}
+
+TEST(Skeleton3DResult, LoadsKeypointsRoomSmoothedWhenPresent) {
+    QTemporaryDir dir;
+    ASSERT_TRUE(dir.isValid());
+    const auto result = Skeleton3DResult::load(write_smoothed_fixture(dir.path()));
+    ASSERT_TRUE(result.is_valid());
+
+    const auto& kp0 = result.frames()[0].people[0].keypoints[0];
+    EXPECT_TRUE(kp0.valid);
+    EXPECT_DOUBLE_EQ(kp0.positionRoom[0], 10.0);
+    // The smoothed value must be distinct from the raw one — confirms
+    // "keypoints_room_smoothed" is really parsed from its own JSON field,
+    // not silently aliased to keypoints_room.
+    EXPECT_DOUBLE_EQ(kp0.positionRoomSmoothed[0], 11.5);
+    EXPECT_DOUBLE_EQ(kp0.positionRoomSmoothed[1], 21.5);
+    EXPECT_DOUBLE_EQ(kp0.positionRoomSmoothed[2], 899.0);
+
+    // An invalid keypoint's smoothed value stays at the default too — same
+    // single-source-of-truth discipline "keypoints_valid" already has for
+    // every other parallel array.
+    const auto& kp1 = result.frames()[0].people[0].keypoints[1];
+    EXPECT_FALSE(kp1.valid);
+    EXPECT_DOUBLE_EQ(kp1.positionRoomSmoothed[0], 0.0);
+}
+
+TEST(Skeleton3DResult, BackwardCompatFileWithNoSmoothedFieldFallsBackToRawPosition) {
+    QTemporaryDir dir;
+    ASSERT_TRUE(dir.isValid());
+    // kFixtureJson predates "keypoints_room_smoothed" entirely (no such key
+    // anywhere) — confirms an older skeleton3d.json still loads cleanly,
+    // and a caller that always renders positionRoomSmoothed sees the raw
+    // value rather than a misleading {0,0,0} "at the room origin".
+    const auto result = Skeleton3DResult::load(write_fixture(dir.path()));
+    ASSERT_TRUE(result.is_valid());
+
+    const auto& kp0 = result.frames()[0].people[0].keypoints[0];
+    EXPECT_TRUE(kp0.valid);
+    EXPECT_DOUBLE_EQ(kp0.positionRoomSmoothed[0], kp0.positionRoom[0]);
+    EXPECT_DOUBLE_EQ(kp0.positionRoomSmoothed[1], kp0.positionRoom[1]);
+    EXPECT_DOUBLE_EQ(kp0.positionRoomSmoothed[2], kp0.positionRoom[2]);
 }

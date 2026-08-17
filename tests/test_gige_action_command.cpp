@@ -1,6 +1,8 @@
-#include "video/gige_action_command.hpp"
 #include <gtest/gtest.h>
+
 #include <vector>
+
+#include "video/gige_action_command.hpp"
 
 using mosaic::action_command_period_ms;
 using mosaic::ipv4_broadcast_address;
@@ -14,14 +16,14 @@ using mosaic::k_default_fps_warmup_seconds;
 TEST(Ipv4BroadcastAddress, ClassCSubnet) {
     // The real room-11 scenario: each camera on its own /24.
     EXPECT_EQ(ipv4_broadcast_address(*ipv4_from_dotted("192.168.3.42"),
-                                      *ipv4_from_dotted("255.255.255.0")),
+                                     *ipv4_from_dotted("255.255.255.0")),
               *ipv4_from_dotted("192.168.3.255"));
 }
 
 TEST(Ipv4BroadcastAddress, ClassBSubnet) {
-    EXPECT_EQ(ipv4_broadcast_address(*ipv4_from_dotted("192.168.3.42"),
-                                      *ipv4_from_dotted("255.255.0.0")),
-              *ipv4_from_dotted("192.168.255.255"));
+    EXPECT_EQ(
+        ipv4_broadcast_address(*ipv4_from_dotted("192.168.3.42"), *ipv4_from_dotted("255.255.0.0")),
+        *ipv4_from_dotted("192.168.255.255"));
 }
 
 TEST(Ipv4BroadcastAddress, HostMaskYieldsSelf) {
@@ -31,8 +33,7 @@ TEST(Ipv4BroadcastAddress, HostMaskYieldsSelf) {
 }
 
 TEST(Ipv4BroadcastAddress, ZeroMaskYieldsGlobalBroadcast) {
-    EXPECT_EQ(ipv4_broadcast_address(*ipv4_from_dotted("10.0.0.5"),
-                                      *ipv4_from_dotted("0.0.0.0")),
+    EXPECT_EQ(ipv4_broadcast_address(*ipv4_from_dotted("10.0.0.5"), *ipv4_from_dotted("0.0.0.0")),
               *ipv4_from_dotted("255.255.255.255"));
 }
 
@@ -61,13 +62,11 @@ TEST(Ipv4FromDotted, RejectsNonNumeric) {
     EXPECT_FALSE(ipv4_from_dotted("abc.def.gh.i").has_value());
 }
 
-TEST(Ipv4FromDotted, RejectsEmptyString) {
-    EXPECT_FALSE(ipv4_from_dotted("").has_value());
-}
+TEST(Ipv4FromDotted, RejectsEmptyString) { EXPECT_FALSE(ipv4_from_dotted("").has_value()); }
 
 TEST(Ipv4ToDotted, RoundTripsThroughFromDotted) {
     for (const QString& addr : {QStringLiteral("0.0.0.0"), QStringLiteral("255.255.255.255"),
-                                 QStringLiteral("192.168.3.42"), QStringLiteral("10.0.0.1")}) {
+                                QStringLiteral("192.168.3.42"), QStringLiteral("10.0.0.1")}) {
         ASSERT_TRUE(ipv4_from_dotted(addr).has_value());
         EXPECT_EQ(ipv4_to_dotted(*ipv4_from_dotted(addr)), addr);
     }

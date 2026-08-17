@@ -1,8 +1,5 @@
 #include "ui/realtime/realtime_camera_tile_w.hpp"
-#include "analysis/realtime_metrics.hpp"
-#include "ui/anim_utils.hpp"
-#include "ui/calibration/badge_style.hpp"
-#include "ui/realtime/pose_skeleton_edges.hpp"
+
 #include <QCheckBox>
 #include <QDateTime>
 #include <QGraphicsOpacityEffect>
@@ -18,6 +15,11 @@
 #include <cmath>
 #include <functional>
 
+#include "analysis/realtime_metrics.hpp"
+#include "ui/anim_utils.hpp"
+#include "ui/calibration/badge_style.hpp"
+#include "ui/realtime/pose_skeleton_edges.hpp"
+
 namespace mosaic {
 
 namespace {
@@ -25,9 +27,12 @@ namespace {
 QColor quality_color(RmsQuality q) {
     switch (q) {
         case RmsQuality::Excellent:
-        case RmsQuality::Good:       return QColor("#44cc88");
-        case RmsQuality::Acceptable: return QColor("#ddaa44");
-        case RmsQuality::Poor:       return QColor("#cc4444");
+        case RmsQuality::Good:
+            return QColor("#44cc88");
+        case RmsQuality::Acceptable:
+            return QColor("#ddaa44");
+        case RmsQuality::Poor:
+            return QColor("#cc4444");
     }
     return QColor("#cc4444");
 }
@@ -40,10 +45,12 @@ QColor quality_color(RmsQuality q) {
 // every other quality badge in the app exactly.
 QString pill_stylesheet_for_color(const QColor& c) {
     return QString(
-        "QLabel { color: %1; background: rgba(%2,%3,%4,0.15); border: 1px solid %1; "
-        "border-radius: 4px; padding: 1px 8px; font-weight: 600; }")
+               "QLabel { color: %1; background: rgba(%2,%3,%4,0.15); border: 1px solid %1; "
+               "border-radius: 4px; padding: 1px 8px; font-weight: 600; }")
         .arg(c.name())
-        .arg(c.red()).arg(c.green()).arg(c.blue());
+        .arg(c.red())
+        .arg(c.green())
+        .arg(c.blue());
 }
 
 } // namespace
@@ -51,7 +58,7 @@ QString pill_stylesheet_for_color(const QColor& c) {
 // ── ThumbnailAreaW — video frame + pose/gaze overlay + compass ────────────
 
 class ThumbnailAreaW : public QWidget {
-public:
+   public:
     explicit ThumbnailAreaW(QWidget* parent = nullptr) : QWidget(parent) {
         setMinimumSize(160, 90);
         setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
@@ -59,9 +66,11 @@ public:
 
     void set_frame(const QImage& frame) {
         const bool wasEmpty = frame_.isNull();
-        frame_ = frame;
+        frame_              = frame;
         update();
-        if (wasEmpty && !frame_.isNull()) { emit_first_frame(); }
+        if (wasEmpty && !frame_.isNull()) {
+            emit_first_frame();
+        }
     }
 
     void set_pose(const QVariantList& keypoints) {
@@ -76,7 +85,7 @@ public:
 
     std::function<void()> on_first_frame;
 
-protected:
+   protected:
     void paintEvent(QPaintEvent*) override {
         QPainter p(this);
         p.setRenderHint(QPainter::Antialiasing);
@@ -88,11 +97,11 @@ protected:
             return;
         }
 
-        const double scale = std::min(static_cast<double>(width())  / frame_.width(),
-                                       static_cast<double>(height()) / frame_.height());
-        const double dispW = frame_.width()  * scale;
+        const double scale = std::min(static_cast<double>(width()) / frame_.width(),
+                                      static_cast<double>(height()) / frame_.height());
+        const double dispW = frame_.width() * scale;
         const double dispH = frame_.height() * scale;
-        const double offX  = (width()  - dispW) / 2.0;
+        const double offX  = (width() - dispW) / 2.0;
         const double offY  = (height() - dispH) / 2.0;
 
         p.drawImage(QRectF(offX, offY, dispW, dispH), frame_);
@@ -111,9 +120,11 @@ protected:
         paint_compass(p);
     }
 
-private:
+   private:
     void paint_pose(QPainter& p, const std::function<QPointF(double, double)>& to_widget) {
-        if (keypoints_.isEmpty()) { return; }
+        if (keypoints_.isEmpty()) {
+            return;
+        }
 
         QHash<QString, int> nameToIndex;
         nameToIndex.reserve(keypoints_.size());
@@ -121,9 +132,13 @@ private:
             nameToIndex.insert(keypoints_[i].toMap().value("name").toString(), i);
         }
         const auto visible_at = [&](int idx) -> std::optional<QPointF> {
-            if (idx < 0 || idx >= keypoints_.size()) { return std::nullopt; }
+            if (idx < 0 || idx >= keypoints_.size()) {
+                return std::nullopt;
+            }
             const auto kp = keypoints_[idx].toMap();
-            if (kp.value("visibility").toDouble() < 0.4) { return std::nullopt; }
+            if (kp.value("visibility").toDouble() < 0.4) {
+                return std::nullopt;
+            }
             return to_widget(kp.value("x").toDouble(), kp.value("y").toDouble());
         };
 
@@ -132,23 +147,29 @@ private:
         // live and post-hoc views.
         p.setPen(QPen(QColor(255, 210, 0), 2));
         for (const auto& edge : kPoseNameEdges) {
-            const int ai = nameToIndex.value(QString::fromLatin1(edge.a), -1);
-            const int bi = nameToIndex.value(QString::fromLatin1(edge.b), -1);
+            const int ai  = nameToIndex.value(QString::fromLatin1(edge.a), -1);
+            const int bi  = nameToIndex.value(QString::fromLatin1(edge.b), -1);
             const auto pa = visible_at(ai);
             const auto pb = visible_at(bi);
-            if (pa && pb) { p.drawLine(*pa, *pb); }
+            if (pa && pb) {
+                p.drawLine(*pa, *pb);
+            }
         }
 
         p.setPen(Qt::NoPen);
         p.setBrush(QColor(0, 220, 255));
         for (int i = 0; i < keypoints_.size(); ++i) {
-            if (auto pt = visible_at(i)) { p.drawEllipse(*pt, 3.0, 3.0); }
+            if (auto pt = visible_at(i)) {
+                p.drawEllipse(*pt, 3.0, 3.0);
+            }
         }
     }
 
     void paint_gaze(QPainter& p, const std::function<QPointF(double, double)>& to_widget) {
-        if (!gaze_) { return; }
-        const auto fb = gaze_->value("face_box").toMap();
+        if (!gaze_) {
+            return;
+        }
+        const auto fb   = gaze_->value("face_box").toMap();
         const double fx = fb.value("x").toDouble(), fy = fb.value("y").toDouble();
         const double fw = fb.value("w").toDouble(), fh = fb.value("h").toDouble();
 
@@ -157,11 +178,11 @@ private:
         p.setBrush(Qt::NoBrush);
         p.drawRect(QRectF(to_widget(fx, fy), to_widget(fx + fw, fy + fh)));
 
-        const double gdx = gaze_->value("gaze_dx").toDouble();
-        const double gdy = gaze_->value("gaze_dy").toDouble();
+        const double gdx     = gaze_->value("gaze_dx").toDouble();
+        const double gdy     = gaze_->value("gaze_dy").toDouble();
         const QPointF center = to_widget(fx + fw / 2.0, fy + fh / 2.0);
-        const QPointF tip     = to_widget(fx + fw / 2.0 + gdx * fw * 0.5,
-                                           fy + fh / 2.0 + gdy * fh * 0.5);
+        const QPointF tip =
+            to_widget(fx + fw / 2.0 + gdx * fw * 0.5, fy + fh / 2.0 + gdy * fh * 0.5);
         p.setPen(QPen(QColor(255, 220, 60), 2));
         p.drawLine(center, tip);
         p.setBrush(QColor(255, 220, 60));
@@ -184,7 +205,7 @@ private:
         if (gaze_) {
             const double gdx = std::clamp(gaze_->value("gaze_dx").toDouble(), -1.0, 1.0);
             const double gdy = std::clamp(gaze_->value("gaze_dy").toDouble(), -1.0, 1.0);
-            const double r = kSize / 2.0 - 4.0;
+            const double r   = kSize / 2.0 - 4.0;
             const QPointF dot(ring.center().x() + gdx * r, ring.center().y() + gdy * r);
             p.setPen(Qt::NoPen);
             p.setBrush(QColor(255, 220, 60));
@@ -196,32 +217,36 @@ private:
         }
     }
 
-    void emit_first_frame() { if (on_first_frame) { on_first_frame(); } }
+    void emit_first_frame() {
+        if (on_first_frame) {
+            on_first_frame();
+        }
+    }
 
-    QImage                      frame_;
-    QVariantList                keypoints_;
-    std::optional<QVariantMap>  gaze_;
+    QImage frame_;
+    QVariantList keypoints_;
+    std::optional<QVariantMap> gaze_;
 };
 
 // ── Impl ────────────────────────────────────────────────────────────────────
 
 struct RealtimeCameraTileW::Impl {
-    int  cameraIndex    = 0;
+    int cameraIndex     = 0;
     bool analyzeEnabled = true;
     bool paused         = false;
 
-    QLabel*         liveDot         = nullptr;
-    QCheckBox*      analyzeCk       = nullptr;
-    ThumbnailAreaW* thumb           = nullptr;
-    QWidget*        footer          = nullptr;
-    QLabel*         qualityBadge    = nullptr;
-    QLabel*         gazeOnTargetLbl = nullptr;
+    QLabel* liveDot         = nullptr;
+    QCheckBox* analyzeCk    = nullptr;
+    ThumbnailAreaW* thumb   = nullptr;
+    QWidget* footer         = nullptr;
+    QLabel* qualityBadge    = nullptr;
+    QLabel* gazeOnTargetLbl = nullptr;
 
     DetectionRateTracker detectionTracker;
     DetectionRateTracker gazeTracker;
     bool gazeSeenThisTick = false;
 
-    bool       haveQuality = false;
+    bool haveQuality       = false;
     RmsQuality lastQuality = RmsQuality::Poor;
     QPointer<QVariantAnimation> badgeAnim;
 };
@@ -229,23 +254,23 @@ struct RealtimeCameraTileW::Impl {
 // ── RealtimeCameraTileW ─────────────────────────────────────────────────────
 
 RealtimeCameraTileW::RealtimeCameraTileW(int cameraIndex, bool liveAnalysisEnabled,
-                                          int detectionWindowBuckets, QWidget* parent)
-    : QWidget(parent), d(std::make_unique<Impl>())
-{
-    d->cameraIndex       = cameraIndex;
-    d->analyzeEnabled    = liveAnalysisEnabled;
-    d->detectionTracker  = DetectionRateTracker(std::max(1, detectionWindowBuckets));
-    d->gazeTracker       = DetectionRateTracker(std::max(1, detectionWindowBuckets));
+                                         int detectionWindowBuckets, QWidget* parent)
+    : QWidget(parent), d(std::make_unique<Impl>()) {
+    d->cameraIndex      = cameraIndex;
+    d->analyzeEnabled   = liveAnalysisEnabled;
+    d->detectionTracker = DetectionRateTracker(std::max(1, detectionWindowBuckets));
+    d->gazeTracker      = DetectionRateTracker(std::max(1, detectionWindowBuckets));
 
-    setStyleSheet("RealtimeCameraTileW { background:#13132a; border:1px solid #252545; "
-                  "border-radius: 6px; }");
+    setStyleSheet(
+        "RealtimeCameraTileW { background:#13132a; border:1px solid #252545; "
+        "border-radius: 6px; }");
 
     auto* root = new QVBoxLayout(this);
     root->setContentsMargins(8, 8, 8, 8);
     root->setSpacing(6);
 
     auto* header = new QHBoxLayout;
-    d->liveDot = new QLabel;
+    d->liveDot   = new QLabel;
     d->liveDot->setFixedSize(10, 10);
     d->liveDot->setStyleSheet("background:#44446a; border-radius:5px;");
     auto* camLbl = new QLabel(QString("Cam %1").arg(cameraIndex));
@@ -275,16 +300,17 @@ RealtimeCameraTileW::RealtimeCameraTileW(int cameraIndex, bool liveAnalysisEnabl
     header->addWidget(d->analyzeCk);
     root->addLayout(header);
 
-    d->thumb = new ThumbnailAreaW;
+    d->thumb                 = new ThumbnailAreaW;
     d->thumb->on_first_frame = [this] {
         d->liveDot->setStyleSheet("background:#44ff88; border-radius:5px;");
-        setStyleSheet("RealtimeCameraTileW { background:#13132a; border:1px solid #2a3060; "
-                      "border-radius: 6px; }");
+        setStyleSheet(
+            "RealtimeCameraTileW { background:#13132a; border:1px solid #2a3060; "
+            "border-radius: 6px; }");
         anim::fade_in_widget(d->thumb, 200);
     };
     root->addWidget(d->thumb, 1);
 
-    d->footer = new QWidget;
+    d->footer       = new QWidget;
     auto* footerLay = new QHBoxLayout(d->footer);
     footerLay->setContentsMargins(0, 0, 0, 0);
     d->qualityBadge = new QLabel("Pose: --");
@@ -299,7 +325,7 @@ RealtimeCameraTileW::RealtimeCameraTileW(int cameraIndex, bool liveAnalysisEnabl
 
 RealtimeCameraTileW::~RealtimeCameraTileW() = default;
 
-int  RealtimeCameraTileW::camera_index() const { return d->cameraIndex; }
+int RealtimeCameraTileW::camera_index() const { return d->cameraIndex; }
 bool RealtimeCameraTileW::analyze_enabled() const { return d->analyzeEnabled; }
 
 std::optional<double> RealtimeCameraTileW::detection_rate() const {
@@ -311,14 +337,14 @@ std::optional<double> RealtimeCameraTileW::gaze_on_target_rate() const {
 }
 
 void RealtimeCameraTileW::set_analysis_paused(bool paused) {
-    if (d->paused == paused) { return; }
+    if (d->paused == paused) {
+        return;
+    }
     d->paused = paused;
     anim::ensure_opacity_effect(d->footer)->setOpacity(paused ? 0.45 : 1.0);
 }
 
-void RealtimeCameraTileW::on_frame_preview(QImage frame) {
-    d->thumb->set_frame(frame);
-}
+void RealtimeCameraTileW::on_frame_preview(QImage frame) { d->thumb->set_frame(frame); }
 
 void RealtimeCameraTileW::on_pose_ready(QVariantList keypoints) {
     const qint64 now = QDateTime::currentMSecsSinceEpoch();
@@ -326,37 +352,47 @@ void RealtimeCameraTileW::on_pose_ready(QVariantList keypoints) {
     // Attribute the PREVIOUS frame's gaze presence: gaze_ready (if any) for
     // that frame fired between the previous pose_ready call and this one.
     d->gazeTracker.push(d->gazeSeenThisTick, now);
-    if (!d->gazeSeenThisTick) { d->thumb->set_gaze(std::nullopt); }
+    if (!d->gazeSeenThisTick) {
+        d->thumb->set_gaze(std::nullopt);
+    }
     d->gazeSeenThisTick = false;
 
     d->detectionTracker.push(!keypoints.isEmpty(), now);
     d->thumb->set_pose(keypoints);
 
-    const auto rate = d->detectionTracker.rate();
+    const auto rate          = d->detectionTracker.rate();
     const RmsQuality quality = pose_tracking_quality_for(rate.value_or(0.0));
     d->qualityBadge->setText(rate ? QString("Pose: %1%").arg(qRound(*rate * 100))
-                                   : QStringLiteral("Pose: --"));
+                                  : QStringLiteral("Pose: --"));
 
     if (!d->haveQuality) {
-        d->haveQuality  = true;
-        d->lastQuality  = quality;
+        d->haveQuality = true;
+        d->lastQuality = quality;
         d->qualityBadge->setStyleSheet(badge_stylesheet(quality));
     } else if (quality != d->lastQuality) {
         const QColor from = quality_color(d->lastQuality);
         const QColor to   = quality_color(quality);
-        d->lastQuality = quality;
+        d->lastQuality    = quality;
 
-        if (d->badgeAnim) { d->badgeAnim->stop(); }
+        if (d->badgeAnim) {
+            d->badgeAnim->stop();
+        }
         auto* anim = new QVariantAnimation(this);
         anim->setStartValue(0.0);
         anim->setEndValue(1.0);
         anim->setDuration(300);
         QPointer<QLabel> badge = d->qualityBadge;
-        connect(anim, &QVariantAnimation::valueChanged, badge, [badge, from, to](const QVariant& v) {
-            if (badge) { badge->setStyleSheet(pill_stylesheet_for_color(anim::lerp_color(from, to, v.toReal()))); }
-        });
+        connect(anim, &QVariantAnimation::valueChanged, badge,
+                [badge, from, to](const QVariant& v) {
+                    if (badge) {
+                        badge->setStyleSheet(
+                            pill_stylesheet_for_color(anim::lerp_color(from, to, v.toReal())));
+                    }
+                });
         connect(anim, &QVariantAnimation::finished, badge, [badge, quality]() {
-            if (badge) { badge->setStyleSheet(badge_stylesheet(quality)); }
+            if (badge) {
+                badge->setStyleSheet(badge_stylesheet(quality));
+            }
         });
         anim->start(QAbstractAnimation::DeleteWhenStopped);
         d->badgeAnim = anim;
@@ -364,7 +400,7 @@ void RealtimeCameraTileW::on_pose_ready(QVariantList keypoints) {
 
     const auto gRate = d->gazeTracker.rate();
     d->gazeOnTargetLbl->setText(gRate ? QString("On-target: %1%").arg(qRound(*gRate * 100))
-                                       : QStringLiteral("On-target: --"));
+                                      : QStringLiteral("On-target: --"));
 }
 
 void RealtimeCameraTileW::on_gaze_ready(QVariantMap gazeData) {

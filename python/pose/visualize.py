@@ -1,4 +1,5 @@
 """Draw MediaPipe Pose skeleton overlay on a BGR frame (for testing/offline use)."""
+
 from __future__ import annotations
 
 import cv2

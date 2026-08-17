@@ -1,9 +1,12 @@
 #include "analysis/rppg_result.hpp"
+
 #include <QFile>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <algorithm>
+
+#include "analysis/nearest_by_key.hpp"
 
 namespace mosaic {
 
@@ -35,7 +38,7 @@ RppgResult RppgResult::load(const QString& jsonPath) {
     result.sourceVideo_ = root["source_video"].toString();
     result.backend_     = root["backend"].toString();
     result.windowSec_   = root["window_sec"].toDouble();
-    result.hopSec_       = root["hop_sec"].toDouble();
+    result.hopSec_      = root["hop_sec"].toDouble();
 
     for (const auto& winVal : root["windows"].toArray()) {
         const QJsonObject winObj = winVal.toObject();
@@ -61,8 +64,8 @@ RppgResult RppgResult::load(const QString& jsonPath) {
         if (frame.faceDetected) {
             const QJsonArray bboxArr = frameObj["roi_bbox_px"].toArray();
             if (bboxArr.size() == 4) {
-                frame.roiBboxPx = QRect(bboxArr[0].toInt(), bboxArr[1].toInt(),
-                                         bboxArr[2].toInt(), bboxArr[3].toInt());
+                frame.roiBboxPx = QRect(bboxArr[0].toInt(), bboxArr[1].toInt(), bboxArr[2].toInt(),
+                                        bboxArr[3].toInt());
             }
         }
 
@@ -79,58 +82,24 @@ RppgResult RppgResult::load(const QString& jsonPath) {
               [](const RppgFrame& a, const RppgFrame& b) { return a.timestampMs < b.timestampMs; });
 
     const QJsonObject summary = root["summary"].toObject();
-    result.meanBpm_         = optional_double(summary["mean_bpm"]);
-    result.medianBpm_       = optional_double(summary["median_bpm"]);
-    result.minBpm_          = optional_double(summary["min_bpm"]);
-    result.maxBpm_          = optional_double(summary["max_bpm"]);
-    result.pctWindowsGood_  = summary["pct_windows_good"].toDouble();
+    result.meanBpm_           = optional_double(summary["mean_bpm"]);
+    result.medianBpm_         = optional_double(summary["median_bpm"]);
+    result.minBpm_            = optional_double(summary["min_bpm"]);
+    result.maxBpm_            = optional_double(summary["max_bpm"]);
+    result.pctWindowsGood_    = summary["pct_windows_good"].toDouble();
 
     result.valid_ = true;
     return result;
 }
 
 const RppgWindow* RppgResult::nearest_window(int64_t timestampMsEstimate) const {
-    if (windows_.isEmpty()) {
-        return nullptr;
-    }
-
-    const auto it = std::lower_bound(
-        windows_.begin(), windows_.end(), timestampMsEstimate,
-        [](const RppgWindow& w, int64_t ts) { return w.startMs < ts; });
-
-    if (it == windows_.begin()) {
-        return &(*it);
-    }
-    if (it == windows_.end()) {
-        return &(*std::prev(it));
-    }
-
-    const auto prevIt = std::prev(it);
-    const int64_t afterDelta  = it->startMs - timestampMsEstimate;
-    const int64_t beforeDelta = timestampMsEstimate - prevIt->startMs;
-    return (beforeDelta <= afterDelta) ? &(*prevIt) : &(*it);
+    return nearest_by_key(windows_, timestampMsEstimate,
+                          [](const RppgWindow& w) { return w.startMs; });
 }
 
 const RppgFrame* RppgResult::nearest_frame(int64_t timestampMsEstimate) const {
-    if (frames_.isEmpty()) {
-        return nullptr;
-    }
-
-    const auto it = std::lower_bound(
-        frames_.begin(), frames_.end(), timestampMsEstimate,
-        [](const RppgFrame& f, int64_t ts) { return f.timestampMs < ts; });
-
-    if (it == frames_.begin()) {
-        return &(*it);
-    }
-    if (it == frames_.end()) {
-        return &(*std::prev(it));
-    }
-
-    const auto prevIt = std::prev(it);
-    const int64_t afterDelta  = it->timestampMs - timestampMsEstimate;
-    const int64_t beforeDelta = timestampMsEstimate - prevIt->timestampMs;
-    return (beforeDelta <= afterDelta) ? &(*prevIt) : &(*it);
+    return nearest_by_key(frames_, timestampMsEstimate,
+                          [](const RppgFrame& f) { return f.timestampMs; });
 }
 
 } // namespace mosaic

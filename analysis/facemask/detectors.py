@@ -24,12 +24,13 @@ Backends (selectable in the UI, "mediapipe" is the default):
 Each backend caches its downloaded model file(s) under models/ next to this
 file (gitignored, same treatment as auto-downloaded yolov8n-pose.pt).
 """
+
 from __future__ import annotations
 
 import hashlib
 import urllib.request
 from pathlib import Path
-from typing import Optional, Protocol
+from typing import Protocol
 
 import cv2
 import numpy as np
@@ -93,8 +94,7 @@ class MediaPipeFaceDetector:
         from mediapipe.tasks import python as mp_python
         from mediapipe.tasks.python import vision as mp_vision
 
-        model_path = _ensure_download(
-            _MODELS_DIR / "face_landmarker.task", _MEDIAPIPE_MODEL_URL)
+        model_path = _ensure_download(_MODELS_DIR / "face_landmarker.task", _MEDIAPIPE_MODEL_URL)
 
         options = mp_vision.FaceLandmarkerOptions(
             base_options=mp_python.BaseOptions(model_asset_path=str(model_path)),
@@ -157,8 +157,9 @@ class YoloFaceDetector:
         ultralytics choose.
     """
 
-    def __init__(self, model: Optional[str] = None, conf_threshold: float = 0.5,
-                 device: Optional[str] = None) -> None:
+    def __init__(
+        self, model: str | None = None, conf_threshold: float = 0.5, device: str | None = None
+    ) -> None:
         from ultralytics import YOLO
 
         model_name = model or "yolov8n-face.pt"
@@ -166,8 +167,9 @@ class YoloFaceDetector:
         if Path(model_name).is_file():
             model_path = model_name
         elif model_name in _YOLO_FACE_URLS:
-            model_path = str(_ensure_download(
-                _MODELS_DIR / model_name, _YOLO_FACE_URLS[model_name]))
+            model_path = str(
+                _ensure_download(_MODELS_DIR / model_name, _YOLO_FACE_URLS[model_name])
+            )
         else:
             # Let ultralytics try its own resolution (e.g. an official name).
             model_path = model_name
@@ -225,15 +227,17 @@ class OpenCVDnnFaceDetector:
 
     def __init__(self, conf_threshold: float = 0.5) -> None:
         model_path = _ensure_download_verified(
-            _MODELS_DIR / "face_detection_yunet_2023mar.onnx", _YUNET_URL, _YUNET_SHA256)
+            _MODELS_DIR / "face_detection_yunet_2023mar.onnx", _YUNET_URL, _YUNET_SHA256
+        )
         # (320, 320) is just a placeholder construction-time size — detect()
         # below calls setInputSize() with each frame's real dimensions
         # before every inference, since YuNet's input size must match the
         # frame (unlike blobFromImage-based detectors, which resize
         # internally).
         self._detector = cv2.FaceDetectorYN_create(
-            str(model_path), "", (320, 320), score_threshold=conf_threshold)
-        self._last_size: Optional[tuple[int, int]] = None
+            str(model_path), "", (320, 320), score_threshold=conf_threshold
+        )
+        self._last_size: tuple[int, int] | None = None
 
     def detect(self, frame_bgr: np.ndarray) -> list[Box]:
         """See :meth:`FaceDetector.detect`."""
@@ -252,6 +256,7 @@ class OpenCVDnnFaceDetector:
 
 
 # ── Shared model-download helper ─────────────────────────────────────────────
+
 
 def _ensure_download(dest: Path, url: str) -> Path:
     """Download ``url`` to ``dest`` if not already cached there.
@@ -335,8 +340,10 @@ def _sha256_of(path: Path) -> str:
 
 # ── Factory ───────────────────────────────────────────────────────────────────
 
-def make_detector(backend: str, model: Optional[str], conf_threshold: float,
-                   device: Optional[str] = None) -> FaceDetector:
+
+def make_detector(
+    backend: str, model: str | None, conf_threshold: float, device: str | None = None
+) -> FaceDetector:
     """Build a face-detection backend by name.
 
     Parameters

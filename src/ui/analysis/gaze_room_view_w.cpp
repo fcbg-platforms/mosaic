@@ -1,4 +1,5 @@
 #include "ui/analysis/gaze_room_view_w.hpp"
+
 #include <QPainter>
 #include <algorithm>
 #include <limits>
@@ -14,7 +15,7 @@ const QColor kCameraColors[] = {
 
 struct GazeRoomViewW::Impl {
     GazeFusionResult result;
-    int64_t          positionMs = 0;
+    int64_t positionMs = 0;
 
     // Auto-fit projection bounds, room-space mm (X/Y — top-down).
     double minX = -1000, maxX = 1000, minY = -1000, maxY = 1000;
@@ -24,24 +25,39 @@ struct GazeRoomViewW::Impl {
         maxX = maxY = std::numeric_limits<double>::lowest();
 
         auto consider = [&](const Vec3& p) {
-            minX = std::min(minX, p[0]); maxX = std::max(maxX, p[0]);
-            minY = std::min(minY, p[1]); maxY = std::max(maxY, p[1]);
+            minX = std::min(minX, p[0]);
+            maxX = std::max(maxX, p[0]);
+            minY = std::min(minY, p[1]);
+            maxY = std::max(maxY, p[1]);
         };
 
-        for (const auto& cam : result.cameras()) { consider(cam.positionRoom); }
-        if (result.plane_defined()) { consider(result.plane_point()); }
+        for (const auto& cam : result.cameras()) {
+            consider(cam.positionRoom);
+        }
+        if (result.plane_defined()) {
+            consider(result.plane_point());
+        }
         for (const auto& frame : result.frames()) {
-            if (frame.numCameras > 0) { consider(frame.fusedOriginRoom); }
-            if (frame.hasTarget)      { consider(frame.targetPointRoom); }
+            if (frame.numCameras > 0) {
+                consider(frame.fusedOriginRoom);
+            }
+            if (frame.hasTarget) {
+                consider(frame.targetPointRoom);
+            }
         }
 
-        if (minX > maxX) {   // nothing considered (empty/invalid result) — fall back
-            minX = -1000; maxX = 1000; minY = -1000; maxY = 1000;
+        if (minX > maxX) { // nothing considered (empty/invalid result) — fall back
+            minX = -1000;
+            maxX = 1000;
+            minY = -1000;
+            maxY = 1000;
         }
         const double padX = std::max((maxX - minX) * 0.15, 100.0);
         const double padY = std::max((maxY - minY) * 0.15, 100.0);
-        minX -= padX; maxX += padX;
-        minY -= padY; maxY += padY;
+        minX -= padX;
+        maxX += padX;
+        minY -= padY;
+        maxY += padY;
     }
 
     // Room X/Y -> widget coordinates, independently scaled per axis to
@@ -56,7 +72,9 @@ struct GazeRoomViewW::Impl {
     }
 
     [[nodiscard]] const GazeFusionFrame* current_frame() const {
-        if (result.frames().isEmpty()) { return nullptr; }
+        if (result.frames().isEmpty()) {
+            return nullptr;
+        }
         const int64_t ts = result.frames().first().timestampNs + positionMs * 1000000LL;
         return result.nearest_frame(ts);
     }
@@ -96,19 +114,20 @@ void GazeRoomViewW::paintEvent(QPaintEvent*) {
     // draw a simple square footprint centered on the plane point as a
     // schematic stand-in for "the target surface is roughly here."
     if (d->result.plane_defined()) {
-        const auto   pp          = d->result.plane_point();
-        const double halfExtent  = std::max(d->maxX - d->minX, d->maxY - d->minY) * 0.15;
-        const Vec3   corner1     = {pp[0] - halfExtent, pp[1] - halfExtent, pp[2]};
-        const Vec3   corner2     = {pp[0] + halfExtent, pp[1] + halfExtent, pp[2]};
+        const auto pp           = d->result.plane_point();
+        const double halfExtent = std::max(d->maxX - d->minX, d->maxY - d->minY) * 0.15;
+        const Vec3 corner1      = {pp[0] - halfExtent, pp[1] - halfExtent, pp[2]};
+        const Vec3 corner2      = {pp[0] + halfExtent, pp[1] + halfExtent, pp[2]};
         painter.setPen(QPen(QColor("#335544"), 1));
         painter.setBrush(QColor(60, 110, 90, 60));
-        painter.drawRect(QRectF(d->to_widget(corner1, area), d->to_widget(corner2, area)).normalized());
+        painter.drawRect(
+            QRectF(d->to_widget(corner1, area), d->to_widget(corner2, area)).normalized());
     }
 
     // Cameras.
     for (const auto& cam : d->result.cameras()) {
-        const QPointF p     = d->to_widget(cam.positionRoom, area);
-        const QColor  color = kCameraColors[((cam.index % 6) + 6) % 6];
+        const QPointF p    = d->to_widget(cam.positionRoom, area);
+        const QColor color = kCameraColors[((cam.index % 6) + 6) % 6];
         painter.setPen(Qt::NoPen);
         painter.setBrush(color);
         painter.drawEllipse(p, 5, 5);
@@ -121,8 +140,8 @@ void GazeRoomViewW::paintEvent(QPaintEvent*) {
     if (frame && frame->numCameras > 0) {
         for (const auto& cam : frame->perCamera) {
             const Vec3 tip = {cam.originRoom[0] + cam.directionRoom[0] * 500.0,
-                               cam.originRoom[1] + cam.directionRoom[1] * 500.0,
-                               cam.originRoom[2] + cam.directionRoom[2] * 500.0};
+                              cam.originRoom[1] + cam.directionRoom[1] * 500.0,
+                              cam.originRoom[2] + cam.directionRoom[2] * 500.0};
             painter.setPen(QPen(QColor(255, 255, 255, 70), 1, Qt::DashLine));
             painter.drawLine(d->to_widget(cam.originRoom, area), d->to_widget(tip, area));
         }
@@ -133,9 +152,9 @@ void GazeRoomViewW::paintEvent(QPaintEvent*) {
             fusedTip = d->to_widget(frame->targetPointRoom, area);
         } else {
             const Vec3 tip = {frame->fusedOriginRoom[0] + frame->fusedDirectionRoom[0] * 800.0,
-                               frame->fusedOriginRoom[1] + frame->fusedDirectionRoom[1] * 800.0,
-                               frame->fusedOriginRoom[2] + frame->fusedDirectionRoom[2] * 800.0};
-            fusedTip = d->to_widget(tip, area);
+                              frame->fusedOriginRoom[1] + frame->fusedDirectionRoom[1] * 800.0,
+                              frame->fusedOriginRoom[2] + frame->fusedDirectionRoom[2] * 800.0};
+            fusedTip       = d->to_widget(tip, area);
         }
         painter.setPen(QPen(QColor("#ffdd44"), 2));
         painter.drawLine(fusedOrigin, fusedTip);
@@ -145,14 +164,14 @@ void GazeRoomViewW::paintEvent(QPaintEvent*) {
     }
 
     painter.setPen(QColor("#7070a0"));
-    const QString info = frame
-        ? QString("tick %1  ·  %2 camera(s)%3")
-              .arg(frame->tick)
-              .arg(frame->numCameras)
-              .arg(frame->isTriangulated
-                       ? QString("  ·  residual %1 mm").arg(frame->residualRmsMm, 0, 'f', 1)
-                       : QString())
-        : QString("no data at this position");
+    const QString info =
+        frame ? QString("tick %1  ·  %2 camera(s)%3")
+                    .arg(frame->tick)
+                    .arg(frame->numCameras)
+                    .arg(frame->isTriangulated
+                             ? QString("  ·  residual %1 mm").arg(frame->residualRmsMm, 0, 'f', 1)
+                             : QString())
+              : QString("no data at this position");
     painter.drawText(rect().adjusted(6, 4, -6, -4), Qt::AlignBottom | Qt::AlignLeft, info);
 }
 

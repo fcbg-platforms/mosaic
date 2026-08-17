@@ -1,11 +1,12 @@
-#include "analysis/realtime_metrics.hpp"
 #include <gtest/gtest.h>
 
+#include "analysis/realtime_metrics.hpp"
+
 using mosaic::DetectionRateTracker;
-using mosaic::RmsQuality;
 using mosaic::gaze_on_target_for;
 using mosaic::kGazeOnTargetThreshold;
 using mosaic::pose_tracking_quality_for;
+using mosaic::RmsQuality;
 using mosaic::rppg_quality_for;
 
 // ── pose_tracking_quality_for ───────────────────────────────────────────────
@@ -32,9 +33,7 @@ TEST(PoseTrackingQualityFor, PoorBelow0Point3) {
 
 // ── gaze_on_target_for ──────────────────────────────────────────────────────
 
-TEST(GazeOnTargetFor, TrueAtOrigin) {
-    EXPECT_TRUE(gaze_on_target_for(0.0, 0.0));
-}
+TEST(GazeOnTargetFor, TrueAtOrigin) { EXPECT_TRUE(gaze_on_target_for(0.0, 0.0)); }
 
 TEST(GazeOnTargetFor, TrueExactlyAtThresholdRadius) {
     EXPECT_TRUE(gaze_on_target_for(kGazeOnTargetThreshold, 0.0));
@@ -79,9 +78,9 @@ TEST(DetectionRateTracker, SingleBucketAggregatesHitsOverTotal) {
 
 TEST(DetectionRateTracker, RollsForwardIntoNewBucketsAcrossTime) {
     DetectionRateTracker t(24, 5000);
-    t.push(true, 0);       // bucket 0
-    t.push(true, 5000);    // bucket 1
-    t.push(false, 10000);  // bucket 2
+    t.push(true, 0);      // bucket 0
+    t.push(true, 5000);   // bucket 1
+    t.push(false, 10000); // bucket 2
 
     EXPECT_EQ(t.bucket_count(), 3);
     ASSERT_TRUE(t.rate().has_value());
@@ -96,9 +95,9 @@ TEST(DetectionRateTracker, RollsForwardIntoNewBucketsAcrossTime) {
 
 TEST(DetectionRateTracker, EvictsOldestBucketPastCapacity) {
     DetectionRateTracker t(/*bucketCount=*/2, /*bucketDurationMs=*/1000);
-    t.push(false, 0);      // bucket 0 — should be evicted
-    t.push(true, 1000);    // bucket 1
-    t.push(true, 2000);    // bucket 2
+    t.push(false, 0);   // bucket 0 — should be evicted
+    t.push(true, 1000); // bucket 1
+    t.push(true, 2000); // bucket 2
 
     EXPECT_EQ(t.bucket_count(), 2);
     ASSERT_TRUE(t.rate().has_value());
@@ -109,7 +108,7 @@ TEST(DetectionRateTracker, EvictsOldestBucketPastCapacity) {
 TEST(DetectionRateTracker, IgnoresOutOfOrderTimestamp) {
     DetectionRateTracker t(24, 1000);
     t.push(true, 5000);
-    t.push(false, 1000);   // stale, out of order — dropped
+    t.push(false, 1000); // stale, out of order — dropped
     ASSERT_TRUE(t.rate().has_value());
     EXPECT_NEAR(*t.rate(), 1.0, 1e-9);
 }

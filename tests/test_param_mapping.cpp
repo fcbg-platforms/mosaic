@@ -1,6 +1,8 @@
-#include "video/param_mapping.hpp"
-#include <cmath>
 #include <gtest/gtest.h>
+
+#include <cmath>
+
+#include "video/param_mapping.hpp"
 
 using mosaic::map_normalized_to_int_range;
 using mosaic::round_clamp_to_int_range;
@@ -16,9 +18,7 @@ TEST(RoundClampToIntRange, ClampsAboveMax) {
     EXPECT_EQ(round_clamp_to_int_range(64.0, 0, 63), 63);
 }
 
-TEST(RoundClampToIntRange, ClampsBelowMin) {
-    EXPECT_EQ(round_clamp_to_int_range(-5.0, 0, 63), 0);
-}
+TEST(RoundClampToIntRange, ClampsBelowMin) { EXPECT_EQ(round_clamp_to_int_range(-5.0, 0, 63), 0); }
 
 TEST(MapNormalizedToIntRange, MapsEndpoints) {
     EXPECT_EQ(map_normalized_to_int_range(0.0, 50, 205), 50);

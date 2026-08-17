@@ -1,16 +1,20 @@
 #include "analysis/skeleton3d_result.hpp"
+
 #include <QFile>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
-#include <algorithm>
+
+#include "analysis/nearest_by_key.hpp"
 
 namespace mosaic {
 
 namespace {
 
 Skeleton3DVec3 vec3_from_json(const QJsonArray& arr, const Skeleton3DVec3& def = {0, 0, 0}) {
-    if (arr.size() != 3) { return def; }
+    if (arr.size() != 3) {
+        return def;
+    }
     return {arr[0].toDouble(), arr[1].toDouble(), arr[2].toDouble()};
 }
 
@@ -65,41 +69,52 @@ Skeleton3DResult Skeleton3DResult::load(const QString& jsonPath) {
             const QJsonObject personObj = personVal.toObject();
 
             Skeleton3DPerson person;
-            person.trackId = personObj["track_id"].toInt();
+            person.trackId                = personObj["track_id"].toInt();
             person.numContributingCameras = personObj["num_contributing_cameras"].toInt();
             for (const auto& c : personObj["source_cameras"].toArray()) {
                 person.sourceCameras << c.toInt();
             }
 
-            const QJsonArray kpsRoom  = personObj["keypoints_room"].toArray();
-            const QJsonArray kpsValid = personObj["keypoints_valid"].toArray();
-            const QJsonArray kpsErr   = personObj["reprojection_error_px"].toArray();
-            const int n = kpsRoom.size();
+            const QJsonArray kpsRoom     = personObj["keypoints_room"].toArray();
+            const QJsonArray kpsSmoothed = personObj["keypoints_room_smoothed"].toArray();
+            const QJsonArray kpsValid    = personObj["keypoints_valid"].toArray();
+            const QJsonArray kpsErr      = personObj["reprojection_error_px"].toArray();
+            const int n                  = kpsRoom.size();
 
             for (int i = 0; i < n; ++i) {
                 Skeleton3DKeypoint kp;
                 kp.valid = (i < kpsValid.size()) && kpsValid[i].toBool();
                 if (kp.valid) {
-                    kp.positionRoom        = vec3_from_json(kpsRoom[i].toArray());
-                    kp.reprojectionErrorPx = (i < kpsErr.size()) ? kpsErr[i].toDouble() : -1.0;
+                    kp.positionRoom = vec3_from_json(kpsRoom[i].toArray());
+                    // Absent on an older file that predates smoothing (i >=
+                    // kpsSmoothed.size(), or a null entry) — falls back to
+                    // the raw value rather than {0,0,0}, so an old file's
+                    // "smoothed" view is simply the unsmoothed one instead
+                    // of silently looking like every point sits at the
+                    // room origin.
+                    kp.positionRoomSmoothed = (i < kpsSmoothed.size() && kpsSmoothed[i].isArray())
+                                                  ? vec3_from_json(kpsSmoothed[i].toArray())
+                                                  : kp.positionRoom;
+                    kp.reprojectionErrorPx  = (i < kpsErr.size()) ? kpsErr[i].toDouble() : -1.0;
                 }
                 person.keypoints << kp;
             }
 
             const QJsonObject reprojObj = personObj["reprojected_px"].toObject();
             for (auto it = reprojObj.constBegin(); it != reprojObj.constEnd(); ++it) {
-                bool ok = false;
+                bool ok            = false;
                 const int camIndex = it.key().toInt(&ok);
-                if (!ok) { continue; }
+                if (!ok) {
+                    continue;
+                }
 
                 QVector<QPointF> pts;
                 const QJsonArray ptsArr = it.value().toArray();
                 pts.reserve(ptsArr.size());
                 for (const auto& ptVal : ptsArr) {
                     const QJsonArray xy = ptVal.toArray();
-                    pts << (xy.size() == 2
-                        ? QPointF(xy[0].toDouble(), xy[1].toDouble())
-                        : QPointF());
+                    pts << (xy.size() == 2 ? QPointF(xy[0].toDouble(), xy[1].toDouble())
+                                           : QPointF());
                 }
                 person.reprojectedPx.insert(camIndex, pts);
             }
@@ -115,25 +130,8 @@ Skeleton3DResult Skeleton3DResult::load(const QString& jsonPath) {
 }
 
 const Skeleton3DFrame* Skeleton3DResult::nearest_frame(int64_t timestampNsEstimate) const {
-    if (frames_.isEmpty()) {
-        return nullptr;
-    }
-
-    const auto it = std::lower_bound(
-        frames_.begin(), frames_.end(), timestampNsEstimate,
-        [](const Skeleton3DFrame& f, int64_t ts) { return f.timestampNs < ts; });
-
-    if (it == frames_.begin()) {
-        return &(*it);
-    }
-    if (it == frames_.end()) {
-        return &(*std::prev(it));
-    }
-
-    const auto prevIt = std::prev(it);
-    const int64_t afterDelta  = it->timestampNs - timestampNsEstimate;
-    const int64_t beforeDelta = timestampNsEstimate - prevIt->timestampNs;
-    return (beforeDelta <= afterDelta) ? &(*prevIt) : &(*it);
+    return nearest_by_key(frames_, timestampNsEstimate,
+                          [](const Skeleton3DFrame& f) { return f.timestampNs; });
 }
 
 } // namespace mosaic

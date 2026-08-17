@@ -2,6 +2,7 @@
 Pure-logic tests for rppg/hr_estimation.py's bandpass_filter()/
 estimate_hr_welch()/median_smooth() — no mediapipe/cv2 import required.
 """
+
 import sys
 from pathlib import Path
 
@@ -23,7 +24,7 @@ class TestBandpassFilter:
     DURATION_S = 10.0
 
     def test_removes_strong_out_of_band_low_frequency_component(self):
-        in_band = _sinusoid(1.2, self.FS, self.DURATION_S, amplitude=1.0)      # 72 BPM, in-band
+        in_band = _sinusoid(1.2, self.FS, self.DURATION_S, amplitude=1.0)  # 72 BPM, in-band
         out_of_band = _sinusoid(0.1, self.FS, self.DURATION_S, amplitude=10.0)  # far below 0.7 Hz
         signal = in_band + out_of_band
         filtered = bandpass_filter(signal, self.FS, low_hz=0.7, high_hz=3.0)
@@ -56,7 +57,7 @@ class TestEstimateHrWelch:
     DURATION_S = 15.0
 
     def test_recovers_clean_known_bpm_with_high_snr(self):
-        pulse_hz = 1.2   # 72 BPM
+        pulse_hz = 1.2  # 72 BPM
         signal = _sinusoid(pulse_hz, self.FS, self.DURATION_S)
         bpm, snr_db = estimate_hr_welch(signal, self.FS)
         assert bpm is not None and snr_db is not None
@@ -82,7 +83,7 @@ class TestEstimateHrWelch:
         # returned bpm still falls inside [low_hz, high_hz]*60 — i.e. the
         # search is genuinely restricted to the requested band, not just
         # finding the global spectral peak.
-        signal = _sinusoid(4.0, self.FS, self.DURATION_S)   # 240 BPM, outside default 42-180
+        signal = _sinusoid(4.0, self.FS, self.DURATION_S)  # 240 BPM, outside default 42-180
         bpm, _ = estimate_hr_welch(signal, self.FS, low_hz=0.7, high_hz=3.0)
         assert bpm is not None
         assert 0.7 * 60.0 <= bpm <= 3.0 * 60.0
@@ -93,7 +94,7 @@ class TestMedianSmooth:
         values = np.array([70.0, 72.0, 150.0, 71.0])
         result = median_smooth(values, window=1)
         assert result == pytest.approx(values)
-        assert result is not values   # must be a copy, not the same array object
+        assert result is not values  # must be a copy, not the same array object
 
     def test_smooths_a_single_outlier(self):
         values = np.array([70.0, 71.0, 150.0, 72.0, 70.0])

@@ -1,4 +1,5 @@
 #include "ui/video/camera_card_w.hpp"
+
 #include <QCheckBox>
 #include <QComboBox>
 #include <QDoubleSpinBox>
@@ -18,8 +19,8 @@ namespace mosaic {
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
-static QDoubleSpinBox* make_dspin(double min, double max, double val,
-                                  double step = 1.0, int decimals = 1) {
+static QDoubleSpinBox* make_dspin(double min, double max, double val, double step = 1.0,
+                                  int decimals = 1) {
     auto* w = new QDoubleSpinBox;
     w->setRange(min, max);
     w->setSingleStep(step);
@@ -74,7 +75,7 @@ static void add_section(QFormLayout* form, const QString& text) {
 static QWidget* with_unit(QWidget* spin, const QString& unit) {
     auto* row = new QWidget;
     auto* lay = new QHBoxLayout(row);
-    lay->setContentsMargins(0,0,0,0);
+    lay->setContentsMargins(0, 0, 0, 0);
     lay->setSpacing(4);
     lay->addWidget(spin);
     auto* lbl = new QLabel(unit);
@@ -87,8 +88,7 @@ static QWidget* with_unit(QWidget* spin, const QString& unit) {
 // ── Constructor ────────────────────────────────────────────────────────────
 
 CameraCardW::CameraCardW(CameraParameters& params, int index, QWidget* parent)
-    : QWidget(parent), m_params(params), m_index(index)
-{
+    : QWidget(parent), m_params(params), m_index(index) {
     setObjectName("CameraCardW");
     setStyleSheet(R"(
         #CameraCardW {
@@ -140,8 +140,9 @@ void CameraCardW::build_header() {
     // Expand / collapse arrow
     auto* expandBtn = new QToolButton;
     expandBtn->setText(m_expanded ? "▼" : "▶");
-    expandBtn->setStyleSheet("QToolButton { background: transparent; border: none;"
-                             " color: #6666aa; font-size: 10px; }");
+    expandBtn->setStyleSheet(
+        "QToolButton { background: transparent; border: none;"
+        " color: #6666aa; font-size: 10px; }");
     expandBtn->setCursor(Qt::PointingHandCursor);
     connect(expandBtn, &QToolButton::clicked, this, &CameraCardW::toggle_expanded);
     m_expandBtn = expandBtn;
@@ -149,8 +150,9 @@ void CameraCardW::build_header() {
 
     // Always show 1-based position. set_index() updates this after sibling deletions.
     m_nameLabel = new QLabel(QString("Camera %1").arg(m_index + 1));
-    m_nameLabel->setStyleSheet("font-weight: bold; font-size: 12px;"
-                               " color: #c8c8e0; background: transparent;");
+    m_nameLabel->setStyleSheet(
+        "font-weight: bold; font-size: 12px;"
+        " color: #c8c8e0; background: transparent;");
     lay->addWidget(m_nameLabel);
 
     // Serial number — editable. This is the only thing that ties a card's
@@ -161,9 +163,10 @@ void CameraCardW::build_header() {
     auto* snEdit = new QLineEdit(m_params.serialNumber);
     snEdit->setObjectName("serialEdit");
     snEdit->setPlaceholderText("Serial number (required)");
-    snEdit->setToolTip("Camera serial number — identifies which physical camera "
-                       "this configuration applies to. Read it off the camera's "
-                       "label or via Pylon IP Configurator's device list.");
+    snEdit->setToolTip(
+        "Camera serial number — identifies which physical camera "
+        "this configuration applies to. Read it off the camera's "
+        "label or via Pylon IP Configurator's device list.");
     snEdit->setFixedWidth(120);
     snEdit->setStyleSheet(R"(
         QLineEdit#serialEdit {
@@ -175,7 +178,7 @@ void CameraCardW::build_header() {
     )");
     m_serialEdit = snEdit;
     lay->addWidget(snEdit);
-    connect(snEdit, &QLineEdit::editingFinished, this, [this]{
+    connect(snEdit, &QLineEdit::editingFinished, this, [this] {
         m_params.serialNumber = m_serialEdit->text().trimmed();
         emit params_changed();
     });
@@ -188,7 +191,6 @@ void CameraCardW::build_header() {
     dot->setStyleSheet("background: #333355; border-radius: 5px;");
     m_statusDot = dot;
     lay->addWidget(dot);
-
 }
 
 // ── Body ───────────────────────────────────────────────────────────────────
@@ -204,16 +206,21 @@ void CameraCardW::build_body() {
     auto* tabs = new QTabWidget;
     tabs->setDocumentMode(false);
 
-    auto* imgTab  = new QWidget; build_image_tab(imgTab);
-    auto* expTab  = new QWidget; build_exposure_tab(expTab);
-    auto* gainTab = new QWidget; build_gain_tab(gainTab);
-    auto* advTab  = new QWidget; build_advanced_tab(advTab);
-    auto* hwTrigTab = new QWidget; build_hw_trigger_tab(hwTrigTab);
+    auto* imgTab = new QWidget;
+    build_image_tab(imgTab);
+    auto* expTab = new QWidget;
+    build_exposure_tab(expTab);
+    auto* gainTab = new QWidget;
+    build_gain_tab(gainTab);
+    auto* advTab = new QWidget;
+    build_advanced_tab(advTab);
+    auto* hwTrigTab = new QWidget;
+    build_hw_trigger_tab(hwTrigTab);
 
-    tabs->addTab(imgTab,    "Image");
-    tabs->addTab(expTab,    "Exposure");
-    tabs->addTab(gainTab,   "Gain");
-    tabs->addTab(advTab,    "Advanced");
+    tabs->addTab(imgTab, "Image");
+    tabs->addTab(expTab, "Exposure");
+    tabs->addTab(gainTab, "Gain");
+    tabs->addTab(advTab, "Advanced");
     tabs->addTab(hwTrigTab, "HW Trigger");
 
     lay->addWidget(tabs);
@@ -229,9 +236,9 @@ void CameraCardW::build_image_tab(QWidget* tab) {
 
     add_section(form, "Resolution");
 
-    auto* wSpin = make_spin(1, 65535, m_params.width,  2);
+    auto* wSpin = make_spin(1, 65535, m_params.width, 2);
     auto* hSpin = make_spin(1, 65535, m_params.height, 2);
-    form->addRow("Width:",  with_unit(wSpin, "px"));
+    form->addRow("Width:", with_unit(wSpin, "px"));
     form->addRow("Height:", with_unit(hSpin, "px"));
 
     auto* oxSpin = make_spin(0, 65534, m_params.offsetX, 2);
@@ -254,7 +261,7 @@ void CameraCardW::build_image_tab(QWidget* tab) {
     add_separator(form);
     add_section(form, "Acquisition");
 
-    auto* fmtCombo = make_combo({"BGR8","RGB8","Mono8","Mono12","BayerRG8","BayerBG8"},
+    auto* fmtCombo = make_combo({"BGR8", "RGB8", "Mono8", "Mono12", "BayerRG8", "BayerBG8"},
                                 m_params.pixelFormat);
     form->addRow("Pixel format:", fmtCombo);
 
@@ -266,18 +273,39 @@ void CameraCardW::build_image_tab(QWidget* tab) {
     form->addRow("Frame rate:", with_unit(fpsSpin, "fps"));
 
     // ── Wire up ────────────────────────────────────────────────────────────
-    connect(wSpin,   qOverload<int>(&QSpinBox::valueChanged),    this, [this](int v){ m_params.width  = v; emit params_changed(); });
-    connect(hSpin,   qOverload<int>(&QSpinBox::valueChanged),    this, [this](int v){ m_params.height = v; emit params_changed(); });
-    connect(oxSpin,  qOverload<int>(&QSpinBox::valueChanged),    this, [this](int v){ m_params.offsetX = v; emit params_changed(); });
-    connect(oySpin,  qOverload<int>(&QSpinBox::valueChanged),    this, [this](int v){ m_params.offsetY = v; emit params_changed(); });
-    connect(rxCk,    &QCheckBox::toggled, this, [this](bool v){ m_params.reverseX = v; emit params_changed(); });
-    connect(fmtCombo,&QComboBox::currentTextChanged, this, [this](const QString& v){ m_params.pixelFormat = v; emit params_changed(); });
-    connect(fpsCk, &QCheckBox::toggled, this, [this, fpsSpin](bool v){
+    connect(wSpin, qOverload<int>(&QSpinBox::valueChanged), this, [this](int v) {
+        m_params.width = v;
+        emit params_changed();
+    });
+    connect(hSpin, qOverload<int>(&QSpinBox::valueChanged), this, [this](int v) {
+        m_params.height = v;
+        emit params_changed();
+    });
+    connect(oxSpin, qOverload<int>(&QSpinBox::valueChanged), this, [this](int v) {
+        m_params.offsetX = v;
+        emit params_changed();
+    });
+    connect(oySpin, qOverload<int>(&QSpinBox::valueChanged), this, [this](int v) {
+        m_params.offsetY = v;
+        emit params_changed();
+    });
+    connect(rxCk, &QCheckBox::toggled, this, [this](bool v) {
+        m_params.reverseX = v;
+        emit params_changed();
+    });
+    connect(fmtCombo, &QComboBox::currentTextChanged, this, [this](const QString& v) {
+        m_params.pixelFormat = v;
+        emit params_changed();
+    });
+    connect(fpsCk, &QCheckBox::toggled, this, [this, fpsSpin](bool v) {
         m_params.specifyFps = v;
         fpsSpin->setEnabled(v);
         emit params_changed();
     });
-    connect(fpsSpin, qOverload<double>(&QDoubleSpinBox::valueChanged), this, [this](double v){ m_params.fps = v; emit params_changed(); });
+    connect(fpsSpin, qOverload<double>(&QDoubleSpinBox::valueChanged), this, [this](double v) {
+        m_params.fps = v;
+        emit params_changed();
+    });
 }
 
 // ── Exposure tab ───────────────────────────────────────────────────────────
@@ -314,12 +342,24 @@ void CameraCardW::build_exposure_tab(QWidget* tab) {
         upperSpin->setEnabled(mode != "Off");
     };
     update_enabled(m_params.exposureAuto);
-    connect(autoCombo, &QComboBox::currentTextChanged, this, [this, update_enabled](const QString& v){
-        m_params.exposureAuto = v; update_enabled(v); emit params_changed();
+    connect(autoCombo, &QComboBox::currentTextChanged, this,
+            [this, update_enabled](const QString& v) {
+                m_params.exposureAuto = v;
+                update_enabled(v);
+                emit params_changed();
+            });
+    connect(timeSpin, qOverload<double>(&QDoubleSpinBox::valueChanged), this, [this](double v) {
+        m_params.exposureTimeUs = v;
+        emit params_changed();
     });
-    connect(timeSpin,  qOverload<double>(&QDoubleSpinBox::valueChanged), this, [this](double v){ m_params.exposureTimeUs      = v; emit params_changed(); });
-    connect(lowerSpin, qOverload<double>(&QDoubleSpinBox::valueChanged), this, [this](double v){ m_params.exposureAutoLowerUs = v; emit params_changed(); });
-    connect(upperSpin, qOverload<double>(&QDoubleSpinBox::valueChanged), this, [this](double v){ m_params.exposureAutoUpperUs = v; emit params_changed(); });
+    connect(lowerSpin, qOverload<double>(&QDoubleSpinBox::valueChanged), this, [this](double v) {
+        m_params.exposureAutoLowerUs = v;
+        emit params_changed();
+    });
+    connect(upperSpin, qOverload<double>(&QDoubleSpinBox::valueChanged), this, [this](double v) {
+        m_params.exposureAutoUpperUs = v;
+        emit params_changed();
+    });
 }
 
 // ── Gain tab ───────────────────────────────────────────────────────────────
@@ -354,11 +394,18 @@ void CameraCardW::build_gain_tab(QWidget* tab) {
     form->addRow("Lower limit:", with_unit(lowerSpin, "dB"));
     form->addRow("Upper limit:", with_unit(upperSpin, "dB"));
 
-    connect(autoCombo, &QComboBox::currentTextChanged, this, [this](const QString& v){
-        m_params.gainAuto = v; emit params_changed();
+    connect(autoCombo, &QComboBox::currentTextChanged, this, [this](const QString& v) {
+        m_params.gainAuto = v;
+        emit params_changed();
     });
-    connect(lowerSpin, qOverload<double>(&QDoubleSpinBox::valueChanged), this, [this](double v){ m_params.gainAutoLowerDb = v; emit params_changed(); });
-    connect(upperSpin, qOverload<double>(&QDoubleSpinBox::valueChanged), this, [this](double v){ m_params.gainAutoUpperDb = v; emit params_changed(); });
+    connect(lowerSpin, qOverload<double>(&QDoubleSpinBox::valueChanged), this, [this](double v) {
+        m_params.gainAutoLowerDb = v;
+        emit params_changed();
+    });
+    connect(upperSpin, qOverload<double>(&QDoubleSpinBox::valueChanged), this, [this](double v) {
+        m_params.gainAutoUpperDb = v;
+        emit params_changed();
+    });
 }
 
 // ── Advanced tab ───────────────────────────────────────────────────────────
@@ -378,14 +425,14 @@ void CameraCardW::build_advanced_tab(QWidget* tab) {
     // effect on real hardware. The underlying CameraParameters fields
     // still exist and still round-trip through settings.json, in case a
     // future camera model does expose the matching node.
-    auto* gammaSpin  = make_dspin(0.1,  4.0,  m_params.gamma,      0.05, 2);
-    auto* blSpin     = make_dspin(0.0,  63.0, m_params.blackLevel,  0.5,  1);
-    auto* atbSpin    = make_dspin(0.0,  1.0,  m_params.autoTargetBrightness, 0.01, 2);
-    auto* dshSpin    = make_spin (0,    4,    m_params.digitalShift, 1);
+    auto* gammaSpin = make_dspin(0.1, 4.0, m_params.gamma, 0.05, 2);
+    auto* blSpin    = make_dspin(0.0, 63.0, m_params.blackLevel, 0.5, 1);
+    auto* atbSpin   = make_dspin(0.0, 1.0, m_params.autoTargetBrightness, 0.01, 2);
+    auto* dshSpin   = make_spin(0, 4, m_params.digitalShift, 1);
 
-    form->addRow("Gamma:",                gammaSpin);
-    form->addRow("Black level:",          blSpin);
-    form->addRow("Auto target bright.:",  atbSpin);
+    form->addRow("Gamma:", gammaSpin);
+    form->addRow("Black level:", blSpin);
+    form->addRow("Auto target bright.:", atbSpin);
     form->addRow("Digital shift (bits):", with_unit(dshSpin, "bit"));
 
     add_separator(form);
@@ -402,33 +449,55 @@ void CameraCardW::build_advanced_tab(QWidget* tab) {
     // effect once Auto mode is "Off" — tune by eye against the live
     // preview under the room's actual lighting, then it's reproducible on
     // every future launch.
-    auto* wbRedSpin  = make_dspin(0.10, 4.00, m_params.balanceRatioRed,  0.05, 2);
+    auto* wbRedSpin  = make_dspin(0.10, 4.00, m_params.balanceRatioRed, 0.05, 2);
     auto* wbBlueSpin = make_dspin(0.10, 4.00, m_params.balanceRatioBlue, 0.05, 2);
     wbRedSpin->setEnabled(m_params.balanceWhiteAuto == "Off");
     wbBlueSpin->setEnabled(m_params.balanceWhiteAuto == "Off");
-    form->addRow("Red balance:",  wbRedSpin);
+    form->addRow("Red balance:", wbRedSpin);
     form->addRow("Blue balance:", wbBlueSpin);
 
     add_separator(form);
     add_section(form, "Test pattern (simulation)");
 
-    auto* patCombo = make_combo({"Off","ColorBars","Horizontal","Vertical"},
-                                m_params.testPattern);
+    auto* patCombo =
+        make_combo({"Off", "ColorBars", "Horizontal", "Vertical"}, m_params.testPattern);
     form->addRow("Pattern:", patCombo);
 
-    connect(gammaSpin,  qOverload<double>(&QDoubleSpinBox::valueChanged), this, [this](double val){ m_params.gamma            = val; emit params_changed(); });
-    connect(blSpin,     qOverload<double>(&QDoubleSpinBox::valueChanged), this, [this](double val){ m_params.blackLevel       = val; emit params_changed(); });
-    connect(atbSpin,    qOverload<double>(&QDoubleSpinBox::valueChanged), this, [this](double val){ m_params.autoTargetBrightness = val; emit params_changed(); });
-    connect(dshSpin,    qOverload<int>   (&QSpinBox::valueChanged),       this, [this](int    val){ m_params.digitalShift     = val; emit params_changed(); });
-    connect(bwCombo,    &QComboBox::currentTextChanged, this, [this, wbRedSpin, wbBlueSpin](const QString& val){
-        m_params.balanceWhiteAuto = val;
-        wbRedSpin->setEnabled(val == "Off");
-        wbBlueSpin->setEnabled(val == "Off");
+    connect(gammaSpin, qOverload<double>(&QDoubleSpinBox::valueChanged), this, [this](double val) {
+        m_params.gamma = val;
         emit params_changed();
     });
-    connect(wbRedSpin,  qOverload<double>(&QDoubleSpinBox::valueChanged), this, [this](double val){ m_params.balanceRatioRed  = val; emit params_changed(); });
-    connect(wbBlueSpin, qOverload<double>(&QDoubleSpinBox::valueChanged), this, [this](double val){ m_params.balanceRatioBlue = val; emit params_changed(); });
-    connect(patCombo,   &QComboBox::currentTextChanged, this, [this](const QString& val){ m_params.testPattern      = val; emit params_changed(); });
+    connect(blSpin, qOverload<double>(&QDoubleSpinBox::valueChanged), this, [this](double val) {
+        m_params.blackLevel = val;
+        emit params_changed();
+    });
+    connect(atbSpin, qOverload<double>(&QDoubleSpinBox::valueChanged), this, [this](double val) {
+        m_params.autoTargetBrightness = val;
+        emit params_changed();
+    });
+    connect(dshSpin, qOverload<int>(&QSpinBox::valueChanged), this, [this](int val) {
+        m_params.digitalShift = val;
+        emit params_changed();
+    });
+    connect(bwCombo, &QComboBox::currentTextChanged, this,
+            [this, wbRedSpin, wbBlueSpin](const QString& val) {
+                m_params.balanceWhiteAuto = val;
+                wbRedSpin->setEnabled(val == "Off");
+                wbBlueSpin->setEnabled(val == "Off");
+                emit params_changed();
+            });
+    connect(wbRedSpin, qOverload<double>(&QDoubleSpinBox::valueChanged), this, [this](double val) {
+        m_params.balanceRatioRed = val;
+        emit params_changed();
+    });
+    connect(wbBlueSpin, qOverload<double>(&QDoubleSpinBox::valueChanged), this, [this](double val) {
+        m_params.balanceRatioBlue = val;
+        emit params_changed();
+    });
+    connect(patCombo, &QComboBox::currentTextChanged, this, [this](const QString& val) {
+        m_params.testPattern = val;
+        emit params_changed();
+    });
 }
 
 // ── HW Trigger tab ─────────────────────────────────────────────────────────
@@ -451,8 +520,7 @@ void CameraCardW::build_hw_trigger_tab(QWidget* tab) {
     // continuously, for the duration of the session — see
     // VideoManager::ActionCommandTicker), Software lets the SDK drive the
     // trigger for testing without external wiring.
-    auto* srcCombo = make_combo({"Line1", "Software", "Action1"},
-                                m_params.hwTriggerSource);
+    auto* srcCombo = make_combo({"Line1", "Software", "Action1"}, m_params.hwTriggerSource);
     srcCombo->setEnabled(m_params.hwTriggerEnabled);
     form->addRow("Trigger source:", srcCombo);
 
@@ -496,25 +564,28 @@ void CameraCardW::build_hw_trigger_tab(QWidget* tab) {
     // it back to its "not probed" default the moment Action1 stops being
     // the active selection, so it can never lie about the camera's current
     // configuration.
-    auto reset_action_label_if_not_action1 = [this, enabledCk, srcCombo]{
+    auto reset_action_label_if_not_action1 = [this, enabledCk, srcCombo] {
         if (!enabledCk->isChecked() || srcCombo->currentText() != "Action1") {
             set_action_command_capability(std::nullopt);
         }
     };
 
-    connect(enabledCk, &QCheckBox::toggled, this, [this, update_states, reset_action_label_if_not_action1](bool val){
-        m_params.hwTriggerEnabled = val;
-        update_states(val);
-        reset_action_label_if_not_action1();
+    connect(enabledCk, &QCheckBox::toggled, this,
+            [this, update_states, reset_action_label_if_not_action1](bool val) {
+                m_params.hwTriggerEnabled = val;
+                update_states(val);
+                reset_action_label_if_not_action1();
+                emit params_changed();
+            });
+    connect(srcCombo, &QComboBox::currentTextChanged, this,
+            [this, reset_action_label_if_not_action1](const QString& val) {
+                m_params.hwTriggerSource = val;
+                reset_action_label_if_not_action1();
+                emit params_changed();
+            });
+    connect(delaySpin, qOverload<double>(&QDoubleSpinBox::valueChanged), this, [this](double val) {
+        m_params.hwTriggerDelayUs = val;
         emit params_changed();
-    });
-    connect(srcCombo, &QComboBox::currentTextChanged, this, [this, reset_action_label_if_not_action1](const QString& val){
-        m_params.hwTriggerSource = val;
-        reset_action_label_if_not_action1();
-        emit params_changed();
-    });
-    connect(delaySpin, qOverload<double>(&QDoubleSpinBox::valueChanged), this, [this](double val){
-        m_params.hwTriggerDelayUs = val; emit params_changed();
     });
 }
 
@@ -536,9 +607,8 @@ void CameraCardW::toggle_expanded() {
         m_body->setMaximumHeight(0);
         anim->setStartValue(0);
         anim->setEndValue(m_body->sizeHint().height());
-        connect(anim, &QAbstractAnimation::finished, [this]{
-            m_body->setMaximumHeight(QWIDGETSIZE_MAX);
-        });
+        connect(anim, &QAbstractAnimation::finished,
+                [this] { m_body->setMaximumHeight(QWIDGETSIZE_MAX); });
         if (btn) btn->setText("▼");
     }
     anim->start(QAbstractAnimation::DeleteWhenStopped);
@@ -549,19 +619,19 @@ void CameraCardW::toggle_expanded() {
 
 void CameraCardW::set_index(int index) {
     m_index = index;
-    if (m_nameLabel)
-        m_nameLabel->setText(QString("Camera %1").arg(index + 1));
+    if (m_nameLabel) m_nameLabel->setText(QString("Camera %1").arg(index + 1));
 }
 
 void CameraCardW::set_connected(bool connected) {
     if (m_statusDot)
-        m_statusDot->setStyleSheet(connected
-            ? "background: #44cc88; border-radius: 5px;"
-            : "background: #333355; border-radius: 5px;");
+        m_statusDot->setStyleSheet(connected ? "background: #44cc88; border-radius: 5px;"
+                                             : "background: #333355; border-radius: 5px;");
 }
 
 void CameraCardW::set_action_command_capability(std::optional<bool> supported) {
-    if (!m_actionCapabilityLbl) { return; }
+    if (!m_actionCapabilityLbl) {
+        return;
+    }
     if (!supported.has_value()) {
         m_actionCapabilityLbl->setText("Action-command support: not probed this session");
     } else if (*supported) {

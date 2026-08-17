@@ -1,17 +1,18 @@
-#include "analysis/trigger_frame_map.hpp"
 #include <gtest/gtest.h>
+
 #include <QDir>
 #include <QFile>
 #include <QTemporaryDir>
 #include <QTextStream>
 #include <tuple>
 
+#include "analysis/trigger_frame_map.hpp"
+
 using mosaic::TriggerFrameMap;
 
 namespace {
 
-void write_timestamps_csv(const QString& path,
-                           const QVector<std::tuple<int, int64_t>>& rows) {
+void write_timestamps_csv(const QString& path, const QVector<std::tuple<int, int64_t>>& rows) {
     QFile f(path);
     ASSERT_TRUE(f.open(QIODevice::WriteOnly | QIODevice::Text));
     QTextStream ts(&f);
@@ -27,7 +28,9 @@ void write_trigger_csv(const QString& path, const QStringList& rows) {
     ASSERT_TRUE(f.open(QIODevice::WriteOnly | QIODevice::Text));
     QTextStream ts(&f);
     ts << "elapsed_ms,elapsed_ns,wall_clock,source,label,value\n";
-    for (const auto& row : rows) { ts << row << '\n'; }
+    for (const auto& row : rows) {
+        ts << row << '\n';
+    }
 }
 
 // Old-format trigger.csv (no elapsed_ns column) — pre-fix schema.
@@ -69,24 +72,25 @@ TEST(TriggerFrameMap, NearestFrameCorrectnessAndTieBreak) {
 
     // Camera 0: frames every 40ms starting at t=0.
     write_timestamps_csv(dir.path() + "/video/timestamps_cam0.csv",
-        {{0, 0}, {1, 40'000'000}, {2, 80'000'000}, {3, 120'000'000}});
+                         {{0, 0}, {1, 40'000'000}, {2, 80'000'000}, {3, 120'000'000}});
 
     // Rows written in ascending elapsed_ns order — matches how TriggerRecorder
     // actually appends events in real time, so rowIndex (original file order)
     // stays aligned with generate()'s internal sort-for-merge order.
-    write_trigger_csv(dir.path() + "/trigger.csv", {
-        // Before the first frame -> clamps to frame 0.
-        "-10.0,-10000000,14:00:00.030,parallel_port,D1_RISE,1.0",
-        // Exact match on frame 1 (t=40ms).
-        "40.0,40000000,14:00:00.000,parallel_port,D0_RISE,1.0",
-        // Exact tie between frame 1 (40ms) and frame 2 (80ms) -> t=60ms,
-        // both 20ms away; two-pointer only advances when the NEXT frame is
-        // strictly closer (not closer-or-equal), so a tie stays on the
-        // earlier frame — matches SyncManifest::generate()'s own tie-break.
-        "60.0,60000000,14:00:00.020,parallel_port,D0_FALL,0.0",
-        // After the last frame -> clamps to frame 3 (120ms).
-        "200.0,200000000,14:00:00.040,parallel_port,D1_FALL,0.0",
-    });
+    write_trigger_csv(dir.path() + "/trigger.csv",
+                      {
+                          // Before the first frame -> clamps to frame 0.
+                          "-10.0,-10000000,14:00:00.030,parallel_port,D1_RISE,1.0",
+                          // Exact match on frame 1 (t=40ms).
+                          "40.0,40000000,14:00:00.000,parallel_port,D0_RISE,1.0",
+                          // Exact tie between frame 1 (40ms) and frame 2 (80ms) -> t=60ms,
+                          // both 20ms away; two-pointer only advances when the NEXT frame is
+                          // strictly closer (not closer-or-equal), so a tie stays on the
+                          // earlier frame — matches SyncManifest::generate()'s own tie-break.
+                          "60.0,60000000,14:00:00.020,parallel_port,D0_FALL,0.0",
+                          // After the last frame -> clamps to frame 3 (120ms).
+                          "200.0,200000000,14:00:00.040,parallel_port,D1_FALL,0.0",
+                      });
 
     const auto m = TriggerFrameMap::generate(dir.path());
     ASSERT_TRUE(m.is_valid());
@@ -114,12 +118,13 @@ TEST(TriggerFrameMap, VideoPositionMsMatchesEncoderPtsFormula) {
     // since elapsed_ns() is relative to app launch, not recording start).
     const int64_t firstFrameNs = 5'000'000'000LL;
     write_timestamps_csv(dir.path() + "/video/timestamps_cam0.csv",
-        {{0, firstFrameNs}, {1, firstFrameNs + 40'000'000}});
+                         {{0, firstFrameNs}, {1, firstFrameNs + 40'000'000}});
 
-    write_trigger_csv(dir.path() + "/trigger.csv", {
-        QString("40.0,%1,14:00:00.000,parallel_port,D0_RISE,1.0")
-            .arg(firstFrameNs + 40'000'000),
-    });
+    write_trigger_csv(dir.path() + "/trigger.csv",
+                      {
+                          QString("40.0,%1,14:00:00.000,parallel_port,D0_RISE,1.0")
+                              .arg(firstFrameNs + 40'000'000),
+                      });
 
     const auto m = TriggerFrameMap::generate(dir.path());
     ASSERT_TRUE(m.is_valid());
@@ -135,9 +140,10 @@ TEST(TriggerFrameMap, QuotedLabelWithEmbeddedCommaParsesAsOneField) {
     ASSERT_TRUE(QDir().mkpath(dir.path() + "/video"));
     write_timestamps_csv(dir.path() + "/video/timestamps_cam0.csv", {{0, 0}});
 
-    write_trigger_csv(dir.path() + "/trigger.csv", {
-        R"(0.0,0,14:00:00.000,serial,"Stimulus, S1",1.0)",
-    });
+    write_trigger_csv(dir.path() + "/trigger.csv",
+                      {
+                          R"(0.0,0,14:00:00.000,serial,"Stimulus, S1",1.0)",
+                      });
 
     const auto m = TriggerFrameMap::generate(dir.path());
     ASSERT_TRUE(m.is_valid());
@@ -151,9 +157,10 @@ TEST(TriggerFrameMap, SaveLoadRoundTrip) {
     ASSERT_TRUE(dir.isValid());
     ASSERT_TRUE(QDir().mkpath(dir.path() + "/video"));
     write_timestamps_csv(dir.path() + "/video/timestamps_cam0.csv", {{0, 0}, {1, 40'000'000}});
-    write_trigger_csv(dir.path() + "/trigger.csv", {
-        "40.0,40000000,14:00:00.000,parallel_port,D0_RISE,1.0",
-    });
+    write_trigger_csv(dir.path() + "/trigger.csv",
+                      {
+                          "40.0,40000000,14:00:00.000,parallel_port,D0_RISE,1.0",
+                      });
 
     auto generated = TriggerFrameMap::generate(dir.path());
     ASSERT_TRUE(generated.is_valid());
@@ -175,9 +182,10 @@ TEST(TriggerFrameMap, ExportCsvColumnCount) {
     ASSERT_TRUE(QDir().mkpath(dir.path() + "/video"));
     write_timestamps_csv(dir.path() + "/video/timestamps_cam0.csv", {{0, 0}});
     write_timestamps_csv(dir.path() + "/video/timestamps_cam1.csv", {{0, 0}});
-    write_trigger_csv(dir.path() + "/trigger.csv", {
-        "0.0,0,14:00:00.000,parallel_port,D0_RISE,1.0",
-    });
+    write_trigger_csv(dir.path() + "/trigger.csv",
+                      {
+                          "0.0,0,14:00:00.000,parallel_port,D0_RISE,1.0",
+                      });
 
     const auto m = TriggerFrameMap::generate(dir.path());
     ASSERT_TRUE(m.is_valid());

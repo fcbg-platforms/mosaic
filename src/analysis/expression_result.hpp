@@ -11,12 +11,12 @@ namespace mosaic {
 /// single analysed frame. Mirrors run_expression.py's _frame_to_dict()
 /// "subjects" entries exactly.
 struct ExpressionSubject {
-    int             subjectId  = -1;
-    double          confidence = 0.0;
-    QRectF          bbox;                     ///< bbox_xyxy.
-    QVector<double> blendshapeScores;          ///< Parallel to ExpressionResult::blendshape_names().
-    QString         dominantExpression;
-    double          dominantScore = 0.0;
+    int subjectId     = -1;
+    double confidence = 0.0;
+    QRectF bbox;                      ///< bbox_xyxy.
+    QVector<double> blendshapeScores; ///< Parallel to ExpressionResult::blendshape_names().
+    QString dominantExpression;
+    double dominantScore = 0.0;
     /// FACS Action Unit intensities (py-feat backend only), each in [0,1],
     /// parallel to ExpressionResult::au_names(). Empty for the heuristic/
     /// FER+ backends and for any session analyzed before this field existed.
@@ -25,9 +25,9 @@ struct ExpressionSubject {
 
 /// One analysed frame. Mirrors run_expression.py's per-frame JSON object.
 struct ExpressionFrame {
-    int                        frameIndex  = 0;
-    int64_t                    timestampNs = 0;
-    int                        cameraIndex = 0;
+    int frameIndex      = 0;
+    int64_t timestampNs = 0;
+    int cameraIndex     = 0;
     QVector<ExpressionSubject> subjects;
 };
 
@@ -44,7 +44,7 @@ struct ExpressionFrame {
 ///   if (result.is_valid()) { ... }
 /// @endcode
 class ExpressionResult {
-public:
+   public:
     ExpressionResult() = default;
 
     /// Parses jsonPath. Returns a default-constructed (is_valid() == false)
@@ -68,7 +68,9 @@ public:
     /// the whole session — mirrors PoseAnalysisResult::has_any_detections().
     [[nodiscard]] bool has_any_detections() const {
         for (const auto& f : frames_) {
-            if (!f.subjects.isEmpty()) { return true; }
+            if (!f.subjects.isEmpty()) {
+                return true;
+            }
         }
         return false;
     }
@@ -80,12 +82,12 @@ public:
     /// no frames.
     [[nodiscard]] const ExpressionFrame* nearest_frame(int frameIndexEstimate) const;
 
-private:
-    bool                     valid_ = false;
-    QString                  sourceVideo_;
-    QString                  backend_;
-    QStringList              blendshapeNames_;
-    QStringList              auNames_;
+   private:
+    bool valid_ = false;
+    QString sourceVideo_;
+    QString backend_;
+    QStringList blendshapeNames_;
+    QStringList auNames_;
     QVector<ExpressionFrame> frames_;
 };
 

@@ -38,7 +38,7 @@ namespace mosaic {
 /// History window: 8 seconds at 20 samples/s = 160 samples per channel.
 class AudioWaveformW : public QWidget {
     Q_OBJECT
-public:
+   public:
     // Vertical-amplitude display scale, applied at paint time (not baked
     // into stored samples) so dragging the scale control re-renders the
     // entire existing history immediately. View-only — never affects the
@@ -88,8 +88,8 @@ public:
     /// speaker attributed" (a gap/unlabeled stretch) and is never drawn as
     /// a band.
     struct SpeakerBand {
-        qint64  startMs = 0;
-        qint64  endMs   = 0;
+        qint64 startMs = 0;
+        qint64 endMs   = 0;
         QString speaker;
     };
 
@@ -118,19 +118,19 @@ public:
     /// there.
     void set_seek_callback(std::function<void(qint64)> cb);
 
-public slots:
+   public slots:
     /// Append one (min, max) envelope pair for @p channelIndex (0-based),
     /// each in the raw, unscaled range [-1, 1] — display gain is applied in
     /// paintEvent() via scale(), not here. Safe to call from any thread;
     /// internally dispatches via invokeMethod if needed.
     void push_envelope(int channelIndex, float minSample, float maxSample);
 
-protected:
+   protected:
     void paintEvent(QPaintEvent* event) override;
     void mousePressEvent(QMouseEvent* event) override;
     QSize sizeHint() const override;
 
-private:
+   private:
     struct Impl;
     std::unique_ptr<Impl> d;
 };
