@@ -195,13 +195,48 @@ void AnalysisManager::enqueue_or_launch(const QString& sessionPath, const QStrin
 }
 
 void AnalysisManager::stop() {
-    if (!d->process) { return; }
-    d->process->terminate();
-    if (!d->process->waitForFinished(3000)) {
-        d->process->kill();
+    // Looped, not a single pass: if the process actually finishes *during*
+    // waitForFinished() below, Qt delivers QProcess::finished() to
+    // on_process_finished() synchronously, re-entrantly, from inside that
+    // blocking call. on_process_finished() itself calls
+    // d->process->deleteLater()/d->process = nullptr — and, if a job was
+    // queued, immediately launches it too, replacing d->process with a
+    // brand-new QProcess for that queued job. A single-pass version of
+    // this function (tried first) only ever cleaned up the *original*
+    // process, silently leaving that reentrantly-launched queued job
+    // running unmanaged right as this object is destroyed — this loop
+    // keeps stopping whatever d->process now points to until there's
+    // nothing left, so "stop everything" actually means everything,
+    // including anything that got reentrantly started while stopping the
+    // job before it. Also confirmed via a fresh test harness (see
+    // tests/test_analysis_manager.cpp) that skipping this local-capture
+    // dance entirely crashes on a null d->process dereference in the
+    // single-job case — the loop preserves that original fix too.
+    while (d->process) {
+        QProcess* proc = d->process;
+        proc->terminate();
+        if (!proc->waitForFinished(3000)) {
+            proc->kill();
+        }
+
+        // Only clean up here if on_process_finished() didn't already do
+        // it re-entrantly above (in which case d->process now either
+        // points to a newly-launched queued job, handled by the next loop
+        // iteration, or is already null) — otherwise this would be a
+        // second deleteLater() on an object already scheduled for
+        // deletion.
+        if (d->process == proc) {
+            proc->deleteLater();
+            d->process = nullptr;
+        }
     }
-    d->process->deleteLater();
-    d->process = nullptr;
+
+    // Anything still queued (e.g. the process above didn't finish
+    // reentrantly, so on_process_finished() never ran to drain the queue
+    // itself) is dropped rather than silently launched later — stop()
+    // means stop now, not "finish the current job and run the rest of the
+    // queue unattended."
+    d->queue.clear();
 }
 
 // ── Launch ─────────────────────────────────────────────────────────────────

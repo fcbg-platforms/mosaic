@@ -1,5 +1,6 @@
 #include "core/settings.hpp"
 #include "trigger/trigger_types.hpp"
+#include "utils/dpapi_crypt.hpp"
 #include "utils/logger.hpp"
 #include <QDir>
 #include <QFile>
@@ -356,13 +357,13 @@ std::optional<RecordSettings> RecordSettings::from_json(const QJsonObject& o) {
 
 QJsonObject AnalysisSettings::to_json() const {
     return {
-        {"hf_token", hfToken},
+        {"hf_token", dpapi_encrypt(hfToken)},
     };
 }
 
 std::optional<AnalysisSettings> AnalysisSettings::from_json(const QJsonObject& o) {
     AnalysisSettings s;
-    if (o.contains("hf_token")) s.hfToken = o["hf_token"].toString(s.hfToken);
+    if (o.contains("hf_token")) s.hfToken = dpapi_decrypt(o["hf_token"].toString());
     return s;
 }
 

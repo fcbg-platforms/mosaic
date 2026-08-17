@@ -300,6 +300,7 @@ def _reconstruct_ticks(manifest: dict, cameras: dict, frames_by_camera: dict,
 
     results: list[dict] = []
     t_start = time.perf_counter()
+    progress_interval = max(1, total_ticks // 200)
 
     for tick in range(0, total_ticks, max(1, args.skip)):
         # Gather this tick's per-camera detections.
@@ -399,7 +400,7 @@ def _reconstruct_ticks(manifest: dict, cameras: dict, frames_by_camera: dict,
             "people": people_entries,
         })
 
-        if tick % 100 == 0:
+        if tick % progress_interval == 0:
             elapsed = time.perf_counter() - t_start
             print(f"[run_pose3d]  tick {tick}/{total_ticks}  "
                   f"({len(people_entries)} people)  {elapsed:.1f}s elapsed", flush=True)

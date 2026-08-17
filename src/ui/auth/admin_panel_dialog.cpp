@@ -1,5 +1,6 @@
 #include "ui/auth/admin_panel_dialog.hpp"
 #include "ui/anim_utils.hpp"
+#include "utils/dpapi_crypt.hpp"
 #include <QCheckBox>
 #include <QDateTime>
 #include <QDesktopServices>
@@ -10,6 +11,8 @@
 #include <QGraphicsDropShadowEffect>
 #include <QHBoxLayout>
 #include <QInputDialog>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QKeyEvent>
 #include <QLabel>
 #include <QLineEdit>
@@ -654,10 +657,36 @@ void AdminPanelDialog::import_config() {
     if (!QFile::copy(src, dst)) {
         QMessageBox::critical(this, "Import failed",
             "Could not write the settings file. Check file permissions.");
-    } else {
-        QMessageBox::information(this, "Imported",
-            QString("Configuration imported for @%1.").arg(d->detailUsername));
+        return;
     }
+
+    // A Hugging Face diarization token (AnalysisSettings::hfToken) is
+    // DPAPI-encrypted at rest on Windows builds — tied to the Windows
+    // user account/machine that encrypted it (see settings.hpp's own doc
+    // comment on hfToken). This is a plain QFile::copy(), not a real
+    // AppSettings::from_json() round-trip, so an imported token that was
+    // encrypted elsewhere silently decrypts to empty (dpapi_decrypt()'s
+    // documented fail-closed behavior) with only a log warning — nothing
+    // in this dialog's own success message would otherwise say so. Detect
+    // that specific case here and mention it explicitly, rather than let
+    // the admin discover it later as "diarization stopped working" with
+    // no obvious cause.
+    QString note;
+    QFile importedFile(dst);
+    if (importedFile.open(QIODevice::ReadOnly)) {
+        const auto obj = QJsonDocument::fromJson(importedFile.readAll())
+                              .object()["analysis"].toObject();
+        const QString storedToken = obj["hf_token"].toString();
+        if (!storedToken.isEmpty() && dpapi_decrypt(storedToken).isEmpty()) {
+            note = "\n\nNote: this file's Hugging Face diarization token was "
+                   "encrypted on a different Windows account or machine and "
+                   "could not be decrypted here — re-enter it in the "
+                   "Diarization plugin if needed.";
+        }
+    }
+
+    QMessageBox::information(this, "Imported",
+        QString("Configuration imported for @%1.%2").arg(d->detailUsername, note));
 }
 
 void AdminPanelDialog::delete_profile() {

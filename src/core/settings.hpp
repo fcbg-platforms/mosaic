@@ -281,9 +281,17 @@ struct AnalysisSettings {
     // Hugging Face access token for the gated pyannote speaker-diarization
     // models (Analysis tab's Speaker Diarization plugin). Persisted here
     // (rather than kept transient/re-entered per session) so the user
-    // doesn't have to re-paste it every run — the tradeoff being that it's
-    // stored in plaintext in this profile's settings.json, same as every
-    // other field in AppSettings.
+    // doesn't have to re-paste it every run. In memory this is always the
+    // plain token. On Windows builds it's DPAPI-encrypted at rest (see
+    // to_json()/from_json() and src/utils/dpapi_crypt.hpp) rather than
+    // stored in plaintext — a pre-existing plaintext value from before
+    // this protection existed still loads correctly and is silently
+    // upgraded on the next save. On non-Windows builds dpapi_crypt.cpp's
+    // functions are a plain pass-through (DPAPI is Windows-only), so the
+    // token remains plaintext on disk there, same as before this change.
+    // Note also that this value doesn't survive AdminPanelDialog's
+    // Export/Import Configuration feature across a different Windows
+    // account or machine — see that dialog's own handling.
     QString hfToken;
 
     [[nodiscard]] QJsonObject                     to_json()   const;
