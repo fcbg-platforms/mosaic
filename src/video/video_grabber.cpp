@@ -648,6 +648,31 @@ void VideoGrabber::apply_image_params() {
             .SetValue(d->params.balanceWhiteAuto.toStdString().c_str());
     });
 
+    // Manual Red/Blue balance ratios — only meaningful once BalanceWhiteAuto
+    // is "Off" (see settings.hpp doc comment on balanceRatioRed/Blue: "Once"
+    // re-converges fresh on every camera open with no readback anywhere in
+    // this codebase, so a fixed manual ratio is the only way to get a
+    // reproducible color across sessions). Same SFNC-2.0-float-then-SFNC-1.x
+    // BalanceRatioAbs-fallback pattern as BlackLevel/AutoTargetBrightness
+    // above. Green is left untouched — stays at the camera's own fixed
+    // reference value, matching standard Basler convention where only
+    // Red/Blue are adjustable relative to Green.
+    if (d->params.balanceWhiteAuto == "Off") {
+        auto write_balance_ratio = [&](const char* channel, double value) {
+            CEnumParameter(cam, "BalanceRatioSelector").SetValue(channel);
+            if (cam.GetNode("BalanceRatio") != nullptr) {
+                CFloatParameter(cam, "BalanceRatio").SetValue(value);
+            } else {
+                auto p = CIntegerParameter(cam, "BalanceRatioAbs");
+                p.SetValue(round_clamp_to_int_range(value, p.GetMin(), p.GetMax()));
+            }
+        };
+        try_set("BalanceRatio(Red)",
+                [&]{ write_balance_ratio("Red", d->params.balanceRatioRed); });
+        try_set("BalanceRatio(Blue)",
+                [&]{ write_balance_ratio("Blue", d->params.balanceRatioBlue); });
+    }
+
     // AutoTargetBrightness: the SFNC 2.0 float node (0.0-1.0) isn't present
     // on this camera generation — it exposes the same concept as
     // AutoTargetValue, an integer in device brightness units (confirmed
