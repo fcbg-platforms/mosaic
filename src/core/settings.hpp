@@ -87,6 +87,15 @@ struct CameraParameters {
     double  gamma            = 1.0;
     double  blackLevel       = 0.0;
     QString balanceWhiteAuto = "Once";      // "Off" | "Once" | "Continuous"
+    // Manual Red/Blue balance gains, only applied when balanceWhiteAuto ==
+    // "Off". Neutral default (1.0 = no correction, matching the camera's
+    // own factory-default reference value) until tuned by hand while
+    // watching the live preview — "Once" re-converges fresh on every
+    // camera open with no readback/persistence anywhere in this codebase,
+    // so the resulting tint can drift session to session; "Off" + these
+    // fixed ratios makes color reproducible across restarts.
+    double  balanceRatioRed  = 1.0;
+    double  balanceRatioBlue = 1.0;
     // Saturation/contrast/brightness have no GenICam node on this camera
     // generation at all (no on-camera ISP) — CameraCardW no longer offers
     // them. Fields kept for persistence/forward-compat only (a future

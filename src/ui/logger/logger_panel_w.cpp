@@ -29,11 +29,17 @@ struct LoggerPanelW::Impl {
     QCheckBox*  autoScroll  = nullptr;
     int         maxLines    = 3000;
     int         lineCount   = 0;
-    // Defaults to Warning, not Trace — routine INFO-level activity (e.g.
-    // the Calibration tab's per-frame feed/detection logging) otherwise
-    // floods this panel during normal use. Still fully adjustable via the
-    // Show combo below, which stays in sync with this default.
-    int         minLevel    = static_cast<int>(LogLevel::Warning);
+    // Defaults to Error, not Trace/Warning — routine INFO/WARNING-level
+    // activity (e.g. the Calibration tab's per-frame feed/detection
+    // logging, expected frame-rate-adjustment warnings) otherwise floods
+    // this panel during normal use, burying the failures that actually
+    // need attention. Error (not Critical) is the default rather than
+    // Critical because Critical is reserved for "the application cannot
+    // continue" — genuine, non-fatal failures (a camera failing to open, a
+    // subprocess crashing) are logged at Error and would otherwise never
+    // show up by default. Still fully adjustable via the Show combo below,
+    // which stays in sync with this default.
+    int         minLevel    = static_cast<int>(LogLevel::Error);
 };
 
 LoggerPanelW::LoggerPanelW(QWidget* parent)
@@ -78,7 +84,7 @@ void LoggerPanelW::build_toolbar(QVBoxLayout* parent) {
 
     d->levelFilter = new QComboBox;
     for (const auto* lbl : k_level_labels) { d->levelFilter->addItem(lbl); }
-    d->levelFilter->setCurrentIndex(static_cast<int>(LogLevel::Warning));
+    d->levelFilter->setCurrentIndex(static_cast<int>(LogLevel::Error));
     d->levelFilter->setFixedWidth(90);
     connect(d->levelFilter, qOverload<int>(&QComboBox::currentIndexChanged),
             this, [this](int idx) { d->minLevel = idx; });
