@@ -74,6 +74,8 @@ QJsonObject CameraParameters::to_json() const {
         {"gamma",                    gamma},
         {"black_level",              blackLevel},
         {"balance_white_auto",       balanceWhiteAuto},
+        {"balance_ratio_red",        balanceRatioRed},
+        {"balance_ratio_blue",       balanceRatioBlue},
         {"saturation",               saturation},
         {"contrast",                 contrast},
         {"brightness",               brightness},
@@ -112,6 +114,8 @@ std::optional<CameraParameters> CameraParameters::from_json(const QJsonObject& o
     if (o.contains("gamma"))                    c.gamma               = o["gamma"].toDouble(c.gamma);
     if (o.contains("black_level"))              c.blackLevel          = o["black_level"].toDouble(c.blackLevel);
     if (o.contains("balance_white_auto"))       c.balanceWhiteAuto    = o["balance_white_auto"].toString(c.balanceWhiteAuto);
+    if (o.contains("balance_ratio_red"))        c.balanceRatioRed     = o["balance_ratio_red"].toDouble(c.balanceRatioRed);
+    if (o.contains("balance_ratio_blue"))       c.balanceRatioBlue    = o["balance_ratio_blue"].toDouble(c.balanceRatioBlue);
     if (o.contains("saturation"))               c.saturation          = o["saturation"].toDouble(c.saturation);
     if (o.contains("contrast"))                 c.contrast            = o["contrast"].toDouble(c.contrast);
     if (o.contains("brightness"))               c.brightness          = o["brightness"].toDouble(c.brightness);
