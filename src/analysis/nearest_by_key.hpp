@@ -22,9 +22,8 @@ template <typename T, typename Key, typename KeyOf>
         return nullptr;
     }
 
-    const auto it = std::lower_bound(
-        items.begin(), items.end(), estimate,
-        [&keyOf](const T& item, Key k) { return keyOf(item) < k; });
+    const auto it = std::lower_bound(items.begin(), items.end(), estimate,
+                                     [&keyOf](const T& item, Key k) { return keyOf(item) < k; });
 
     if (it == items.begin()) {
         return &(*it);
@@ -33,7 +32,7 @@ template <typename T, typename Key, typename KeyOf>
         return &(*std::prev(it));
     }
 
-    const auto prevIt = std::prev(it);
+    const auto prevIt     = std::prev(it);
     const Key afterDelta  = keyOf(*it) - estimate;
     const Key beforeDelta = estimate - keyOf(*prevIt);
     return (beforeDelta <= afterDelta) ? &(*prevIt) : &(*it);

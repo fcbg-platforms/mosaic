@@ -1,12 +1,14 @@
 #include "calibration/calibration_manager.hpp"
-#include "utils/logger.hpp"
+
 #include <QImage>
 #include <QThread>
 #include <vector>
 
+#include "utils/logger.hpp"
+
 #if defined(MOSAIC_HAVE_OPENCV)
-#  include <opencv2/calib3d.hpp>
-#  include <opencv2/imgproc.hpp>
+#include <opencv2/calib3d.hpp>
+#include <opencv2/imgproc.hpp>
 #endif
 
 namespace mosaic {
@@ -14,14 +16,18 @@ namespace mosaic {
 // ── Data ──────────────────────────────────────────────────────────────────
 
 #if defined(MOSAIC_HAVE_OPENCV)
-struct ObjectPoint  { std::vector<cv::Point3f> data; };
-struct ImagePoints  { std::vector<std::vector<cv::Point2f>> data; };
+struct ObjectPoint {
+    std::vector<cv::Point3f> data;
+};
+struct ImagePoints {
+    std::vector<std::vector<cv::Point2f>> data;
+};
 #endif
 
 struct CalibrationManager::Impl {
-    BoardSpec      board;
+    BoardSpec board;
     CalibrationData result;
-    bool           hasResult{false};
+    bool hasResult{false};
 
 #if defined(MOSAIC_HAVE_OPENCV)
     std::vector<std::vector<cv::Point3f>> objectPoints;
@@ -48,12 +54,13 @@ void CalibrationManager::set_board(const BoardSpec& spec) { d->board = spec; }
 // ── Frame feeding ──────────────────────────────────────────────────────────
 
 bool CalibrationManager::feed_frame(const VideoFrame& frame) {
-    if (!frame.is_valid()) { return false; }
+    if (!frame.is_valid()) {
+        return false;
+    }
 
 #if defined(MOSAIC_HAVE_OPENCV)
     // Wrap the BGR8 frame data into an OpenCV Mat (no copy).
-    const cv::Mat bgr(frame.height, frame.width, CV_8UC3,
-                      const_cast<uint8_t*>(frame.data.data()),
+    const cv::Mat bgr(frame.height, frame.width, CV_8UC3, const_cast<uint8_t*>(frame.data.data()),
                       static_cast<size_t>(frame.stride));
 
     cv::Mat grey;
@@ -71,14 +78,14 @@ bool CalibrationManager::feed_frame(const VideoFrame& frame) {
     cv::Mat preview;
     cv::cvtColor(bgr, preview, cv::COLOR_BGR2RGB);
     if (found) {
-        cv::cornerSubPix(grey, corners, cv::Size(11, 11), cv::Size(-1, -1),
-                         cv::TermCriteria(cv::TermCriteria::EPS + cv::TermCriteria::COUNT, 30, 0.001));
+        cv::cornerSubPix(
+            grey, corners, cv::Size(11, 11), cv::Size(-1, -1),
+            cv::TermCriteria(cv::TermCriteria::EPS + cv::TermCriteria::COUNT, 30, 0.001));
         cv::drawChessboardCorners(preview, patternSize, corners, found);
     }
 
     const QImage previewImg(preview.data, preview.cols, preview.rows,
-                             static_cast<int>(preview.step),
-                             QImage::Format_RGB888);
+                            static_cast<int>(preview.step), QImage::Format_RGB888);
 
     if (found) {
         // Build 3-D object points for this view.
@@ -87,9 +94,8 @@ bool CalibrationManager::feed_frame(const VideoFrame& frame) {
         for (int row = 0; row < d->board.rows; ++row) {
             for (int col = 0; col < d->board.cols; ++col) {
                 objPts.emplace_back(
-                    static_cast<float>(col)  * static_cast<float>(d->board.squareSizeMm),
-                    static_cast<float>(row)  * static_cast<float>(d->board.squareSizeMm),
-                    0.0f);
+                    static_cast<float>(col) * static_cast<float>(d->board.squareSizeMm),
+                    static_cast<float>(row) * static_cast<float>(d->board.squareSizeMm), 0.0f);
             }
         }
         d->objectPoints.push_back(std::move(objPts));
@@ -99,9 +105,11 @@ bool CalibrationManager::feed_frame(const VideoFrame& frame) {
 
     log_info(QString("[Calibration] feed_frame: pattern %1x%2 %3 in %4x%5 frame "
                      "(%6 accepted view(s) so far).")
-                 .arg(d->board.cols).arg(d->board.rows)
+                 .arg(d->board.cols)
+                 .arg(d->board.rows)
                  .arg(found ? "FOUND" : "not found")
-                 .arg(frame.width).arg(frame.height)
+                 .arg(frame.width)
+                 .arg(frame.height)
                  .arg(d->imagePoints.size()));
     emit corners_detected(viewIdx, found, previewImg.copy());
     return found;
@@ -111,7 +119,7 @@ bool CalibrationManager::feed_frame(const VideoFrame& frame) {
 #endif
 }
 
-int  CalibrationManager::view_count()  const {
+int CalibrationManager::view_count() const {
 #if defined(MOSAIC_HAVE_OPENCV)
     return static_cast<int>(d->imagePoints.size());
 #else
@@ -147,10 +155,9 @@ void CalibrationManager::calibrate() {
         cv::Mat distCoeffs   = cv::Mat::zeros(5, 1, CV_64F);
         std::vector<cv::Mat> rvecs, tvecs;
 
-        const double rms = cv::calibrateCamera(
-            d->objectPoints, d->imagePoints, d->imageSize,
-            cameraMatrix, distCoeffs, rvecs, tvecs,
-            cv::CALIB_FIX_K4 | cv::CALIB_FIX_K5);
+        const double rms =
+            cv::calibrateCamera(d->objectPoints, d->imagePoints, d->imageSize, cameraMatrix,
+                                distCoeffs, rvecs, tvecs, cv::CALIB_FIX_K4 | cv::CALIB_FIX_K5);
 
         emit calibration_progress(90);
 
@@ -172,8 +179,7 @@ void CalibrationManager::calibrate() {
         emit calibration_progress(100);
         emit calibration_done(rms, true);
 
-        log_info(QString("[Calibration] Done. RMS reprojection error: %1 px")
-                     .arg(rms, 0, 'f', 3));
+        log_info(QString("[Calibration] Done. RMS reprojection error: %1 px").arg(rms, 0, 'f', 3));
     });
 
     connect(worker, &QThread::finished, worker, &QObject::deleteLater);
@@ -184,7 +190,7 @@ void CalibrationManager::calibrate() {
 #endif
 }
 
-CalibrationData CalibrationManager::result()     const { return d->result; }
-bool            CalibrationManager::has_result() const { return d->hasResult; }
+CalibrationData CalibrationManager::result() const { return d->result; }
+bool CalibrationManager::has_result() const { return d->hasResult; }
 
 } // namespace mosaic

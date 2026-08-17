@@ -1,8 +1,10 @@
-#include "analysis/rppg_result.hpp"
 #include <gtest/gtest.h>
+
 #include <QFile>
 #include <QTemporaryDir>
 #include <cmath>
+
+#include "analysis/rppg_result.hpp"
 
 using mosaic::RppgResult;
 
@@ -79,7 +81,7 @@ TEST(RppgResult, LoadsValidFileWithFullSchema) {
     ASSERT_EQ(result.frames().size(), 5);
     EXPECT_TRUE(result.frames()[0].faceDetected);
     EXPECT_EQ(result.frames()[0].roiBboxPx, QRect(10, 20, 50, 40));
-    EXPECT_FALSE(result.frames()[2].faceDetected);   // no-face frame parses cleanly, not dropped
+    EXPECT_FALSE(result.frames()[2].faceDetected); // no-face frame parses cleanly, not dropped
 
     ASSERT_TRUE(result.mean_bpm().has_value());
     EXPECT_DOUBLE_EQ(*result.mean_bpm(), 71.75);

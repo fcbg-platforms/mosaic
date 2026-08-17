@@ -1,8 +1,8 @@
 #pragma once
 #include <QObject>
 #include <QString>
-#include <source_location>
 #include <memory>
+#include <source_location>
 
 namespace mosaic {
 
@@ -41,7 +41,7 @@ enum class LogLevel : int {
 ///       slot from a background worker.
 class Logger : public QObject {
     Q_OBJECT
-public:
+   public:
     /// @returns The process-wide Logger singleton.
     static Logger& instance();
 
@@ -75,7 +75,7 @@ public:
     /// @brief Flushes and closes the log file.
     void close_log_file();
 
-signals:
+   signals:
     /// Emitted for every accepted log entry, from the calling thread.
     ///
     /// @param level      Severity as @c int — cast back with
@@ -85,7 +85,7 @@ signals:
     /// @param message    The log message.
     void entry_added(int level, QString timestamp, QString location, QString message);
 
-private:
+   private:
     explicit Logger();
     struct Impl;
     std::unique_ptr<Impl> d;
@@ -94,15 +94,15 @@ private:
 // ── Convenience free functions ─────────────────────────────────────────────
 
 /// @brief Logs at Trace level.  @p loc is captured automatically.
-void log_trace   (const QString& msg, std::source_location loc = std::source_location::current());
+void log_trace(const QString& msg, std::source_location loc = std::source_location::current());
 /// @brief Logs at Debug level.  @p loc is captured automatically.
-void log_debug   (const QString& msg, std::source_location loc = std::source_location::current());
+void log_debug(const QString& msg, std::source_location loc = std::source_location::current());
 /// @brief Logs at Info level.  @p loc is captured automatically.
-void log_info    (const QString& msg, std::source_location loc = std::source_location::current());
+void log_info(const QString& msg, std::source_location loc = std::source_location::current());
 /// @brief Logs at Warning level.  @p loc is captured automatically.
-void log_warning (const QString& msg, std::source_location loc = std::source_location::current());
+void log_warning(const QString& msg, std::source_location loc = std::source_location::current());
 /// @brief Logs at Error level.  @p loc is captured automatically.
-void log_error   (const QString& msg, std::source_location loc = std::source_location::current());
+void log_error(const QString& msg, std::source_location loc = std::source_location::current());
 /// @brief Logs at Critical level.  @p loc is captured automatically.
 void log_critical(const QString& msg, std::source_location loc = std::source_location::current());
 

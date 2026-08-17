@@ -1,8 +1,9 @@
 #pragma once
-#include "core/settings.hpp"
-#include "trigger/trigger_types.hpp"
 #include <QKeySequence>
 #include <QObject>
+
+#include "core/settings.hpp"
+#include "trigger/trigger_types.hpp"
 
 namespace mosaic {
 
@@ -13,7 +14,7 @@ namespace mosaic {
 
 class KeyboardTrigger : public QObject {
     Q_OBJECT
-public:
+   public:
     explicit KeyboardTrigger(KeyTriggerConfig& config, QObject* parent = nullptr);
     ~KeyboardTrigger() override;
 
@@ -28,15 +29,15 @@ public:
 
     bool eventFilter(QObject* obj, QEvent* event) override;
 
-signals:
+   signals:
     void triggered(mosaic::TriggerEvent event);
     void count_changed(int count);
 
-private:
+   private:
     KeyTriggerConfig& m_config;
-    QKeySequence      m_keySeq;
-    bool              m_active{false};
-    int               m_fireCount{0};
+    QKeySequence m_keySeq;
+    bool m_active{false};
+    int m_fireCount{0};
 };
 
 } // namespace mosaic

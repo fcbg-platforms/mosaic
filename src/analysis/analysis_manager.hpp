@@ -39,7 +39,7 @@ namespace mosaic {
 /// @see RecordManager
 class AnalysisManager : public QObject {
     Q_OBJECT
-public:
+   public:
     explicit AnalysisManager(QObject* parent = nullptr);
     ~AnalysisManager() override;
 
@@ -106,8 +106,8 @@ public:
     ///                     (every frame) at the call site — raising this
     ///                     risks a skipped frame's fast head motion going
     ///                     unmasked.
-    void run_face_mask(const QString& sessionPath, const QString& backend,
-                        const QString& style, int frameSkip);
+    void run_face_mask(const QString& sessionPath, const QString& backend, const QString& style,
+                       int frameSkip);
 
     /// @brief Transcribe (and, when possible, diarize) all .wav files in
     /// @p sessionPath, writing a "<name>.transcript.json" sidecar next to
@@ -126,8 +126,8 @@ public:
     /// @param maxSpeakers    Optional pyannote hint, 0 = unset.
     /// @param skipDiarization  Force transcript-only even if hfToken is set.
     void run_diarization(const QString& sessionPath, const QString& modelSize,
-                          const QString& language, const QString& hfToken,
-                          int minSpeakers, int maxSpeakers, bool skipDiarization);
+                         const QString& language, const QString& hfToken, int minSpeakers,
+                         int maxSpeakers, bool skipDiarization);
 
     /// @brief Detect faces and classify a dominant basic-emotion label per
     /// face in all .mp4 files in @p sessionPath, writing a
@@ -143,8 +143,8 @@ public:
     /// @param maxFaces        Maximum simultaneous faces to detect per frame.
     /// @param minConfidence   Face detection/presence confidence threshold (0-1).
     /// @param frameSkip       Process every Nth frame (1 = every frame).
-    void run_expression_analysis(const QString& sessionPath, const QString& backend,
-                                  int maxFaces, double minConfidence, int frameSkip);
+    void run_expression_analysis(const QString& sessionPath, const QString& backend, int maxFaces,
+                                 double minConfidence, int frameSkip);
 
     /// @brief Fuse per-camera 3D gaze rays (from every camera with both
     /// intrinsic and extrinsic calibration) into a triangulated room-space
@@ -165,8 +165,8 @@ public:
     ///                       a target point (rays are still recorded below this).
     /// @param minConfidence  Face detection/presence confidence threshold (0-1).
     /// @param frameSkip      Process every Nth frame per camera (1 = every frame).
-    void run_gaze_fusion(const QString& sessionPath, int minCameras,
-                          double minConfidence, int frameSkip);
+    void run_gaze_fusion(const QString& sessionPath, int minCameras, double minConfidence,
+                         int frameSkip);
 
     /// @brief Triangulate each camera's already-computed 2D pose keypoints
     /// (analyze_session()'s ".pose.json" sidecars — must already exist for
@@ -194,8 +194,8 @@ public:
     ///                                 field (1 = off, the default — raw
     ///                                 "keypoints_room" is always written regardless).
     void run_pose3d_reconstruction(const QString& sessionPath, int minCameras,
-                                    double maxReprojectionErrorPx, int frameSkip,
-                                    int smoothingWindow);
+                                   double maxReprojectionErrorPx, int frameSkip,
+                                   int smoothingWindow);
 
     /// @brief Estimate a remote (camera-based) heart rate over the course of
     /// a recorded session's video, using classical (non-deep-learning)
@@ -222,13 +222,13 @@ public:
     /// @param hopSec             Sliding-window hop length, in seconds.
     /// @param smoothingWindows   Centered median-filter width, in windows, for
     ///                           the smoothed_bpm series (1 = no smoothing).
-    void run_rppg_analysis(const QString& sessionPath, const QString& backend,
-                            double windowSec, double hopSec, int smoothingWindows);
+    void run_rppg_analysis(const QString& sessionPath, const QString& backend, double windowSec,
+                           double hopSec, int smoothingWindows);
 
     /// @brief Stop the currently running analysis process immediately.
     void stop();
 
-signals:
+   signals:
     /// Emitted for every line of stdout / stderr from the Python subprocess.
     void output_received(QString line);
 
@@ -241,19 +241,19 @@ signals:
     /// Emitted if the Python interpreter or script cannot be found.
     void setup_error(QString message);
 
-private slots:
+   private slots:
     void on_stdout_ready();
     void on_stderr_ready();
     void on_process_finished(int exitCode, int exitStatus);
 
-private:
-    [[nodiscard]] QString find_python()     const;
+   private:
+    [[nodiscard]] QString find_python() const;
     [[nodiscard]] QString find_script(const QString& scriptRelPath) const;
     [[nodiscard]] QString find_venv_python() const;
     void enqueue_or_launch(const QString& sessionPath, const QString& scriptRelPath,
-                            const QStringList& args, const QProcessEnvironment& env);
-    void launch(const QString& sessionPath, const QString& scriptRelPath,
-                const QStringList& args, const QProcessEnvironment& env);
+                           const QStringList& args, const QProcessEnvironment& env);
+    void launch(const QString& sessionPath, const QString& scriptRelPath, const QStringList& args,
+                const QProcessEnvironment& env);
 
     struct Impl;
     std::unique_ptr<Impl> d;

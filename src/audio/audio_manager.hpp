@@ -1,11 +1,12 @@
 #pragma once
-#include "core/settings.hpp"
 #include <QAudioDevice>
 #include <QByteArray>
 #include <QList>
 #include <QObject>
 #include <memory>
 #include <vector>
+
+#include "core/settings.hpp"
 
 namespace mosaic {
 
@@ -32,7 +33,7 @@ namespace mosaic {
 /// @see AudioRecorder, MicrophoneParameters
 class AudioManager : public QObject {
     Q_OBJECT
-public:
+   public:
     explicit AudioManager(QObject* parent = nullptr);
     ~AudioManager() override;
 
@@ -54,8 +55,7 @@ public:
     /// @param sessionDir   Absolute path to the session folder.
     /// @param basename     File basename, e.g. @c "audio".
     /// @param microphones  Per-microphone configuration from AppSettings.
-    void start(const QString&                        sessionDir,
-               const QString&                        basename,
+    void start(const QString& sessionDir, const QString& basename,
                const std::vector<MicrophoneParameters>& microphones);
 
     /// @brief Starts level-metering recorders without writing any files.
@@ -71,15 +71,15 @@ public:
     void stop();
 
     /// @returns @c true while at least one recording recorder is active.
-    [[nodiscard]] bool is_recording()  const;
+    [[nodiscard]] bool is_recording() const;
 
     /// @returns @c true while monitoring-only recorders are running.
     [[nodiscard]] bool is_monitoring() const;
 
     /// @returns The number of recorders that were successfully started.
-    [[nodiscard]] int  recorder_count() const;
+    [[nodiscard]] int recorder_count() const;
 
-signals:
+   signals:
     /// Emitted from the main thread (queued from the audio capture thread).
     /// @param micIndex  Zero-based index into the active microphone list.
     /// @param rms       Normalised RMS level in the range [0.0, 1.0].
@@ -108,7 +108,7 @@ signals:
     /// @param message   Human-readable error string.
     void recorder_error(int micIndex, QString message);
 
-private:
+   private:
     struct Impl;
     std::unique_ptr<Impl> d;
 };

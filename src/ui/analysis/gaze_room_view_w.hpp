@@ -1,8 +1,9 @@
 #pragma once
-#include "analysis/gaze_fusion_result.hpp"
 #include <QWidget>
 #include <cstdint>
 #include <memory>
+
+#include "analysis/gaze_fusion_result.hpp"
 
 namespace mosaic {
 
@@ -21,7 +22,7 @@ namespace mosaic {
 //   connect(player, &PoseOverlayPlayerW::position_changed, view,
 //           &GazeRoomViewW::set_position_ms);
 class GazeRoomViewW : public QWidget {
-public:
+   public:
     explicit GazeRoomViewW(QWidget* parent = nullptr);
     ~GazeRoomViewW() override;
 
@@ -39,10 +40,10 @@ public:
     // gaze_timestamp_estimate() doc comment).
     void set_position_ms(int64_t positionMs);
 
-protected:
+   protected:
     void paintEvent(QPaintEvent*) override;
 
-private:
+   private:
     struct Impl;
     std::unique_ptr<Impl> d;
 };

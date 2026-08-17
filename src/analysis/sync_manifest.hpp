@@ -9,16 +9,16 @@ namespace mosaic {
 // ── CameraSync ─────────────────────────────────────────────────────────────
 
 struct CameraSync {
-    int     index          = 0;
+    int index = 0;
     QString videoFile;
-    int     framesCaptured = 0;
-    double  fpsActual      = 0.0;
-    double  coveragePct    = 0.0;   // % of master ticks with a "fresh" frame
-    double  meanDeltaMs    = 0.0;   // mean |timing error| across all ticks
-    double  maxDeltaMs     = 0.0;   // worst-case timing error
-    int64_t firstWallNs    = 0;
-    int64_t lastWallNs     = 0;
-    int64_t seekOffsetMs   = 0;     // seek position in the video at master t = 0
+    int framesCaptured   = 0;
+    double fpsActual     = 0.0;
+    double coveragePct   = 0.0; // % of master ticks with a "fresh" frame
+    double meanDeltaMs   = 0.0; // mean |timing error| across all ticks
+    double maxDeltaMs    = 0.0; // worst-case timing error
+    int64_t firstWallNs  = 0;
+    int64_t lastWallNs   = 0;
+    int64_t seekOffsetMs = 0; // seek position in the video at master t = 0
 };
 
 // ── SyncManifest ───────────────────────────────────────────────────────────
@@ -44,14 +44,13 @@ struct CameraSync {
 //   player->seek(camIdx, m2.seek_offset_ms(camIdx));
 
 class SyncManifest {
-public:
+   public:
     SyncManifest() = default;
 
     // ── Factory ───────────────────────────────────────────────────────────
     // Generate from timestamps_cam_N.csv files inside sessionPath.
     // masterFps: the uniform output timeline rate (default 25 fps).
-    static SyncManifest generate(const QString& sessionPath,
-                                  double masterFps = 25.0);
+    static SyncManifest generate(const QString& sessionPath, double masterFps = 25.0);
 
     // Load existing sync_manifest.json from sessionPath.
     static SyncManifest load(const QString& sessionPath);
@@ -63,12 +62,12 @@ public:
     [[nodiscard]] bool is_valid() const;
 
     // ── Timeline metadata ─────────────────────────────────────────────────
-    [[nodiscard]] int     camera_count()       const;
-    [[nodiscard]] int     total_ticks()        const;
-    [[nodiscard]] double  master_fps()         const;
-    [[nodiscard]] int64_t duration_ms()        const;
-    [[nodiscard]] int64_t t_origin_ns()        const;  // master t=0 on the elapsed_ns clock
-    [[nodiscard]] int64_t t_origin_wall_ns()   const;  // same instant, wall-clock (for reference)
+    [[nodiscard]] int camera_count() const;
+    [[nodiscard]] int total_ticks() const;
+    [[nodiscard]] double master_fps() const;
+    [[nodiscard]] int64_t duration_ms() const;
+    [[nodiscard]] int64_t t_origin_ns() const;      // master t=0 on the elapsed_ns clock
+    [[nodiscard]] int64_t t_origin_wall_ns() const; // same instant, wall-clock (for reference)
 
     // ── Per-camera info ────────────────────────────────────────────────────
     [[nodiscard]] const CameraSync& camera_info(int idx) const;
@@ -96,28 +95,28 @@ public:
     // Human-readable quality summary for all cameras.
     [[nodiscard]] QString quality_report() const;
 
-private:
+   private:
     // Columnar storage: index = cameraIdx * totalTicks_ + tick
-    QVector<int>   frameIds_;     // -1 = no frame
-    QVector<float> deltaMs_;      // signed timing error per (camera, tick)
+    QVector<int> frameIds_;  // -1 = no frame
+    QVector<float> deltaMs_; // signed timing error per (camera, tick)
 
     QVector<CameraSync> cameras_;
-    int     totalTicks_    = 0;
-    double  masterFps_     = 25.0;
+    int totalTicks_        = 0;
+    double masterFps_      = 25.0;
     int64_t durationMs_    = 0;
-    int64_t tOriginNs_     = 0;  // master t=0, elapsed_ns clock — alignment key
-    int64_t tOriginWallNs_ = 0;  // same instant, wall_ns — audio seek only
+    int64_t tOriginNs_     = 0; // master t=0, elapsed_ns clock — alignment key
+    int64_t tOriginWallNs_ = 0; // same instant, wall_ns — audio seek only
     int64_t stepNs_        = 0;
     int64_t audioSeekMs_   = 0;
     QString generatedAt_;
 
     struct FrameTs {
-        int     frameId   = 0;
+        int frameId       = 0;
         int64_t elapsedNs = 0;
         int64_t wallNs    = 0;
     };
     static QVector<FrameTs> read_timestamps(const QString& csvPath);
-    static int64_t          session_start_wall_ns(const QString& sessionPath);
+    static int64_t session_start_wall_ns(const QString& sessionPath);
 };
 
 } // namespace mosaic

@@ -1,10 +1,12 @@
 #include "analysis/rppg_result.hpp"
-#include "analysis/nearest_by_key.hpp"
+
 #include <QFile>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <algorithm>
+
+#include "analysis/nearest_by_key.hpp"
 
 namespace mosaic {
 
@@ -36,7 +38,7 @@ RppgResult RppgResult::load(const QString& jsonPath) {
     result.sourceVideo_ = root["source_video"].toString();
     result.backend_     = root["backend"].toString();
     result.windowSec_   = root["window_sec"].toDouble();
-    result.hopSec_       = root["hop_sec"].toDouble();
+    result.hopSec_      = root["hop_sec"].toDouble();
 
     for (const auto& winVal : root["windows"].toArray()) {
         const QJsonObject winObj = winVal.toObject();
@@ -62,8 +64,8 @@ RppgResult RppgResult::load(const QString& jsonPath) {
         if (frame.faceDetected) {
             const QJsonArray bboxArr = frameObj["roi_bbox_px"].toArray();
             if (bboxArr.size() == 4) {
-                frame.roiBboxPx = QRect(bboxArr[0].toInt(), bboxArr[1].toInt(),
-                                         bboxArr[2].toInt(), bboxArr[3].toInt());
+                frame.roiBboxPx = QRect(bboxArr[0].toInt(), bboxArr[1].toInt(), bboxArr[2].toInt(),
+                                        bboxArr[3].toInt());
             }
         }
 
@@ -80,11 +82,11 @@ RppgResult RppgResult::load(const QString& jsonPath) {
               [](const RppgFrame& a, const RppgFrame& b) { return a.timestampMs < b.timestampMs; });
 
     const QJsonObject summary = root["summary"].toObject();
-    result.meanBpm_         = optional_double(summary["mean_bpm"]);
-    result.medianBpm_       = optional_double(summary["median_bpm"]);
-    result.minBpm_          = optional_double(summary["min_bpm"]);
-    result.maxBpm_          = optional_double(summary["max_bpm"]);
-    result.pctWindowsGood_  = summary["pct_windows_good"].toDouble();
+    result.meanBpm_           = optional_double(summary["mean_bpm"]);
+    result.medianBpm_         = optional_double(summary["median_bpm"]);
+    result.minBpm_            = optional_double(summary["min_bpm"]);
+    result.maxBpm_            = optional_double(summary["max_bpm"]);
+    result.pctWindowsGood_    = summary["pct_windows_good"].toDouble();
 
     result.valid_ = true;
     return result;
@@ -92,12 +94,12 @@ RppgResult RppgResult::load(const QString& jsonPath) {
 
 const RppgWindow* RppgResult::nearest_window(int64_t timestampMsEstimate) const {
     return nearest_by_key(windows_, timestampMsEstimate,
-                           [](const RppgWindow& w) { return w.startMs; });
+                          [](const RppgWindow& w) { return w.startMs; });
 }
 
 const RppgFrame* RppgResult::nearest_frame(int64_t timestampMsEstimate) const {
     return nearest_by_key(frames_, timestampMsEstimate,
-                           [](const RppgFrame& f) { return f.timestampMs; });
+                          [](const RppgFrame& f) { return f.timestampMs; });
 }
 
 } // namespace mosaic

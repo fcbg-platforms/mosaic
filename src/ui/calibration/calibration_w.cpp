@@ -1,9 +1,5 @@
 #include "ui/calibration/calibration_w.hpp"
-#include "calibration/rms_quality.hpp"
-#include "ui/calibration/badge_style.hpp"
-#include "ui/calibration/room_calibration_w.hpp"
-#include "utils/logger.hpp"
-#include "video/video_manager.hpp"
+
 #include <QCheckBox>
 #include <QComboBox>
 #include <QDateTime>
@@ -20,43 +16,48 @@
 #include <QTimer>
 #include <QVBoxLayout>
 
+#include "calibration/rms_quality.hpp"
+#include "ui/calibration/badge_style.hpp"
+#include "ui/calibration/room_calibration_w.hpp"
+#include "utils/logger.hpp"
+#include "video/video_manager.hpp"
+
 namespace mosaic {
 
 struct CalibrationW::Impl {
-    VideoSettings&      videoSettings;
-    CalibrationManager  manager;
-    RoomCalibrationW*   roomTab = nullptr;   // not owned (child widget, Qt parent-owns)
-    VideoManager*       videoMgr = nullptr;  // not owned
-    QTabWidget*         innerTabs = nullptr; // not owned — Intrinsics is index 0
+    VideoSettings& videoSettings;
+    CalibrationManager manager;
+    RoomCalibrationW* roomTab = nullptr; // not owned (child widget, Qt parent-owns)
+    VideoManager* videoMgr    = nullptr; // not owned
+    QTabWidget* innerTabs     = nullptr; // not owned — Intrinsics is index 0
 
     // Board configuration
-    QSpinBox*       colsSpin      = nullptr;
-    QSpinBox*       rowsSpin      = nullptr;
-    QDoubleSpinBox* squareSpin    = nullptr;
+    QSpinBox* colsSpin         = nullptr;
+    QSpinBox* rowsSpin         = nullptr;
+    QDoubleSpinBox* squareSpin = nullptr;
 
     // Capture controls
-    QComboBox*   cameraCombo      = nullptr;
-    QLabel*      viewCountLabel   = nullptr;
+    QComboBox* cameraCombo = nullptr;
+    QLabel* viewCountLabel = nullptr;
 
     // Preview
-    QLabel*      previewLabel     = nullptr;
+    QLabel* previewLabel = nullptr;
 
     // Result
-    QLabel*      rmsLabel         = nullptr;
-    QLabel*      fxLabel          = nullptr;
-    QLabel*      fyLabel          = nullptr;
-    QLabel*      cxLabel          = nullptr;
-    QLabel*      cyLabel          = nullptr;
-    QPushButton* saveBtn          = nullptr;
-    QPushButton* calibrateBtn     = nullptr;
+    QLabel* rmsLabel          = nullptr;
+    QLabel* fxLabel           = nullptr;
+    QLabel* fyLabel           = nullptr;
+    QLabel* cxLabel           = nullptr;
+    QLabel* cyLabel           = nullptr;
+    QPushButton* saveBtn      = nullptr;
+    QPushButton* calibrateBtn = nullptr;
 
     explicit Impl(VideoSettings& vs) : videoSettings(vs) {}
 };
 
 CalibrationW::CalibrationW(VideoSettings& videoSettings, RoomSettings& roomSettings,
-                            VideoManager* videoMgr, QWidget* parent)
-    : QWidget(parent), d(std::make_unique<Impl>(videoSettings))
-{
+                           VideoManager* videoMgr, QWidget* parent)
+    : QWidget(parent), d(std::make_unique<Impl>(videoSettings)) {
     d->videoMgr = videoMgr;
 
     auto* outerLay = new QVBoxLayout(this);
@@ -113,8 +114,8 @@ CalibrationW::CalibrationW(VideoSettings& videoSettings, RoomSettings& roomSetti
         d->manager.set_board(spec);
     };
     sync_board_spec();
-    connect(d->colsSpin,   qOverload<int>(&QSpinBox::valueChanged),       this, sync_board_spec);
-    connect(d->rowsSpin,   qOverload<int>(&QSpinBox::valueChanged),       this, sync_board_spec);
+    connect(d->colsSpin, qOverload<int>(&QSpinBox::valueChanged), this, sync_board_spec);
+    connect(d->rowsSpin, qOverload<int>(&QSpinBox::valueChanged), this, sync_board_spec);
     connect(d->squareSpin, qOverload<double>(&QDoubleSpinBox::valueChanged), this, sync_board_spec);
 
     build_capture_section(contentLay);
@@ -129,10 +130,10 @@ CalibrationW::CalibrationW(VideoSettings& videoSettings, RoomSettings& roomSetti
     innerTabs->addTab(d->roomTab, "Room (Extrinsics)");
 
     // Connect CalibrationManager signals.
-    connect(&d->manager, &CalibrationManager::corners_detected,
-            this,         &CalibrationW::on_corners_detected);
-    connect(&d->manager, &CalibrationManager::calibration_done,
-            this,         &CalibrationW::on_calibration_done);
+    connect(&d->manager, &CalibrationManager::corners_detected, this,
+            &CalibrationW::on_corners_detected);
+    connect(&d->manager, &CalibrationManager::calibration_done, this,
+            &CalibrationW::on_calibration_done);
     connect(&d->manager, &CalibrationManager::calibration_started, this, [this] {
         d->calibrateBtn->setEnabled(false);
         d->calibrateBtn->setText("Calibrating…");
@@ -141,7 +142,8 @@ CalibrationW::CalibrationW(VideoSettings& videoSettings, RoomSettings& roomSetti
     // A fresh intrinsic calibration must be visible to the Room tab's
     // solvePnP-based extrinsic solve immediately, not just after this
     // widget is recreated.
-    connect(this, &CalibrationW::calibration_saved, d->roomTab, &RoomCalibrationW::refresh_intrinsics);
+    connect(this, &CalibrationW::calibration_saved, d->roomTab,
+            &RoomCalibrationW::refresh_intrinsics);
 
     // Feed live full-resolution frames from whichever camera is selected in
     // the capture section into the calibration manager — previously nothing
@@ -165,22 +167,30 @@ CalibrationW::CalibrationW(VideoSettings& videoSettings, RoomSettings& roomSetti
     // resolution (1920x1080 on this rig) gives the detector real pixels to
     // work with.
     if (d->videoMgr) {
-        connect(d->videoMgr, &VideoManager::calibration_frame_ready, this,
-                [this](int camIdx, QImage frame, uint64_t /*token*/) {
-            if (camIdx != d->cameraCombo->currentIndex()) { return; }
+        connect(
+            d->videoMgr, &VideoManager::calibration_frame_ready, this,
+            [this](int camIdx, QImage frame, uint64_t /*token*/) {
+                if (camIdx != d->cameraCombo->currentIndex()) {
+                    return;
+                }
 
-            if (frame.format() != QImage::Format_BGR888) {
-                frame = frame.convertToFormat(QImage::Format_BGR888);
-            }
-            VideoFrame vf;
-            vf.width  = frame.width();
-            vf.height = frame.height();
-            vf.stride = static_cast<int>(frame.bytesPerLine());
-            vf.data.assign(frame.constBits(), frame.constBits() + static_cast<size_t>(vf.stride) * vf.height);
-            log_info(QString("[CalibrationW] Feeding camera %1 full-res frame (%2x%3) into "
-                             "intrinsics calibration.").arg(camIdx).arg(vf.width).arg(vf.height));
-            d->manager.feed_frame(vf);
-        }, Qt::QueuedConnection);
+                if (frame.format() != QImage::Format_BGR888) {
+                    frame = frame.convertToFormat(QImage::Format_BGR888);
+                }
+                VideoFrame vf;
+                vf.width  = frame.width();
+                vf.height = frame.height();
+                vf.stride = static_cast<int>(frame.bytesPerLine());
+                vf.data.assign(frame.constBits(),
+                               frame.constBits() + static_cast<size_t>(vf.stride) * vf.height);
+                log_info(QString("[CalibrationW] Feeding camera %1 full-res frame (%2x%3) into "
+                                 "intrinsics calibration.")
+                             .arg(camIdx)
+                             .arg(vf.width)
+                             .arg(vf.height));
+                d->manager.feed_frame(vf);
+            },
+            Qt::QueuedConnection);
 
         // ~1.25 requests/sec — slow enough that cv::findChessboardCorners
         // (real synchronous CPU work on this, the GUI, thread) never stacks
@@ -200,8 +210,12 @@ CalibrationW::CalibrationW(VideoSettings& videoSettings, RoomSettings& roomSetti
         auto* requestTimer = new QTimer(this);
         requestTimer->setInterval(800);
         connect(requestTimer, &QTimer::timeout, this, [this] {
-            if (!isVisible()) { return; }
-            if (d->innerTabs && d->innerTabs->currentIndex() != 0) { return; }
+            if (!isVisible()) {
+                return;
+            }
+            if (d->innerTabs && d->innerTabs->currentIndex() != 0) {
+                return;
+            }
             if (d->cameraCombo->currentIndex() >= 0) {
                 d->videoMgr->request_calibration_frame(d->cameraCombo->currentIndex());
             }
@@ -260,7 +274,7 @@ void CalibrationW::build_board_section(QVBoxLayout* parent) {
 // ── Capture section ────────────────────────────────────────────────────────
 
 void CalibrationW::build_capture_section(QVBoxLayout* parent) {
-    auto* box = new QGroupBox("Capture");
+    auto* box  = new QGroupBox("Capture");
     auto* vlay = new QVBoxLayout(box);
 
     auto* row1 = new QHBoxLayout;
@@ -271,11 +285,13 @@ void CalibrationW::build_capture_section(QVBoxLayout* parent) {
         const QString name = d->videoSettings.cameras[static_cast<size_t>(i)].friendlyName;
         d->cameraCombo->addItem(QString("Camera %1 — %2").arg(i).arg(name));
     }
-    if (d->cameraCombo->count() == 0) { d->cameraCombo->addItem("No cameras configured"); }
+    if (d->cameraCombo->count() == 0) {
+        d->cameraCombo->addItem("No cameras configured");
+    }
     row1->addWidget(d->cameraCombo, 1);
     vlay->addLayout(row1);
 
-    auto* row2 = new QHBoxLayout;
+    auto* row2        = new QHBoxLayout;
     d->viewCountLabel = new QLabel("Views accepted: 0");
     d->viewCountLabel->setProperty("role", "muted");
     row2->addWidget(d->viewCountLabel, 1);
@@ -304,14 +320,15 @@ void CalibrationW::build_capture_section(QVBoxLayout* parent) {
 // ── Preview section ────────────────────────────────────────────────────────
 
 void CalibrationW::build_preview_section(QVBoxLayout* parent) {
-    auto* box = new QGroupBox("Last frame preview");
+    auto* box  = new QGroupBox("Last frame preview");
     auto* vlay = new QVBoxLayout(box);
 
     d->previewLabel = new QLabel("(no preview)");
     d->previewLabel->setAlignment(Qt::AlignCenter);
     d->previewLabel->setMinimumHeight(160);
-    d->previewLabel->setStyleSheet("QLabel { background: #09090f; border-radius: 4px; "
-                                    "color: #404060; font-size: 11px; }");
+    d->previewLabel->setStyleSheet(
+        "QLabel { background: #09090f; border-radius: 4px; "
+        "color: #404060; font-size: 11px; }");
     vlay->addWidget(d->previewLabel);
 
     parent->addWidget(box);
@@ -320,10 +337,10 @@ void CalibrationW::build_preview_section(QVBoxLayout* parent) {
 // ── Result section ─────────────────────────────────────────────────────────
 
 void CalibrationW::build_result_section(QVBoxLayout* parent) {
-    auto* box = new QGroupBox("Result");
+    auto* box  = new QGroupBox("Result");
     auto* vlay = new QVBoxLayout(box);
 
-    auto* row1 = new QHBoxLayout;
+    auto* row1      = new QHBoxLayout;
     d->calibrateBtn = new QPushButton("▶  Calibrate");
     connect(d->calibrateBtn, &QPushButton::clicked, this, [this] {
         // Board spec is kept live-synced by sync_board_spec() above —
@@ -340,7 +357,7 @@ void CalibrationW::build_result_section(QVBoxLayout* parent) {
     row1->addStretch();
     vlay->addLayout(row1);
 
-    auto* row2 = new QHBoxLayout;
+    auto* row2     = new QHBoxLayout;
     auto add_param = [&](const QString& name, QLabel*& label) {
         row2->addWidget(new QLabel(name));
         label = new QLabel("—");
@@ -368,12 +385,11 @@ void CalibrationW::build_result_section(QVBoxLayout* parent) {
 
 void CalibrationW::on_corners_detected(int /*viewIndex*/, bool found, QImage preview) {
     const int cnt = d->manager.view_count();
-    d->viewCountLabel->setText(
-        QString("Views accepted: %1  (need ≥10)").arg(cnt));
+    d->viewCountLabel->setText(QString("Views accepted: %1  (need ≥10)").arg(cnt));
 
     if (!preview.isNull()) {
-        const QPixmap px = QPixmap::fromImage(preview).scaledToHeight(
-            160, Qt::SmoothTransformation);
+        const QPixmap px =
+            QPixmap::fromImage(preview).scaledToHeight(160, Qt::SmoothTransformation);
         d->previewLabel->setPixmap(px);
     }
 
@@ -398,13 +414,14 @@ void CalibrationW::on_calibration_done(double rmsError, bool success) {
     d->saveBtn->setEnabled(d->manager.has_result());
 
     const RmsQuality quality = rms_quality_for(rmsError);
-    const QString qualityStr = quality == RmsQuality::Excellent  ? "excellent"  :
-                                quality == RmsQuality::Good       ? "good"       :
-                                quality == RmsQuality::Acceptable ? "acceptable" : "poor";
-    d->rmsLabel->setToolTip(
-        QString("Reprojection error: %1 px (%2)\n"
-                "< 0.5 px = excellent, 1–2 px = acceptable, > 2 px = poor")
-            .arg(rmsError, 0, 'f', 3).arg(qualityStr));
+    const QString qualityStr = quality == RmsQuality::Excellent    ? "excellent"
+                               : quality == RmsQuality::Good       ? "good"
+                               : quality == RmsQuality::Acceptable ? "acceptable"
+                                                                   : "poor";
+    d->rmsLabel->setToolTip(QString("Reprojection error: %1 px (%2)\n"
+                                    "< 0.5 px = excellent, 1–2 px = acceptable, > 2 px = poor")
+                                .arg(rmsError, 0, 'f', 3)
+                                .arg(qualityStr));
 }
 
 void CalibrationW::update_result_labels() {
@@ -428,9 +445,13 @@ void CalibrationW::update_result_labels() {
 }
 
 void CalibrationW::save_to_settings() {
-    if (!d->manager.has_result()) { return; }
+    if (!d->manager.has_result()) {
+        return;
+    }
     const int camIdx = d->cameraCombo->currentIndex();
-    if (camIdx < 0 || camIdx >= static_cast<int>(d->videoSettings.cameras.size())) { return; }
+    if (camIdx < 0 || camIdx >= static_cast<int>(d->videoSettings.cameras.size())) {
+        return;
+    }
 
     // Overwrite only the intrinsic fields — a whole-struct assignment would
     // also stomp extrinsicRt/extrinsicCalibrated back to their defaults if
@@ -438,16 +459,16 @@ void CalibrationW::save_to_settings() {
     // silently discarding it every time intrinsics are re-run.
     const CalibrationData intrinsics = d->manager.result();
     CalibrationData& stored = d->videoSettings.cameras[static_cast<size_t>(camIdx)].calibration;
-    stored.calibrated   = intrinsics.calibrated;
-    stored.rmsError      = intrinsics.rmsError;
-    stored.cameraMatrix  = intrinsics.cameraMatrix;
-    stored.distCoeffs    = intrinsics.distCoeffs;
+    stored.calibrated       = intrinsics.calibrated;
+    stored.rmsError         = intrinsics.rmsError;
+    stored.cameraMatrix     = intrinsics.cameraMatrix;
+    stored.distCoeffs       = intrinsics.distCoeffs;
     emit calibration_saved(camIdx);
 
     QMessageBox::information(this, "Calibration saved",
-        QString("Camera %1 calibration stored in settings.\n"
-                "It will be written to the settings file on application exit.")
-            .arg(camIdx));
+                             QString("Camera %1 calibration stored in settings.\n"
+                                     "It will be written to the settings file on application exit.")
+                                 .arg(camIdx));
 }
 
 } // namespace mosaic

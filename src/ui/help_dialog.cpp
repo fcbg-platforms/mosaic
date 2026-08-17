@@ -1,4 +1,5 @@
 #include "ui/help_dialog.hpp"
+
 #include <QCoreApplication>
 #include <QDesktopServices>
 #include <QFrame>
@@ -15,8 +16,9 @@ namespace {
 
 QLabel* section_header(const QString& text) {
     auto* lbl = new QLabel(text);
-    lbl->setStyleSheet("color: #6666aa; font-size: 11px; font-weight: bold; "
-                        "letter-spacing: 1.5px; margin-top: 4px;");
+    lbl->setStyleSheet(
+        "color: #6666aa; font-size: 11px; font-weight: bold; "
+        "letter-spacing: 1.5px; margin-top: 4px;");
     return lbl;
 }
 
@@ -38,7 +40,8 @@ HelpDialog::HelpDialog(QWidget* parent) : QDialog(parent) {
         "QPushButton[role=\"link\"] {"
         "  background: transparent; border: 1px solid #303060; border-radius: 5px;"
         "  padding: 7px 16px; color: #8888dd; font-size: 12px; text-align: left; }"
-        "QPushButton[role=\"link\"]:hover { border-color: #5050aa; color: #aaaaff; background: #14142c; }");
+        "QPushButton[role=\"link\"]:hover { border-color: #5050aa; color: #aaaaff; background: "
+        "#14142c; }");
 
     auto* lay = new QVBoxLayout(this);
     lay->setContentsMargins(28, 26, 28, 22);
@@ -46,8 +49,9 @@ HelpDialog::HelpDialog(QWidget* parent) : QDialog(parent) {
 
     // ── Header ───────────────────────────────────────────────────────────
     auto* titleRow = new QHBoxLayout;
-    auto* title = new QLabel("MOSAIC");
-    title->setStyleSheet("color: #c8c8ff; font-size: 24px; font-weight: bold; letter-spacing: 2px;");
+    auto* title    = new QLabel("MOSAIC");
+    title->setStyleSheet(
+        "color: #c8c8ff; font-size: 24px; font-weight: bold; letter-spacing: 2px;");
     titleRow->addWidget(title);
 
     auto* version = new QLabel(QString("v%1").arg(QCoreApplication::applicationVersion()));
@@ -56,7 +60,8 @@ HelpDialog::HelpDialog(QWidget* parent) : QDialog(parent) {
     titleRow->addStretch();
     lay->addLayout(titleRow);
 
-    auto* tagline = new QLabel("Multi-camera Observatory for Social &amp; Activity Interaction Capture");
+    auto* tagline =
+        new QLabel("Multi-camera Observatory for Social &amp; Activity Interaction Capture");
     tagline->setStyleSheet("color: #8888aa; font-size: 13px;");
     tagline->setWordWrap(true);
     lay->addWidget(tagline);
@@ -135,9 +140,8 @@ HelpDialog::HelpDialog(QWidget* parent) : QDialog(parent) {
 
     auto* repoBtn = new QPushButton("🔗  GitHub repository");
     repoBtn->setProperty("role", "link");
-    connect(repoBtn, &QPushButton::clicked, this, [] {
-        QDesktopServices::openUrl(QUrl("https://github.com/fcbg-platforms/mosaic"));
-    });
+    connect(repoBtn, &QPushButton::clicked, this,
+            [] { QDesktopServices::openUrl(QUrl("https://github.com/fcbg-platforms/mosaic")); });
     linkRow->addWidget(repoBtn);
 
     auto* issueBtn = new QPushButton("🐛  Report an issue");

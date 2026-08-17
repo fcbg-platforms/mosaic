@@ -37,16 +37,18 @@ using Mat4 = std::array<double, 16>;
 /// same shot k (as produced by cv::solvePnP), so the two vectors must be
 /// the same length and index-aligned.
 struct Edge {
-    int              camA = -1;   ///< First camera's index.
-    int              camB = -1;   ///< Second camera's index.
+    int camA = -1;                 ///< First camera's index.
+    int camB = -1;                 ///< Second camera's index.
     std::vector<Mat4> boardToCamA; ///< board→camA pose per shared shot.
-    std::vector<Mat4> boardToCamB; ///< board→camB pose per shared shot, index-aligned with boardToCamA.
+    std::vector<Mat4>
+        boardToCamB; ///< board→camB pose per shared shot, index-aligned with boardToCamA.
 };
 
 /// @brief Output of bfs_resolve() — one entry per camera, indexed by camera index.
 struct ResolveResult {
-    std::vector<bool> resolved;      ///< true if this camera's pose was resolved.
-    std::vector<Mat4> extrinsicRt;   ///< pose relative to referenceIndex; identity() where !resolved[i]
+    std::vector<bool> resolved; ///< true if this camera's pose was resolved.
+    std::vector<Mat4>
+        extrinsicRt; ///< pose relative to referenceIndex; identity() where !resolved[i]
 };
 
 /// @brief Resolves every camera's extrinsicRt (pose relative to referenceIndex) by
@@ -60,6 +62,6 @@ struct ResolveResult {
 ///
 /// @see docs/math/room_calibration.rst for the full derivation.
 [[nodiscard]] ResolveResult bfs_resolve(int cameraCount, int referenceIndex,
-                                         const std::vector<Edge>& edges);
+                                        const std::vector<Edge>& edges);
 
 } // namespace mosaic::room_frame

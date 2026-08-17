@@ -1,8 +1,10 @@
-#include "auth/profile_manager.hpp"
-#include "core/settings.hpp"
 #include <gtest/gtest.h>
+
 #include <QFileInfo>
 #include <QTemporaryDir>
+
+#include "auth/profile_manager.hpp"
+#include "core/settings.hpp"
 
 using mosaic::AppSettings;
 using mosaic::CameraParameters;
@@ -15,9 +17,12 @@ using mosaic::VideoSettings;
 // exactly the remaining cameras — not silently restore the original count.
 TEST(CameraPersistence, DroppedCameraStaysDroppedAfterSaveAndLoad) {
     AppSettings settings;
-    CameraParameters cam0; cam0.serialNumber = "111";
-    CameraParameters cam1; cam1.serialNumber = "222";
-    CameraParameters cam2; cam2.serialNumber = "333";
+    CameraParameters cam0;
+    cam0.serialNumber = "111";
+    CameraParameters cam1;
+    cam1.serialNumber = "222";
+    CameraParameters cam2;
+    cam2.serialNumber      = "333";
     settings.video.cameras = {cam0, cam1, cam2};
 
     // Exercises the same vector::erase() the persistence layer itself relies
@@ -66,8 +71,7 @@ TEST(CameraPersistence, FromJsonReservesCapacityForLiveReferenceStability) {
     const auto loaded = VideoSettings::from_json(videoObj);
     ASSERT_TRUE(loaded.has_value());
     ASSERT_EQ(loaded->cameras.size(), 3u);
-    EXPECT_GE(loaded->cameras.capacity(),
-              static_cast<size_t>(VideoSettings::kMaxCameras));
+    EXPECT_GE(loaded->cameras.capacity(), static_cast<size_t>(VideoSettings::kMaxCameras));
 }
 
 // Regression test for "per-user settings should not clobber each other":
@@ -79,6 +83,6 @@ TEST(ProfileIsolation, DifferentUsernamesGetDistinctSettingsPaths) {
 
     EXPECT_NE(pathA, pathB);
     EXPECT_EQ(ProfileManager::profile_dir("lab_alpha"), QFileInfo(pathA).absolutePath());
-    EXPECT_EQ(ProfileManager::profile_dir("lab_beta"),  QFileInfo(pathB).absolutePath());
+    EXPECT_EQ(ProfileManager::profile_dir("lab_beta"), QFileInfo(pathB).absolutePath());
     EXPECT_NE(ProfileManager::profile_dir("lab_alpha"), ProfileManager::profile_dir("lab_beta"));
 }

@@ -10,7 +10,7 @@ namespace mosaic {
 // (previously undocumented anywhere in the UI), and links to the docs/repo.
 class HelpDialog : public QDialog {
     Q_OBJECT
-public:
+   public:
     explicit HelpDialog(QWidget* parent = nullptr);
 };
 

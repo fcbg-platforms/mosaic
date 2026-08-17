@@ -1,24 +1,24 @@
 #pragma once
-#include "core/settings.hpp"
-#include "trigger/trigger_manager.hpp"
 #include <QVBoxLayout>
 #include <QWidget>
 #include <memory>
+
+#include "core/settings.hpp"
+#include "trigger/trigger_manager.hpp"
 
 namespace mosaic {
 
 class TriggerSettingsW : public QWidget {
     Q_OBJECT
-public:
-    explicit TriggerSettingsW(TriggerSettings& settings,
-                               TriggerManager*  manager,
-                               QWidget*         parent = nullptr);
+   public:
+    explicit TriggerSettingsW(TriggerSettings& settings, TriggerManager* manager,
+                              QWidget* parent = nullptr);
     ~TriggerSettingsW() override;
 
-signals:
+   signals:
     void settings_changed();
 
-private:
+   private:
     void build_master_section(QVBoxLayout* parent);
     void build_keyboard_section(QVBoxLayout* parent);
     void build_serial_section(QVBoxLayout* parent);
@@ -40,8 +40,8 @@ private:
     void on_event_received(const TriggerEvent& event);
     void reload_manager();
 
-    TriggerSettings&  m_settings;
-    TriggerManager*   m_manager;
+    TriggerSettings& m_settings;
+    TriggerManager* m_manager;
 
     struct Impl;
     std::unique_ptr<Impl> d;

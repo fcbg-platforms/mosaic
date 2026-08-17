@@ -1,11 +1,10 @@
 #include "ui/trigger/trigger_event_panel_w.hpp"
-#include "trigger/trigger_manager.hpp"
-#include "utils/timestamp.hpp"
+
 #include <QCheckBox>
 #include <QComboBox>
 #include <QDateTime>
-#include <QFileDialog>
 #include <QFile>
+#include <QFileDialog>
 #include <QHBoxLayout>
 #include <QHeaderView>
 #include <QLabel>
@@ -15,6 +14,9 @@
 #include <QTableWidget>
 #include <QTextStream>
 #include <QVBoxLayout>
+
+#include "trigger/trigger_manager.hpp"
+#include "utils/timestamp.hpp"
 
 namespace mosaic {
 
@@ -29,39 +31,51 @@ static constexpr int kMaxRows    = 2000;
 
 // Source → badge color map
 static QColor source_color(const QString& source) {
-    if (source == "keyboard")      { return QColor(0x44, 0xcc, 0x66); }
-    if (source == "serial")        { return QColor(0xcc, 0xaa, 0x44); }
-    if (source == "parallel_port") { return QColor(0xaa, 0x44, 0xcc); }
+    if (source == "keyboard") {
+        return QColor(0x44, 0xcc, 0x66);
+    }
+    if (source == "serial") {
+        return QColor(0xcc, 0xaa, 0x44);
+    }
+    if (source == "parallel_port") {
+        return QColor(0xaa, 0x44, 0xcc);
+    }
     return QColor(0x88, 0x88, 0xaa);
 }
 
 static QString source_abbrev(const QString& source) {
-    if (source == "keyboard")      { return "KBD"; }
-    if (source == "serial")        { return "SER"; }
-    if (source == "parallel_port") { return "LPT"; }
+    if (source == "keyboard") {
+        return "KBD";
+    }
+    if (source == "serial") {
+        return "SER";
+    }
+    if (source == "parallel_port") {
+        return "LPT";
+    }
     return source.left(3).toUpper();
 }
 
 // Row data for filtering (stored alongside the table)
 struct EventRow {
     QString wallTime;
-    double  elapsedSec{0.0};
+    double elapsedSec{0.0};
     QString source;
     QString label;
     TriggerAction action{TriggerAction::Log};
-    double  value{0.0};
+    double value{0.0};
 };
 
 // ── Impl ───────────────────────────────────────────────────────────────────
 
 struct TriggerEventPanelW::Impl {
-    QTableWidget*          table      = nullptr;
-    QComboBox*             sourceFilter = nullptr;
-    QLineEdit*             labelSearch  = nullptr;
-    QCheckBox*             autoScrollCk = nullptr;
+    QTableWidget* table     = nullptr;
+    QComboBox* sourceFilter = nullptr;
+    QLineEdit* labelSearch  = nullptr;
+    QCheckBox* autoScrollCk = nullptr;
 
-    std::vector<EventRow>  allRows;         // full unfiltered history
-    int64_t                sessionStartNs{0};  // reset when first event arrives
+    std::vector<EventRow> allRows; // full unfiltered history
+    int64_t sessionStartNs{0};     // reset when first event arrives
 
     static constexpr int k_max_rows = kMaxRows;
 };
@@ -69,8 +83,7 @@ struct TriggerEventPanelW::Impl {
 // ── Constructor ────────────────────────────────────────────────────────────
 
 TriggerEventPanelW::TriggerEventPanelW(TriggerManager* manager, QWidget* parent)
-    : QWidget(parent), d(std::make_unique<Impl>())
-{
+    : QWidget(parent), d(std::make_unique<Impl>()) {
     auto* root = new QVBoxLayout(this);
     root->setContentsMargins(8, 8, 8, 8);
     root->setSpacing(8);
@@ -79,9 +92,8 @@ TriggerEventPanelW::TriggerEventPanelW(TriggerManager* manager, QWidget* parent)
     build_table();
 
     if (manager) {
-        connect(manager, &TriggerManager::event_received,
-                this,    &TriggerEventPanelW::on_event_received,
-                Qt::QueuedConnection);
+        connect(manager, &TriggerManager::event_received, this,
+                &TriggerEventPanelW::on_event_received, Qt::QueuedConnection);
     }
 }
 
@@ -99,8 +111,8 @@ void TriggerEventPanelW::build_filter_bar() {
     d->sourceFilter->setFixedWidth(130);
     d->sourceFilter->addItem("All sources", "");
     d->sourceFilter->addItem("⌨  Keyboard", "keyboard");
-    d->sourceFilter->addItem("⎋  Serial",   "serial");
-    d->sourceFilter->addItem("▪  Parallel",  "parallel_port");
+    d->sourceFilter->addItem("⎋  Serial", "serial");
+    d->sourceFilter->addItem("▪  Parallel", "parallel_port");
     row->addWidget(new QLabel("Source:"));
     row->addWidget(d->sourceFilter);
 
@@ -127,10 +139,9 @@ void TriggerEventPanelW::build_filter_bar() {
     connect(exportBtn, &QPushButton::clicked, this, &TriggerEventPanelW::export_csv);
     row->addWidget(exportBtn);
 
-    connect(d->sourceFilter, &QComboBox::currentIndexChanged,
-            this, &TriggerEventPanelW::apply_filter);
-    connect(d->labelSearch, &QLineEdit::textChanged,
-            this, &TriggerEventPanelW::apply_filter);
+    connect(d->sourceFilter, &QComboBox::currentIndexChanged, this,
+            &TriggerEventPanelW::apply_filter);
+    connect(d->labelSearch, &QLineEdit::textChanged, this, &TriggerEventPanelW::apply_filter);
 }
 
 // ── Table ──────────────────────────────────────────────────────────────────
@@ -148,11 +159,11 @@ void TriggerEventPanelW::build_table() {
     d->table->horizontalHeader()->setHighlightSections(false);
     d->table->horizontalHeader()->setSectionResizeMode(kColLabel, QHeaderView::Stretch);
     d->table->horizontalHeader()->setSectionResizeMode(kColSource, QHeaderView::Fixed);
-    d->table->setColumnWidth(kColTime,    90);
+    d->table->setColumnWidth(kColTime, 90);
     d->table->setColumnWidth(kColElapsed, 80);
-    d->table->setColumnWidth(kColSource,  64);
-    d->table->setColumnWidth(kColAction,  110);
-    d->table->setColumnWidth(kColValue,   60);
+    d->table->setColumnWidth(kColSource, 64);
+    d->table->setColumnWidth(kColAction, 110);
+    d->table->setColumnWidth(kColValue, 60);
     d->table->setStyleSheet(R"(
         QTableWidget {
             background: #0c0c1a;
@@ -196,9 +207,11 @@ void TriggerEventPanelW::on_event_received(const TriggerEvent& event) {
     const QString srcFilter   = d->sourceFilter->currentData().toString();
     const QString labelFilter = d->labelSearch->text().trimmed().toLower();
 
-    const bool srcOk   = srcFilter.isEmpty()   || row.source == srcFilter;
+    const bool srcOk   = srcFilter.isEmpty() || row.source == srcFilter;
     const bool labelOk = labelFilter.isEmpty() || row.label.toLower().contains(labelFilter);
-    if (!srcOk || !labelOk) { return; }
+    if (!srcOk || !labelOk) {
+        return;
+    }
 
     // Prune table if too large
     if (d->table->rowCount() >= kMaxRows) {
@@ -220,7 +233,7 @@ void TriggerEventPanelW::on_event_received(const TriggerEvent& event) {
 
     // Source badge
     const QColor clr = source_color(row.source);
-    auto* srcItem = new QTableWidgetItem(source_abbrev(row.source));
+    auto* srcItem    = new QTableWidgetItem(source_abbrev(row.source));
     srcItem->setBackground(clr.darker(200));
     srcItem->setForeground(clr);
     srcItem->setTextAlignment(Qt::AlignCenter);
@@ -232,7 +245,7 @@ void TriggerEventPanelW::on_event_received(const TriggerEvent& event) {
 
     // Action
     const QString actionText = trigger_action_label(row.action);
-    auto* actionItem = new QTableWidgetItem(actionText);
+    auto* actionItem         = new QTableWidgetItem(actionText);
     if (row.action == TriggerAction::StartRecording) {
         actionItem->setForeground(QColor(0x44, 0xcc, 0x66));
     } else if (row.action == TriggerAction::StopRecording) {
@@ -263,9 +276,11 @@ void TriggerEventPanelW::apply_filter() {
     const QString labelFilter = d->labelSearch->text().trimmed().toLower();
 
     for (const EventRow& row : d->allRows) {
-        const bool srcOk   = srcFilter.isEmpty()   || row.source == srcFilter;
+        const bool srcOk   = srcFilter.isEmpty() || row.source == srcFilter;
         const bool labelOk = labelFilter.isEmpty() || row.label.toLower().contains(labelFilter);
-        if (!srcOk || !labelOk) { continue; }
+        if (!srcOk || !labelOk) {
+            continue;
+        }
 
         const int r = d->table->rowCount();
         d->table->insertRow(r);
@@ -285,12 +300,12 @@ void TriggerEventPanelW::apply_filter() {
         srcItem->setTextAlignment(Qt::AlignCenter);
         valItem->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
 
-        d->table->setItem(r, kColTime,    timeItem);
+        d->table->setItem(r, kColTime, timeItem);
         d->table->setItem(r, kColElapsed, elapsedItem);
-        d->table->setItem(r, kColSource,  srcItem);
-        d->table->setItem(r, kColLabel,   labelItem);
-        d->table->setItem(r, kColAction,  actionItem);
-        d->table->setItem(r, kColValue,   valItem);
+        d->table->setItem(r, kColSource, srcItem);
+        d->table->setItem(r, kColLabel, labelItem);
+        d->table->setItem(r, kColAction, actionItem);
+        d->table->setItem(r, kColValue, valItem);
         d->table->setRowHeight(r, 22);
     }
 
@@ -309,22 +324,22 @@ void TriggerEventPanelW::clear() {
 // ── Export CSV ─────────────────────────────────────────────────────────────
 
 void TriggerEventPanelW::export_csv() {
-    const QString path = QFileDialog::getSaveFileName(
-        this, "Export trigger events", QString(),
-        "CSV files (*.csv);;All files (*)");
-    if (path.isEmpty()) { return; }
+    const QString path = QFileDialog::getSaveFileName(this, "Export trigger events", QString(),
+                                                      "CSV files (*.csv);;All files (*)");
+    if (path.isEmpty()) {
+        return;
+    }
 
     QFile file(path);
-    if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) { return; }
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
+        return;
+    }
 
     QTextStream out(&file);
     out << "wall_time,elapsed_sec,source,label,action,value\n";
     for (const EventRow& row : d->allRows) {
-        out << row.wallTime << ","
-            << QString::number(row.elapsedSec, 'f', 6) << ","
-            << row.source << ","
-            << row.label << ","
-            << trigger_action_label(row.action) << ","
+        out << row.wallTime << "," << QString::number(row.elapsedSec, 'f', 6) << "," << row.source
+            << "," << row.label << "," << trigger_action_label(row.action) << ","
             << QString::number(row.value, 'g', 6) << "\n";
     }
 }

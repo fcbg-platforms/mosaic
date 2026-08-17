@@ -1,4 +1,5 @@
 #include "ui/audio/microphone_card_w.hpp"
+
 #include <QAudioDevice>
 #include <QComboBox>
 #include <QFormLayout>
@@ -17,8 +18,7 @@
 namespace mosaic {
 
 MicrophoneCardW::MicrophoneCardW(MicrophoneParameters& params, int index, QWidget* parent)
-    : QWidget(parent), m_params(params), m_index(index)
-{
+    : QWidget(parent), m_params(params), m_index(index) {
     setObjectName("MicrophoneCardW");
     setStyleSheet(R"(
         #MicrophoneCardW {
@@ -64,8 +64,9 @@ void MicrophoneCardW::build_header() {
 
     auto* expandBtn = new QToolButton;
     expandBtn->setText("▼");
-    expandBtn->setStyleSheet("QToolButton { background: transparent; border: none;"
-                             " color: #6666aa; font-size: 10px; }");
+    expandBtn->setStyleSheet(
+        "QToolButton { background: transparent; border: none;"
+        " color: #6666aa; font-size: 10px; }");
     expandBtn->setCursor(Qt::PointingHandCursor);
     connect(expandBtn, &QToolButton::clicked, this, &MicrophoneCardW::toggle_expanded);
     m_expandBtn = expandBtn;
@@ -76,8 +77,9 @@ void MicrophoneCardW::build_header() {
     topRow->addWidget(icon);
 
     m_nameLabel = new QLabel(QString("Microphone %1").arg(m_index + 1));
-    m_nameLabel->setStyleSheet("font-weight: bold; font-size: 12px;"
-                               " color: #c8c8e0; background: transparent;");
+    m_nameLabel->setStyleSheet(
+        "font-weight: bold; font-size: 12px;"
+        " color: #c8c8e0; background: transparent;");
     topRow->addWidget(m_nameLabel);
     topRow->addStretch();
 
@@ -96,9 +98,7 @@ void MicrophoneCardW::build_header() {
         QToolButton:hover { color: #cc4444; }
     )");
     delBtn->setCursor(Qt::PointingHandCursor);
-    connect(delBtn, &QToolButton::clicked, this, [this]{
-        emit remove_requested(m_index);
-    });
+    connect(delBtn, &QToolButton::clicked, this, [this] { emit remove_requested(m_index); });
     topRow->addWidget(delBtn);
 
     mainRow->addLayout(topRow);
@@ -151,8 +151,7 @@ void MicrophoneCardW::build_body() {
         deviceCombo->setEnabled(false);
     } else {
         for (const QAudioDevice& dev : devices)
-            deviceCombo->addItem(dev.description(),
-                                  QString::fromLatin1(dev.id()));
+            deviceCombo->addItem(dev.description(), QString::fromLatin1(dev.id()));
 
         // Pre-select stored device (or default if not found)
         bool found = false;
@@ -167,8 +166,7 @@ void MicrophoneCardW::build_body() {
         }
         if (!found && !devices.isEmpty()) {
             // Default: select the system default input
-            const QString defId = QString::fromLatin1(
-                QMediaDevices::defaultAudioInput().id());
+            const QString defId = QString::fromLatin1(QMediaDevices::defaultAudioInput().id());
             for (int i = 0; i < deviceCombo->count(); ++i) {
                 if (deviceCombo->itemData(i).toString() == defId) {
                     deviceCombo->setCurrentIndex(i);
@@ -176,7 +174,7 @@ void MicrophoneCardW::build_body() {
                 }
             }
             // Persist the selection immediately
-            m_params.deviceId = deviceCombo->currentData().toString();
+            m_params.deviceId     = deviceCombo->currentData().toString();
             m_params.friendlyName = deviceCombo->currentText();
         }
     }
@@ -207,24 +205,25 @@ void MicrophoneCardW::build_body() {
     lay->addLayout(form);
 
     // ── Wire up ───────────────────────────────────────────────────────────
-    connect(deviceCombo, &QComboBox::currentIndexChanged, this,
-            [this, deviceCombo](int idx){
+    connect(deviceCombo, &QComboBox::currentIndexChanged, this, [this, deviceCombo](int idx) {
         m_params.deviceId     = deviceCombo->itemData(idx).toString();
         m_params.friendlyName = deviceCombo->itemText(idx);
         emit params_changed();
     });
     connect(rateCombo, qOverload<int>(&QComboBox::currentIndexChanged), this,
-            [this, rateCombo](int idx){
-        m_params.sampleRate = rateCombo->itemData(idx).toInt();
+            [this, rateCombo](int idx) {
+                m_params.sampleRate = rateCombo->itemData(idx).toInt();
+                emit params_changed();
+            });
+    connect(chSpin, qOverload<int>(&QSpinBox::valueChanged), this, [this](int v) {
+        m_params.channels = v;
         emit params_changed();
     });
-    connect(chSpin, qOverload<int>(&QSpinBox::valueChanged), this,
-            [this](int v){ m_params.channels = v; emit params_changed(); });
     connect(bufCombo, qOverload<int>(&QComboBox::currentIndexChanged), this,
-            [this, bufCombo](int idx){
-        m_params.bufferSize = bufCombo->itemData(idx).toInt();
-        emit params_changed();
-    });
+            [this, bufCombo](int idx) {
+                m_params.bufferSize = bufCombo->itemData(idx).toInt();
+                emit params_changed();
+            });
 }
 
 // ── Public API ─────────────────────────────────────────────────────────────
@@ -235,26 +234,21 @@ void MicrophoneCardW::set_level(float rms) {
     // build_waveform_section()) instead of an independent, separately-tuned
     // magic constant, so this VU meter and the waveform widget always agree
     // on how "hot" a given RMS level looks.
-    const int val = static_cast<int>(
-        std::clamp(rms * m_scale * 100.0f, 0.0f, 100.0f));
+    const int val = static_cast<int>(std::clamp(rms * m_scale * 100.0f, 0.0f, 100.0f));
     m_levelBar->setValue(val);
 }
 
-void MicrophoneCardW::set_scale(float scale) {
-    m_scale = scale;
-}
+void MicrophoneCardW::set_scale(float scale) { m_scale = scale; }
 
 void MicrophoneCardW::set_index(int index) {
     m_index = index;
-    if (m_nameLabel)
-        m_nameLabel->setText(QString("Microphone %1").arg(index + 1));
+    if (m_nameLabel) m_nameLabel->setText(QString("Microphone %1").arg(index + 1));
 }
 
 void MicrophoneCardW::set_connected(bool connected) {
     if (m_statusDot)
-        m_statusDot->setStyleSheet(connected
-            ? "background: #44cc88; border-radius: 5px;"
-            : "background: #333355; border-radius: 5px;");
+        m_statusDot->setStyleSheet(connected ? "background: #44cc88; border-radius: 5px;"
+                                             : "background: #333355; border-radius: 5px;");
 }
 
 // ── Collapse / expand ──────────────────────────────────────────────────────
@@ -276,7 +270,7 @@ void MicrophoneCardW::toggle_expanded() {
         anim->setStartValue(0);
         anim->setEndValue(m_body->sizeHint().height());
         connect(anim, &QAbstractAnimation::finished,
-                [this]{ m_body->setMaximumHeight(QWIDGETSIZE_MAX); });
+                [this] { m_body->setMaximumHeight(QWIDGETSIZE_MAX); });
         if (btn) btn->setText("▼");
     }
     anim->start(QAbstractAnimation::DeleteWhenStopped);

@@ -40,15 +40,37 @@ jobs:
 
     # clang-format needs no Qt/MSVC/vcpkg context at all, so this runs on
     # the lighter/faster Linux runner rather than windows-latest.
+    #
+    # Scoped to files changed since diverging from main — git's own
+    # standard pattern for enforcing a formatter on an existing codebase
+    # (cf. `git clang-format`) — rather than the whole src/+tests/ tree.
+    # The entire tree was brought into one-time compliance in the PR that
+    # introduced this job; this check only guards against new drift from
+    # here on, so a future .clang-format tweak can't retroactively fail
+    # untouched files, and CI stays fast.
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Install clang-format
         run: sudo apt-get update && sudo apt-get install -y clang-format
 
-      - name: Check formatting
+      - name: Determine merge-base with main
+        id: base
         run: |
-          files=$(find src tests -name '*.cpp' -o -name '*.hpp')
+          git fetch origin main --quiet
+          echo "sha=$(git merge-base origin/main HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Check formatting of changed files only
+        run: |
+          files=$(git diff --name-only ${{ steps.base.outputs.sha }} -- src tests | grep -E '\.(cpp|hpp)$' || true)
+          if [ -z "$files" ]; then
+            echo "No changed C++ files."
+            exit 0
+          fi
+          echo "Checking:"
+          echo "$files"
           clang-format --dry-run --Werror $files
 
   build-and-test:

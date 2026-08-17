@@ -15,7 +15,7 @@ namespace mosaic {
 // or set via MOSAIC_PYTHON env var for the interpreter path).
 class PoseWorker : public QObject {
     Q_OBJECT
-public:
+   public:
     explicit PoseWorker(QObject* parent = nullptr);
     ~PoseWorker() override;
 
@@ -33,10 +33,10 @@ public:
     void set_paused(bool paused);
     [[nodiscard]] bool is_paused() const;
 
-public slots:
+   public slots:
     void submit_frame(int cameraIndex, QImage frame);
 
-signals:
+   signals:
     // keypoints is a QVariantList of QVariantMap: {x, y, z, visibility, name}
     void pose_ready(int cameraIndex, QVariantList keypoints);
     // gazeData is a QVariantMap: {face_box:{x,y,w,h}, left_iris:{x,y},
@@ -45,7 +45,7 @@ signals:
     void process_error(QString message);
     void paused_changed(bool paused);
 
-private:
+   private:
     struct Impl;
     std::unique_ptr<Impl> d;
 };

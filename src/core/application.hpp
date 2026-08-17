@@ -1,12 +1,13 @@
 #pragma once
+#include <QObject>
+#include <QString>
+#include <memory>
+
 #include "audio/audio_manager.hpp"
 #include "core/settings.hpp"
 #include "record/record_manager.hpp"
 #include "trigger/trigger_manager.hpp"
 #include "video/video_manager.hpp"
-#include <QObject>
-#include <QString>
-#include <memory>
 
 namespace mosaic {
 
@@ -31,7 +32,7 @@ namespace mosaic {
 /// @see ProfileManager, AppSettings, RecordManager
 class Application : public QObject {
     Q_OBJECT
-public:
+   public:
     explicit Application(QObject* parent = nullptr);
     ~Application() override;
 
@@ -65,36 +66,36 @@ public:
     void shutdown();
 
     /// @returns A mutable reference to the current session's AppSettings.
-    [[nodiscard]] AppSettings&       settings();
+    [[nodiscard]] AppSettings& settings();
 
     /// @returns An immutable reference to the current session's AppSettings.
     [[nodiscard]] const AppSettings& settings() const;
 
     /// @returns The username of the currently active profile (@c "guest" if
     ///          no profile was selected at login).
-    [[nodiscard]] QString            active_username()  const;
+    [[nodiscard]] QString active_username() const;
 
     /// @returns The application-wide TriggerManager, or @c nullptr before
     ///          initialize() has been called.
-    [[nodiscard]] TriggerManager*    trigger_manager()  const;
+    [[nodiscard]] TriggerManager* trigger_manager() const;
 
     /// @returns The application-wide AudioManager.
-    [[nodiscard]] AudioManager*      audio_manager()    const;
+    [[nodiscard]] AudioManager* audio_manager() const;
 
     /// @returns The application-wide VideoManager.
-    [[nodiscard]] VideoManager*      video_manager()    const;
+    [[nodiscard]] VideoManager* video_manager() const;
 
     /// @returns The application-wide RecordManager.
-    [[nodiscard]] RecordManager*     record_manager()   const;
+    [[nodiscard]] RecordManager* record_manager() const;
 
-signals:
+   signals:
     /// Emitted at the end of initialize() when all subsystems are ready.
     void initialized();
 
     /// Emitted at the end of shutdown() after all resources are released.
     void shutdown_complete();
 
-private:
+   private:
     struct Impl;
     std::unique_ptr<Impl> d;
 };

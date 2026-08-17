@@ -1,7 +1,5 @@
 #include "ui/audio/audio_settings_w.hpp"
-#include "ui/audio/audio_waveform_w.hpp"
-#include "ui/audio/microphone_card_w.hpp"
-#include "utils/logger.hpp"
+
 #include <QComboBox>
 #include <QDoubleSpinBox>
 #include <QFrame>
@@ -12,23 +10,24 @@
 #include <QScrollArea>
 #include <QVector>
 
+#include "ui/audio/audio_waveform_w.hpp"
+#include "ui/audio/microphone_card_w.hpp"
+#include "utils/logger.hpp"
+
 namespace mosaic {
 
 struct AudioSettingsW::Impl {
-    AudioManager*    audioMgr     = nullptr;
-    QComboBox*       codecCombo   = nullptr;
-    QVBoxLayout*     microphonesLay = nullptr;
-    AudioWaveformW*  waveform     = nullptr;
-    QDoubleSpinBox*  scaleSpin    = nullptr;
-    float            currentScale = AudioWaveformW::kDefaultScale;
+    AudioManager* audioMgr      = nullptr;
+    QComboBox* codecCombo       = nullptr;
+    QVBoxLayout* microphonesLay = nullptr;
+    AudioWaveformW* waveform    = nullptr;
+    QDoubleSpinBox* scaleSpin   = nullptr;
+    float currentScale          = AudioWaveformW::kDefaultScale;
     QVector<MicrophoneCardW*> cards;
 };
 
-AudioSettingsW::AudioSettingsW(AudioSettings& settings,
-                                AudioManager* audioMgr,
-                                QWidget* parent)
-    : QWidget(parent), m_settings(settings), d(std::make_unique<Impl>())
-{
+AudioSettingsW::AudioSettingsW(AudioSettings& settings, AudioManager* audioMgr, QWidget* parent)
+    : QWidget(parent), m_settings(settings), d(std::make_unique<Impl>()) {
     d->audioMgr = audioMgr;
 
     auto* outerLay = new QVBoxLayout(this);
@@ -59,7 +58,7 @@ AudioSettingsW::AudioSettingsW(AudioSettings& settings,
     for (int i = 0; i < static_cast<int>(m_settings.microphones.size()); ++i) {
         auto* card = new MicrophoneCardW(m_settings.microphones[i], i, this);
         card->set_scale(d->currentScale);
-        connect(card, &MicrophoneCardW::params_changed,   this, &AudioSettingsW::settings_changed);
+        connect(card, &MicrophoneCardW::params_changed, this, &AudioSettingsW::settings_changed);
         connect(card, &MicrophoneCardW::remove_requested, this, &AudioSettingsW::remove_microphone);
         d->microphonesLay->addWidget(card);
         d->cards.append(card);
@@ -70,18 +69,22 @@ AudioSettingsW::AudioSettingsW(AudioSettings& settings,
     // trace) separately — they're two independent signals now, not one
     // value shared between two displays.
     if (d->audioMgr) {
-        connect(d->audioMgr, &AudioManager::level_rms_changed, this,
-                [this](int micIndex, float rms) {
-            if (micIndex >= 0 && micIndex < d->cards.size()) {
-                d->cards[micIndex]->set_level(rms);
-            }
-        }, Qt::QueuedConnection);
-        connect(d->audioMgr, &AudioManager::envelope_changed, this,
-                [this](int micIndex, float lo, float hi) {
-            if (d->waveform) {
-                d->waveform->push_envelope(micIndex, lo, hi);
-            }
-        }, Qt::QueuedConnection);
+        connect(
+            d->audioMgr, &AudioManager::level_rms_changed, this,
+            [this](int micIndex, float rms) {
+                if (micIndex >= 0 && micIndex < d->cards.size()) {
+                    d->cards[micIndex]->set_level(rms);
+                }
+            },
+            Qt::QueuedConnection);
+        connect(
+            d->audioMgr, &AudioManager::envelope_changed, this,
+            [this](int micIndex, float lo, float hi) {
+                if (d->waveform) {
+                    d->waveform->push_envelope(micIndex, lo, hi);
+                }
+            },
+            Qt::QueuedConnection);
     }
 }
 
@@ -100,25 +103,25 @@ void AudioSettingsW::build_encoding_section(QVBoxLayout* parent) {
     lbl->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
 
     d->codecCombo = new QComboBox;
-    d->codecCombo->addItem("PCM 16-bit  (lossless, large)",  "pcm_s16le");
-    d->codecCombo->addItem("PCM 24-bit  (lossless, large)",  "pcm_s24le");
-    d->codecCombo->addItem("FLAC        (lossless, small)",   "flac");
+    d->codecCombo->addItem("PCM 16-bit  (lossless, large)", "pcm_s16le");
+    d->codecCombo->addItem("PCM 24-bit  (lossless, large)", "pcm_s24le");
+    d->codecCombo->addItem("FLAC        (lossless, small)", "flac");
     d->codecCombo->addItem("AAC         (lossy, very small)", "aac");
-    d->codecCombo->setCurrentIndex(
-        d->codecCombo->findData(m_settings.codec));
+    d->codecCombo->setCurrentIndex(d->codecCombo->findData(m_settings.codec));
 
     row->addWidget(lbl);
     row->addWidget(d->codecCombo, 1);
     form->addLayout(row);
 
     // Recommendation hint
-    auto* hint = new QLabel("Tip: PCM 16-bit is recommended for research — "
-                             "no quality loss, compatible with all analysis tools.");
+    auto* hint = new QLabel(
+        "Tip: PCM 16-bit is recommended for research — "
+        "no quality loss, compatible with all analysis tools.");
     hint->setWordWrap(true);
     hint->setProperty("role", "muted");
     form->addWidget(hint);
 
-    connect(d->codecCombo, &QComboBox::currentIndexChanged, this, [this](int idx){
+    connect(d->codecCombo, &QComboBox::currentIndexChanged, this, [this](int idx) {
         m_settings.codec = d->codecCombo->itemData(idx).toString();
         emit settings_changed();
     });
@@ -138,8 +141,8 @@ void AudioSettingsW::build_microphones_section(QVBoxLayout* parent) {
 
     auto* addBtn = new QPushButton("+ Add microphone");
     addBtn->setFixedHeight(26);
-    connect(addBtn, &QPushButton::clicked, this, [this]{
-        add_microphone({});  // position-based label is set by the card itself
+    connect(addBtn, &QPushButton::clicked, this, [this] {
+        add_microphone({}); // position-based label is set by the card itself
     });
     headerRow->addWidget(addBtn);
 
@@ -159,7 +162,8 @@ void AudioSettingsW::add_microphone(MicrophoneParameters params) {
     // AudioSettings::kMaxMicrophones's doc comment (settings.hpp).
     if (m_settings.microphones.size() >= static_cast<size_t>(AudioSettings::kMaxMicrophones)) {
         log_error(QString("[AudioSettingsW] add_microphone: already at the %1-microphone "
-                           "limit — refusing to add another.").arg(AudioSettings::kMaxMicrophones));
+                          "limit — refusing to add another.")
+                      .arg(AudioSettings::kMaxMicrophones));
         return;
     }
     m_settings.microphones.push_back(std::move(params));
@@ -167,18 +171,22 @@ void AudioSettingsW::add_microphone(MicrophoneParameters params) {
 
     auto* card = new MicrophoneCardW(m_settings.microphones[idx], idx, this);
     card->set_scale(d->currentScale);
-    connect(card, &MicrophoneCardW::params_changed,   this, &AudioSettingsW::settings_changed);
+    connect(card, &MicrophoneCardW::params_changed, this, &AudioSettingsW::settings_changed);
     connect(card, &MicrophoneCardW::remove_requested, this, &AudioSettingsW::remove_microphone);
 
     d->microphonesLay->addWidget(card);
     d->cards.append(card);
 
-    if (d->waveform) { d->waveform->set_channel_count(d->cards.size()); }
+    if (d->waveform) {
+        d->waveform->set_channel_count(d->cards.size());
+    }
     emit settings_changed();
 }
 
 void AudioSettingsW::remove_microphone(int index) {
-    if (index < 0 || index >= d->cards.size()) { return; }
+    if (index < 0 || index >= d->cards.size()) {
+        return;
+    }
 
     auto* card = d->cards[index];
     d->microphonesLay->removeWidget(card);
@@ -190,7 +198,9 @@ void AudioSettingsW::remove_microphone(int index) {
         d->cards[i]->set_index(i);
     }
 
-    if (d->waveform) { d->waveform->set_channel_count(qMax(1, d->cards.size())); }
+    if (d->waveform) {
+        d->waveform->set_channel_count(qMax(1, d->cards.size()));
+    }
     emit settings_changed();
 }
 
@@ -210,20 +220,21 @@ void AudioSettingsW::build_waveform_section(QVBoxLayout* parent) {
     d->scaleSpin->setValue(AudioWaveformW::kDefaultScale);
     d->scaleSpin->setSuffix("×");
     d->scaleSpin->setFixedWidth(80);
-    d->scaleSpin->setToolTip("Zooms the vertical amplitude of the waveform and VU meters below. "
-                              "Display-only — never affects the recorded audio.");
+    d->scaleSpin->setToolTip(
+        "Zooms the vertical amplitude of the waveform and VU meters below. "
+        "Display-only — never affects the recorded audio.");
     controlsRow->addWidget(d->scaleSpin);
     controlsRow->addStretch();
     lay->addLayout(controlsRow);
 
     d->waveform = new AudioWaveformW;
-    d->waveform->set_channel_count(
-        qMax(1, static_cast<int>(m_settings.microphones.size())));
+    d->waveform->set_channel_count(qMax(1, static_cast<int>(m_settings.microphones.size())));
     d->waveform->set_scale(AudioWaveformW::kDefaultScale);
 
-    auto* hint = new QLabel("Rolling 8-second bipolar waveform per channel. "
-                             "Scale zooms the vertical amplitude for display only — "
-                             "it does not affect the recorded audio.");
+    auto* hint = new QLabel(
+        "Rolling 8-second bipolar waveform per channel. "
+        "Scale zooms the vertical amplitude for display only — "
+        "it does not affect the recorded audio.");
     hint->setWordWrap(true);
     hint->setProperty("role", "muted");
 
@@ -231,10 +242,12 @@ void AudioSettingsW::build_waveform_section(QVBoxLayout* parent) {
     lay->addWidget(hint);
     parent->addWidget(box);
 
-    connect(d->scaleSpin, qOverload<double>(&QDoubleSpinBox::valueChanged), this, [this](double v){
+    connect(d->scaleSpin, qOverload<double>(&QDoubleSpinBox::valueChanged), this, [this](double v) {
         d->currentScale = static_cast<float>(v);
         d->waveform->set_scale(d->currentScale);
-        for (auto* card : d->cards) { card->set_scale(d->currentScale); }
+        for (auto* card : d->cards) {
+            card->set_scale(d->currentScale);
+        }
     });
 }
 
