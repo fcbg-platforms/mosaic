@@ -163,6 +163,7 @@ void KeyboardCardW::build_body() {
     });
     connect(enabledCk, &QCheckBox::toggled, this, [this](bool v) {
         m_config.enabled = v;
+        update_header_summary();
         emit config_changed();
     });
 }
@@ -170,8 +171,21 @@ void KeyboardCardW::build_body() {
 // ── Helpers ────────────────────────────────────────────────────────────────
 
 void KeyboardCardW::update_header_summary() {
-    const QString key = m_config.keySeq.isEmpty() ? "unbound" : m_config.keySeq;
-    m_summaryLabel->setText(QString("— %1  [%2]").arg(m_config.name, key));
+    // A new trigger defaults to enabled=true, keySeq="" (see
+    // KeyTriggerConfig in settings.hpp) — i.e. it *looks* active from the
+    // moment it's created but silently never fires until a key is actually
+    // bound (KeyboardTrigger::eventFilter() returns early on an empty
+    // sequence, with no other signal). Flag that specific combination
+    // clearly rather than the same dim "unbound" text regardless of
+    // whether it's actually a problem right now.
+    const bool brokenNow = m_config.enabled && m_config.keySeq.isEmpty();
+    const QString key    = m_config.keySeq.isEmpty() ? "unbound" : m_config.keySeq;
+    m_summaryLabel->setText(brokenNow
+                                ? QString("— %1  ⚠ no key bound — won't fire").arg(m_config.name)
+                                : QString("— %1  [%2]").arg(m_config.name, key));
+    m_summaryLabel->setStyleSheet(
+        brokenNow ? "color: #ddaa44; font-size: 11px; font-weight: bold; background: transparent;"
+                  : "color: #446644; font-size: 11px; background: transparent;");
 }
 
 void KeyboardCardW::on_count_changed(int count) {

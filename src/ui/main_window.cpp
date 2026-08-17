@@ -85,7 +85,6 @@ struct MainWindow::Impl {
     QTabWidget* settingsTabs           = nullptr;
     QQuickWidget* monitorView          = nullptr;
     LoggerPanelW* loggerPanel          = nullptr;
-    QLabel* statusLabel                = nullptr;
     PoseWorker* poseWorker             = nullptr;
     TranscriptWorker* transcriptWorker = nullptr;
     RealtimeTabW* realtimeTab          = nullptr;
@@ -566,8 +565,13 @@ void MainWindow::build_central_widget() {
 // ── Status bar ─────────────────────────────────────────────────────────────
 
 void MainWindow::build_status_bar() {
-    d->statusLabel = new QLabel("Ready");
-    statusBar()->addWidget(d->statusLabel);
+    // No message label here by design — this used to surface the last
+    // warning/error, recording state, and frame-drop notices as transient
+    // text at the very bottom of the window; removed on request since that
+    // text was distracting/unwanted. The LoggerPanelW dock (View → Logs)
+    // remains the place to see warnings/errors. The side effects those
+    // handlers also had (disabling "Discover cameras" while recording, in
+    // particular) are preserved below — only the on-screen text is gone.
 
     // User chip in the right corner of the status bar.
     const QString userLabel =
@@ -579,29 +583,15 @@ void MainWindow::build_status_bar() {
     userChip->setToolTip("Current profile — use File → Switch profile to change");
     statusBar()->addPermanentWidget(userChip);
 
-    // Show the last warning/error in the status bar as a quick heads-up.
-    connect(
-        &Logger::instance(), &Logger::entry_added, this,
-        [this](int level, QString /*ts*/, QString /*loc*/, QString msg) {
-            if (level >= static_cast<int>(LogLevel::Warning)) {
-                d->statusLabel->setText(msg);
-            }
-        },
-        Qt::QueuedConnection);
-
     if (d->recordMgr) {
-        connect(d->recordMgr, &RecordManager::recording_started, this, [this](const QString& path) {
-            d->statusLabel->setText(QString("● Recording  →  %1").arg(path));
-            d->statusLabel->setStyleSheet("color: #ff6666; font-weight: bold;");
-            if (d->videoSettingsW) {
-                d->videoSettingsW->set_discover_enabled(false);
-            }
-        });
+        connect(d->recordMgr, &RecordManager::recording_started, this,
+                [this](const QString& /*path*/) {
+                    if (d->videoSettingsW) {
+                        d->videoSettingsW->set_discover_enabled(false);
+                    }
+                });
         connect(d->recordMgr, &RecordManager::recording_stopped, this,
-                [this](const QString& /*path*/, int durationMs) {
-                    d->statusLabel->setText(QString("Recording stopped. Duration: %1 s")
-                                                .arg(durationMs / 1000.0, 0, 'f', 1));
-                    d->statusLabel->setStyleSheet("");
+                [this](const QString& /*path*/, int /*durationMs*/) {
                     // Preview auto-resumes right after recording stops (see
                     // Application's own recording_stopped handler), keeping every
                     // Action1-armed camera's ticker alive — only re-enable if there
@@ -610,18 +600,6 @@ void MainWindow::build_status_bar() {
                         d->videoSettingsW->set_discover_enabled(d->videoMgr->camera_count() == 0);
                     }
                 });
-    }
-
-    // Show frame-drop warnings from VideoManager.
-    if (d->videoMgr) {
-        connect(
-            d->videoMgr, &VideoManager::frame_dropped, this,
-            [this](int cameraIndex, int64_t frameId) {
-                d->statusLabel->setText(
-                    QString("⚠ Frame dropped — camera %1, frame %2").arg(cameraIndex).arg(frameId));
-                d->statusLabel->setStyleSheet("color: #ddaa44;");
-            },
-            Qt::QueuedConnection);
     }
 }
 
