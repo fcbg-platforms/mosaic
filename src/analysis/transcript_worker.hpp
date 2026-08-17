@@ -18,7 +18,7 @@ namespace mosaic {
 // discrete frames — see submit_chunk()'s doc comment for the wire format.
 class TranscriptWorker : public QObject {
     Q_OBJECT
-public:
+   public:
     explicit TranscriptWorker(QObject* parent = nullptr);
     ~TranscriptWorker() override;
 
@@ -38,7 +38,7 @@ public:
     void set_paused(bool paused);
     [[nodiscard]] bool is_paused() const;
 
-public slots:
+   public slots:
     // pcm16 is interleaved int16 LE PCM, sampleCount * channels * 2 bytes —
     // exactly what AudioRecorder::raw_pcm_ready() emits, unconverted.
     // Written to the subprocess as a 24-byte header (mic index, sample
@@ -47,7 +47,7 @@ public slots:
     // run_live_transcribe.py's module doc comment for the exact byte layout.
     void submit_chunk(int micIndex, int sampleRate, int channels, QByteArray pcm16);
 
-signals:
+   signals:
     // One call per confirmed segment (a single Python message can carry
     // more than one — see run_live_transcribe.py's new_final_segments
     // array, split into individual emits here for a simpler C++ consumer).
@@ -58,7 +58,7 @@ signals:
     void process_error(QString message);
     void paused_changed(bool paused);
 
-private:
+   private:
     struct Impl;
     std::unique_ptr<Impl> d;
 };

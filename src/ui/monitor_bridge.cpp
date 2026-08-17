@@ -1,18 +1,18 @@
 #include "ui/monitor_bridge.hpp"
+
 #include "utils/logger.hpp"
 
 namespace mosaic {
 
-MonitorBridge::MonitorBridge(RecordManager*       recordMgr,
-                              const VideoSettings& videoSettings,
-                              QObject*             parent)
-    : QObject(parent), m_rm(recordMgr), m_videoSettings(videoSettings),
-      m_cameraCount(static_cast<int>(videoSettings.cameras.size()))
-{
+MonitorBridge::MonitorBridge(RecordManager* recordMgr, const VideoSettings& videoSettings,
+                             QObject* parent)
+    : QObject(parent),
+      m_rm(recordMgr),
+      m_videoSettings(videoSettings),
+      m_cameraCount(static_cast<int>(videoSettings.cameras.size())) {
     m_frameGens.resize(m_cameraCount, 0);
 
-    connect(m_rm, &RecordManager::recording_started, this,
-            [this](const QString& path) {
+    connect(m_rm, &RecordManager::recording_started, this, [this](const QString& path) {
         m_sessionPath = path;
         emit recordingChanged();
         emit sessionPathChanged();
@@ -20,35 +20,30 @@ MonitorBridge::MonitorBridge(RecordManager*       recordMgr,
 
     connect(m_rm, &RecordManager::recording_stopped, this,
             [this](const QString& /*path*/, int /*durationMs*/) {
-        emit recordingChanged();
-        emit elapsedMsChanged();
-    });
+                emit recordingChanged();
+                emit elapsedMsChanged();
+            });
 
     connect(m_rm, &RecordManager::elapsed_ms_changed, this,
-            [this](int /*ms*/) {
-        emit elapsedMsChanged();
-    });
+            [this](int /*ms*/) { emit elapsedMsChanged(); });
 
     connect(m_rm, &RecordManager::error_occurred, this,
-            [](const QString& msg) {
-        log_error(QString("[RecordManager] %1").arg(msg));
-    });
+            [](const QString& msg) { log_error(QString("[RecordManager] %1").arg(msg)); });
 }
 
 // ── Q_PROPERTY readers ─────────────────────────────────────────────────────
 
-bool         MonitorBridge::isRecording()      const { return m_rm->is_recording(); }
-int          MonitorBridge::elapsedMs()        const { return m_rm->elapsed_ms();   }
-int          MonitorBridge::cameraCount()      const { return m_cameraCount;         }
-QString      MonitorBridge::sessionPath()      const { return m_sessionPath;         }
-int          MonitorBridge::frameGen()         const { return m_frameGen;            }
-QVariantList MonitorBridge::frameGens()        const { return m_frameGens;           }
+bool MonitorBridge::isRecording() const { return m_rm->is_recording(); }
+int MonitorBridge::elapsedMs() const { return m_rm->elapsed_ms(); }
+int MonitorBridge::cameraCount() const { return m_cameraCount; }
+QString MonitorBridge::sessionPath() const { return m_sessionPath; }
+int MonitorBridge::frameGen() const { return m_frameGen; }
+QVariantList MonitorBridge::frameGens() const { return m_frameGens; }
 
 // ── Q_INVOKABLEs ───────────────────────────────────────────────────────────
 
 void MonitorBridge::startRecording() {
-    if (!m_rm->start())
-        log_warning("Recording could not start — check the log for details.");
+    if (!m_rm->start()) log_warning("Recording could not start — check the log for details.");
 }
 void MonitorBridge::stopRecording() { m_rm->stop(); }
 
@@ -75,12 +70,11 @@ void MonitorBridge::on_frame_preview(int cameraIndex, QImage frame) {
     m_feedProvider->update_frame(cameraIndex, frame);
 
     // Grow per-camera list if needed (handles cameras that open after construction).
-    if (cameraIndex >= m_frameGens.size())
-        m_frameGens.resize(cameraIndex + 1, 0);
+    if (cameraIndex >= m_frameGens.size()) m_frameGens.resize(cameraIndex + 1, 0);
     m_frameGens[cameraIndex] = m_frameGens[cameraIndex].toInt() + 1;
 
     ++m_frameGen;
-    emit frameGensChanged();  // per-camera first so QML reads the updated list
+    emit frameGensChanged(); // per-camera first so QML reads the updated list
     emit frameGenChanged();
 }
 

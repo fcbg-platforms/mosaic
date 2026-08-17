@@ -1,9 +1,10 @@
 #pragma once
-#include "analysis/pose_analysis_result.hpp"
 #include <QPointF>
 #include <QVector>
 #include <cstdint>
 #include <limits>
+
+#include "analysis/pose_analysis_result.hpp"
 
 namespace mosaic {
 
@@ -12,10 +13,10 @@ namespace mosaic {
 /// speedPxPerS is NaN for the first valid sample (no prior point to diff
 /// against); accelPxPerS2 is NaN for the first two.
 struct KinematicSample {
-    int64_t timestampNs  = 0;
-    QPointF position;      ///< px, post-smoothing
-    double  speedPxPerS  = std::numeric_limits<double>::quiet_NaN();
-    double  accelPxPerS2 = std::numeric_limits<double>::quiet_NaN();
+    int64_t timestampNs = 0;
+    QPointF position; ///< px, post-smoothing
+    double speedPxPerS  = std::numeric_limits<double>::quiet_NaN();
+    double accelPxPerS2 = std::numeric_limits<double>::quiet_NaN();
 };
 
 /// @brief Summary statistics over one compute_kinematics() call's samples.
@@ -28,7 +29,7 @@ struct KinematicStats {
 /// @brief Output of compute_kinematics() — per-sample series plus summary stats.
 struct KinematicsSeries {
     QVector<KinematicSample> samples;
-    KinematicStats            stats;
+    KinematicStats stats;
 };
 
 /// @brief Derives speed/acceleration for one keypoint of one subject from an
@@ -52,7 +53,7 @@ struct KinematicsSeries {
 ///      why avgSpeedPxPerS is time-weighted rather than a naive mean of
 ///      per-interval speeds.
 [[nodiscard]] KinematicsSeries compute_kinematics(const PoseAnalysisResult& result,
-                                                    int keypointIndex, int subjectIndex,
-                                                    int smoothingWindow);
+                                                  int keypointIndex, int subjectIndex,
+                                                  int smoothingWindow);
 
 } // namespace mosaic

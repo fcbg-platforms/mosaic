@@ -1,5 +1,5 @@
 #include "ui/record/record_settings_w.hpp"
-#include "utils/timestamp.hpp"
+
 #include <QCheckBox>
 #include <QDateTime>
 #include <QDesktopServices>
@@ -15,11 +15,13 @@
 #include <QToolButton>
 #include <QVBoxLayout>
 
+#include "utils/timestamp.hpp"
+
 namespace mosaic {
 
 struct RecordSettingsW::Impl {
     // Directory
-    QLineEdit* dirEdit    = nullptr;
+    QLineEdit* dirEdit = nullptr;
 
     // Channels
     QCheckBox* videoChk   = nullptr;
@@ -39,8 +41,7 @@ struct RecordSettingsW::Impl {
 };
 
 RecordSettingsW::RecordSettingsW(RecordSettings& settings, bool isAdmin, QWidget* parent)
-    : QWidget(parent), m_settings(settings), m_isAdmin(isAdmin), d(std::make_unique<Impl>())
-{
+    : QWidget(parent), m_settings(settings), m_isAdmin(isAdmin), d(std::make_unique<Impl>()) {
     auto* outerLay = new QVBoxLayout(this);
     outerLay->setContentsMargins(0, 0, 0, 0);
 
@@ -71,26 +72,27 @@ RecordSettingsW::~RecordSettingsW() = default;
 // ── Directory ──────────────────────────────────────────────────────────────
 
 void RecordSettingsW::build_directory_section(QVBoxLayout* parent) {
-    auto* box  = new QGroupBox("Output Directory");
-    auto* lay  = new QVBoxLayout(box);
+    auto* box = new QGroupBox("Output Directory");
+    auto* lay = new QVBoxLayout(box);
     lay->setSpacing(6);
 
     // Path row: text field + browse button
     auto* pathRow = new QHBoxLayout;
-    d->dirEdit = new QLineEdit(m_settings.directory);
+    d->dirEdit    = new QLineEdit(m_settings.directory);
     d->dirEdit->setPlaceholderText("./recordings");
     pathRow->addWidget(d->dirEdit, 1);
 
     auto* browseBtn = new QToolButton;
     browseBtn->setText("📁");
     browseBtn->setToolTip("Choose directory…");
-    browseBtn->setStyleSheet("QToolButton { font-size: 14px; padding: 2px 6px;"
-                             " background: #1a1a3a; border: 1px solid #353565;"
-                             " border-radius: 4px; }"
-                             "QToolButton:hover { background: #22224a; }");
-    connect(browseBtn, &QToolButton::clicked, this, [this]{
-        const QString dir = QFileDialog::getExistingDirectory(
-            this, "Select recording directory", m_settings.directory);
+    browseBtn->setStyleSheet(
+        "QToolButton { font-size: 14px; padding: 2px 6px;"
+        " background: #1a1a3a; border: 1px solid #353565;"
+        " border-radius: 4px; }"
+        "QToolButton:hover { background: #22224a; }");
+    connect(browseBtn, &QToolButton::clicked, this, [this] {
+        const QString dir = QFileDialog::getExistingDirectory(this, "Select recording directory",
+                                                              m_settings.directory);
         if (!dir.isEmpty()) {
             m_settings.directory = dir;
             d->dirEdit->setText(dir);
@@ -121,12 +123,11 @@ void RecordSettingsW::build_directory_section(QVBoxLayout* parent) {
     // Open directory shortcut
     auto* openBtn = new QPushButton("Open recordings folder");
     openBtn->setProperty("flat", true);
-    connect(openBtn, &QPushButton::clicked, this, [this]{
-        QDesktopServices::openUrl(QUrl::fromLocalFile(m_settings.directory));
-    });
+    connect(openBtn, &QPushButton::clicked, this,
+            [this] { QDesktopServices::openUrl(QUrl::fromLocalFile(m_settings.directory)); });
     lay->addWidget(openBtn, 0, Qt::AlignLeft);
 
-    connect(d->dirEdit, &QLineEdit::textEdited, this, [this](const QString& v){
+    connect(d->dirEdit, &QLineEdit::textEdited, this, [this](const QString& v) {
         m_settings.directory = v;
         refresh_preview();
         emit settings_changed();
@@ -153,12 +154,21 @@ void RecordSettingsW::build_channels_section(QVBoxLayout* parent) {
     d->audioChk   = make_ch("Audio  (microphone files)", m_settings.enableAudio);
     d->triggerChk = make_ch("Triggers  (event log file)", m_settings.enableTrigger);
 
-    connect(d->videoChk,   &QCheckBox::toggled, this, [this](bool v){
-        m_settings.enableVideo = v; refresh_preview(); emit settings_changed(); });
-    connect(d->audioChk,   &QCheckBox::toggled, this, [this](bool v){
-        m_settings.enableAudio = v; refresh_preview(); emit settings_changed(); });
-    connect(d->triggerChk, &QCheckBox::toggled, this, [this](bool v){
-        m_settings.enableTrigger = v; refresh_preview(); emit settings_changed(); });
+    connect(d->videoChk, &QCheckBox::toggled, this, [this](bool v) {
+        m_settings.enableVideo = v;
+        refresh_preview();
+        emit settings_changed();
+    });
+    connect(d->audioChk, &QCheckBox::toggled, this, [this](bool v) {
+        m_settings.enableAudio = v;
+        refresh_preview();
+        emit settings_changed();
+    });
+    connect(d->triggerChk, &QCheckBox::toggled, this, [this](bool v) {
+        m_settings.enableTrigger = v;
+        refresh_preview();
+        emit settings_changed();
+    });
 
     parent->addWidget(box);
 }
@@ -166,8 +176,8 @@ void RecordSettingsW::build_channels_section(QVBoxLayout* parent) {
 // ── Naming ─────────────────────────────────────────────────────────────────
 
 void RecordSettingsW::build_naming_section(QVBoxLayout* parent) {
-    auto* box  = new QGroupBox("File Naming");
-    auto* lay  = new QVBoxLayout(box);
+    auto* box = new QGroupBox("File Naming");
+    auto* lay = new QVBoxLayout(box);
     lay->setSpacing(8);
 
     // Helper: labelled text row
@@ -187,8 +197,8 @@ void RecordSettingsW::build_naming_section(QVBoxLayout* parent) {
     d->separator   = new QLineEdit(m_settings.separator);
     d->separator->setMaximumWidth(50);
 
-    make_row("Video name:",   d->videoBase);
-    make_row("Audio name:",   d->audioBase);
+    make_row("Video name:", d->videoBase);
+    make_row("Audio name:", d->audioBase);
     make_row("Trigger name:", d->triggerBase);
 
     auto* sepRow = new QHBoxLayout;
@@ -201,7 +211,8 @@ void RecordSettingsW::build_naming_section(QVBoxLayout* parent) {
     lay->addLayout(sepRow);
 
     // Timestamp line
-    auto* line = new QFrame; line->setFrameShape(QFrame::HLine);
+    auto* line = new QFrame;
+    line->setFrameShape(QFrame::HLine);
     lay->addWidget(line);
 
     d->tsChk = new QCheckBox("Add timestamp to filename");
@@ -219,29 +230,43 @@ void RecordSettingsW::build_naming_section(QVBoxLayout* parent) {
     lay->addLayout(fmtRow);
 
     // Format hint
-    auto* hint = new QLabel("Qt date format: yyyy=year  MM=month  dd=day  "
-                             "hh=hour  mm=min  ss=sec");
+    auto* hint = new QLabel(
+        "Qt date format: yyyy=year  MM=month  dd=day  "
+        "hh=hour  mm=min  ss=sec");
     hint->setWordWrap(true);
     hint->setProperty("role", "muted");
     lay->addWidget(hint);
 
     // Wire everything
-    auto refresh = [this]{ refresh_preview(); emit settings_changed(); };
-    connect(d->videoBase,   &QLineEdit::textEdited, this, [this, refresh](const QString& v){
-        m_settings.videoBasename = v; refresh(); });
-    connect(d->audioBase,   &QLineEdit::textEdited, this, [this, refresh](const QString& v){
-        m_settings.audioBasename = v; refresh(); });
-    connect(d->triggerBase, &QLineEdit::textEdited, this, [this, refresh](const QString& v){
-        m_settings.triggerBasename = v; refresh(); });
-    connect(d->separator,   &QLineEdit::textEdited, this, [this, refresh](const QString& v){
-        m_settings.separator = v; refresh(); });
-    connect(d->tsChk, &QCheckBox::toggled, this, [this, refresh](bool v){
+    auto refresh = [this] {
+        refresh_preview();
+        emit settings_changed();
+    };
+    connect(d->videoBase, &QLineEdit::textEdited, this, [this, refresh](const QString& v) {
+        m_settings.videoBasename = v;
+        refresh();
+    });
+    connect(d->audioBase, &QLineEdit::textEdited, this, [this, refresh](const QString& v) {
+        m_settings.audioBasename = v;
+        refresh();
+    });
+    connect(d->triggerBase, &QLineEdit::textEdited, this, [this, refresh](const QString& v) {
+        m_settings.triggerBasename = v;
+        refresh();
+    });
+    connect(d->separator, &QLineEdit::textEdited, this, [this, refresh](const QString& v) {
+        m_settings.separator = v;
+        refresh();
+    });
+    connect(d->tsChk, &QCheckBox::toggled, this, [this, refresh](bool v) {
         m_settings.addTimestamp = v;
         d->tsFormat->setEnabled(v);
         refresh();
     });
-    connect(d->tsFormat, &QLineEdit::textEdited, this, [this, refresh](const QString& v){
-        m_settings.timestampFormat = v; refresh(); });
+    connect(d->tsFormat, &QLineEdit::textEdited, this, [this, refresh](const QString& v) {
+        m_settings.timestampFormat = v;
+        refresh();
+    });
 
     parent->addWidget(box);
 }
@@ -264,26 +289,21 @@ void RecordSettingsW::build_preview_section(QVBoxLayout* parent) {
 }
 
 void RecordSettingsW::refresh_preview() {
-    const QString ts  = m_settings.addTimestamp
-        ? m_settings.separator + QDateTime::currentDateTime()
-              .toString(m_settings.timestampFormat)
-        : QString();
+    const QString ts = m_settings.addTimestamp
+                           ? m_settings.separator +
+                                 QDateTime::currentDateTime().toString(m_settings.timestampFormat)
+                           : QString();
 
-    const QString base = m_settings.directory.isEmpty()
-        ? "./recordings" : m_settings.directory;
+    const QString base = m_settings.directory.isEmpty() ? "./recordings" : m_settings.directory;
 
     QStringList lines;
     lines << "Session folder:  " + base + "/";
 
-    if (m_settings.enableVideo)
-        lines << "  " + m_settings.videoBasename + ts + ".mp4";
-    if (m_settings.enableAudio)
-        lines << "  " + m_settings.audioBasename + ts + ".wav";
-    if (m_settings.enableTrigger)
-        lines << "  " + m_settings.triggerBasename + ts + ".csv";
+    if (m_settings.enableVideo) lines << "  " + m_settings.videoBasename + ts + ".mp4";
+    if (m_settings.enableAudio) lines << "  " + m_settings.audioBasename + ts + ".wav";
+    if (m_settings.enableTrigger) lines << "  " + m_settings.triggerBasename + ts + ".csv";
 
-    if (lines.size() == 1)
-        lines << "  (no channels enabled)";
+    if (lines.size() == 1) lines << "  (no channels enabled)";
 
     d->preview->setPlainText(lines.join("\n"));
 }

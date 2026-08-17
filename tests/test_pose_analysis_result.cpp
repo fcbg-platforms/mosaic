@@ -1,7 +1,9 @@
-#include "analysis/pose_analysis_result.hpp"
 #include <gtest/gtest.h>
+
 #include <QFile>
 #include <QTemporaryDir>
+
+#include "analysis/pose_analysis_result.hpp"
 
 using mosaic::PoseAnalysisResult;
 

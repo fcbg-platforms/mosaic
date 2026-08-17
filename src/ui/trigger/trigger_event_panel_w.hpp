@@ -1,7 +1,8 @@
 #pragma once
-#include "trigger/trigger_types.hpp"
 #include <QWidget>
 #include <memory>
+
+#include "trigger/trigger_types.hpp"
 
 namespace mosaic {
 
@@ -32,16 +33,16 @@ class TriggerManager;
 /// clicking "Auto-scroll" re-enables it.
 class TriggerEventPanelW : public QWidget {
     Q_OBJECT
-public:
+   public:
     explicit TriggerEventPanelW(TriggerManager* manager, QWidget* parent = nullptr);
     ~TriggerEventPanelW() override;
 
     void clear();
 
-public slots:
+   public slots:
     void on_event_received(const mosaic::TriggerEvent& event);
 
-private:
+   private:
     void build_filter_bar();
     void build_table();
     void apply_filter();

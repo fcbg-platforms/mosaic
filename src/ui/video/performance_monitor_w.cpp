@@ -1,7 +1,5 @@
 #include "ui/video/performance_monitor_w.hpp"
-#include "analysis/pose_models.hpp"
-#include <algorithm>
-#include <limits>
+
 #include <QCheckBox>
 #include <QComboBox>
 #include <QFrame>
@@ -16,13 +14,17 @@
 #include <QTextEdit>
 #include <QTimer>
 #include <QVBoxLayout>
+#include <algorithm>
+#include <limits>
+
+#include "analysis/pose_models.hpp"
 
 namespace mosaic {
 
 // ── Mini horizontal fill bar ───────────────────────────────────────────────
 
 class FillBar : public QWidget {
-public:
+   public:
     explicit FillBar(QWidget* parent = nullptr) : QWidget(parent) {
         setFixedHeight(14);
         setMinimumWidth(60);
@@ -31,7 +33,8 @@ public:
         m_pct = std::clamp(pct, 0, 100);
         update();
     }
-protected:
+
+   protected:
     void paintEvent(QPaintEvent*) override {
         QPainter p(this);
         p.setRenderHint(QPainter::Antialiasing);
@@ -40,10 +43,10 @@ protected:
         p.setPen(QColor("#1e1e3a"));
         p.drawRoundedRect(bg, 3, 3);
         if (m_pct > 0) {
-            const double fillW = (bg.width() - 2) * m_pct / 100.0;
-            const QColor fillCol = m_pct > 80 ? QColor("#cc4444")
-                                 : m_pct > 50 ? QColor("#ccaa44")
-                                              : QColor("#44aacc");
+            const double fillW   = (bg.width() - 2) * m_pct / 100.0;
+            const QColor fillCol = m_pct > 80   ? QColor("#cc4444")
+                                   : m_pct > 50 ? QColor("#ccaa44")
+                                                : QColor("#44aacc");
             p.setBrush(fillCol);
             p.setPen(Qt::NoPen);
             p.drawRoundedRect(QRectF(1, 3, fillW, height() - 6), 2, 2);
@@ -53,48 +56,48 @@ protected:
         QFont font;
         font.setPixelSize(9);
         p.setFont(font);
-        p.drawText(QRectF(0, 0, width(), height()),
-                   Qt::AlignCenter, QString("%1%").arg(m_pct));
+        p.drawText(QRectF(0, 0, width(), height()), Qt::AlignCenter, QString("%1%").arg(m_pct));
     }
-private:
+
+   private:
     int m_pct{0};
 };
 
 // ── Camera row ─────────────────────────────────────────────────────────────
 
 struct CameraRow {
-    QLabel*   statusDot  = nullptr;
-    QLabel*   fpsLbl     = nullptr;
-    QLabel*   grabbedLbl = nullptr;
-    QLabel*   encodedLbl = nullptr;
-    QLabel*   droppedLbl = nullptr;
-    FillBar*  ringBar    = nullptr;
+    QLabel* statusDot  = nullptr;
+    QLabel* fpsLbl     = nullptr;
+    QLabel* grabbedLbl = nullptr;
+    QLabel* encodedLbl = nullptr;
+    QLabel* droppedLbl = nullptr;
+    FillBar* ringBar   = nullptr;
 };
 
 // ── Impl ───────────────────────────────────────────────────────────────────
 
 struct PerformanceMonitorW::Impl {
-    VideoManager*    videoMgr    = nullptr;
-    AudioManager*    audioMgr    = nullptr;
+    VideoManager* videoMgr       = nullptr;
+    AudioManager* audioMgr       = nullptr;
     AnalysisManager* analysisMgr = nullptr;
 
-    QTimer*         timer       = nullptr;
-    QGridLayout*    grid        = nullptr;
-    QWidget*        gridWidget  = nullptr;
+    QTimer* timer       = nullptr;
+    QGridLayout* grid   = nullptr;
+    QWidget* gridWidget = nullptr;
 
     // Summary / global labels
-    QLabel* recStatusLbl  = nullptr;
-    QLabel* totalEncLbl   = nullptr;
-    QLabel* totalDropLbl  = nullptr;
-    QLabel* audioLbl      = nullptr;
-    QLabel* syncSkewLbl   = nullptr;
+    QLabel* recStatusLbl = nullptr;
+    QLabel* totalEncLbl  = nullptr;
+    QLabel* totalDropLbl = nullptr;
+    QLabel* audioLbl     = nullptr;
+    QLabel* syncSkewLbl  = nullptr;
 
     // Analysis section
-    QPushButton* analysisToggleBtn = nullptr;
-    QComboBox*   modelCombo        = nullptr;
-    QTextEdit*   analysisLog       = nullptr;
-    QLabel*      analysisStatusLbl = nullptr;
-    int          logLineCount      = 0;
+    QPushButton* analysisToggleBtn    = nullptr;
+    QComboBox* modelCombo             = nullptr;
+    QTextEdit* analysisLog            = nullptr;
+    QLabel* analysisStatusLbl         = nullptr;
+    int logLineCount                  = 0;
     static constexpr int kMaxLogLines = 300;
 
     std::vector<CameraRow> cameraRows;
@@ -103,12 +106,9 @@ struct PerformanceMonitorW::Impl {
 
 // ── Construction ───────────────────────────────────────────────────────────
 
-PerformanceMonitorW::PerformanceMonitorW(VideoManager*    videoMgr,
-                                          AudioManager*    audioMgr,
-                                          AnalysisManager* analysisMgr,
-                                          QWidget*         parent)
-    : QWidget(parent), d(std::make_unique<Impl>())
-{
+PerformanceMonitorW::PerformanceMonitorW(VideoManager* videoMgr, AudioManager* audioMgr,
+                                         AnalysisManager* analysisMgr, QWidget* parent)
+    : QWidget(parent), d(std::make_unique<Impl>()) {
     d->videoMgr    = videoMgr;
     d->audioMgr    = audioMgr;
     d->analysisMgr = analysisMgr;
@@ -135,7 +135,7 @@ void PerformanceMonitorW::build_ui() {
     scroll->setFrameShape(QFrame::NoFrame);
     scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
 
-    auto* content = new QWidget;
+    auto* content    = new QWidget;
     auto* contentLay = new QVBoxLayout(content);
     contentLay->setContentsMargins(10, 10, 10, 10);
     contentLay->setSpacing(10);
@@ -147,18 +147,19 @@ void PerformanceMonitorW::build_ui() {
 
     // Column headers
     d->gridWidget = new QWidget;
-    d->grid = new QGridLayout(d->gridWidget);
+    d->grid       = new QGridLayout(d->gridWidget);
     d->grid->setContentsMargins(0, 0, 0, 0);
     d->grid->setSpacing(4);
-    d->grid->setColumnStretch(0, 0);  // status dot
-    d->grid->setColumnStretch(1, 0);  // camera label
-    d->grid->setColumnStretch(2, 1);  // fps
-    d->grid->setColumnStretch(3, 1);  // grabbed
-    d->grid->setColumnStretch(4, 1);  // encoded
-    d->grid->setColumnStretch(5, 1);  // dropped
-    d->grid->setColumnStretch(6, 2);  // ring fill
+    d->grid->setColumnStretch(0, 0); // status dot
+    d->grid->setColumnStretch(1, 0); // camera label
+    d->grid->setColumnStretch(2, 1); // fps
+    d->grid->setColumnStretch(3, 1); // grabbed
+    d->grid->setColumnStretch(4, 1); // encoded
+    d->grid->setColumnStretch(5, 1); // dropped
+    d->grid->setColumnStretch(6, 2); // ring fill
 
-    const auto headerStyle = "color: #44446a; font-size: 9px; font-weight: bold; letter-spacing: 1px;";
+    const auto headerStyle =
+        "color: #44446a; font-size: 9px; font-weight: bold; letter-spacing: 1px;";
     auto addHeader = [&](int col, const QString& text) {
         auto* lbl = new QLabel(text);
         lbl->setStyleSheet(headerStyle);
@@ -234,8 +235,7 @@ void PerformanceMonitorW::build_ui() {
             "  border-radius: 4px; padding: 4px 12px; color: #6666aa; font-size: 11px; }"
             "QPushButton:checked { background: #1a3a1a; border-color: #33aa55; color: #88ffaa; }"
             "QPushButton:hover { background: #14142a; border-color: #4444aa; color: #9999cc; }");
-        connect(d->analysisToggleBtn, &QPushButton::toggled, this,
-                [this](bool on) {
+        connect(d->analysisToggleBtn, &QPushButton::toggled, this, [this](bool on) {
             d->analysisMgr->set_auto_analyze(on);
             d->analysisToggleBtn->setText(on ? "■ Auto-analyse enabled" : "Enable auto-analyse");
         });
@@ -252,10 +252,8 @@ void PerformanceMonitorW::build_ui() {
         }
         d->modelCombo->setCurrentIndex(0);
         d->modelCombo->setFixedHeight(28);
-        connect(d->modelCombo, &QComboBox::currentIndexChanged, this,
-                [this](int idx) {
-            d->analysisMgr->set_model(
-                d->modelCombo->itemData(idx).toString());
+        connect(d->modelCombo, &QComboBox::currentIndexChanged, this, [this](int idx) {
+            d->analysisMgr->set_model(d->modelCombo->itemData(idx).toString());
         });
         topRow->addWidget(d->modelCombo, 1);
 
@@ -291,30 +289,28 @@ void PerformanceMonitorW::build_ui() {
         // Wire signals
         connect(d->analysisMgr, &AnalysisManager::analysis_started, this,
                 [this](const QString& path) {
-            d->analysisStatusLbl->setText(
-                QString("Status: <font color='#44cc66'>● Running</font>  →  %1").arg(path));
-            d->analysisStatusLbl->setTextFormat(Qt::RichText);
-        });
+                    d->analysisStatusLbl->setText(
+                        QString("Status: <font color='#44cc66'>● Running</font>  →  %1").arg(path));
+                    d->analysisStatusLbl->setTextFormat(Qt::RichText);
+                });
         connect(d->analysisMgr, &AnalysisManager::analysis_finished, this,
                 [this](const QString& /*path*/, bool success) {
-            d->analysisStatusLbl->setText(
-                success ? "Status: <font color='#44aaff'>✓ Finished</font>"
-                        : "Status: <font color='#cc4444'>✗ Error</font>");
-            d->analysisStatusLbl->setTextFormat(Qt::RichText);
-        });
+                    d->analysisStatusLbl->setText(
+                        success ? "Status: <font color='#44aaff'>✓ Finished</font>"
+                                : "Status: <font color='#cc4444'>✗ Error</font>");
+                    d->analysisStatusLbl->setTextFormat(Qt::RichText);
+                });
         connect(d->analysisMgr, &AnalysisManager::output_received, this,
                 [this](const QString& line) {
-            if (d->logLineCount >= Impl::kMaxLogLines) {
-                d->analysisLog->clear();
-                d->logLineCount = 0;
-            }
-            d->analysisLog->append(line);
-            ++d->logLineCount;
-        });
-        connect(d->analysisMgr, &AnalysisManager::setup_error, this,
-                [this](const QString& msg) {
-            d->analysisStatusLbl->setText(
-                "<font color='#cc4444'>⚠ Setup error — see log</font>");
+                    if (d->logLineCount >= Impl::kMaxLogLines) {
+                        d->analysisLog->clear();
+                        d->logLineCount = 0;
+                    }
+                    d->analysisLog->append(line);
+                    ++d->logLineCount;
+                });
+        connect(d->analysisMgr, &AnalysisManager::setup_error, this, [this](const QString& msg) {
+            d->analysisStatusLbl->setText("<font color='#cc4444'>⚠ Setup error — see log</font>");
             d->analysisStatusLbl->setTextFormat(Qt::RichText);
             d->analysisLog->append("<font color='#cc6644'>" + msg.toHtmlEscaped() + "</font>");
             d->analysisLog->setTextInteractionFlags(Qt::TextSelectableByMouse);
@@ -332,7 +328,7 @@ void PerformanceMonitorW::build_ui() {
 // ── Dynamic camera rows ────────────────────────────────────────────────────
 
 void PerformanceMonitorW::rebuild_camera_rows() {
-    const int count = d->videoMgr ? d->videoMgr->camera_count() : 0;
+    const int count    = d->videoMgr ? d->videoMgr->camera_count() : 0;
     d->lastCameraCount = count;
     d->cameraRows.clear();
 
@@ -341,7 +337,9 @@ void PerformanceMonitorW::rebuild_camera_rows() {
         for (int col = 0; col < d->grid->columnCount(); ++col) {
             auto* item = d->grid->itemAtPosition(d->grid->rowCount() - 1, col);
             if (item) {
-                if (item->widget()) { item->widget()->deleteLater(); }
+                if (item->widget()) {
+                    item->widget()->deleteLater();
+                }
                 d->grid->removeItem(item);
                 delete item;
             }
@@ -354,7 +352,7 @@ void PerformanceMonitorW::rebuild_camera_rows() {
 
     for (int idx = 0; idx < count; ++idx) {
         const int row = idx + 1;
-        auto& cr = d->cameraRows[static_cast<size_t>(idx)];
+        auto& cr      = d->cameraRows[static_cast<size_t>(idx)];
 
         cr.statusDot = new QLabel("●");
         cr.statusDot->setAlignment(Qt::AlignCenter);
@@ -394,7 +392,9 @@ void PerformanceMonitorW::rebuild_camera_rows() {
 // ── Tick ──────────────────────────────────────────────────────────────────
 
 void PerformanceMonitorW::on_tick() {
-    if (!d->videoMgr) { return; }
+    if (!d->videoMgr) {
+        return;
+    }
 
     const int count = d->videoMgr->camera_count();
 
@@ -407,25 +407,23 @@ void PerformanceMonitorW::on_tick() {
     // currently-running cameras for the live sync-skew indicator below.
     int64_t minElapsedNs = std::numeric_limits<int64_t>::max();
     int64_t maxElapsedNs = std::numeric_limits<int64_t>::min();
-    int     liveCams     = 0;
+    int liveCams         = 0;
 
     for (int idx = 0; idx < count; ++idx) {
         const auto stats = d->videoMgr->camera_stats(idx);
-        auto& cr = d->cameraRows[static_cast<size_t>(idx)];
+        auto& cr         = d->cameraRows[static_cast<size_t>(idx)];
 
-        cr.statusDot->setStyleSheet(
-            stats.grabberRunning ? "color: #44cc44;" : "color: #444444;");
+        cr.statusDot->setStyleSheet(stats.grabberRunning ? "color: #44cc44;" : "color: #444444;");
 
         cr.fpsLbl->setText(QString::number(stats.fps, 'f', 1));
 
-        auto fmt = [](int64_t n) {
-            return (n > 0) ? QString("%L1").arg(n) : QString("0");
-        };
+        auto fmt = [](int64_t n) { return (n > 0) ? QString("%L1").arg(n) : QString("0"); };
         cr.grabbedLbl->setText(fmt(stats.framesGrabbed));
         cr.encodedLbl->setText(fmt(stats.framesEncoded));
 
         if (stats.framesDropped > 0) {
-            cr.droppedLbl->setText(QString("<font color='#cc4444'>%L1</font>").arg(stats.framesDropped));
+            cr.droppedLbl->setText(
+                QString("<font color='#cc4444'>%L1</font>").arg(stats.framesDropped));
             cr.droppedLbl->setTextFormat(Qt::RichText);
         } else {
             cr.droppedLbl->setText("0");
@@ -443,14 +441,15 @@ void PerformanceMonitorW::on_tick() {
 
     if (d->syncSkewLbl) {
         if (liveCams >= 2) {
-            const double skewMs   = static_cast<double>(maxElapsedNs - minElapsedNs) / 1e6;
+            const double skewMs = static_cast<double>(maxElapsedNs - minElapsedNs) / 1e6;
             // Rough "1 frame period" reference at a nominal 30 fps tick.
-            const QString color   = skewMs <= 33.0  ? "#44cc44"
-                                   : skewMs <= 66.0  ? "#ccaa44"
-                                                      : "#cc4444";
-            d->syncSkewLbl->setText(
-                QString("<font color='%1'>%2 ms</font> (%3 cams)")
-                    .arg(color).arg(skewMs, 0, 'f', 1).arg(liveCams));
+            const QString color = skewMs <= 33.0   ? "#44cc44"
+                                  : skewMs <= 66.0 ? "#ccaa44"
+                                                   : "#cc4444";
+            d->syncSkewLbl->setText(QString("<font color='%1'>%2 ms</font> (%3 cams)")
+                                        .arg(color)
+                                        .arg(skewMs, 0, 'f', 1)
+                                        .arg(liveCams));
             d->syncSkewLbl->setTextFormat(Qt::RichText);
         } else {
             d->syncSkewLbl->setText("—");
@@ -461,14 +460,12 @@ void PerformanceMonitorW::on_tick() {
     // Update totals
     if (d->recStatusLbl) {
         const bool rec = d->videoMgr->is_recording();
-        d->recStatusLbl->setText(rec
-            ? "<font color='#ff6666'>● Recording</font>"
-            : "<font color='#444466'>■ Idle</font>");
+        d->recStatusLbl->setText(rec ? "<font color='#ff6666'>● Recording</font>"
+                                     : "<font color='#444466'>■ Idle</font>");
         d->recStatusLbl->setTextFormat(Qt::RichText);
     }
     if (d->totalEncLbl) {
-        d->totalEncLbl->setText(
-            QString("%L1 frames").arg(d->videoMgr->total_frames_encoded()));
+        d->totalEncLbl->setText(QString("%L1 frames").arg(d->videoMgr->total_frames_encoded()));
     }
     if (d->totalDropLbl) {
         const int64_t dropped = d->videoMgr->total_frames_dropped();
@@ -483,8 +480,7 @@ void PerformanceMonitorW::on_tick() {
     }
     if (d->audioLbl && d->audioMgr) {
         const int mics = d->audioMgr->recorder_count();
-        d->audioLbl->setText(QString("%1 recorder%2")
-            .arg(mics).arg(mics != 1 ? "s" : ""));
+        d->audioLbl->setText(QString("%1 recorder%2").arg(mics).arg(mics != 1 ? "s" : ""));
     }
 }
 

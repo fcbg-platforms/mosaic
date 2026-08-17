@@ -1,6 +1,5 @@
 #include "ui/trigger/serial_card_w.hpp"
-#include "trigger/serial_trigger.hpp"
-#include "trigger/trigger_types.hpp"
+
 #include <QCheckBox>
 #include <QComboBox>
 #include <QFormLayout>
@@ -12,11 +11,13 @@
 #include <QToolButton>
 #include <QVBoxLayout>
 
+#include "trigger/serial_trigger.hpp"
+#include "trigger/trigger_types.hpp"
+
 namespace mosaic {
 
 SerialCardW::SerialCardW(SerialTriggerConfig& config, int index, QWidget* parent)
-    : QWidget(parent), m_config(config), m_index(index)
-{
+    : QWidget(parent), m_config(config), m_index(index) {
     setObjectName("SerialCardW");
     setStyleSheet(R"(
         #SerialCardW {
@@ -64,20 +65,22 @@ void SerialCardW::build_header() {
 
     auto* expandBtn = new QToolButton;
     expandBtn->setText("▼");
-    expandBtn->setStyleSheet("QToolButton { background: transparent; border: none;"
-                             " color: #6666aa; font-size: 10px; }");
+    expandBtn->setStyleSheet(
+        "QToolButton { background: transparent; border: none;"
+        " color: #6666aa; font-size: 10px; }");
     expandBtn->setCursor(Qt::PointingHandCursor);
     connect(expandBtn, &QToolButton::clicked, this, &SerialCardW::toggle_expanded);
     m_expandBtn = expandBtn;
     topRow->addWidget(expandBtn);
 
-    auto* icon = new QLabel("⎋");  // serial/connector icon
+    auto* icon = new QLabel("⎋"); // serial/connector icon
     icon->setStyleSheet("font-size: 14px; background: transparent; color: #ccaa44;");
     topRow->addWidget(icon);
 
     m_nameLabel = new QLabel(m_config.name.isEmpty() ? "Serial Trigger" : m_config.name);
-    m_nameLabel->setStyleSheet("font-weight: bold; font-size: 12px;"
-                               " color: #c8c8e0; background: transparent;");
+    m_nameLabel->setStyleSheet(
+        "font-weight: bold; font-size: 12px;"
+        " color: #c8c8e0; background: transparent;");
     topRow->addWidget(m_nameLabel);
     topRow->addStretch();
 
@@ -93,17 +96,16 @@ void SerialCardW::build_header() {
         QToolButton:hover { color: #cc4444; }
     )");
     delBtn->setCursor(Qt::PointingHandCursor);
-    connect(delBtn, &QToolButton::clicked, this, [this]{
-        emit remove_requested(m_index);
-    });
+    connect(delBtn, &QToolButton::clicked, this, [this] { emit remove_requested(m_index); });
     topRow->addWidget(delBtn);
 
     outerLay->addLayout(topRow);
 
     // ── Summary row ───────────────────────────────────────────────────────
     m_summaryLabel = new QLabel;
-    m_summaryLabel->setStyleSheet("color: #5555aa; font-size: 10px; background: transparent;"
-                                  " margin-left: 24px;");
+    m_summaryLabel->setStyleSheet(
+        "color: #5555aa; font-size: 10px; background: transparent;"
+        " margin-left: 24px;");
     update_header_summary();
     outerLay->addWidget(m_summaryLabel);
 }
@@ -139,8 +141,11 @@ void SerialCardW::build_body() {
     portCombo->addItems(ports);
     if (!m_config.portName.isEmpty()) {
         const int idx = portCombo->findText(m_config.portName);
-        if (idx >= 0) { portCombo->setCurrentIndex(idx); }
-        else          { portCombo->setCurrentText(m_config.portName); }
+        if (idx >= 0) {
+            portCombo->setCurrentIndex(idx);
+        } else {
+            portCombo->setCurrentText(m_config.portName);
+        }
     }
     form->addRow("Port:", portCombo);
 
@@ -154,19 +159,23 @@ void SerialCardW::build_body() {
 
     // ── Data bits / parity / stop bits in one row ─────────────────────────
     auto* dataCombo = new QComboBox;
-    for (int db : {5, 6, 7, 8}) { dataCombo->addItem(QString::number(db), db); }
+    for (int db : {5, 6, 7, 8}) {
+        dataCombo->addItem(QString::number(db), db);
+    }
     dataCombo->setCurrentText(QString::number(m_config.dataBits));
     dataCombo->setFixedWidth(60);
 
     auto* parityCombo = new QComboBox;
-    for (const char* p : {"None", "Even", "Odd"}) { parityCombo->addItem(p); }
+    for (const char* p : {"None", "Even", "Odd"}) {
+        parityCombo->addItem(p);
+    }
     parityCombo->setCurrentText(m_config.parity);
     parityCombo->setFixedWidth(70);
 
     auto* stopCombo = new QComboBox;
-    stopCombo->addItem("1",   1.0);
+    stopCombo->addItem("1", 1.0);
     stopCombo->addItem("1.5", 1.5);
-    stopCombo->addItem("2",   2.0);
+    stopCombo->addItem("2", 2.0);
     stopCombo->setCurrentText(QString::number(m_config.stopBits));
     stopCombo->setFixedWidth(50);
 
@@ -181,12 +190,14 @@ void SerialCardW::build_body() {
 
     // ── Match mode ────────────────────────────────────────────────────────
     auto* matchCombo = new QComboBox;
-    matchCombo->addItem("Any byte",   "AnyByte");
-    matchCombo->addItem("Non-zero",   "NonZero");
+    matchCombo->addItem("Any byte", "AnyByte");
+    matchCombo->addItem("Non-zero", "NonZero");
     matchCombo->addItem("Exact byte", "Exact");
     {
         const int idx = matchCombo->findData(m_config.matchMode);
-        if (idx >= 0) { matchCombo->setCurrentIndex(idx); }
+        if (idx >= 0) {
+            matchCombo->setCurrentIndex(idx);
+        }
     }
     form->addRow("Match:", matchCombo);
 
@@ -197,9 +208,8 @@ void SerialCardW::build_body() {
 
     // ── Action ────────────────────────────────────────────────────────────
     auto* actionCombo = new QComboBox;
-    for (const TriggerAction act : {TriggerAction::Log,
-                                     TriggerAction::StartRecording,
-                                     TriggerAction::StopRecording}) {
+    for (const TriggerAction act :
+         {TriggerAction::Log, TriggerAction::StartRecording, TriggerAction::StopRecording}) {
         actionCombo->addItem(trigger_action_label(act), static_cast<int>(act));
     }
     actionCombo->setCurrentText(trigger_action_label(m_config.action));
@@ -208,49 +218,51 @@ void SerialCardW::build_body() {
     lay->addLayout(form);
 
     // ── Wire up ───────────────────────────────────────────────────────────
-    connect(nameEdit, &QLineEdit::textEdited, this, [this](const QString& v){
+    connect(nameEdit, &QLineEdit::textEdited, this, [this](const QString& v) {
         m_config.name = v;
-        if (m_nameLabel) { m_nameLabel->setText(v.isEmpty() ? "Serial Trigger" : v); }
+        if (m_nameLabel) {
+            m_nameLabel->setText(v.isEmpty() ? "Serial Trigger" : v);
+        }
         update_header_summary();
         emit config_changed();
     });
-    connect(enabledCk, &QCheckBox::toggled, this, [this](bool v){
+    connect(enabledCk, &QCheckBox::toggled, this, [this](bool v) {
         m_config.enabled = v;
         emit config_changed();
     });
-    connect(portCombo, &QComboBox::currentTextChanged, this, [this](const QString& v){
+    connect(portCombo, &QComboBox::currentTextChanged, this, [this](const QString& v) {
         m_config.portName = v;
         update_header_summary();
         emit config_changed();
     });
-    connect(baudCombo, &QComboBox::currentIndexChanged, this, [this, baudCombo](int idx){
+    connect(baudCombo, &QComboBox::currentIndexChanged, this, [this, baudCombo](int idx) {
         m_config.baudRate = baudCombo->itemData(idx).toInt();
         update_header_summary();
         emit config_changed();
     });
-    connect(dataCombo, &QComboBox::currentIndexChanged, this, [this, dataCombo](int idx){
+    connect(dataCombo, &QComboBox::currentIndexChanged, this, [this, dataCombo](int idx) {
         m_config.dataBits = dataCombo->itemData(idx).toInt();
         emit config_changed();
     });
-    connect(parityCombo, &QComboBox::currentTextChanged, this, [this](const QString& v){
+    connect(parityCombo, &QComboBox::currentTextChanged, this, [this](const QString& v) {
         m_config.parity = v;
         emit config_changed();
     });
-    connect(stopCombo, &QComboBox::currentIndexChanged, this, [this, stopCombo](int idx){
+    connect(stopCombo, &QComboBox::currentIndexChanged, this, [this, stopCombo](int idx) {
         m_config.stopBits = stopCombo->itemData(idx).toDouble();
         emit config_changed();
     });
     connect(matchCombo, &QComboBox::currentIndexChanged, this,
-            [this, matchCombo, matchValEdit](int idx){
-        m_config.matchMode = matchCombo->itemData(idx).toString();
-        matchValEdit->setEnabled(m_config.matchMode == "Exact");
-        emit config_changed();
-    });
-    connect(matchValEdit, &QLineEdit::textEdited, this, [this](const QString& v){
+            [this, matchCombo, matchValEdit](int idx) {
+                m_config.matchMode = matchCombo->itemData(idx).toString();
+                matchValEdit->setEnabled(m_config.matchMode == "Exact");
+                emit config_changed();
+            });
+    connect(matchValEdit, &QLineEdit::textEdited, this, [this](const QString& v) {
         m_config.matchValue = v;
         emit config_changed();
     });
-    connect(actionCombo, &QComboBox::currentIndexChanged, this, [this, actionCombo](int idx){
+    connect(actionCombo, &QComboBox::currentIndexChanged, this, [this, actionCombo](int idx) {
         m_config.action = static_cast<TriggerAction>(actionCombo->itemData(idx).toInt());
         emit config_changed();
     });
@@ -268,15 +280,19 @@ void SerialCardW::toggle_expanded() {
         anim->setStartValue(m_body->height());
         anim->setEndValue(0);
         connect(anim, &QAbstractAnimation::finished, m_body, &QWidget::hide);
-        if (btn) { btn->setText("▶"); }
+        if (btn) {
+            btn->setText("▶");
+        }
     } else {
         m_body->show();
         m_body->setMaximumHeight(0);
         anim->setStartValue(0);
         anim->setEndValue(m_body->sizeHint().height());
         connect(anim, &QAbstractAnimation::finished,
-                [this]{ m_body->setMaximumHeight(QWIDGETSIZE_MAX); });
-        if (btn) { btn->setText("▼"); }
+                [this] { m_body->setMaximumHeight(QWIDGETSIZE_MAX); });
+        if (btn) {
+            btn->setText("▼");
+        }
     }
     anim->start(QAbstractAnimation::DeleteWhenStopped);
     m_expanded = !m_expanded;
@@ -285,22 +301,25 @@ void SerialCardW::toggle_expanded() {
 // ── Public API ─────────────────────────────────────────────────────────────
 
 void SerialCardW::on_count_changed(int count) {
-    if (!m_counterLabel) { return; }
+    if (!m_counterLabel) {
+        return;
+    }
     m_counterLabel->setText(QString("%1 fires").arg(count));
 }
 
 void SerialCardW::set_index(int index) { m_index = index; }
 
 void SerialCardW::update_header_summary() {
-    if (!m_summaryLabel) { return; }
+    if (!m_summaryLabel) {
+        return;
+    }
     if (m_config.portName.isEmpty()) {
         m_summaryLabel->setText("No port selected");
     } else {
-        m_summaryLabel->setText(
-            QString("%1  @  %2 baud  —  %3")
-                .arg(m_config.portName)
-                .arg(m_config.baudRate)
-                .arg(trigger_action_label(m_config.action)));
+        m_summaryLabel->setText(QString("%1  @  %2 baud  —  %3")
+                                    .arg(m_config.portName)
+                                    .arg(m_config.baudRate)
+                                    .arg(trigger_action_label(m_config.action)));
     }
 }
 

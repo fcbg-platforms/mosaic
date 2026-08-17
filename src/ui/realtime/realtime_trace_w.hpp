@@ -18,7 +18,7 @@ namespace mosaic {
 // driving the dot moving over the video above it.
 class RealtimeTraceW : public QWidget {
     Q_OBJECT
-public:
+   public:
     explicit RealtimeTraceW(QWidget* parent = nullptr);
     ~RealtimeTraceW() override;
 
@@ -31,12 +31,12 @@ public:
     // from the previous selection never lingers.
     void clear();
 
-protected:
+   protected:
     void paintEvent(QPaintEvent*) override;
     void mouseMoveEvent(QMouseEvent*) override;
     void leaveEvent(QEvent*) override;
 
-private:
+   private:
     struct Impl;
     std::unique_ptr<Impl> d;
 };

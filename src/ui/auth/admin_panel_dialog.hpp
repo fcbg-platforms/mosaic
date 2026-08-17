@@ -1,7 +1,8 @@
 #pragma once
-#include "auth/profile_manager.hpp"
 #include <QDialog>
 #include <memory>
+
+#include "auth/profile_manager.hpp"
 
 namespace mosaic {
 
@@ -20,24 +21,23 @@ namespace mosaic {
 
 class AdminPanelDialog : public QDialog {
     Q_OBJECT
-public:
-    explicit AdminPanelDialog(ProfileManager& profileMgr,
-                               const QString&  adminUsername,
-                               QWidget*        parent = nullptr);
+   public:
+    explicit AdminPanelDialog(ProfileManager& profileMgr, const QString& adminUsername,
+                              QWidget* parent = nullptr);
     ~AdminPanelDialog() override;
 
     // Username the admin chose to launch MOSAIC as.  May be the admin's own
     // username or any other profile's username.
     [[nodiscard]] QString selected_username() const;
 
-protected:
+   protected:
     void keyPressEvent(QKeyEvent* event) override;
 
-private slots:
+   private slots:
     void on_profile_selected(const QString& username);
     void refresh_profile_list();
 
-private:
+   private:
     void build_ui();
     void build_profile_list(QWidget* parent);
     void build_detail_pane(QWidget* parent);

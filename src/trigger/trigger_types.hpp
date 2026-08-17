@@ -19,9 +19,12 @@ enum class TriggerAction : uint8_t {
 /// @brief Returns a short human-readable label for a TriggerAction.
 [[nodiscard]] inline QString trigger_action_label(TriggerAction a) noexcept {
     switch (a) {
-    case TriggerAction::Log:            return "Log";
-    case TriggerAction::StartRecording: return "Start Recording";
-    case TriggerAction::StopRecording:  return "Stop Recording";
+        case TriggerAction::Log:
+            return "Log";
+        case TriggerAction::StartRecording:
+            return "Start Recording";
+        case TriggerAction::StopRecording:
+            return "Stop Recording";
     }
     return "Log";
 }
@@ -29,11 +32,9 @@ enum class TriggerAction : uint8_t {
 /// @brief Parses a label string back to TriggerAction (case-insensitive).
 [[nodiscard]] inline TriggerAction trigger_action_from_label(const QString& s) noexcept {
     if (s == "Start Recording") return TriggerAction::StartRecording;
-    if (s == "Stop Recording")  return TriggerAction::StopRecording;
+    if (s == "Stop Recording") return TriggerAction::StopRecording;
     return TriggerAction::Log;
 }
-
-
 
 /// @brief A single timestamped event from any trigger source.
 ///
@@ -71,7 +72,7 @@ struct TriggerEvent {
     /// Optional numeric payload.
     /// - Keyboard / parallel rising edge: @c 1.0.
     /// - Parallel falling edge:           @c 0.0.
-    double  value = 0.0;
+    double value = 0.0;
 
     /// The action dispatched by this event.  Set by TriggerManager when routing.
     TriggerAction action = TriggerAction::Log;

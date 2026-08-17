@@ -1,10 +1,11 @@
 #pragma once
-#include "core/settings.hpp"
 #include <QLabel>
 #include <QLineEdit>
 #include <QWidget>
 #include <memory>
 #include <optional>
+
+#include "core/settings.hpp"
 
 namespace mosaic {
 
@@ -16,7 +17,7 @@ namespace mosaic {
 
 class CameraCardW : public QWidget {
     Q_OBJECT
-public:
+   public:
     explicit CameraCardW(CameraParameters& params, int index, QWidget* parent = nullptr);
     ~CameraCardW() override;
 
@@ -36,10 +37,10 @@ public:
     // VideoGrabber::action_command_capability()).
     void set_action_command_capability(std::optional<bool> supported);
 
-signals:
+   signals:
     void params_changed();
 
-private:
+   private:
     void build_header();
     void build_body();
     void build_image_tab(QWidget* tab);
@@ -50,7 +51,7 @@ private:
     void toggle_expanded();
 
     CameraParameters& m_params;
-    int  m_index;
+    int m_index;
     // Defaults to collapsed: camera settings are hardware-sensitive
     // (exposure/trigger/pixel-format) and pre-tuned for the room — starting
     // every card open invited accidental edits just from scrolling past it.
@@ -58,12 +59,12 @@ private:
     // card explicitly via its header arrow.
     bool m_expanded{false};
 
-    QWidget*   m_body{nullptr};
-    QWidget*   m_statusDot{nullptr};
-    QWidget*   m_expandBtn{nullptr};
-    QLabel*    m_nameLabel{nullptr};   // kept so set_index() can update it
-    QLineEdit* m_serialEdit{nullptr};  // kept so refresh() can update it
-    QLabel*    m_actionCapabilityLbl{nullptr}; // kept so set_action_command_capability() can update it
+    QWidget* m_body{nullptr};
+    QWidget* m_statusDot{nullptr};
+    QWidget* m_expandBtn{nullptr};
+    QLabel* m_nameLabel{nullptr};           // kept so set_index() can update it
+    QLineEdit* m_serialEdit{nullptr};       // kept so refresh() can update it
+    QLabel* m_actionCapabilityLbl{nullptr}; // kept so set_action_command_capability() can update it
 };
 
 } // namespace mosaic

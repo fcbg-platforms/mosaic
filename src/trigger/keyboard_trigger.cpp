@@ -1,21 +1,20 @@
 #include "trigger/keyboard_trigger.hpp"
-#include "utils/timestamp.hpp"
+
 #include <QApplication>
 #include <QEvent>
 #include <QKeyEvent>
 #include <QKeySequenceEdit>
 
+#include "utils/timestamp.hpp"
+
 namespace mosaic {
 
 KeyboardTrigger::KeyboardTrigger(KeyTriggerConfig& config, QObject* parent)
-    : QObject(parent), m_config(config)
-{
+    : QObject(parent), m_config(config) {
     reload_key_sequence();
 }
 
-KeyboardTrigger::~KeyboardTrigger() {
-    set_active(false);
-}
+KeyboardTrigger::~KeyboardTrigger() { set_active(false); }
 
 void KeyboardTrigger::set_active(bool active) {
     if (m_active == active) return;
@@ -58,7 +57,7 @@ bool KeyboardTrigger::eventFilter(QObject* /*obj*/, QEvent* event) {
     ev.value       = 0.0;
     emit triggered(ev);
 
-    return false;  // never consume — other widgets should still handle the key
+    return false; // never consume — other widgets should still handle the key
 }
 
 } // namespace mosaic

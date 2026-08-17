@@ -1,9 +1,11 @@
 #include "analysis/pose_analysis_result.hpp"
-#include "analysis/nearest_by_key.hpp"
+
 #include <QFile>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+
+#include "analysis/nearest_by_key.hpp"
 
 namespace mosaic {
 
@@ -21,7 +23,7 @@ PoseAnalysisResult PoseAnalysisResult::load(const QString& jsonPath) {
     }
 
     result.sourceVideo_ = root["source_video"].toString();
-    result.model_       = root["model"].toString();   // absent -> "" (older files)
+    result.model_       = root["model"].toString(); // absent -> "" (older files)
 
     for (const auto& kp : root["keypoint_names"].toArray()) {
         result.keypointNames_ << kp.toString();
@@ -52,9 +54,8 @@ PoseAnalysisResult PoseAnalysisResult::load(const QString& jsonPath) {
             const QJsonArray kps = subjObj["keypoints"].toArray();
             for (const auto& kp : kps) {
                 const QJsonArray xy = kp.toArray();
-                subject.keypoints << (xy.size() == 2
-                    ? QPointF(xy[0].toDouble(), xy[1].toDouble())
-                    : QPointF());
+                subject.keypoints << (xy.size() == 2 ? QPointF(xy[0].toDouble(), xy[1].toDouble())
+                                                     : QPointF());
             }
 
             for (const auto& vis : subjObj["visibilities"].toArray()) {
@@ -64,7 +65,7 @@ PoseAnalysisResult PoseAnalysisResult::load(const QString& jsonPath) {
             const QJsonArray bbox = subjObj["bbox_xyxy"].toArray();
             if (bbox.size() == 4) {
                 subject.bbox = QRectF(QPointF(bbox[0].toDouble(), bbox[1].toDouble()),
-                                       QPointF(bbox[2].toDouble(), bbox[3].toDouble()));
+                                      QPointF(bbox[2].toDouble(), bbox[3].toDouble()));
             }
 
             frame.subjects << subject;
@@ -79,7 +80,7 @@ PoseAnalysisResult PoseAnalysisResult::load(const QString& jsonPath) {
 
 const PoseFrame* PoseAnalysisResult::nearest_frame(int frameIndexEstimate) const {
     return nearest_by_key(frames_, frameIndexEstimate,
-                           [](const PoseFrame& f) { return f.frameIndex; });
+                          [](const PoseFrame& f) { return f.frameIndex; });
 }
 
 } // namespace mosaic

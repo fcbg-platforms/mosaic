@@ -1,12 +1,13 @@
 #pragma once
+#include <QMainWindow>
+#include <memory>
+
 #include "analysis/analysis_manager.hpp"
 #include "audio/audio_manager.hpp"
 #include "core/settings.hpp"
 #include "record/record_manager.hpp"
 #include "trigger/trigger_manager.hpp"
 #include "video/video_manager.hpp"
-#include <QMainWindow>
-#include <memory>
 
 namespace mosaic {
 
@@ -24,7 +25,7 @@ namespace mosaic {
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
-public:
+   public:
     // isAdmin/otherUserDirectories implement per-user recording access
     // control (item 27): a non-admin's session browser/Analysis
     // tab/Record-settings directory field are scoped to just their own
@@ -34,26 +35,20 @@ public:
     // (every other known profile's own recording folder, resolved once in
     // Application::initialize()) and their Record-settings directory field
     // stays fully editable.
-    explicit MainWindow(AppSettings&      settings,
-                        const QString&    username,
-                        TriggerManager*   triggerMgr,
-                        AudioManager*     audioMgr,
-                        VideoManager*     videoMgr,
-                        RecordManager*    recordMgr,
-                        AnalysisManager*  analysisMgr,
-                        bool              isAdmin = false,
-                        const QStringList& otherUserDirectories = {},
-                        QWidget*          parent = nullptr);
+    explicit MainWindow(AppSettings& settings, const QString& username, TriggerManager* triggerMgr,
+                        AudioManager* audioMgr, VideoManager* videoMgr, RecordManager* recordMgr,
+                        AnalysisManager* analysisMgr, bool isAdmin = false,
+                        const QStringList& otherUserDirectories = {}, QWidget* parent = nullptr);
     ~MainWindow() override;
 
-signals:
+   signals:
     // Emitted when the user chooses File → Switch profile.
     void switch_profile_requested();
 
-protected:
+   protected:
     void closeEvent(QCloseEvent* event) override;
 
-private:
+   private:
     void build_menu_bar();
     void build_central_widget();
     void build_status_bar();

@@ -1,8 +1,10 @@
 #include "audio/audio_recorder.hpp"
-#include "audio/audio_envelope.hpp"
-#include "utils/logger.hpp"
+
 #include <QAudioDevice>
 #include <QMediaDevices>
+
+#include "audio/audio_envelope.hpp"
+#include "utils/logger.hpp"
 
 namespace mosaic {
 
@@ -12,11 +14,10 @@ static QAudioDevice find_device(const QString& deviceId) {
     if (!deviceId.isEmpty()) {
         const QByteArray target = deviceId.toLatin1();
         for (const QAudioDevice& dev : QMediaDevices::audioInputs()) {
-            if (dev.id() == target)
-                return dev;
+            if (dev.id() == target) return dev;
         }
-        log_warning(QString("[AudioRecorder] Device '%1' not found — using default.")
-                        .arg(deviceId));
+        log_warning(
+            QString("[AudioRecorder] Device '%1' not found — using default.").arg(deviceId));
     }
     return QMediaDevices::defaultAudioInput();
 }
@@ -72,13 +73,13 @@ bool AudioRecorder::start(const QString& filePath) {
     // offers and convert every buffer to 16-bit PCM ourselves in
     // on_data_ready() (see m_captureFormat).
     if (!device.isFormatSupported(fmt)) {
-        QAudioFormat preferred = device.preferredFormat();
+        QAudioFormat preferred    = device.preferredFormat();
         QAudioFormat int16Attempt = preferred;
         int16Attempt.setSampleFormat(QAudioFormat::Int16);
         if (device.isFormatSupported(int16Attempt)) {
             fmt = int16Attempt;
             log_warning(QString("[AudioRecorder] Requested format not supported by '%1'. "
-                                 "Falling back to %2 Hz, %3 ch (16-bit PCM).")
+                                "Falling back to %2 Hz, %3 ch (16-bit PCM).")
                             .arg(device.description())
                             .arg(fmt.sampleRate())
                             .arg(fmt.channelCount()));
@@ -86,16 +87,17 @@ bool AudioRecorder::start(const QString& filePath) {
                    preferred.sampleFormat() == QAudioFormat::Int32) {
             fmt = preferred;
             log_warning(QString("[AudioRecorder] '%1' has no 16-bit PCM mode — capturing "
-                                 "natively at %2 Hz, %3 ch (%4) and converting to 16-bit PCM.")
+                                "natively at %2 Hz, %3 ch (%4) and converting to 16-bit PCM.")
                             .arg(device.description())
                             .arg(fmt.sampleRate())
                             .arg(fmt.channelCount())
                             .arg(fmt.sampleFormat() == QAudioFormat::Float ? "32-bit float"
-                                                                            : "32-bit int"));
+                                                                           : "32-bit int"));
         } else {
-            const QString msg = QString("Device '%1' offers no 16-bit, 32-bit float, or "
-                                         "32-bit int capture format Mosaic can convert.")
-                                     .arg(device.description());
+            const QString msg = QString(
+                                    "Device '%1' offers no 16-bit, 32-bit float, or "
+                                    "32-bit int capture format Mosaic can convert.")
+                                    .arg(device.description());
             log_error(msg);
             emit error_occurred(msg);
             return false;
@@ -122,13 +124,12 @@ bool AudioRecorder::start(const QString& filePath) {
 
     // 3. Create and start QAudioSource.
     m_source = std::make_unique<QAudioSource>(device, fmt, this);
-    m_source->setBufferSize(
-        fmt.sampleRate() * fmt.channelCount() * fmt.bytesPerSample() / 10);  // ~100 ms buffer
+    m_source->setBufferSize(fmt.sampleRate() * fmt.channelCount() * fmt.bytesPerSample() /
+                            10); // ~100 ms buffer
 
-    m_ioDevice = m_source->start();  // pull mode
+    m_ioDevice = m_source->start(); // pull mode
     if (!m_ioDevice || m_source->error() != QAudio::NoError) {
-        const QString msg = QString("Failed to open audio input '%1'.")
-                                .arg(device.description());
+        const QString msg = QString("Failed to open audio input '%1'.").arg(device.description());
         log_error(msg);
         emit error_occurred(msg);
         if (!m_monitorOnly) m_writer.close();
@@ -136,12 +137,10 @@ bool AudioRecorder::start(const QString& filePath) {
         return false;
     }
 
-    connect(m_ioDevice, &QIODevice::readyRead,
-            this, &AudioRecorder::on_data_ready);
+    connect(m_ioDevice, &QIODevice::readyRead, this, &AudioRecorder::on_data_ready);
 
     log_info(QString("[AudioRecorder] Started: '%1' → %2")
-                 .arg(device.description(),
-                      m_monitorOnly ? "(monitor only)" : filePath));
+                 .arg(device.description(), m_monitorOnly ? "(monitor only)" : filePath));
     return true;
 }
 
@@ -171,8 +170,7 @@ void AudioRecorder::on_data_ready() {
         data = convert_int32_to_int16(data.constData(), data.size());
     }
 
-    if (!m_monitorOnly)
-        m_writer.write(data.constData(), data.size());
+    if (!m_monitorOnly) m_writer.write(data.constData(), data.size());
 
     emit raw_pcm_ready(data, m_sampleRate, m_channels);
 
@@ -186,10 +184,10 @@ void AudioRecorder::on_data_ready() {
 
 // ── Accessors ──────────────────────────────────────────────────────────────
 
-bool   AudioRecorder::is_recording() const {
+bool AudioRecorder::is_recording() const {
     return m_monitorOnly ? (m_source != nullptr) : m_writer.is_open();
 }
-float  AudioRecorder::level_rms()    const { return m_level.load(std::memory_order_relaxed); }
+float AudioRecorder::level_rms() const { return m_level.load(std::memory_order_relaxed); }
 double AudioRecorder::duration_sec() const { return m_writer.duration_sec(); }
 
 } // namespace mosaic

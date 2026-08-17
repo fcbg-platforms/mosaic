@@ -1,9 +1,11 @@
 #include "analysis/expression_result.hpp"
-#include "analysis/nearest_by_key.hpp"
+
 #include <QFile>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+
+#include "analysis/nearest_by_key.hpp"
 
 namespace mosaic {
 
@@ -49,7 +51,7 @@ ExpressionResult ExpressionResult::load(const QString& jsonPath) {
             const QJsonArray bbox = subjObj["bbox_xyxy"].toArray();
             if (bbox.size() == 4) {
                 subject.bbox = QRectF(QPointF(bbox[0].toDouble(), bbox[1].toDouble()),
-                                       QPointF(bbox[2].toDouble(), bbox[3].toDouble()));
+                                      QPointF(bbox[2].toDouble(), bbox[3].toDouble()));
             }
 
             for (const auto& score : subjObj["blendshape_scores"].toArray()) {
@@ -85,7 +87,7 @@ ExpressionResult ExpressionResult::load(const QString& jsonPath) {
 
 const ExpressionFrame* ExpressionResult::nearest_frame(int frameIndexEstimate) const {
     return nearest_by_key(frames_, frameIndexEstimate,
-                           [](const ExpressionFrame& f) { return f.frameIndex; });
+                          [](const ExpressionFrame& f) { return f.frameIndex; });
 }
 
 } // namespace mosaic

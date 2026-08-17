@@ -1,9 +1,10 @@
 #pragma once
-#include "core/settings.hpp"
-#include "video/video_frame.hpp"
 #include <QImage>
 #include <QObject>
 #include <memory>
+
+#include "core/settings.hpp"
+#include "video/video_frame.hpp"
 
 namespace mosaic {
 
@@ -38,12 +39,11 @@ namespace mosaic {
 /// @see CalibrationData, VideoFrame, CalibrationW
 class CalibrationManager : public QObject {
     Q_OBJECT
-public:
-
+   public:
     /// @brief Checkerboard geometry parameters.
     struct BoardSpec {
-        int    cols         = 9;    ///< Number of *inner* corner columns.
-        int    rows         = 6;    ///< Number of *inner* corner rows.
+        int cols            = 9;    ///< Number of *inner* corner columns.
+        int rows            = 6;    ///< Number of *inner* corner rows.
         double squareSizeMm = 25.0; ///< Physical side length of one square, in mm.
     };
 
@@ -98,7 +98,7 @@ public:
     /// @returns @c true if a valid calibration result is available.
     [[nodiscard]] bool has_result() const;
 
-signals:
+   signals:
     /// Emitted after each call to feed_frame().
     /// @param viewIndex  Running index of this detection attempt.
     /// @param found      @c true if all corners were detected and the view was accepted.
@@ -116,7 +116,7 @@ signals:
     /// @param success   @c true if calibration converged successfully.
     void calibration_done(double rmsError, bool success);
 
-private:
+   private:
     struct Impl;
     std::unique_ptr<Impl> d;
 };

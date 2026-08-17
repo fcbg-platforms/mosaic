@@ -1,8 +1,9 @@
 #pragma once
-#include "core/settings.hpp"
-#include "trigger/trigger_types.hpp"
 #include <QObject>
 #include <memory>
+
+#include "core/settings.hpp"
+#include "trigger/trigger_types.hpp"
 
 namespace mosaic {
 
@@ -24,17 +25,16 @@ namespace mosaic {
 
 class ParallelPortTrigger : public QObject {
     Q_OBJECT
-public:
-    explicit ParallelPortTrigger(const ParallelPortConfig& config,
-                                  QObject* parent = nullptr);
+   public:
+    explicit ParallelPortTrigger(const ParallelPortConfig& config, QObject* parent = nullptr);
     ~ParallelPortTrigger() override;
 
     // Loads InpOut32 and starts the polling timer.
     [[nodiscard]] bool start();
-    void               stop();
+    void stop();
 
-    [[nodiscard]] bool is_active()       const;
-    [[nodiscard]] int  events_fired()    const;
+    [[nodiscard]] bool is_active() const;
+    [[nodiscard]] int events_fired() const;
 
     // Drives the Control register's INIT pin (bit 2, portAddr+2) high or low
     // — physically separate pins from the Data register this class reads,
@@ -54,11 +54,11 @@ public:
     // bookkeeping, since portTriggers only contains *enabled* ports.
     [[nodiscard]] const ParallelPortConfig& config() const;
 
-signals:
+   signals:
     void triggered(mosaic::TriggerEvent event);
     void error_occurred(QString message);
 
-private:
+   private:
     struct Impl;
     std::unique_ptr<Impl> d;
 };

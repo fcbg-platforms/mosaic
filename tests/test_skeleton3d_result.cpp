@@ -1,7 +1,9 @@
-#include "analysis/skeleton3d_result.hpp"
 #include <gtest/gtest.h>
+
 #include <QFile>
 #include <QTemporaryDir>
+
+#include "analysis/skeleton3d_result.hpp"
 
 using mosaic::Skeleton3DResult;
 
@@ -195,8 +197,8 @@ TEST(Skeleton3DResult, NearestFrameHandlesGapsAndBoundaries) {
     EXPECT_EQ(result.nearest_frame(9999999999)->tick, 2);
 
     // Mid-gap exact ties resolve to the earlier frame.
-    EXPECT_EQ(result.nearest_frame(1020000000)->tick, 0);   // midpoint of tick 0/1
-    EXPECT_EQ(result.nearest_frame(1060000000)->tick, 1);   // midpoint of tick 1/2
+    EXPECT_EQ(result.nearest_frame(1020000000)->tick, 0); // midpoint of tick 0/1
+    EXPECT_EQ(result.nearest_frame(1060000000)->tick, 1); // midpoint of tick 1/2
 }
 
 TEST(Skeleton3DResult, NearestFrameOnEmptyResultReturnsNull) {

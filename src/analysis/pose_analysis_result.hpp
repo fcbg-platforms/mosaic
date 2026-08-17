@@ -12,11 +12,11 @@ namespace mosaic {
 /// One detected subject's keypoints within a single analysed frame.
 /// Mirrors run_pose.py's _result_to_dict() "subjects" entries exactly.
 struct PoseSubject {
-    int               subjectId  = -1;
-    double            confidence = 0.0;
-    QVector<QPointF>  keypoints;      ///< Pixel coordinates, one per keypoint name.
-    QVector<double>   visibilities;   ///< 0-1, same order as keypoints.
-    QRectF            bbox;           ///< bbox_xyxy.
+    int subjectId     = -1;
+    double confidence = 0.0;
+    QVector<QPointF> keypoints;   ///< Pixel coordinates, one per keypoint name.
+    QVector<double> visibilities; ///< 0-1, same order as keypoints.
+    QRectF bbox;                  ///< bbox_xyxy.
 };
 
 /// Shared visibility threshold for "trust this keypoint" decisions — used
@@ -35,9 +35,9 @@ inline bool is_keypoint_visible(const PoseSubject& subject, int keypointIndex) {
 
 /// One analysed frame. Mirrors run_pose.py's per-frame JSON object.
 struct PoseFrame {
-    int                 frameIndex  = 0;
-    int64_t             timestampNs = 0;
-    int                 cameraIndex = 0;
+    int frameIndex      = 0;
+    int64_t timestampNs = 0;
+    int cameraIndex     = 0;
     QVector<PoseSubject> subjects;
 };
 
@@ -51,7 +51,7 @@ struct PoseFrame {
 ///   if (result.is_valid()) { ... }
 /// @endcode
 class PoseAnalysisResult {
-public:
+   public:
     PoseAnalysisResult() = default;
 
     /// Parses jsonPath. Returns a default-constructed (is_valid() == false)
@@ -66,7 +66,11 @@ public:
     /// this camera's footage for the whole session — callers use this to
     /// tell that case apart from "hasn't been analyzed yet".
     [[nodiscard]] bool has_any_detections() const {
-        for (const auto& f : frames_) { if (!f.subjects.isEmpty()) { return true; } }
+        for (const auto& f : frames_) {
+            if (!f.subjects.isEmpty()) {
+                return true;
+            }
+        }
         return false;
     }
 
@@ -86,13 +90,13 @@ public:
     /// search, not a linear scan. Returns nullptr if there are no frames.
     [[nodiscard]] const PoseFrame* nearest_frame(int frameIndexEstimate) const;
 
-private:
-    bool                     valid_ = false;
-    QString                  sourceVideo_;
-    QString                  model_;
-    QStringList              keypointNames_;
+   private:
+    bool valid_ = false;
+    QString sourceVideo_;
+    QString model_;
+    QStringList keypointNames_;
     QVector<QPair<int, int>> skeletonEdges_;
-    QVector<PoseFrame>       frames_;
+    QVector<PoseFrame> frames_;
 };
 
 } // namespace mosaic

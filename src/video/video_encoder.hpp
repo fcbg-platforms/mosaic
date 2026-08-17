@@ -1,9 +1,10 @@
 #pragma once
+#include <QThread>
+#include <memory>
+
 #include "utils/ring_buffer.hpp"
 #include "video/frame_timestamp_writer.hpp"
 #include "video/video_frame.hpp"
-#include <QThread>
-#include <memory>
 
 namespace mosaic {
 
@@ -22,40 +23,39 @@ namespace mosaic {
 
 class VideoEncoder : public QThread {
     Q_OBJECT
-public:
+   public:
     struct Config {
-        int     cameraIndex  = 0;
-        QString outputPath;          // .mp4 file
-        QString timestampPath;       // timestamps_camN.csv
-        QString codec        = "h264_nvenc";
-        QString preset       = "p4";
-        int     bitrate      = 5000; // kbit/s  (GPU encoder)
-        int     crf          = 23;   // quality  (CPU encoder, 0=lossless, 51=worst)
-        int     width        = 1920;
-        int     height       = 1080;
-        double  fps          = 30.0;
+        int cameraIndex = 0;
+        QString outputPath;    // .mp4 file
+        QString timestampPath; // timestamps_camN.csv
+        QString codec  = "h264_nvenc";
+        QString preset = "p4";
+        int bitrate    = 5000; // kbit/s  (GPU encoder)
+        int crf        = 23;   // quality  (CPU encoder, 0=lossless, 51=worst)
+        int width      = 1920;
+        int height     = 1080;
+        double fps     = 30.0;
     };
 
-    explicit VideoEncoder(const Config&                           cfg,
-                          RingBuffer<std::shared_ptr<VideoFrame>>& frameBuffer,
-                          QObject*                                parent = nullptr);
+    explicit VideoEncoder(const Config& cfg, RingBuffer<std::shared_ptr<VideoFrame>>& frameBuffer,
+                          QObject* parent = nullptr);
     ~VideoEncoder() override;
 
     void start_encoding();
-    void stop_encoding();   // sets stop flag; call wait() to join
+    void stop_encoding(); // sets stop flag; call wait() to join
 
     [[nodiscard]] int64_t frames_encoded() const;
     [[nodiscard]] int64_t frames_dropped() const;
 
-signals:
+   signals:
     void encoding_started(int cameraIndex);
     void encoding_stopped(int cameraIndex, int64_t totalFrames);
     void encoding_error(int cameraIndex, QString message);
 
-protected:
+   protected:
     void run() override;
 
-private:
+   private:
     void run_ffmpeg_loop();
     void run_stub_loop();
 

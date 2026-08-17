@@ -1,5 +1,5 @@
 #include "auth/profile_manager.hpp"
-#include "utils/logger.hpp"
+
 #include <QCryptographicHash>
 #include <QDateTime>
 #include <QDir>
@@ -9,8 +9,10 @@
 #include <QJsonObject>
 #include <QPasswordDigestor>
 #include <QRandomGenerator>
-#include <QStandardPaths>
 #include <QRegularExpression>
+#include <QStandardPaths>
+
+#include "utils/logger.hpp"
 
 namespace mosaic {
 
@@ -21,22 +23,21 @@ static constexpr int k_salt_bytes        = 32;
 // Accent palette — vivid enough to show clearly on the dark (#09091a) background.
 // White initials need at least ~40% lightness; these are tuned for that.
 static constexpr std::array k_accents = {
-    "#5566dd",  // indigo-blue
-    "#dd5566",  // rose-red
-    "#33bb88",  // teal-green
-    "#dd8833",  // amber
-    "#33aacc",  // cyan
-    "#cc44aa",  // magenta
-    "#88aa33",  // olive-green
-    "#6644cc",  // violet
+    "#5566dd", // indigo-blue
+    "#dd5566", // rose-red
+    "#33bb88", // teal-green
+    "#dd8833", // amber
+    "#33aacc", // cyan
+    "#cc44aa", // magenta
+    "#88aa33", // olive-green
+    "#6644cc", // violet
 };
 
 struct ProfileManager::Impl {
     std::vector<Profile> profiles;
 };
 
-ProfileManager::ProfileManager(QObject* parent)
-    : QObject(parent), d(std::make_unique<Impl>()) {}
+ProfileManager::ProfileManager(QObject* parent) : QObject(parent), d(std::make_unique<Impl>()) {}
 
 ProfileManager::~ProfileManager() = default;
 
@@ -87,10 +88,10 @@ void ProfileManager::load() {
         prof.salt         = obj["salt"].toString();
         prof.passwordHash = obj["password_hash"].toString();
         prof.lastLogin    = QDateTime::fromString(obj["last_login"].toString(), Qt::ISODate);
-        prof.created      = QDateTime::fromString(obj["created"].toString(),    Qt::ISODate);
-        prof.role         = (obj["role"].toString() == "admin")
-                                ? Profile::Role::Admin : Profile::Role::User;
-        prof.institution  = obj["institution"].toString();
+        prof.created      = QDateTime::fromString(obj["created"].toString(), Qt::ISODate);
+        prof.role =
+            (obj["role"].toString() == "admin") ? Profile::Role::Admin : Profile::Role::User;
+        prof.institution = obj["institution"].toString();
         d->profiles.push_back(std::move(prof));
     }
 
@@ -105,22 +106,23 @@ bool ProfileManager::save() const {
     QJsonArray arr;
     for (const auto& prof : d->profiles) {
         arr.append(QJsonObject{
-            {"username",      prof.username},
-            {"display_name",  prof.displayName},
-            {"initials",      prof.initials},
-            {"accent",        prof.accentColour},
-            {"salt",          prof.salt},
+            {"username", prof.username},
+            {"display_name", prof.displayName},
+            {"initials", prof.initials},
+            {"accent", prof.accentColour},
+            {"salt", prof.salt},
             {"password_hash", prof.passwordHash},
-            {"last_login",    prof.lastLogin.toString(Qt::ISODate)},
-            {"created",       prof.created.toString(Qt::ISODate)},
-            {"role",          prof.role == Profile::Role::Admin ? "admin" : "user"},
-            {"institution",   prof.institution},
+            {"last_login", prof.lastLogin.toString(Qt::ISODate)},
+            {"created", prof.created.toString(Qt::ISODate)},
+            {"role", prof.role == Profile::Role::Admin ? "admin" : "user"},
+            {"institution", prof.institution},
         });
     }
 
     QFile file(path);
     if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
-        log_error(QString("[ProfileManager] Cannot write profiles.json: %1").arg(file.errorString()));
+        log_error(
+            QString("[ProfileManager] Cannot write profiles.json: %1").arg(file.errorString()));
         return false;
     }
     file.write(QJsonDocument(arr).toJson(QJsonDocument::Indented));
@@ -137,7 +139,9 @@ bool ProfileManager::has_profile(const QString& username) const {
 
 const Profile* ProfileManager::find(const QString& username) const {
     for (const auto& prof : d->profiles) {
-        if (prof.username == username) { return &prof; }
+        if (prof.username == username) {
+            return &prof;
+        }
     }
     return nullptr;
 }
@@ -146,17 +150,15 @@ const Profile* ProfileManager::find(const QString& username) const {
 
 QString ProfileManager::hash_password(const QString& password, const QByteArray& salt) {
     const QByteArray key = QPasswordDigestor::deriveKeyPbkdf2(
-        QCryptographicHash::Sha256,
-        password.toUtf8(),
-        salt,
-        k_pbkdf2_iterations,
-        k_key_bytes);
+        QCryptographicHash::Sha256, password.toUtf8(), salt, k_pbkdf2_iterations, k_key_bytes);
     return QString::fromLatin1(key.toHex());
 }
 
 QString ProfileManager::generate_initials(const QString& displayName) {
     const QStringList parts = displayName.trimmed().split(' ', Qt::SkipEmptyParts);
-    if (parts.isEmpty()) { return "??"; }
+    if (parts.isEmpty()) {
+        return "??";
+    }
     if (parts.size() == 1) {
         return parts[0].left(2).toUpper();
     }
@@ -171,16 +173,17 @@ QString ProfileManager::next_accent_colour(int profileIndex) {
 
 bool ProfileManager::has_admin() const {
     for (const auto& prof : d->profiles) {
-        if (prof.is_admin()) { return true; }
+        if (prof.is_admin()) {
+            return true;
+        }
     }
     return false;
 }
 
-ProfileManager::RegisterResult
-ProfileManager::register_profile(const QString&  username,
-                                  const QString&  displayName,
-                                  const QString&  password,
-                                  Profile::Role   role) {
+ProfileManager::RegisterResult ProfileManager::register_profile(const QString& username,
+                                                                const QString& displayName,
+                                                                const QString& password,
+                                                                Profile::Role role) {
     // Validate username: 3–32 lowercase alphanumeric + underscore.
     static const QRegularExpression re("^[a-z0-9_]{3,32}$");
     if (!re.match(username).hasMatch()) {
@@ -197,9 +200,8 @@ ProfileManager::register_profile(const QString&  username,
 
     // Generate salt and hash.
     QByteArray salt(k_salt_bytes, '\0');
-    QRandomGenerator::global()->fillRange(
-        reinterpret_cast<quint32*>(salt.data()),
-        static_cast<qsizetype>(k_salt_bytes / sizeof(quint32)));
+    QRandomGenerator::global()->fillRange(reinterpret_cast<quint32*>(salt.data()),
+                                          static_cast<qsizetype>(k_salt_bytes / sizeof(quint32)));
 
     Profile prof;
     prof.username     = username;
@@ -226,8 +228,12 @@ ProfileManager::register_profile(const QString&  username,
 
 bool ProfileManager::verify(const QString& username, const QString& password) const {
     const Profile* prof = find(username);
-    if (!prof) { return false; }
-    if (!prof->has_password()) { return true; }           // no password set — always pass
+    if (!prof) {
+        return false;
+    }
+    if (!prof->has_password()) {
+        return true;
+    } // no password set — always pass
     const QByteArray salt = QByteArray::fromHex(prof->salt.toLatin1());
     return hash_password(password, salt) == prof->passwordHash;
 }
@@ -246,8 +252,10 @@ void ProfileManager::touch(const QString& username) {
 
 bool ProfileManager::delete_profile(const QString& username) {
     const auto it = std::find_if(d->profiles.begin(), d->profiles.end(),
-                                  [&](const Profile& prof) { return prof.username == username; });
-    if (it == d->profiles.end()) { return false; }
+                                 [&](const Profile& prof) { return prof.username == username; });
+    if (it == d->profiles.end()) {
+        return false;
+    }
     d->profiles.erase(it);
     [[maybe_unused]] const bool saved = save();
     emit profiles_changed();
@@ -257,8 +265,8 @@ bool ProfileManager::delete_profile(const QString& username) {
 bool ProfileManager::rename_display(const QString& username, const QString& newDisplay) {
     for (auto& prof : d->profiles) {
         if (prof.username == username) {
-            prof.displayName = newDisplay;
-            prof.initials    = generate_initials(newDisplay);
+            prof.displayName                  = newDisplay;
+            prof.initials                     = generate_initials(newDisplay);
             [[maybe_unused]] const bool saved = save();
             emit profiles_changed();
             return true;
@@ -292,7 +300,7 @@ bool ProfileManager::change_password(const QString& username, const QString& new
 bool ProfileManager::set_role(const QString& username, Profile::Role role) {
     for (auto& prof : d->profiles) {
         if (prof.username == username) {
-            prof.role = role;
+            prof.role                         = role;
             [[maybe_unused]] const bool saved = save();
             emit profiles_changed();
             return true;
@@ -304,7 +312,7 @@ bool ProfileManager::set_role(const QString& username, Profile::Role role) {
 bool ProfileManager::set_institution(const QString& username, const QString& institution) {
     for (auto& prof : d->profiles) {
         if (prof.username == username) {
-            prof.institution = institution;
+            prof.institution                  = institution;
             [[maybe_unused]] const bool saved = save();
             emit profiles_changed();
             return true;

@@ -1,4 +1,10 @@
 #include "core/application.hpp"
+
+#include <QCoreApplication>
+#include <QDir>
+#include <QSet>
+#include <array>
+
 #include "analysis/analysis_manager.hpp"
 #include "auth/profile_manager.hpp"
 #include "core/recording_access_control.hpp"
@@ -7,10 +13,6 @@
 #include "ui/main_window.hpp"
 #include "utils/logger.hpp"
 #include "utils/timestamp.hpp"
-#include <QCoreApplication>
-#include <QDir>
-#include <array>
-#include <QSet>
 
 namespace {
 
@@ -49,7 +51,7 @@ std::vector<mosaic::CameraParameters> default_room11_cameras() {
 // QMediaDevices::defaultAudioInput() with no warning whenever deviceId is
 // empty.
 std::vector<mosaic::MicrophoneParameters> default_microphone() {
-    return { mosaic::MicrophoneParameters{} };
+    return {mosaic::MicrophoneParameters{}};
 }
 
 // Resolves every OTHER known profile's own configured record.directory
@@ -63,10 +65,12 @@ std::vector<mosaic::MicrophoneParameters> default_microphone() {
 // the shared "_unassigned" fallback so migrated-but-unrecognized sessions
 // stay visible to every admin.
 QStringList resolve_other_user_directories(const mosaic::ProfileManager& profileMgr,
-                                            const QString& excludeUsername) {
+                                           const QString& excludeUsername) {
     QStringList dirs;
     for (const auto& profile : profileMgr.profiles()) {
-        if (profile.username == excludeUsername) { continue; }
+        if (profile.username == excludeUsername) {
+            continue;
+        }
         const QString settingsPath = mosaic::ProfileManager::settings_path(profile.username);
         if (auto loaded = mosaic::AppSettings::load(settingsPath)) {
             dirs << loaded->record.directory;
@@ -112,10 +116,14 @@ QStringList resolve_other_user_directories(const mosaic::ProfileManager& profile
 // shouldn't be triggerable by an ordinary non-admin login.
 void migrate_flat_session_folders(const mosaic::ProfileManager& profileMgr) {
     const QDir flatRoot(mosaic::legacy_shared_record_directory());
-    if (!flatRoot.exists()) { return; }
+    if (!flatRoot.exists()) {
+        return;
+    }
 
     QSet<QString> knownUsernames;
-    for (const auto& profile : profileMgr.profiles()) { knownUsernames.insert(profile.username); }
+    for (const auto& profile : profileMgr.profiles()) {
+        knownUsernames.insert(profile.username);
+    }
     // "guest" is a special-cased pseudo-identity, never a registered Profile
     // (see resolve_other_user_directories()'s doc comment above) — without
     // this, a flat-folder session with recorded_by=="guest" would be
@@ -125,7 +133,9 @@ void migrate_flat_session_folders(const mosaic::ProfileManager& profileMgr) {
     const auto entries = flatRoot.entryInfoList(QDir::Dirs | QDir::NoDotAndDotDot, QDir::Name);
     for (const auto& entry : entries) {
         const QString sourceDir = entry.filePath();
-        if (!QFile::exists(sourceDir + "/session_meta.json")) { continue; }   // not a session folder
+        if (!QFile::exists(sourceDir + "/session_meta.json")) {
+            continue;
+        } // not a session folder
 
         const mosaic::SessionInfo info = mosaic::SessionInfo::load(sourceDir);
         const QString targetOwnerDir =
@@ -136,15 +146,15 @@ void migrate_flat_session_folders(const mosaic::ProfileManager& profileMgr) {
         if (QFile::exists(targetDir)) {
             mosaic::log_warning(QString("[Application] Migration: %1 already exists — leaving "
                                         "%2 in place, resolve the name clash manually.")
-                                     .arg(targetDir, sourceDir));
+                                    .arg(targetDir, sourceDir));
             continue;
         }
         if (QDir().rename(sourceDir, targetDir)) {
             mosaic::log_info(QString("[Application] Migrated session %1 → %2 (recorded_by=\"%3\").")
-                                  .arg(entry.fileName(), targetOwnerDir, info.recordedBy));
+                                 .arg(entry.fileName(), targetOwnerDir, info.recordedBy));
         } else {
             mosaic::log_warning(QString("[Application] Migration: failed to move %1 to %2.")
-                                     .arg(sourceDir, targetDir));
+                                    .arg(sourceDir, targetDir));
         }
     }
 }
@@ -170,30 +180,36 @@ void migrate_flat_session_folders(const mosaic::ProfileManager& profileMgr) {
 // loose for this user once their own sessions have been moved once.
 void migrate_own_flat_sessions(const QString& username, const QString& targetDir) {
     const QDir flatRoot(mosaic::legacy_shared_record_directory());
-    if (!flatRoot.exists()) { return; }
+    if (!flatRoot.exists()) {
+        return;
+    }
 
     const auto entries = flatRoot.entryInfoList(QDir::Dirs | QDir::NoDotAndDotDot, QDir::Name);
     for (const auto& entry : entries) {
         const QString sourceDir = entry.filePath();
-        if (!QFile::exists(sourceDir + "/session_meta.json")) { continue; }   // not a session folder
+        if (!QFile::exists(sourceDir + "/session_meta.json")) {
+            continue;
+        } // not a session folder
 
         const mosaic::SessionInfo info = mosaic::SessionInfo::load(sourceDir);
-        if (info.recordedBy != username) { continue; }   // not ours — leave for the admin sweep
+        if (info.recordedBy != username) {
+            continue;
+        } // not ours — leave for the admin sweep
 
         QDir().mkpath(targetDir);
         const QString destDir = targetDir + "/" + entry.fileName();
         if (QFile::exists(destDir)) {
             mosaic::log_warning(QString("[Application] Migration: %1 already exists — leaving "
                                         "%2 in place, resolve the name clash manually.")
-                                     .arg(destDir, sourceDir));
+                                    .arg(destDir, sourceDir));
             continue;
         }
         if (QDir().rename(sourceDir, destDir)) {
             mosaic::log_info(QString("[Application] Recovered own session %1 → %2.")
-                                  .arg(entry.fileName(), targetDir));
+                                 .arg(entry.fileName(), targetDir));
         } else {
             mosaic::log_warning(QString("[Application] Migration: failed to move %1 to %2.")
-                                     .arg(sourceDir, destDir));
+                                    .arg(sourceDir, destDir));
         }
     }
 }
@@ -203,25 +219,24 @@ void migrate_own_flat_sessions(const QString& username, const QString& targetDir
 namespace mosaic {
 
 struct Application::Impl {
-    QString                          username;
-    bool                             isAdmin = false;
+    QString username;
+    bool isAdmin = false;
     // Every OTHER known profile's own record.directory (plus the shared
     // "_unassigned" fallback) — only ever populated when isAdmin is true;
     // stays empty for a regular user, whose session browsing is already
     // correctly scoped by their own (per-user) settings.record.directory
     // alone, with no aggregation needed.
-    QStringList                      otherUserDirectories;
-    AppSettings                      settings;
-    std::unique_ptr<TriggerManager>  triggerManager;
-    std::unique_ptr<AudioManager>    audioManager;
-    std::unique_ptr<VideoManager>    videoManager;
-    std::unique_ptr<RecordManager>   recordManager;
+    QStringList otherUserDirectories;
+    AppSettings settings;
+    std::unique_ptr<TriggerManager> triggerManager;
+    std::unique_ptr<AudioManager> audioManager;
+    std::unique_ptr<VideoManager> videoManager;
+    std::unique_ptr<RecordManager> recordManager;
     std::unique_ptr<AnalysisManager> analysisManager;
-    std::unique_ptr<MainWindow>      mainWindow;
+    std::unique_ptr<MainWindow> mainWindow;
 };
 
-Application::Application(QObject* parent)
-    : QObject(parent), d(std::make_unique<Impl>()) {}
+Application::Application(QObject* parent) : QObject(parent), d(std::make_unique<Impl>()) {}
 
 Application::~Application() = default;
 
@@ -231,12 +246,12 @@ void Application::initialize(const QString& username, bool isAdmin) {
 
     // Open log file in the profile directory (or default location for guest).
     const QString settingsPath = (d->username == "guest")
-        ? AppSettings::default_path()
-        : ProfileManager::settings_path(d->username);
+                                     ? AppSettings::default_path()
+                                     : ProfileManager::settings_path(d->username);
 
     const QString logPath = (d->username == "guest")
-        ? QFileInfo(settingsPath).dir().absoluteFilePath("mosaic.log")
-        : ProfileManager::log_path(d->username);
+                                ? QFileInfo(settingsPath).dir().absoluteFilePath("mosaic.log")
+                                : ProfileManager::log_path(d->username);
 
     QDir().mkpath(QFileInfo(logPath).absolutePath());
     Logger::instance().open_log_file(logPath);
@@ -314,8 +329,8 @@ void Application::initialize(const QString& username, bool isAdmin) {
     // point is a use-after-free the next time a recorder reads m_params.
     d->settings.audio.microphones.reserve(AudioSettings::kMaxMicrophones);
 
-    connect(QCoreApplication::instance(), &QCoreApplication::aboutToQuit,
-            this, &Application::shutdown);
+    connect(QCoreApplication::instance(), &QCoreApplication::aboutToQuit, this,
+            &Application::shutdown);
 
     d->triggerManager = std::make_unique<TriggerManager>(d->settings.trigger, this);
     d->audioManager   = std::make_unique<AudioManager>(this);
@@ -325,31 +340,33 @@ void Application::initialize(const QString& username, bool isAdmin) {
     // encode failures (VideoEncoder::encoding_error) — without this connection
     // those errors are emitted but never surface anywhere, so a recording can
     // silently produce zero output with no visible cause.
-    connect(d->videoManager.get(), &VideoManager::camera_error,
-            this, [](int cameraIndex, const QString& message) {
-        log_error(QString("[Camera %1] %2").arg(cameraIndex).arg(message));
-    });
+    connect(d->videoManager.get(), &VideoManager::camera_error, this,
+            [](int cameraIndex, const QString& message) {
+                log_error(QString("[Camera %1] %2").arg(cameraIndex).arg(message));
+            });
 
     if (!d->settings.video.cameras.empty()) {
         d->videoManager->open(d->settings.video);
         d->videoManager->start_preview();
     }
 
-    d->recordManager = std::make_unique<RecordManager>(
-        d->settings, d->triggerManager.get(),
-        d->audioManager.get(), d->videoManager.get(), d->username, this);
+    d->recordManager =
+        std::make_unique<RecordManager>(d->settings, d->triggerManager.get(), d->audioManager.get(),
+                                        d->videoManager.get(), d->username, this);
 
     // Trigger → action binding: let triggers start/stop recording automatically.
-    connect(d->triggerManager.get(), &TriggerManager::action_requested,
-            this, [this](TriggerAction action, const TriggerEvent& /*event*/) {
-        if (action == TriggerAction::StartRecording) {
-            if (!d->recordManager->is_recording()) {
-                [[maybe_unused]] const bool started = d->recordManager->start();
-            }
-        } else if (action == TriggerAction::StopRecording) {
-            if (d->recordManager->is_recording())  { d->recordManager->stop(); }
-        }
-    });
+    connect(d->triggerManager.get(), &TriggerManager::action_requested, this,
+            [this](TriggerAction action, const TriggerEvent& /*event*/) {
+                if (action == TriggerAction::StartRecording) {
+                    if (!d->recordManager->is_recording()) {
+                        [[maybe_unused]] const bool started = d->recordManager->start();
+                    }
+                } else if (action == TriggerAction::StopRecording) {
+                    if (d->recordManager->is_recording()) {
+                        d->recordManager->stop();
+                    }
+                }
+            });
 
     // Start audio monitoring immediately so the waveform widget shows live levels.
     if (!d->settings.audio.microphones.empty()) {
@@ -357,34 +374,33 @@ void Application::initialize(const QString& username, bool isAdmin) {
     }
 
     // Restart monitoring and preview after each recording ends.
-    connect(d->recordManager.get(), &RecordManager::recording_stopped,
-            this, [this](const QString& /*path*/, int /*durationMs*/) {
-        if (!d->settings.audio.microphones.empty()) {
-            d->audioManager->start_monitoring(d->settings.audio.microphones);
-        }
-        if (!d->settings.video.cameras.empty()) {
-            d->videoManager->start_preview();
-        }
-    });
+    connect(d->recordManager.get(), &RecordManager::recording_stopped, this,
+            [this](const QString& /*path*/, int /*durationMs*/) {
+                if (!d->settings.audio.microphones.empty()) {
+                    d->audioManager->start_monitoring(d->settings.audio.microphones);
+                }
+                if (!d->settings.video.cameras.empty()) {
+                    d->videoManager->start_preview();
+                }
+            });
 
     // Analysis manager — post-recording pose estimation
     d->analysisManager = std::make_unique<AnalysisManager>(this);
-    connect(d->analysisManager.get(), &AnalysisManager::output_received,
-            this, [](const QString& line) { log_info("[Analysis] " + line); });
-    connect(d->analysisManager.get(), &AnalysisManager::setup_error,
-            this, [](const QString& msg) { log_error("[Analysis] " + msg); });
-    connect(d->recordManager.get(), &RecordManager::recording_stopped,
-            this, [this](const QString& path, int /*durationMs*/) {
-        if (d->analysisManager->auto_analyze()) {
-            d->analysisManager->analyze_session(path);
-        }
-    });
+    connect(d->analysisManager.get(), &AnalysisManager::output_received, this,
+            [](const QString& line) { log_info("[Analysis] " + line); });
+    connect(d->analysisManager.get(), &AnalysisManager::setup_error, this,
+            [](const QString& msg) { log_error("[Analysis] " + msg); });
+    connect(d->recordManager.get(), &RecordManager::recording_stopped, this,
+            [this](const QString& path, int /*durationMs*/) {
+                if (d->analysisManager->auto_analyze()) {
+                    d->analysisManager->analyze_session(path);
+                }
+            });
 
-    d->mainWindow = std::make_unique<MainWindow>(
-        d->settings, d->username,
-        d->triggerManager.get(), d->audioManager.get(),
-        d->videoManager.get(), d->recordManager.get(),
-        d->analysisManager.get(), d->isAdmin, d->otherUserDirectories);
+    d->mainWindow = std::make_unique<MainWindow>(d->settings, d->username, d->triggerManager.get(),
+                                                 d->audioManager.get(), d->videoManager.get(),
+                                                 d->recordManager.get(), d->analysisManager.get(),
+                                                 d->isAdmin, d->otherUserDirectories);
     d->mainWindow->show();
 
     log_info("Initialisation complete.");
@@ -395,24 +411,26 @@ void Application::shutdown() {
     log_info("Shutting down…");
 
     const QString settingsPath = (d->username == "guest")
-        ? AppSettings::default_path()
-        : ProfileManager::settings_path(d->username);
+                                     ? AppSettings::default_path()
+                                     : ProfileManager::settings_path(d->username);
 
     if (!d->settings.save(settingsPath)) {
         log_error("Failed to save settings on shutdown.");
     }
 
-    if (d->mainWindow) { d->mainWindow->close(); }
+    if (d->mainWindow) {
+        d->mainWindow->close();
+    }
     Logger::instance().close_log_file();
     emit shutdown_complete();
 }
 
-AppSettings&       Application::settings()       { return d->settings; }
+AppSettings& Application::settings() { return d->settings; }
 const AppSettings& Application::settings() const { return d->settings; }
-QString            Application::active_username()  const { return d->username; }
-TriggerManager*    Application::trigger_manager()  const { return d->triggerManager.get(); }
-AudioManager*      Application::audio_manager()    const { return d->audioManager.get();   }
-VideoManager*      Application::video_manager()    const { return d->videoManager.get();   }
-RecordManager*     Application::record_manager()   const { return d->recordManager.get();  }
+QString Application::active_username() const { return d->username; }
+TriggerManager* Application::trigger_manager() const { return d->triggerManager.get(); }
+AudioManager* Application::audio_manager() const { return d->audioManager.get(); }
+VideoManager* Application::video_manager() const { return d->videoManager.get(); }
+RecordManager* Application::record_manager() const { return d->recordManager.get(); }
 
 } // namespace mosaic

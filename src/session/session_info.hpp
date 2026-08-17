@@ -17,25 +17,23 @@ namespace mosaic {
 
 struct AnnotationCategory {
     QString name;
-    QColor  color;
+    QColor color;
 
     static QList<AnnotationCategory> defaults() {
         return {
-            {"Grooming",     QColor("#e8865a")},
-            {"Exploration",  QColor("#5ab4e8")},
-            {"Social",       QColor("#a05ae8")},
-            {"Rearing",      QColor("#e8c05a")},
-            {"Freezing",     QColor("#5ae8c0")},
-            {"Vocalization", QColor("#e85a8a")},
-            {"Eating",       QColor("#88e85a")},
-            {"Drinking",     QColor("#5a8ae8")},
-            {"Custom",       QColor("#909090")},
+            {"Grooming", QColor("#e8865a")}, {"Exploration", QColor("#5ab4e8")},
+            {"Social", QColor("#a05ae8")},   {"Rearing", QColor("#e8c05a")},
+            {"Freezing", QColor("#5ae8c0")}, {"Vocalization", QColor("#e85a8a")},
+            {"Eating", QColor("#88e85a")},   {"Drinking", QColor("#5a8ae8")},
+            {"Custom", QColor("#909090")},
         };
     }
 
     static QColor color_for(const QString& name) {
         for (const auto& c : defaults()) {
-            if (c.name == name) { return c.color; }
+            if (c.name == name) {
+                return c.color;
+            }
         }
         return QColor("#909090");
     }
@@ -44,24 +42,23 @@ struct AnnotationCategory {
 // ── Annotation ─────────────────────────────────────────────────────────────
 
 struct Annotation {
-    int64_t timestampMs = 0;   // ms from session start (0 = session begin)
+    int64_t timestampMs = 0; // ms from session start (0 = session begin)
     QString category;
     QString note;
 
     QJsonObject to_json() const {
         return {
             {"timestamp_ms", timestampMs},
-            {"category",     category},
-            {"note",         note},
+            {"category", category},
+            {"note", note},
         };
     }
 
     static Annotation from_json(const QJsonObject& o) {
         Annotation a;
-        a.timestampMs = static_cast<int64_t>(
-            o["timestamp_ms"].toVariant().toLongLong());
-        a.category = o["category"].toString();
-        a.note     = o["note"].toString();
+        a.timestampMs = static_cast<int64_t>(o["timestamp_ms"].toVariant().toLongLong());
+        a.category    = o["category"].toString();
+        a.note        = o["note"].toString();
         return a;
     }
 };
@@ -69,23 +66,23 @@ struct Annotation {
 // ── SessionInfo ────────────────────────────────────────────────────────────
 
 struct SessionInfo {
-    QString   path;
-    QString   name;             // directory basename
-    QString   recordedBy;
+    QString path;
+    QString name; // directory basename
+    QString recordedBy;
     QDateTime startUtc;
-    int       durationMs    = -1;
-    int       cameraCount   = 0;
-    int       micCount      = 0;
-    QString   mosaicVersion;
-    QString   videoCodec;
-    QString   audioCodec;
-    bool      hasPoseAnalysis   = false;
-    bool      hasMotionAnalysis = false;
-    bool      hasTranscript     = false;
-    bool      hasExpression     = false;
-    bool      hasGazeFusion     = false;
-    bool      hasSkeleton3D     = false;
-    bool      hasRppg           = false;
+    int durationMs  = -1;
+    int cameraCount = 0;
+    int micCount    = 0;
+    QString mosaicVersion;
+    QString videoCodec;
+    QString audioCodec;
+    bool hasPoseAnalysis   = false;
+    bool hasMotionAnalysis = false;
+    bool hasTranscript     = false;
+    bool hasExpression     = false;
+    bool hasGazeFusion     = false;
+    bool hasSkeleton3D     = false;
+    bool hasRppg           = false;
     QStringList videoFiles;
     QStringList audioFiles;
     QStringList analysisFiles;
@@ -99,12 +96,12 @@ struct SessionInfo {
 
         QFile metaFile(dir + "/session_meta.json");
         if (metaFile.open(QIODevice::ReadOnly)) {
-            const auto doc  = QJsonDocument::fromJson(metaFile.readAll());
-            const auto root = doc.object();
+            const auto doc     = QJsonDocument::fromJson(metaFile.readAll());
+            const auto root    = doc.object();
             info.recordedBy    = root["recorded_by"].toString();
             info.mosaicVersion = root["mosaic_version"].toString();
-            info.startUtc = QDateTime::fromString(
-                root["session_start_utc"].toString(), Qt::ISODateWithMs);
+            info.startUtc =
+                QDateTime::fromString(root["session_start_utc"].toString(), Qt::ISODateWithMs);
             info.startUtc.setTimeZone(QTimeZone::utc());
             info.cameraCount = root["cameras"].toArray().size();
             info.micCount    = root["microphones"].toArray().size();
@@ -127,7 +124,9 @@ struct SessionInfo {
         // directly without needing to know which subfolder a given file
         // lives in.
         const auto classify = [&info](const QDir& scanDir, const QString& prefix) {
-            if (!scanDir.exists()) { return; }
+            if (!scanDir.exists()) {
+                return;
+            }
             for (const auto& fi : scanDir.entryInfoList(QDir::Files, QDir::Name)) {
                 const QString sfx = fi.suffix().toLower();
                 const QString fn  = prefix + fi.fileName();
@@ -136,19 +135,35 @@ struct SessionInfo {
                 } else if (sfx == "wav" || sfx == "flac") {
                     info.audioFiles << fn;
                 } else if (fi.fileName().contains("pose") || fi.fileName().contains("motion") ||
-                           fi.fileName().contains("keypoint") || fi.fileName().contains("heatmap") ||
-                           fi.fileName().contains("trajectory") || fi.fileName().contains("velocity") ||
-                           fi.fileName().contains("transcript") || fi.fileName().contains("expression") ||
-                           fi.fileName().contains("gaze") || fi.fileName().contains("skeleton") ||
-                           fi.fileName().contains("rppg")) {
+                           fi.fileName().contains("keypoint") ||
+                           fi.fileName().contains("heatmap") ||
+                           fi.fileName().contains("trajectory") ||
+                           fi.fileName().contains("velocity") ||
+                           fi.fileName().contains("transcript") ||
+                           fi.fileName().contains("expression") || fi.fileName().contains("gaze") ||
+                           fi.fileName().contains("skeleton") || fi.fileName().contains("rppg")) {
                     info.analysisFiles << fn;
-                    if (fi.fileName().contains("pose"))       { info.hasPoseAnalysis   = true; }
-                    if (fi.fileName().contains("motion"))     { info.hasMotionAnalysis = true; }
-                    if (fi.fileName().contains("transcript")) { info.hasTranscript     = true; }
-                    if (fi.fileName().contains("expression")) { info.hasExpression     = true; }
-                    if (fi.fileName().contains("gaze"))       { info.hasGazeFusion     = true; }
-                    if (fi.fileName().contains("skeleton"))   { info.hasSkeleton3D     = true; }
-                    if (fi.fileName().contains("rppg"))       { info.hasRppg           = true; }
+                    if (fi.fileName().contains("pose")) {
+                        info.hasPoseAnalysis = true;
+                    }
+                    if (fi.fileName().contains("motion")) {
+                        info.hasMotionAnalysis = true;
+                    }
+                    if (fi.fileName().contains("transcript")) {
+                        info.hasTranscript = true;
+                    }
+                    if (fi.fileName().contains("expression")) {
+                        info.hasExpression = true;
+                    }
+                    if (fi.fileName().contains("gaze")) {
+                        info.hasGazeFusion = true;
+                    }
+                    if (fi.fileName().contains("skeleton")) {
+                        info.hasSkeleton3D = true;
+                    }
+                    if (fi.fileName().contains("rppg")) {
+                        info.hasRppg = true;
+                    }
                 }
             }
         };
@@ -165,7 +180,9 @@ struct SessionInfo {
             for (const auto& fn : info.videoFiles) {
                 const QFileInfo fi2(dir + "/" + fn);
                 const auto mt = fi2.lastModified().toSecsSinceEpoch();
-                if (mt > maxMtime) { maxMtime = mt; }
+                if (mt > maxMtime) {
+                    maxMtime = mt;
+                }
             }
             if (maxMtime > 0) {
                 const qint64 startSec = info.startUtc.toSecsSinceEpoch();
@@ -183,10 +200,11 @@ struct SessionInfo {
     static QList<SessionInfo> list_all(const QString& rootDir) {
         QList<SessionInfo> result;
         const QDir root(rootDir);
-        if (!root.exists()) { return result; }
-        const auto dirs = root.entryInfoList(
-            QDir::Dirs | QDir::NoDotAndDotDot,
-            QDir::Name | QDir::Reversed);
+        if (!root.exists()) {
+            return result;
+        }
+        const auto dirs =
+            root.entryInfoList(QDir::Dirs | QDir::NoDotAndDotDot, QDir::Name | QDir::Reversed);
         for (const auto& di : dirs) {
             if (QFile::exists(di.filePath() + "/session_meta.json")) {
                 result.append(load(di.filePath()));
@@ -198,7 +216,9 @@ struct SessionInfo {
     void load_annotations() {
         annotations.clear();
         QFile f(path + "/annotations.json");
-        if (!f.open(QIODevice::ReadOnly)) { return; }
+        if (!f.open(QIODevice::ReadOnly)) {
+            return;
+        }
         const auto arr = QJsonDocument::fromJson(f.readAll()).array();
         for (const auto& v : arr) {
             annotations.append(Annotation::from_json(v.toObject()));
@@ -207,7 +227,9 @@ struct SessionInfo {
 
     void save_annotations() const {
         QJsonArray arr;
-        for (const auto& a : annotations) { arr.append(a.to_json()); }
+        for (const auto& a : annotations) {
+            arr.append(a.to_json());
+        }
         QFile f(path + "/annotations.json");
         if (f.open(QIODevice::WriteOnly | QIODevice::Text)) {
             f.write(QJsonDocument(arr).toJson(QJsonDocument::Indented));
@@ -215,7 +237,9 @@ struct SessionInfo {
     }
 
     QString format_duration() const {
-        if (durationMs < 0) { return "—"; }
+        if (durationMs < 0) {
+            return "—";
+        }
         const int secs  = durationMs / 1000;
         const int mins  = secs / 60;
         const int hours = mins / 60;
