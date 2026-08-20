@@ -3,6 +3,7 @@
 #include <memory>
 
 #include "analysis/expression_result.hpp"
+#include "analysis/gaze2d_result.hpp"
 #include "analysis/gaze_fusion_result.hpp"
 #include "analysis/pose_analysis_result.hpp"
 #include "analysis/rppg_result.hpp"
@@ -12,11 +13,12 @@ namespace mosaic {
 
 // Single-camera video playback with a pose-keypoint/skeleton overlay, a
 // facial-expression bbox+label overlay, a gaze-fusion bbox+direction-arrow
-// overlay, a 3D-pose-reconstruction reprojected-skeleton overlay, OR a
-// remote-heart-rate (rPPG) face-ROI bbox + live BPM readout overlay, drawn
-// in sync with the current playback position (all five are mutually
-// exclusive — see set_pose_result()/set_expression_result()/
-// set_gaze_result()/set_skeleton3d_result()/set_rppg_result()).
+// overlay, a 3D-pose-reconstruction reprojected-skeleton overlay, a
+// remote-heart-rate (rPPG) face-ROI bbox + live BPM readout overlay, OR a
+// calibration-free 2D gaze bbox+direction-arrow overlay, drawn in sync with
+// the current playback position (all six are mutually exclusive — see
+// set_pose_result()/set_expression_result()/set_gaze_result()/
+// set_skeleton3d_result()/set_rppg_result()/set_gaze2d_result()).
 //
 // Not a reuse of SessionPlayerW's CameraSlotW: that class is coupled to
 // multi-camera master-clock sync, which doesn't apply to this single-video,
@@ -47,15 +49,18 @@ class PoseOverlayPlayerW : public QWidget {
 
     // Sets the pose data drawn as a skeleton overlay. Pass a
     // default-constructed (is_valid() == false) result to clear the
-    // overlay. Mutually exclusive with set_expression_result() — setting
-    // one clears the other, so the shared overlay can never draw a stale
-    // skeleton and a stale bbox at once even if a caller forgets to clear
-    // the other explicitly on a plugin switch.
+    // overlay. Mutually exclusive with set_expression_result()/
+    // set_gaze_result()/set_skeleton3d_result()/set_rppg_result()/
+    // set_gaze2d_result() — setting one clears every other, so the shared
+    // overlay can never draw two stale overlays at once even if a caller
+    // forgets to clear the others explicitly on a plugin switch.
     void set_pose_result(const PoseAnalysisResult& result);
 
     // Sets the expression data drawn as a bbox+label overlay. Pass a
     // default-constructed (is_valid() == false) result to clear the
-    // overlay. Mutually exclusive with set_pose_result() (see above).
+    // overlay. Mutually exclusive with set_pose_result()/set_gaze_result()/
+    // set_skeleton3d_result()/set_rppg_result()/set_gaze2d_result() (see
+    // above).
     void set_expression_result(const ExpressionResult& result);
 
     // Sets the gaze-fusion data drawn as a bbox+direction-arrow overlay for
@@ -63,8 +68,8 @@ class PoseOverlayPlayerW : public QWidget {
     // camera index, used to pick which GazeFusionFrame::perCamera entry
     // applies at each position). Pass a default-constructed
     // (is_valid() == false) result to clear the overlay. Mutually exclusive
-    // with set_pose_result()/set_expression_result()/set_skeleton3d_result()
-    // (see above).
+    // with set_pose_result()/set_expression_result()/set_skeleton3d_result()/
+    // set_rppg_result()/set_gaze2d_result() (see above).
     void set_gaze_result(const GazeFusionResult& result, int cameraIndex);
 
     // Sets the 3D-pose-reconstruction data drawn as a per-camera
@@ -73,19 +78,29 @@ class PoseOverlayPlayerW : public QWidget {
     // applies). Consumes precomputed pixel coordinates only — no
     // calibration math happens here. Pass a default-constructed
     // (is_valid() == false) result to clear the overlay. Mutually exclusive
-    // with set_pose_result()/set_expression_result()/set_gaze_result()
-    // (see above).
+    // with set_pose_result()/set_expression_result()/set_gaze_result()/
+    // set_rppg_result()/set_gaze2d_result() (see above).
     void set_skeleton3d_result(const Skeleton3DResult& result, int cameraIndex);
 
     // Sets the rPPG heart-rate data drawn as a face-ROI bbox + live BPM
     // readout overlay. cameraIndex exists only for API symmetry with the
-    // other four setters — RppgResult is already inherently single-camera
-    // (one file per video), so it isn't used to filter anything here. Pass
+    // other setters — RppgResult is already inherently single-camera (one
+    // file per video), so it isn't used to filter anything here. Pass
     // a default-constructed (is_valid() == false) result to clear the
     // overlay. Mutually exclusive with set_pose_result()/
-    // set_expression_result()/set_gaze_result()/set_skeleton3d_result()
-    // (see above).
+    // set_expression_result()/set_gaze_result()/set_skeleton3d_result()/
+    // set_gaze2d_result() (see above).
     void set_rppg_result(const RppgResult& result, int cameraIndex);
+
+    // Sets the calibration-free 2D gaze data drawn as a bbox+direction-
+    // arrow overlay for one specific camera. cameraIndex exists only for
+    // API symmetry with the other setters — Gaze2dResult is already
+    // inherently single-camera (one file per video), so it isn't used to
+    // filter anything here. Pass a default-constructed (is_valid() ==
+    // false) result to clear the overlay. Mutually exclusive with
+    // set_pose_result()/set_expression_result()/set_gaze_result()/
+    // set_skeleton3d_result()/set_rppg_result() (see above).
+    void set_gaze2d_result(const Gaze2dResult& result, int cameraIndex);
 
     [[nodiscard]] int64_t position_ms() const;
     [[nodiscard]] int64_t duration_ms() const;

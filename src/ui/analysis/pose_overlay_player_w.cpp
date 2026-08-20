@@ -53,21 +53,24 @@ class SkeletonOverlayW : public QWidget {
     }
 
     void set_frame(const PoseFrame* frame, QVector<QPair<int, int>> skeletonEdges) {
-        frame_           = frame;
-        skeletonEdges_   = std::move(skeletonEdges);
-        exprFrame_       = nullptr; // mutually exclusive with expression/gaze/skeleton3d/rppg mode
+        frame_         = frame;
+        skeletonEdges_ = std::move(skeletonEdges);
+        exprFrame_     = nullptr; // mutually exclusive with expression/gaze/skeleton3d/rppg/
+                                  // gaze2d mode
         gazeFrame_       = nullptr;
         skeleton3dFrame_ = nullptr;
         rppgFrame_       = nullptr;
         rppgWindow_      = nullptr;
+        gaze2dFrame_     = nullptr;
         update();
     }
 
     // Facial-expression draw mode — mutually exclusive with set_frame()/
-    // set_gaze_frame()/set_skeleton3d_frame()/set_rppg_frame() (see
-    // PoseOverlayPlayerW::set_pose_result()/set_expression_result()/
-    // set_gaze_result()/set_skeleton3d_result()/set_rppg_result() for why
-    // every setter clears the others).
+    // set_gaze_frame()/set_skeleton3d_frame()/set_rppg_frame()/
+    // set_gaze2d_frame() (see PoseOverlayPlayerW::set_pose_result()/
+    // set_expression_result()/set_gaze_result()/set_skeleton3d_result()/
+    // set_rppg_result()/set_gaze2d_result() for why every setter clears the
+    // others).
     void set_expression_frame(const ExpressionFrame* frame) {
         exprFrame_       = frame;
         frame_           = nullptr;
@@ -75,14 +78,16 @@ class SkeletonOverlayW : public QWidget {
         skeleton3dFrame_ = nullptr;
         rppgFrame_       = nullptr;
         rppgWindow_      = nullptr;
+        gaze2dFrame_     = nullptr;
         skeletonEdges_.clear();
         update();
     }
 
     // Gaze-fusion draw mode — mutually exclusive with set_frame()/
-    // set_expression_frame()/set_skeleton3d_frame()/set_rppg_frame() (see
-    // above). cameraIndex picks which GazeFusionFrame::perCamera entry to
-    // draw (the currently-loaded video's own camera).
+    // set_expression_frame()/set_skeleton3d_frame()/set_rppg_frame()/
+    // set_gaze2d_frame() (see above). cameraIndex picks which
+    // GazeFusionFrame::perCamera entry to draw (the currently-loaded
+    // video's own camera).
     void set_gaze_frame(const GazeFusionFrame* frame, int cameraIndex) {
         gazeFrame_       = frame;
         gazeCameraIndex_ = cameraIndex;
@@ -91,16 +96,17 @@ class SkeletonOverlayW : public QWidget {
         skeleton3dFrame_ = nullptr;
         rppgFrame_       = nullptr;
         rppgWindow_      = nullptr;
+        gaze2dFrame_     = nullptr;
         skeletonEdges_.clear();
         update();
     }
 
     // 3D-pose-reconstruction draw mode — mutually exclusive with
-    // set_frame()/set_expression_frame()/set_gaze_frame()/set_rppg_frame()
-    // (see above). cameraIndex picks which entry of each person's
-    // reprojectedPx map applies (the currently-loaded video's own camera);
-    // skeletonEdges is the result's own edge list (drawn purely from
-    // precomputed pixel coordinates — zero calibration math here).
+    // set_frame()/set_expression_frame()/set_gaze_frame()/set_rppg_frame()/
+    // set_gaze2d_frame() (see above). cameraIndex picks which entry of each
+    // person's reprojectedPx map applies (the currently-loaded video's own
+    // camera); skeletonEdges is the result's own edge list (drawn purely
+    // from precomputed pixel coordinates — zero calibration math here).
     void set_skeleton3d_frame(const Skeleton3DFrame* frame, int cameraIndex,
                               QVector<QPair<int, int>> skeletonEdges) {
         skeleton3dFrame_       = frame;
@@ -111,14 +117,16 @@ class SkeletonOverlayW : public QWidget {
         gazeFrame_             = nullptr;
         rppgFrame_             = nullptr;
         rppgWindow_            = nullptr;
+        gaze2dFrame_           = nullptr;
         update();
     }
 
     // rPPG (remote heart rate) draw mode — mutually exclusive with
     // set_frame()/set_expression_frame()/set_gaze_frame()/
-    // set_skeleton3d_frame() (see above). window may be nullptr even when
-    // frame isn't (e.g. between windows, or an unreliable one) — the BPM
-    // readout is simply omitted in that case, never fabricated.
+    // set_skeleton3d_frame()/set_gaze2d_frame() (see above). window may be
+    // nullptr even when frame isn't (e.g. between windows, or an
+    // unreliable one) — the BPM readout is simply omitted in that case,
+    // never fabricated.
     void set_rppg_frame(const RppgFrame* frame, const RppgWindow* window) {
         rppgFrame_       = frame;
         rppgWindow_      = window;
@@ -126,6 +134,28 @@ class SkeletonOverlayW : public QWidget {
         exprFrame_       = nullptr;
         gazeFrame_       = nullptr;
         skeleton3dFrame_ = nullptr;
+        gaze2dFrame_     = nullptr;
+        skeletonEdges_.clear();
+        update();
+    }
+
+    // Calibration-free 2D gaze draw mode — mutually exclusive with
+    // set_frame()/set_expression_frame()/set_gaze_frame()/
+    // set_skeleton3d_frame()/set_rppg_frame() (see above). No cameraIndex
+    // parameter, unlike set_gaze_frame()/set_skeleton3d_frame() — mirrors
+    // set_rppg_frame()'s exact shape: Gaze2dFrame is already inherently
+    // single-camera data (one file per video), so there's nothing here to
+    // filter by; PoseOverlayPlayerW::set_gaze2d_result()'s own cameraIndex
+    // parameter exists purely for API symmetry with the other setters and
+    // stops at that outer layer.
+    void set_gaze2d_frame(const Gaze2dFrame* frame) {
+        gaze2dFrame_     = frame;
+        frame_           = nullptr;
+        exprFrame_       = nullptr;
+        gazeFrame_       = nullptr;
+        skeleton3dFrame_ = nullptr;
+        rppgFrame_       = nullptr;
+        rppgWindow_      = nullptr;
         skeletonEdges_.clear();
         update();
     }
@@ -142,6 +172,7 @@ class SkeletonOverlayW : public QWidget {
         skeleton3dFrame_ = nullptr;
         rppgFrame_       = nullptr;
         rppgWindow_      = nullptr;
+        gaze2dFrame_     = nullptr;
         nativeSize_      = QSize();
         update();
     }
@@ -180,6 +211,10 @@ class SkeletonOverlayW : public QWidget {
         }
         if (rppgFrame_) {
             paint_rppg(painter, to_widget);
+            return;
+        }
+        if (gaze2dFrame_) {
+            paint_gaze2d(painter, to_widget);
             return;
         }
         if (!frame_) {
@@ -387,6 +422,51 @@ class SkeletonOverlayW : public QWidget {
         painter.drawText(labelBg, Qt::AlignCenter, label);
     }
 
+    // Draws a bbox + direction-arrow for the calibration-free 2D gaze
+    // heuristic — reuses paint_gaze()'s exact box+arrow formula (see
+    // above), in a distinct soft-yellow hue so this overlay is visually
+    // separable from paint_gaze()'s cyan-box 3D Gaze Fusion overlay if ever
+    // compared side by side, and matching the same yellow used for this
+    // plugin's SessionBrowserW badge (see session_browser_w.cpp).
+    void paint_gaze2d(QPainter& painter, const std::function<QPointF(QPointF)>& to_widget) {
+        if (!gaze2dFrame_->faceDetected) {
+            return;
+        }
+
+        const QFontMetrics fm(painter.font());
+
+        const QRectF box(to_widget(gaze2dFrame_->faceBoxPx.topLeft()),
+                         to_widget(gaze2dFrame_->faceBoxPx.bottomRight()));
+        painter.setPen(QPen(QColor(221, 221, 68), 2));
+        painter.setBrush(Qt::NoBrush);
+        painter.drawRect(box);
+
+        // Arrow from box centre, extending toward (gazeDx, gazeDy) scaled
+        // by the box's own size — same relative-to-face-size convention
+        // paint_gaze() uses, computed in native-video pixel space (before
+        // to_widget scaling).
+        const QPointF centerNative = gaze2dFrame_->faceBoxPx.center();
+        const QPointF tipNative(
+            centerNative.x() + gaze2dFrame_->gazeDx * gaze2dFrame_->faceBoxPx.width() * 0.5,
+            centerNative.y() + gaze2dFrame_->gazeDy * gaze2dFrame_->faceBoxPx.height() * 0.5);
+        painter.setPen(QPen(QColor(221, 221, 68), 2));
+        painter.drawLine(to_widget(centerNative), to_widget(tipNative));
+        painter.setBrush(QColor(221, 221, 68));
+        painter.setPen(Qt::NoPen);
+        painter.drawEllipse(to_widget(tipNative), 3, 3);
+
+        const QString label = QString("dx%1 dy%2")
+                                  .arg(gaze2dFrame_->gazeDx, 0, 'f', 2)
+                                  .arg(gaze2dFrame_->gazeDy, 0, 'f', 2);
+        const QRectF labelBg(box.left(), box.top() - fm.height() - 4,
+                             fm.horizontalAdvance(label) + 8, fm.height() + 4);
+        painter.setPen(Qt::NoPen);
+        painter.setBrush(QColor(0, 0, 0, 160));
+        painter.drawRect(labelBg);
+        painter.setPen(QColor(221, 221, 150));
+        painter.drawText(labelBg, Qt::AlignCenter, label);
+    }
+
     QSize nativeSize_;
     const PoseFrame* frame_ = nullptr;
     QVector<QPair<int, int>> skeletonEdges_;
@@ -397,6 +477,7 @@ class SkeletonOverlayW : public QWidget {
     int skeleton3dCameraIndex_              = -1;
     const RppgFrame* rppgFrame_             = nullptr;
     const RppgWindow* rppgWindow_           = nullptr;
+    const Gaze2dFrame* gaze2dFrame_         = nullptr;
 };
 
 // ── PoseOverlayPlayerW::Impl ────────────────────────────────────────────
@@ -421,6 +502,8 @@ struct PoseOverlayPlayerW::Impl {
     int skeleton3dCameraIndex = -1;
     RppgResult rppgResult;
     int rppgCameraIndex = -1;
+    Gaze2dResult gaze2dResult;
+    int gaze2dCameraIndex = -1;
     QSize nativeSize;
     double fps     = 25.0;
     bool scrubbing = false;
@@ -472,6 +555,18 @@ struct PoseOverlayPlayerW::Impl {
             return positionMs;
         }
         return rppgResult.frames().first().timestampMs + positionMs;
+    }
+
+    // Same reasoning/formula as rppg_timestamp_estimate() above —
+    // Gaze2dResult's frames() timestamps come from timestamps_camN.csv's
+    // elapsed_ns column (app-launch-relative) too, not video-relative, via
+    // the identical _read_timestamps_ms() helper run_gaze2d.py shares with
+    // run_rppg.py's own pattern.
+    [[nodiscard]] int64_t gaze2d_timestamp_estimate(int64_t positionMs) const {
+        if (gaze2dResult.frames().isEmpty()) {
+            return positionMs;
+        }
+        return gaze2dResult.frames().first().timestampMs + positionMs;
     }
 };
 
@@ -613,6 +708,10 @@ PoseOverlayPlayerW::PoseOverlayPlayerW(QWidget* parent)
             const RppgFrame* frame   = d->rppgResult.nearest_frame(rppgPos);
             const RppgWindow* window = d->rppgResult.nearest_window(rppgPos);
             d->overlay->set_rppg_frame(frame, window);
+        } else if (d->gaze2dResult.is_valid()) {
+            const Gaze2dFrame* frame =
+                d->gaze2dResult.nearest_frame(d->gaze2d_timestamp_estimate(pos));
+            d->overlay->set_gaze2d_frame(frame);
         } else {
             const PoseFrame* frame = d->poseResult.is_valid()
                                          ? d->poseResult.nearest_frame(d->frame_estimate(pos))
@@ -663,6 +762,7 @@ void PoseOverlayPlayerW::set_pose_result(const PoseAnalysisResult& result) {
     d->gazeResult       = GazeFusionResult();
     d->skeleton3dResult = Skeleton3DResult();
     d->rppgResult       = RppgResult();
+    d->gaze2dResult     = Gaze2dResult();
     d->poseResult       = result;
     const PoseFrame* frame =
         d->poseResult.is_valid()
@@ -676,6 +776,7 @@ void PoseOverlayPlayerW::set_expression_result(const ExpressionResult& result) {
     d->gazeResult       = GazeFusionResult();
     d->skeleton3dResult = Skeleton3DResult();
     d->rppgResult       = RppgResult();
+    d->gaze2dResult     = Gaze2dResult();
     d->expressionResult = result;
     const ExpressionFrame* frame =
         d->expressionResult.is_valid()
@@ -689,6 +790,7 @@ void PoseOverlayPlayerW::set_gaze_result(const GazeFusionResult& result, int cam
     d->expressionResult = ExpressionResult();
     d->skeleton3dResult = Skeleton3DResult();
     d->rppgResult       = RppgResult();
+    d->gaze2dResult     = Gaze2dResult();
     d->gazeResult       = result;
     d->gazeCameraIndex  = cameraIndex;
     const GazeFusionFrame* frame =
@@ -703,6 +805,7 @@ void PoseOverlayPlayerW::set_skeleton3d_result(const Skeleton3DResult& result, i
     d->expressionResult      = ExpressionResult();
     d->gazeResult            = GazeFusionResult();
     d->rppgResult            = RppgResult();
+    d->gaze2dResult          = Gaze2dResult();
     d->skeleton3dResult      = result;
     d->skeleton3dCameraIndex = cameraIndex;
     const Skeleton3DFrame* frame =
@@ -718,6 +821,7 @@ void PoseOverlayPlayerW::set_rppg_result(const RppgResult& result, int cameraInd
     d->expressionResult   = ExpressionResult();
     d->gazeResult         = GazeFusionResult();
     d->skeleton3dResult   = Skeleton3DResult();
+    d->gaze2dResult       = Gaze2dResult();
     d->rppgResult         = result;
     d->rppgCameraIndex    = cameraIndex;
     const int64_t rppgPos = d->rppg_timestamp_estimate(d->player->position());
@@ -726,6 +830,20 @@ void PoseOverlayPlayerW::set_rppg_result(const RppgResult& result, int cameraInd
     const RppgWindow* window =
         d->rppgResult.is_valid() ? d->rppgResult.nearest_window(rppgPos) : nullptr;
     d->overlay->set_rppg_frame(frame, window);
+}
+
+void PoseOverlayPlayerW::set_gaze2d_result(const Gaze2dResult& result, int cameraIndex) {
+    d->poseResult           = PoseAnalysisResult(); // mutually exclusive, see header doc
+    d->expressionResult     = ExpressionResult();
+    d->gazeResult           = GazeFusionResult();
+    d->skeleton3dResult     = Skeleton3DResult();
+    d->rppgResult           = RppgResult();
+    d->gaze2dResult         = result;
+    d->gaze2dCameraIndex    = cameraIndex;
+    const int64_t gaze2dPos = d->gaze2d_timestamp_estimate(d->player->position());
+    const Gaze2dFrame* frame =
+        d->gaze2dResult.is_valid() ? d->gaze2dResult.nearest_frame(gaze2dPos) : nullptr;
+    d->overlay->set_gaze2d_frame(frame);
 }
 
 int64_t PoseOverlayPlayerW::position_ms() const { return d->player->position(); }
