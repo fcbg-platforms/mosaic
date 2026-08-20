@@ -1,5 +1,7 @@
 #include "ui/trigger/keyboard_card_w.hpp"
+
 #include <QCheckBox>
+#include <QFormLayout>
 #include <QHBoxLayout>
 #include <QKeySequenceEdit>
 #include <QLabel>
@@ -8,13 +10,11 @@
 #include <QPushButton>
 #include <QToolButton>
 #include <QVBoxLayout>
-#include <QFormLayout>
 
 namespace mosaic {
 
 KeyboardCardW::KeyboardCardW(KeyTriggerConfig& config, int index, QWidget* parent)
-    : QWidget(parent), m_config(config), m_index(index)
-{
+    : QWidget(parent), m_config(config), m_index(index) {
     setObjectName("KeyboardCardW");
     setStyleSheet(R"(
         #KeyboardCardW {
@@ -58,8 +58,9 @@ void KeyboardCardW::build_header() {
     // Expand arrow
     auto* expandBtn = new QToolButton;
     expandBtn->setText("▼");
-    expandBtn->setStyleSheet("QToolButton { background: transparent; border: none;"
-                             " color: #448844; font-size: 10px; }");
+    expandBtn->setStyleSheet(
+        "QToolButton { background: transparent; border: none;"
+        " color: #448844; font-size: 10px; }");
     expandBtn->setCursor(Qt::PointingHandCursor);
     connect(expandBtn, &QToolButton::clicked, this, &KeyboardCardW::toggle_expanded);
     m_expandBtn = expandBtn;
@@ -67,14 +68,16 @@ void KeyboardCardW::build_header() {
 
     // Name label (bold, green tint)
     m_nameLabel = new QLabel(QString("Trigger %1").arg(m_index + 1));
-    m_nameLabel->setStyleSheet("font-weight: bold; font-size: 12px;"
-                               " color: #88dd88; background: transparent;");
+    m_nameLabel->setStyleSheet(
+        "font-weight: bold; font-size: 12px;"
+        " color: #88dd88; background: transparent;");
     lay->addWidget(m_nameLabel);
 
     // Summary (key binding, muted)
     m_summaryLabel = new QLabel;
-    m_summaryLabel->setStyleSheet("color: #446644; font-size: 11px;"
-                                  " background: transparent;");
+    m_summaryLabel->setStyleSheet(
+        "color: #446644; font-size: 11px;"
+        " background: transparent;");
     lay->addWidget(m_summaryLabel);
     update_header_summary();
 
@@ -101,9 +104,7 @@ void KeyboardCardW::build_header() {
         QToolButton:hover { color: #cc4444; }
     )");
     delBtn->setCursor(Qt::PointingHandCursor);
-    connect(delBtn, &QToolButton::clicked, this, [this]{
-        emit remove_requested(m_index);
-    });
+    connect(delBtn, &QToolButton::clicked, this, [this] { emit remove_requested(m_index); });
     lay->addWidget(delBtn);
 }
 
@@ -113,7 +114,7 @@ void KeyboardCardW::build_body() {
     m_body = new QWidget(this);
     m_body->setStyleSheet("background: transparent;");
 
-    auto* lay  = new QVBoxLayout(m_body);
+    auto* lay = new QVBoxLayout(m_body);
     lay->setContentsMargins(10, 10, 10, 10);
     lay->setSpacing(0);
 
@@ -127,9 +128,8 @@ void KeyboardCardW::build_body() {
     form->addRow("Name:", nameEdit);
 
     // Key sequence editor
-    auto* keyEdit = new QKeySequenceEdit(
-        QKeySequence(m_config.keySeq, QKeySequence::PortableText));
-    keyEdit->setMaximumSequenceLength(1);  // single key only
+    auto* keyEdit = new QKeySequenceEdit(QKeySequence(m_config.keySeq, QKeySequence::PortableText));
+    keyEdit->setMaximumSequenceLength(1); // single key only
     form->addRow("Key binding:", keyEdit);
 
     // Enabled checkbox
@@ -145,27 +145,25 @@ void KeyboardCardW::build_body() {
     auto* resetBtn = new QPushButton("Reset counter");
     resetBtn->setFixedHeight(24);
     resetBtn->setProperty("flat", true);
-    connect(resetBtn, &QPushButton::clicked, this, [this]{
-        on_count_changed(0);
-    });
+    connect(resetBtn, &QPushButton::clicked, this, [this] { on_count_changed(0); });
     resetRow->addWidget(resetBtn);
     lay->addSpacing(4);
     lay->addLayout(resetRow);
 
     // Wire up
-    connect(nameEdit, &QLineEdit::textEdited, this, [this](const QString& v){
+    connect(nameEdit, &QLineEdit::textEdited, this, [this](const QString& v) {
         m_config.name = v;
         update_header_summary();
         emit config_changed();
     });
-    connect(keyEdit, &QKeySequenceEdit::keySequenceChanged, this,
-            [this](const QKeySequence& seq){
+    connect(keyEdit, &QKeySequenceEdit::keySequenceChanged, this, [this](const QKeySequence& seq) {
         m_config.keySeq = seq.toString(QKeySequence::PortableText);
         update_header_summary();
         emit config_changed();
     });
-    connect(enabledCk, &QCheckBox::toggled, this, [this](bool v){
+    connect(enabledCk, &QCheckBox::toggled, this, [this](bool v) {
         m_config.enabled = v;
+        update_header_summary();
         emit config_changed();
     });
 }
@@ -173,20 +171,30 @@ void KeyboardCardW::build_body() {
 // ── Helpers ────────────────────────────────────────────────────────────────
 
 void KeyboardCardW::update_header_summary() {
-    const QString key = m_config.keySeq.isEmpty() ? "unbound" : m_config.keySeq;
-    m_summaryLabel->setText(QString("— %1  [%2]")
-                                .arg(m_config.name, key));
+    // A new trigger defaults to enabled=true, keySeq="" (see
+    // KeyTriggerConfig in settings.hpp) — i.e. it *looks* active from the
+    // moment it's created but silently never fires until a key is actually
+    // bound (KeyboardTrigger::eventFilter() returns early on an empty
+    // sequence, with no other signal). Flag that specific combination
+    // clearly rather than the same dim "unbound" text regardless of
+    // whether it's actually a problem right now.
+    const bool brokenNow = m_config.enabled && m_config.keySeq.isEmpty();
+    const QString key    = m_config.keySeq.isEmpty() ? "unbound" : m_config.keySeq;
+    m_summaryLabel->setText(brokenNow
+                                ? QString("— %1  ⚠ no key bound — won't fire").arg(m_config.name)
+                                : QString("— %1  [%2]").arg(m_config.name, key));
+    m_summaryLabel->setStyleSheet(
+        brokenNow ? "color: #ddaa44; font-size: 11px; font-weight: bold; background: transparent;"
+                  : "color: #446644; font-size: 11px; background: transparent;");
 }
 
 void KeyboardCardW::on_count_changed(int count) {
-    if (m_counterLabel)
-        m_counterLabel->setText(QString::number(count));
+    if (m_counterLabel) m_counterLabel->setText(QString::number(count));
 }
 
 void KeyboardCardW::set_index(int index) {
     m_index = index;
-    if (m_nameLabel)
-        m_nameLabel->setText(QString("Trigger %1").arg(index + 1));
+    if (m_nameLabel) m_nameLabel->setText(QString("Trigger %1").arg(index + 1));
 }
 
 void KeyboardCardW::toggle_expanded() {
@@ -206,7 +214,7 @@ void KeyboardCardW::toggle_expanded() {
         anim->setStartValue(0);
         anim->setEndValue(m_body->sizeHint().height());
         connect(anim, &QAbstractAnimation::finished,
-                [this]{ m_body->setMaximumHeight(QWIDGETSIZE_MAX); });
+                [this] { m_body->setMaximumHeight(QWIDGETSIZE_MAX); });
         if (btn) btn->setText("▼");
     }
     anim->start(QAbstractAnimation::DeleteWhenStopped);

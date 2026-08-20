@@ -12,6 +12,7 @@ Originals are never modified.
 
 See analysis/README.rst for full documentation.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -19,12 +20,11 @@ import json
 import re
 import sys
 import time
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable, Optional
 
 import cv2
 import numpy as np
-
 from expression.classifier import classify_expression
 from expression.detector import (
     BLENDSHAPE_NAMES,
@@ -33,65 +33,83 @@ from expression.detector import (
     crop_bbox,
 )
 
-ClassifyFn = Callable[[FaceExpression, np.ndarray], tuple[str, float, Optional[dict[str, float]]]]
+ClassifyFn = Callable[[FaceExpression, np.ndarray], tuple[str, float, dict[str, float] | None]]
 
 # ── CLI ───────────────────────────────────────────────────────────────────────
+
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="MOSAIC facial expression analysis")
     group = parser.add_mutually_exclusive_group(required=True)
-    group.add_argument("--session", metavar="DIR",
-                        help="Process all .mp4 files in a recorded session directory")
-    group.add_argument("--video",   metavar="FILE",
-                        help="Process a single video file")
+    group.add_argument(
+        "--session", metavar="DIR", help="Process all .mp4 files in a recorded session directory"
+    )
+    group.add_argument("--video", metavar="FILE", help="Process a single video file")
 
-    parser.add_argument("--backend", choices=["heuristic", "ferplus", "pyfeat"], default="heuristic",
-                         help="Expression classifier: rule-based blendshape heuristic (fast, "
-                              "transparent, default), a pretrained FER+ ONNX model (more "
-                              "validated, downloads an extra ~34MB model), or py-feat's "
-                              "Detectorv1 (adds 20 FACS Action Unit scores alongside the "
-                              "emotion label, but is notably slower — roughly 0.1-0.8s/frame "
-                              "on CPU)")
-    parser.add_argument("--max-faces", type=int, default=5,
-                         help="Maximum simultaneous faces to detect (default: 5)")
-    parser.add_argument("--min-confidence", type=float, default=0.5,
-                         help="Face detection/presence confidence threshold (default: 0.5)")
-    parser.add_argument("--skip", type=int, default=1,
-                         help="Process every Nth frame (default: 1 = every frame)")
+    parser.add_argument(
+        "--backend",
+        choices=["heuristic", "ferplus", "pyfeat"],
+        default="heuristic",
+        help="Expression classifier: rule-based blendshape heuristic (fast, "
+        "transparent, default), a pretrained FER+ ONNX model (more "
+        "validated, downloads an extra ~34MB model), or py-feat's "
+        "Detectorv1 (adds 20 FACS Action Unit scores alongside the "
+        "emotion label, but is notably slower — roughly 0.1-0.8s/frame "
+        "on CPU)",
+    )
+    parser.add_argument(
+        "--max-faces", type=int, default=5, help="Maximum simultaneous faces to detect (default: 5)"
+    )
+    parser.add_argument(
+        "--min-confidence",
+        type=float,
+        default=0.5,
+        help="Face detection/presence confidence threshold (default: 0.5)",
+    )
+    parser.add_argument(
+        "--skip", type=int, default=1, help="Process every Nth frame (default: 1 = every frame)"
+    )
     return parser.parse_args()
 
 
 def _make_classify_fn(backend: str) -> ClassifyFn:
     if backend == "heuristic":
-        return lambda face, frame: (*classify_expression(BLENDSHAPE_NAMES, face.blendshape_scores), None)
+        return lambda face, frame: (
+            *classify_expression(BLENDSHAPE_NAMES, face.blendshape_scores),
+            None,
+        )
 
     if backend == "ferplus":
         from expression.ferplus import FerPlusClassifier
-        ferplus = FerPlusClassifier()   # loads the ONNX session once, reused for every frame
+
+        ferplus = FerPlusClassifier()  # loads the ONNX session once, reused for every frame
 
         def _classify(face: FaceExpression, frame: np.ndarray) -> tuple[str, float, None]:
             crop = crop_bbox(frame, face.bbox_xyxy)
             if crop.size == 0:
-                return "Neutral", 0.0, None   # degenerate/out-of-frame box — don't crash the run
+                return "Neutral", 0.0, None  # degenerate/out-of-frame box — don't crash the run
             return (*ferplus.classify(crop), None)
 
         return _classify
 
     if backend == "pyfeat":
         from expression.pyfeat import PyFeatClassifier
-        pyfeat = PyFeatClassifier()   # loads Detectorv1 once, reused for every frame
+
+        pyfeat = PyFeatClassifier()  # loads Detectorv1 once, reused for every frame
 
         def _classify(face: FaceExpression, frame: np.ndarray) -> tuple[str, float, dict]:
             crop = crop_bbox(frame, face.bbox_xyxy)
             if crop.size == 0:
-                return "Neutral", 0.0, {}   # degenerate/out-of-frame box — don't crash the run
+                return "Neutral", 0.0, {}  # degenerate/out-of-frame box — don't crash the run
             return pyfeat.detect(crop)
 
         return _classify
 
     raise ValueError(f"Unknown expression backend: {backend!r}")
 
+
 # ── Session mode ─────────────────────────────────────────────────────────────
+
 
 def _camera_index_from_filename(video_path: Path) -> int:
     """Parses the real camera index from a MOSAIC-recorded video's own
@@ -103,14 +121,18 @@ def _camera_index_from_filename(video_path: Path) -> int:
     stderr warning if the filename doesn't match "video_N.<ext>"."""
     m = re.search(r"video_(\d+)", video_path.stem)
     if not m:
-        print(f"[run_expression] Warning: could not parse a camera index from "
-              f"{video_path.name}, defaulting to 0", file=sys.stderr)
+        print(
+            f"[run_expression] Warning: could not parse a camera index from "
+            f"{video_path.name}, defaulting to 0",
+            file=sys.stderr,
+        )
         return 0
     return int(m.group(1))
 
 
-def process_session(session_dir: Path, backend: str, max_faces: int,
-                     min_confidence: float, skip: int) -> None:
+def process_session(
+    session_dir: Path, backend: str, max_faces: int, min_confidence: float, skip: int
+) -> None:
     videos = sorted((session_dir / "video").glob("*.mp4"))
     if not videos:
         print(f"[run_expression] No .mp4 files found in {session_dir / 'video'}", file=sys.stderr)
@@ -142,23 +164,39 @@ def process_session(session_dir: Path, backend: str, max_faces: int,
     for position, video_path in enumerate(videos, start=1):
         camera_index = _camera_index_from_filename(video_path)
         print(f"[run_expression] Camera {position}/{len(videos)}: {video_path.name}", flush=True)
-        process_video(video_path, detector, classify_fn, backend, skip=skip,
-                      camera_index=camera_index, output_dir=expression_dir)
+        process_video(
+            video_path,
+            detector,
+            classify_fn,
+            backend,
+            skip=skip,
+            camera_index=camera_index,
+            output_dir=expression_dir,
+        )
 
 
-def process_video(video_path: Path, detector: MediaPipeExpressionDetector,
-                   classify_fn: ClassifyFn, backend: str, skip: int = 1,
-                   camera_index: int = 0, output_dir: Optional[Path] = None) -> None:
-    skip = max(1, skip)   # --skip 0 would divide-by-zero on frame_idx % skip below
+def process_video(
+    video_path: Path,
+    detector: MediaPipeExpressionDetector,
+    classify_fn: ClassifyFn,
+    backend: str,
+    skip: int = 1,
+    camera_index: int = 0,
+    output_dir: Path | None = None,
+) -> None:
+    skip = max(1, skip)  # --skip 0 would divide-by-zero on frame_idx % skip below
     cap = cv2.VideoCapture(str(video_path))
     if not cap.isOpened():
         print(f"[run_expression] Cannot open {video_path}", file=sys.stderr)
         return
 
-    fps   = cap.get(cv2.CAP_PROP_FPS) or 30.0
+    fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
     total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-    print(f"[run_expression] Processing {video_path.name}  ({total} frames @ {fps:.1f} fps, "
-          f"backend={backend})", flush=True)
+    print(
+        f"[run_expression] Processing {video_path.name}  ({total} frames @ {fps:.1f} fps, "
+        f"backend={backend})",
+        flush=True,
+    )
 
     # Scales to the video's own length instead of a fixed 100-frame stride
     # (matches run_pose.py's/run_face_mask.py's identical fix): short
@@ -178,6 +216,7 @@ def process_video(video_path: Path, detector: MediaPipeExpressionDetector,
     timestamps: list[int] = []
     if ts_csv.exists():
         import csv
+
         with ts_csv.open() as f:
             for row in csv.DictReader(f):
                 try:
@@ -187,7 +226,7 @@ def process_video(video_path: Path, detector: MediaPipeExpressionDetector,
 
     results: list[dict] = []
     frame_idx = 0
-    t_start   = time.perf_counter()
+    t_start = time.perf_counter()
 
     while True:
         ok, frame = cap.read()
@@ -201,7 +240,9 @@ def process_video(video_path: Path, detector: MediaPipeExpressionDetector,
         if frame_idx % skip == 0:
             ts_ns = timestamps[frame_idx] if frame_idx < len(timestamps) else 0
             faces = detector.detect(frame)
-            results.append(_frame_to_dict(frame_idx, ts_ns, camera_index, faces, frame, classify_fn))
+            results.append(
+                _frame_to_dict(frame_idx, ts_ns, camera_index, faces, frame, classify_fn)
+            )
 
         frame_idx += 1
         if frame_idx % progress_interval == 0:
@@ -211,15 +252,23 @@ def process_video(video_path: Path, detector: MediaPipeExpressionDetector,
 
     cap.release()
     elapsed = time.perf_counter() - t_start
-    print(f"[run_expression] Done. {frame_idx} frames in {elapsed:.1f}s "
-          f"({frame_idx / max(elapsed, 1e-9):.1f} fps throughput)", flush=True)
+    print(
+        f"[run_expression] Done. {frame_idx} frames in {elapsed:.1f}s "
+        f"({frame_idx / max(elapsed, 1e-9):.1f} fps throughput)",
+        flush=True,
+    )
 
     _write_results(video_path, results, backend, output_dir)
 
 
-def _frame_to_dict(frame_idx: int, ts_ns: int, camera_index: int,
-                    faces: list[FaceExpression], frame_bgr: np.ndarray,
-                    classify_fn: ClassifyFn) -> dict:
+def _frame_to_dict(
+    frame_idx: int,
+    ts_ns: int,
+    camera_index: int,
+    faces: list[FaceExpression],
+    frame_bgr: np.ndarray,
+    classify_fn: ClassifyFn,
+) -> dict:
     subjects = []
     # subject_id is plain per-frame enumerate order — no cross-frame
     # identity tracking, same caveat as PoseSubject.subjectId.
@@ -239,12 +288,17 @@ def _frame_to_dict(frame_idx: int, ts_ns: int, camera_index: int,
         if aus is not None:
             subject["action_units"] = aus
         subjects.append(subject)
-    return {"frame_index": frame_idx, "timestamp_ns": ts_ns,
-            "camera_index": camera_index, "subjects": subjects}
+    return {
+        "frame_index": frame_idx,
+        "timestamp_ns": ts_ns,
+        "camera_index": camera_index,
+        "subjects": subjects,
+    }
 
 
-def _write_results(video_path: Path, results: list[dict], backend: str,
-                    output_dir: Optional[Path] = None) -> None:
+def _write_results(
+    video_path: Path, results: list[dict], backend: str, output_dir: Path | None = None
+) -> None:
     if output_dir is not None:
         output_dir.mkdir(parents=True, exist_ok=True)
         out_path = output_dir / f"{video_path.stem}.expression.json"
@@ -261,25 +315,36 @@ def _write_results(video_path: Path, results: list[dict], backend: str,
     }
     if backend == "pyfeat":
         from expression.pyfeat import AU_NAMES
+
         doc["au_names"] = AU_NAMES
     out_path.write_text(json.dumps(doc, indent=2))
     print(f"[run_expression] Expression data → {out_path}", flush=True)
 
+
 # ── Entry point ───────────────────────────────────────────────────────────────
+
 
 def main() -> None:
     args = parse_args()
 
     if args.session:
-        process_session(Path(args.session), args.backend, args.max_faces,
-                         args.min_confidence, args.skip)
+        process_session(
+            Path(args.session), args.backend, args.max_faces, args.min_confidence, args.skip
+        )
     elif args.video:
         detector = MediaPipeExpressionDetector(
-            max_faces=args.max_faces, min_confidence=args.min_confidence)
+            max_faces=args.max_faces, min_confidence=args.min_confidence
+        )
         classify_fn = _make_classify_fn(args.backend)
         video_path = Path(args.video)
-        process_video(video_path, detector, classify_fn, args.backend, skip=args.skip,
-                      camera_index=_camera_index_from_filename(video_path))
+        process_video(
+            video_path,
+            detector,
+            classify_fn,
+            args.backend,
+            skip=args.skip,
+            camera_index=_camera_index_from_filename(video_path),
+        )
 
 
 if __name__ == "__main__":

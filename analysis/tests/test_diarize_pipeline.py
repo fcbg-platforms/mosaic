@@ -7,6 +7,7 @@ assign_speakers() is the highest-value function to get right in this
 feature: a bug here silently mislabels who said what in the exported
 transcript, the same severity class as facemask's expand_and_clip().
 """
+
 import sys
 from pathlib import Path
 from unittest.mock import patch

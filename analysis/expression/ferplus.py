@@ -33,6 +33,7 @@ and verifies the download's sha256 against the known-good hash so a
 corrupted/truncated/wrong download fails loudly rather than silently
 producing garbage predictions.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -49,15 +50,19 @@ _FERPLUS_MODEL_URL = (
     "https://media.githubusercontent.com/media/onnx/models/main/"
     "validated/vision/body_analysis/emotion_ferplus/model/emotion-ferplus-8.onnx"
 )
-_FERPLUS_MODEL_SHA256 = (
-    "a2a2ba6a335a3b29c21acb6272f962bd3d47f84952aaffa03b60986e04efa61c"
-)
+_FERPLUS_MODEL_SHA256 = "a2a2ba6a335a3b29c21acb6272f962bd3d47f84952aaffa03b60986e04efa61c"
 
 #: Official FER+ label order (see module docstring) — index *i* is the
 #: emotion for the ONNX model's *i*-th output logit.
 FERPLUS_LABELS: list[str] = [
-    "Neutral", "Happiness", "Surprise", "Sadness",
-    "Anger", "Disgust", "Fear", "Contempt",
+    "Neutral",
+    "Happiness",
+    "Surprise",
+    "Sadness",
+    "Anger",
+    "Disgust",
+    "Fear",
+    "Contempt",
 ]
 
 
@@ -72,8 +77,8 @@ class FerPlusClassifier:
         import onnxruntime as ort
 
         model_path = _ensure_download_verified(
-            _MODELS_DIR / "emotion-ferplus-8.onnx",
-            _FERPLUS_MODEL_URL, _FERPLUS_MODEL_SHA256)
+            _MODELS_DIR / "emotion-ferplus-8.onnx", _FERPLUS_MODEL_URL, _FERPLUS_MODEL_SHA256
+        )
 
         self._session = ort.InferenceSession(str(model_path))
         self._input_name = self._session.get_inputs()[0].name

@@ -1,17 +1,19 @@
 #include "analysis/transcript_worker.hpp"
-#include "utils/logger.hpp"
+
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QProcess>
 #include <cstring>
 
+#include "utils/logger.hpp"
+
 namespace mosaic {
 
 struct TranscriptWorker::Impl {
     std::unique_ptr<QProcess> proc;
-    QByteArray                readBuf;
-    bool                      paused{false};
+    QByteArray readBuf;
+    bool paused{false};
 };
 
 TranscriptWorker::TranscriptWorker(QObject* parent)
@@ -20,7 +22,7 @@ TranscriptWorker::TranscriptWorker(QObject* parent)
 TranscriptWorker::~TranscriptWorker() { stop(); }
 
 bool TranscriptWorker::start(const QString& interpreter, const QString& scriptPath,
-                              const QStringList& extraArgs) {
+                             const QStringList& extraArgs) {
     stop();
 
     d->proc = std::make_unique<QProcess>(this);
@@ -38,7 +40,7 @@ bool TranscriptWorker::start(const QString& interpreter, const QString& scriptPa
             const auto doc = QJsonDocument::fromJson(line);
             if (!doc.isObject()) continue;
             const auto obj = doc.object();
-            const int mic = obj["mic"].toInt();
+            const int mic  = obj["mic"].toInt();
 
             for (const auto& segVal : obj["new_final_segments"].toArray()) {
                 const auto seg = segVal.toObject();
@@ -53,8 +55,7 @@ bool TranscriptWorker::start(const QString& interpreter, const QString& scriptPa
         if (!msg.isEmpty()) log_warning("[TranscriptWorker] " + msg);
     });
 
-    connect(d->proc.get(), &QProcess::errorOccurred, this,
-            [this](QProcess::ProcessError err) {
+    connect(d->proc.get(), &QProcess::errorOccurred, this, [this](QProcess::ProcessError err) {
         const QString msg = QString("Transcript process error: %1").arg(static_cast<int>(err));
         log_error(msg);
         emit process_error(msg);
@@ -62,7 +63,8 @@ bool TranscriptWorker::start(const QString& interpreter, const QString& scriptPa
 
     d->proc->start();
     if (!d->proc->waitForStarted(5000)) {
-        log_error("[TranscriptWorker] Failed to start Python subprocess: " + d->proc->errorString());
+        log_error("[TranscriptWorker] Failed to start Python subprocess: " +
+                  d->proc->errorString());
         d->proc.reset();
         return false;
     }
@@ -75,8 +77,7 @@ bool TranscriptWorker::start(const QString& interpreter, const QString& scriptPa
 void TranscriptWorker::stop() {
     if (!d->proc) return;
     d->proc->closeWriteChannel();
-    if (!d->proc->waitForFinished(3000))
-        d->proc->kill();
+    if (!d->proc->waitForFinished(3000)) d->proc->kill();
     d->proc.reset();
 }
 
@@ -96,14 +97,14 @@ void TranscriptWorker::submit_chunk(int micIndex, int sampleRate, int channels, 
     if (!is_running() || d->paused) return;
     if (channels <= 0 || pcm16.isEmpty()) return;
 
-    const int sampleCount = pcm16.size() / (channels * 2);   // per-channel frame count
+    const int sampleCount = pcm16.size() / (channels * 2); // per-channel frame count
     if (sampleCount <= 0) return;
 
     // 24-byte header: mic, sampleRate, channels, sampleFormat(0=int16), sampleCount, reserved.
     QByteArray header(24, 0);
-    std::memcpy(header.data() + 0,  &micIndex,   4);
-    std::memcpy(header.data() + 4,  &sampleRate, 4);
-    std::memcpy(header.data() + 8,  &channels,   4);
+    std::memcpy(header.data() + 0, &micIndex, 4);
+    std::memcpy(header.data() + 4, &sampleRate, 4);
+    std::memcpy(header.data() + 8, &channels, 4);
     const int sampleFormat = 0;
     std::memcpy(header.data() + 12, &sampleFormat, 4);
     std::memcpy(header.data() + 16, &sampleCount, 4);

@@ -3,6 +3,7 @@ Pure-logic tests for pose3d/association.py — a bug here silently merges two
 different people into one 3D reconstruction, or splits one real person into
 two, so this is as high-value to get right as triangulation.py itself.
 """
+
 import sys
 from pathlib import Path
 
@@ -48,17 +49,24 @@ def _make_camera(index, position, target=(0.0, 0.0, 0.0)):
 def _observe(person_index, camera_index, cam, keypoints_room, visibility=1.0):
     pixels = np.array([project_point_px(kp, cam) for kp in keypoints_room])
     vis = np.full(len(keypoints_room), visibility)
-    return PersonObservation(camera_index=camera_index, person_index=person_index,
-                              keypoints_px=pixels, visibilities=vis)
+    return PersonObservation(
+        camera_index=camera_index, person_index=person_index, keypoints_px=pixels, visibilities=vis
+    )
 
 
 def _cluster_keypoints(center, spread=80.0):
     """A small, fixed articulated-body-like cluster of 3D points around
     `center` — different centers give genuinely different "people"."""
-    offsets = np.array([
-        [0, 0, 0], [spread, 0, 0], [-spread, 0, 0],
-        [0, spread, 0], [0, -spread, 0], [spread, spread, 0],
-    ])[:_N_KP]
+    offsets = np.array(
+        [
+            [0, 0, 0],
+            [spread, 0, 0],
+            [-spread, 0, 0],
+            [0, spread, 0],
+            [0, -spread, 0],
+            [spread, spread, 0],
+        ]
+    )[:_N_KP]
     return np.array(center) + offsets
 
 
@@ -72,7 +80,7 @@ def test_match_camera_pair_matches_the_same_person_across_two_cameras():
 
     matches = match_camera_pair(obs_a, obs_b, cam_a, cam_b)
     assert matches == [(0, 0, matches[0][2])]
-    assert matches[0][2] < 1.0   # near-zero reprojection cost for a true match
+    assert matches[0][2] < 1.0  # near-zero reprojection cost for a true match
 
 
 def test_match_camera_pair_rejects_a_mismatched_pair():
@@ -108,6 +116,7 @@ def test_pairwise_cost_is_inf_below_min_shared_keypoints():
     obs_b.visibilities[2:] = 0.0
 
     from pose3d.association import pairwise_cost
+
     cost = pairwise_cost(obs_a, obs_b, cam_a, cam_b, min_shared_keypoints=4)
     assert cost == float("inf")
 

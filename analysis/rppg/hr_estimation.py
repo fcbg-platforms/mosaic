@@ -6,14 +6,16 @@ unit-testable against synthetic signals with a known injected frequency,
 matching this project's established discipline for math this codebase's
 own correctness genuinely depends on.
 """
+
 from __future__ import annotations
 
 import numpy as np
 from scipy.signal import butter, filtfilt, welch
 
 
-def bandpass_filter(signal: np.ndarray, fs: float, low_hz: float = 0.7,
-                     high_hz: float = 3.0, order: int = 4) -> np.ndarray:
+def bandpass_filter(
+    signal: np.ndarray, fs: float, low_hz: float = 0.7, high_hz: float = 3.0, order: int = 4
+) -> np.ndarray:
     """Zero-phase Butterworth bandpass filter.
 
     Restricts ``signal`` to the physiological pulse band. This also
@@ -43,7 +45,7 @@ def bandpass_filter(signal: np.ndarray, fs: float, low_hz: float = 0.7,
     """
     nyq = fs / 2.0
     low = low_hz / nyq
-    high = min(high_hz / nyq, 0.999)   # scipy rejects a normalized cutoff of exactly 1.0
+    high = min(high_hz / nyq, 0.999)  # scipy rejects a normalized cutoff of exactly 1.0
     if low <= 0 or low >= high:
         raise ValueError(f"invalid band [{low_hz}, {high_hz}] Hz for fs={fs} Hz")
 
@@ -54,8 +56,9 @@ def bandpass_filter(signal: np.ndarray, fs: float, low_hz: float = 0.7,
     return filtfilt(b, a, signal)
 
 
-def estimate_hr_welch(signal: np.ndarray, fs: float, low_hz: float = 0.7,
-                       high_hz: float = 3.0) -> tuple[float | None, float | None]:
+def estimate_hr_welch(
+    signal: np.ndarray, fs: float, low_hz: float = 0.7, high_hz: float = 3.0
+) -> tuple[float | None, float | None]:
     """Estimate heart rate via Welch's periodogram peak frequency.
 
     Parameters
@@ -134,13 +137,14 @@ def estimate_hr_welch(signal: np.ndarray, fs: float, low_hz: float = 0.7,
         return None, None
 
     tol_hz = 0.1
-    harmonic_mask = ((np.abs(freqs - peak_freq) <= tol_hz) |
-                      (np.abs(freqs - 2.0 * peak_freq) <= tol_hz)) & ext_mask
+    harmonic_mask = (
+        (np.abs(freqs - peak_freq) <= tol_hz) | (np.abs(freqs - 2.0 * peak_freq) <= tol_hz)
+    ) & ext_mask
     signal_power = float(np.sum(psd[harmonic_mask]))
     noise_power = max(total_power - signal_power, 1e-12)
 
     if signal_power <= 0:
-        return bpm, -60.0   # floor value: no measurable power at the peak at all
+        return bpm, -60.0  # floor value: no measurable power at the peak at all
 
     snr_db = 10.0 * np.log10(signal_power / noise_power)
     return bpm, snr_db

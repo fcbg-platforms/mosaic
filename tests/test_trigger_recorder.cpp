@@ -1,8 +1,10 @@
-#include "trigger/trigger_recorder.hpp"
 #include <gtest/gtest.h>
+
 #include <QFile>
 #include <QTemporaryDir>
 #include <QTextStream>
+
+#include "trigger/trigger_recorder.hpp"
 
 using mosaic::TriggerEvent;
 using mosaic::TriggerRecorder;
@@ -48,7 +50,7 @@ TEST(TriggerRecorder, RecordsRawElapsedNs) {
     QFile f(path);
     ASSERT_TRUE(f.open(QIODevice::ReadOnly | QIODevice::Text));
     QTextStream ts(&f);
-    ts.readLine();   // header
+    ts.readLine(); // header
     const QStringList row = ts.readLine().split(',');
     ASSERT_GE(row.size(), 2);
     EXPECT_EQ(row[1].toLongLong(), ev.timestampNs);
@@ -73,7 +75,7 @@ TEST(TriggerRecorder, QuotesLabelAndEscapesEmbeddedQuotes) {
     QFile f(path);
     ASSERT_TRUE(f.open(QIODevice::ReadOnly | QIODevice::Text));
     QTextStream ts(&f);
-    ts.readLine();   // header
+    ts.readLine(); // header
     const QString row = ts.readLine();
     EXPECT_TRUE(row.contains(R"("Say ""hi""")"));
 }

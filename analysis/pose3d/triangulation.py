@@ -20,10 +20,10 @@ extrinsic_rt is a row-major 4x4 homogeneous transform, ROOM_FROM_CAMERA
 (point_room = R @ point_camera + t), camera 0 always identity, translation
 in millimetres.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Optional
 
 import cv2
 import numpy as np
@@ -50,11 +50,12 @@ class CameraGeom:
         Computed automatically as ``invert_rt(extrinsic_rt)`` — the inverse
         transform every projection in this module actually uses.
     """
+
     index: int
-    camera_matrix: np.ndarray      # (3,3)
-    dist_coeffs: np.ndarray        # (5,)
-    extrinsic_rt: np.ndarray       # (4,4) or flat-16, row-major, room_from_camera
-    camera_from_room: np.ndarray = field(init=False)   # (4,4), computed via invert_rt()
+    camera_matrix: np.ndarray  # (3,3)
+    dist_coeffs: np.ndarray  # (5,)
+    extrinsic_rt: np.ndarray  # (4,4) or flat-16, row-major, room_from_camera
+    camera_from_room: np.ndarray = field(init=False)  # (4,4), computed via invert_rt()
 
     def __post_init__(self) -> None:
         self.camera_matrix = np.asarray(self.camera_matrix, dtype=np.float64).reshape(3, 3)
@@ -143,7 +144,7 @@ def projection_matrix(cam: CameraGeom) -> np.ndarray:
     return cam.camera_from_room[:3, :4]
 
 
-def triangulate_point_dlt(points_normalized, projection_matrices) -> Optional[np.ndarray]:
+def triangulate_point_dlt(points_normalized, projection_matrices) -> np.ndarray | None:
     """Classic linear multi-view DLT (Direct Linear Transform) triangulation.
 
     Parameters
@@ -177,7 +178,7 @@ def triangulate_point_dlt(points_normalized, projection_matrices) -> Optional[np
         return None
 
     rows = []
-    for (u, v), p in zip(points_normalized, projection_matrices):
+    for (u, v), p in zip(points_normalized, projection_matrices, strict=False):
         rows.append(u * p[2, :] - p[0, :])
         rows.append(v * p[2, :] - p[1, :])
     a = np.asarray(rows, dtype=np.float64)
@@ -223,7 +224,11 @@ def project_point_px(point_room, cam: CameraGeom) -> np.ndarray:
     rvec, _ = cv2.Rodrigues(r_wc)
     projected, _ = cv2.projectPoints(
         np.asarray(point_room, dtype=np.float64).reshape(1, 3),
-        rvec, t_wc.reshape(3, 1), cam.camera_matrix, cam.dist_coeffs)
+        rvec,
+        t_wc.reshape(3, 1),
+        cam.camera_matrix,
+        cam.dist_coeffs,
+    )
     return projected.reshape(2)
 
 
@@ -270,14 +275,15 @@ class TriangulationResult:
         Each entry in `used_views`' own reprojection error (px) against
         `point_room`, keyed by camera index.
     """
+
     point_room: np.ndarray
     used_views: list
     per_view_error_px: dict
 
 
-def triangulate_with_rejection(observations, cameras,
-                                max_reprojection_error_px: float = 15.0,
-                                min_visibility: float = 0.1) -> Optional[TriangulationResult]:
+def triangulate_with_rejection(
+    observations, cameras, max_reprojection_error_px: float = 15.0, min_visibility: float = 0.1
+) -> TriangulationResult | None:
     """Triangulate one keypoint across cameras, rejecting bad views once.
 
     Parameters
@@ -310,8 +316,11 @@ def triangulate_with_rejection(observations, cameras,
     remainder — no iterative chase, matching ``pose_kinematics.cpp``'s
     "skip, don't fabricate" discipline (see :doc:`/math/pose_kinematics`).
     """
-    visible = {idx: uv for idx, (uv, vis) in observations.items()
-               if vis >= min_visibility and idx in cameras}
+    visible = {
+        idx: uv
+        for idx, (uv, vis) in observations.items()
+        if vis >= min_visibility and idx in cameras
+    }
     if len(visible) < 2:
         return None
 
@@ -329,8 +338,9 @@ def triangulate_with_rejection(observations, cameras,
     kept = [i for i in view_ids if errors[i] <= max_reprojection_error_px]
 
     if len(kept) == len(view_ids):
-        return TriangulationResult(point_room=point, used_views=kept,
-                                    per_view_error_px={i: errors[i] for i in kept})
+        return TriangulationResult(
+            point_room=point, used_views=kept, per_view_error_px={i: errors[i] for i in kept}
+        )
 
     if len(kept) < 2:
         return None

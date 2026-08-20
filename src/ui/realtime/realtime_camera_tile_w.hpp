@@ -23,13 +23,12 @@ namespace mosaic {
 // there's no live 3D room view, etc).
 class RealtimeCameraTileW : public QWidget {
     Q_OBJECT
-public:
+   public:
     explicit RealtimeCameraTileW(int cameraIndex, bool liveAnalysisEnabled,
-                                  int detectionWindowBuckets = 24,
-                                  QWidget* parent = nullptr);
+                                 int detectionWindowBuckets = 24, QWidget* parent = nullptr);
     ~RealtimeCameraTileW() override;
 
-    [[nodiscard]] int  camera_index() const;
+    [[nodiscard]] int camera_index() const;
     [[nodiscard]] bool analyze_enabled() const;
 
     // Aggregate rates for the tab-level KPI strip; empty until at least one
@@ -43,17 +42,17 @@ public:
     // during a pause (frame_preview is untouched by the pause).
     void set_analysis_paused(bool paused);
 
-public slots:
+   public slots:
     void on_frame_preview(QImage frame);
     void on_pose_ready(QVariantList keypoints);
     void on_gaze_ready(QVariantMap gazeData);
 
-signals:
+   signals:
     // Emitted when the user toggles this tile's own "Analyze" checkbox — the
     // tab connects this straight to CameraParameters::liveAnalysisEnabled.
     void analyze_toggled(int cameraIndex, bool enabled);
 
-private:
+   private:
     struct Impl;
     std::unique_ptr<Impl> d;
 };

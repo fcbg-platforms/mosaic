@@ -1,13 +1,14 @@
 #pragma once
-#include "core/settings.hpp"
-#include "utils/ring_buffer.hpp"
-#include "video/video_frame.hpp"
 #include <QImage>
 #include <QString>
 #include <QThread>
 #include <QVector>
 #include <atomic>
 #include <memory>
+
+#include "core/settings.hpp"
+#include "utils/ring_buffer.hpp"
+#include "video/video_frame.hpp"
 
 namespace mosaic {
 
@@ -32,18 +33,17 @@ struct DiscoveredCamera {
 
 class VideoGrabber : public QThread {
     Q_OBJECT
-public:
+   public:
     // frameBuffer must outlive this object.
-    explicit VideoGrabber(int                                      cameraIndex,
-                          const CameraParameters&                  params,
+    explicit VideoGrabber(int cameraIndex, const CameraParameters& params,
                           RingBuffer<std::shared_ptr<VideoFrame>>& frameBuffer,
-                          QObject*                                 parent = nullptr);
+                          QObject* parent = nullptr);
     ~VideoGrabber() override;
 
     // Opens the camera device (Pylon) or prepares the stub generator.
     // Safe to call from the main thread before start().
     [[nodiscard]] bool open();
-    void               close();
+    void close();
 
     // Requests that the subset of parameters safe to change on an
     // already-open, actively-grabbing camera (exposure, gain, gamma, black
@@ -90,10 +90,10 @@ public:
     // first Action Command(s) before every armed camera is truly ready.
     [[nodiscard]] bool is_actually_grabbing() const;
 
-    [[nodiscard]] bool    is_open()          const;
-    [[nodiscard]] int64_t frames_grabbed()   const;
-    [[nodiscard]] int64_t frames_dropped()   const; // dropped due to full ring buffer
-    [[nodiscard]] double  current_fps()      const;
+    [[nodiscard]] bool is_open() const;
+    [[nodiscard]] int64_t frames_grabbed() const;
+    [[nodiscard]] int64_t frames_dropped() const; // dropped due to full ring buffer
+    [[nodiscard]] double current_fps() const;
 
     // elapsed_ns() of the most recently grabbed frame, or -1 if none yet.
     // Used by PerformanceMonitorW to show a live cross-camera skew estimate
@@ -108,9 +108,9 @@ public:
     // and this camera fell back to free-run for the session), callers must
     // not include this grabber in a GigE Vision Action Command target list
     // (see gige_action_command.hpp).
-    [[nodiscard]] bool     action_command_ready()    const;
-    [[nodiscard]] uint32_t action_device_key()       const;
-    [[nodiscard]] QString  action_broadcast_address() const;
+    [[nodiscard]] bool action_command_ready() const;
+    [[nodiscard]] uint32_t action_device_key() const;
+    [[nodiscard]] QString action_broadcast_address() const;
 
     // The fps this grabber was configured with (CameraParameters::fps).
     // Plain struct read — always available even in stub builds. Used by
@@ -152,7 +152,7 @@ public:
     // Returns an empty list in stub builds (MOSAIC_HAVE_CAMERAS not defined).
     [[nodiscard]] static QVector<DiscoveredCamera> enumerate_devices();
 
-signals:
+   signals:
     void opened(int cameraIndex, int width, int height, double fps);
     void closed(int cameraIndex);
     void frame_dropped(int cameraIndex, int64_t frameId);
@@ -175,10 +175,10 @@ signals:
     // supported: yes/no" readout without inspecting logs.
     void action_command_capability(int cameraIndex, bool supported);
 
-protected:
+   protected:
     void run() override;
 
-private:
+   private:
     // Writes exposure/gain/gamma/black-level/white-balance/auto-target/
     // digital-shift nodes from d->params onto the currently-open camera.
     // Shared by open() (initial configuration) and apply_live_params()

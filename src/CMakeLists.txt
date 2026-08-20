@@ -38,6 +38,7 @@ qt_add_executable(mosaic MACOSX_BUNDLE
     analysis/skeleton3d_result.cpp
     analysis/rppg_result.hpp
     analysis/rppg_result.cpp
+    analysis/nearest_by_key.hpp
 
     # ── Foundation ────────────────────────────────────────────────────────
     utils/logger.hpp

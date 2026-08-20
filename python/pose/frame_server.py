@@ -18,6 +18,7 @@ stdout protocol (per frame, newline-terminated JSON):
 
 Empty keypoints list means no person was detected.
 """
+
 from __future__ import annotations
 
 import json
@@ -66,7 +67,7 @@ def main() -> None:
     # trap: if a full/heavy model file is ever added to this directory for
     # some other purpose, this live path would otherwise silently get
     # slower with no code change to explain why.
-    estimator      = PoseEstimator(model_complexity=0)
+    estimator = PoseEstimator(model_complexity=0)
     gaze_estimator = GazeEstimator()
     try:
         while True:
@@ -75,11 +76,11 @@ def main() -> None:
                 break
 
             keypoints = estimator.estimate(frame)
-            gaze      = gaze_estimator.estimate(frame)
+            gaze = gaze_estimator.estimate(frame)
             result = {
-                "camera":    cam_idx,
+                "camera": cam_idx,
                 "keypoints": [kp.to_dict() for kp in keypoints] if keypoints else [],
-                "gaze":      gaze.to_dict() if gaze else None,
+                "gaze": gaze.to_dict() if gaze else None,
                 "timestamp": time.time(),
             }
             sys.stdout.write(json.dumps(result) + "\n")

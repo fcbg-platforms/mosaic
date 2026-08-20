@@ -23,12 +23,19 @@
 - [ ] Python changes (`python/`, `analysis/`, `docs/`) pass `ruff check` / `ruff format` (shared
       config at repo-root `ruff.toml`; each directory is its own uv project — see README's
       [Python environments](README.md#python-environments)). Installing the
-      `.pre-commit-config.yaml` hooks runs this automatically.
+      `.pre-commit-config.yaml` hooks runs this automatically. CI enforces both via the
+      `lint-python` job.
+- [ ] C++ changes (`src/`, `tests/`) pass `clang-format --dry-run --Werror` against the repo-root
+      `.clang-format`. CI enforces this via the `lint-cpp` job. `.clang-tidy` is also configured
+      in the repo but is **not yet CI-enforced** — running it for real needs a valid
+      `compile_commands.json` from a full Qt+vcpkg build, which would make a "just check style"
+      job as heavy as the full build job; treat it as a manual/local check for now.
 - [ ] No unrelated file churn — check `git status`/`git diff` before staging.
 
 ## Code style
 
-- C++: follow `.clang-format`/`.clang-tidy` already configured in the repo.
+- C++: follow `.clang-format`/`.clang-tidy` already configured in the repo (`.clang-format` is
+  CI-enforced; `.clang-tidy` is not yet, see above).
 - Python: `ruff`, config at repo-root `ruff.toml`, shared across `python/`, `analysis/`, `docs/`.
 
 ## Reporting issues / proposing features

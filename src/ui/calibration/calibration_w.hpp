@@ -1,9 +1,10 @@
 #pragma once
-#include "calibration/calibration_manager.hpp"
-#include "core/settings.hpp"
 #include <QVBoxLayout>
 #include <QWidget>
 #include <memory>
+
+#include "calibration/calibration_manager.hpp"
+#include "core/settings.hpp"
 
 namespace mosaic {
 
@@ -33,24 +34,24 @@ class VideoManager;
 //   ChArUco capture; see room_calibration_w.hpp.
 class CalibrationW : public QWidget {
     Q_OBJECT
-public:
+   public:
     // videoSettings is used to know how many cameras are configured.
     // roomSettings/videoMgr are forwarded to the Room (Extrinsics) page —
     // that page needs live multi-camera frames (videoMgr) and somewhere to
     // persist the room's reference plane (roomSettings), neither of which
     // the existing single-camera Intrinsics flow required.
     explicit CalibrationW(VideoSettings& videoSettings, RoomSettings& roomSettings,
-                           VideoManager* videoMgr, QWidget* parent = nullptr);
+                          VideoManager* videoMgr, QWidget* parent = nullptr);
     ~CalibrationW() override;
 
-signals:
+   signals:
     void calibration_saved(int cameraIndex);
 
-private slots:
+   private slots:
     void on_corners_detected(int viewIndex, bool found, QImage preview);
     void on_calibration_done(double rmsError, bool success);
 
-private:
+   private:
     void build_board_section(QVBoxLayout* parent);
     void build_capture_section(QVBoxLayout* parent);
     void build_preview_section(QVBoxLayout* parent);

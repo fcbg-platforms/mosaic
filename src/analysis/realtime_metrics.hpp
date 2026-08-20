@@ -1,9 +1,10 @@
 #pragma once
-#include "calibration/rms_quality.hpp"
 #include <QVector>
 #include <cstdint>
 #include <deque>
 #include <optional>
+
+#include "calibration/rms_quality.hpp"
 
 namespace mosaic {
 
@@ -17,7 +18,7 @@ namespace mosaic {
 /// observations is never fabricated — bucket_rates() only ever reports
 /// buckets that actually received at least one push().
 class DetectionRateTracker {
-public:
+   public:
     explicit DetectionRateTracker(int bucketCount = 24, int64_t bucketDurationMs = 5000);
 
     /// Records one detection observation (true = a subject/keypoint set was
@@ -33,15 +34,15 @@ public:
 
     [[nodiscard]] int bucket_count() const { return static_cast<int>(buckets_.size()); }
 
-private:
+   private:
     struct Bucket {
-        int64_t index = 0;   // timestampMs / bucketDurationMs_
-        int     hits  = 0;
-        int     total = 0;
+        int64_t index = 0; // timestampMs / bucketDurationMs_
+        int hits      = 0;
+        int total     = 0;
     };
 
-    int             maxBuckets_;
-    int64_t         bucketDurationMs_;
+    int maxBuckets_;
+    int64_t bucketDurationMs_;
     std::deque<Bucket> buckets_;
 };
 
@@ -63,7 +64,7 @@ private:
 inline constexpr double kGazeOnTargetThreshold = 0.35;
 
 [[nodiscard]] bool gaze_on_target_for(double gazeDx, double gazeDy,
-                                       double threshold = kGazeOnTargetThreshold);
+                                      double threshold = kGazeOnTargetThreshold);
 
 /// @brief Buckets a remote-heart-rate (rPPG) window's pulse-SNR (dB, from
 /// run_rppg.py's estimate_hr_welch()) into the same RmsQuality status

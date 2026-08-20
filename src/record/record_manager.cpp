@@ -1,6 +1,5 @@
 #include "record/record_manager.hpp"
-#include "utils/logger.hpp"
-#include "utils/timestamp.hpp"
+
 #include <QCoreApplication>
 #include <QDateTime>
 #include <QDir>
@@ -10,35 +9,34 @@
 #include <QJsonObject>
 #include <QTimer>
 
+#include "utils/logger.hpp"
+#include "utils/timestamp.hpp"
+
 namespace mosaic {
 
 struct RecordManager::Impl {
-    AppSettings&    settings;
+    AppSettings& settings;
     TriggerManager* triggerMgr;
-    AudioManager*   audioMgr;
-    VideoManager*   videoMgr;
-    QString         username;
+    AudioManager* audioMgr;
+    VideoManager* videoMgr;
+    QString username;
 
-    bool    recording   {false};
-    int     elapsedMs   {0};
-    int64_t startMs     {0};
+    bool recording{false};
+    int elapsedMs{0};
+    int64_t startMs{0};
     QString sessionPath;
-    QTimer  timer;
+    QTimer timer;
 
-    explicit Impl(AppSettings& s, TriggerManager* tr, AudioManager* au,
-                  VideoManager* vi, const QString& user)
+    explicit Impl(AppSettings& s, TriggerManager* tr, AudioManager* au, VideoManager* vi,
+                  const QString& user)
         : settings(s), triggerMgr(tr), audioMgr(au), videoMgr(vi), username(user) {}
 };
 
-RecordManager::RecordManager(AppSettings&     settings,
-                              TriggerManager*  triggerMgr,
-                              AudioManager*    audioMgr,
-                              VideoManager*    videoMgr,
-                              const QString&   username,
-                              QObject*         parent)
-    : QObject(parent)
-    , d(std::make_unique<Impl>(settings, triggerMgr, audioMgr, videoMgr, username))
-{
+RecordManager::RecordManager(AppSettings& settings, TriggerManager* triggerMgr,
+                             AudioManager* audioMgr, VideoManager* videoMgr,
+                             const QString& username, QObject* parent)
+    : QObject(parent),
+      d(std::make_unique<Impl>(settings, triggerMgr, audioMgr, videoMgr, username)) {
     d->timer.setInterval(100);
     connect(&d->timer, &QTimer::timeout, this, &RecordManager::tick);
 }
@@ -53,18 +51,18 @@ void RecordManager::write_session_meta() const {
     // Cameras
     QJsonArray cameras;
     for (int i = 0; i < static_cast<int>(d->settings.video.cameras.size()); ++i) {
-        const auto& cam = d->settings.video.cameras[static_cast<size_t>(i)];
+        const auto& cam          = d->settings.video.cameras[static_cast<size_t>(i)];
         const QJsonObject calObj = cam.calibration.to_json();
         cameras.append(QJsonObject{
-            {"index",        i},
-            {"serial",       cam.serialNumber},
-            {"name",         cam.friendlyName},
-            {"width",        cam.width},
-            {"height",       cam.height},
-            {"fps",          cam.fps},
+            {"index", i},
+            {"serial", cam.serialNumber},
+            {"name", cam.friendlyName},
+            {"width", cam.width},
+            {"height", cam.height},
+            {"fps", cam.fps},
             {"pixel_format", cam.pixelFormat},
-            {"codec",        d->settings.video.codec},
-            {"calibration",  calObj},
+            {"codec", d->settings.video.codec},
+            {"calibration", calObj},
         });
     }
 
@@ -73,11 +71,11 @@ void RecordManager::write_session_meta() const {
     for (int i = 0; i < static_cast<int>(d->settings.audio.microphones.size()); ++i) {
         const auto& mic = d->settings.audio.microphones[static_cast<size_t>(i)];
         mics.append(QJsonObject{
-            {"index",       i},
-            {"device_id",   mic.deviceId},
-            {"name",        mic.friendlyName},
+            {"index", i},
+            {"device_id", mic.deviceId},
+            {"name", mic.friendlyName},
             {"sample_rate", mic.sampleRate},
-            {"channels",    mic.channels},
+            {"channels", mic.channels},
         });
     }
 
@@ -91,26 +89,28 @@ void RecordManager::write_session_meta() const {
     }
 
     const QJsonObject root{
-        {"schema",                "mosaic-session-v1"},
-        {"mosaic_version",        QCoreApplication::applicationVersion()},
-        {"recorded_by",           d->username},
-        {"session_start_utc",     QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs)},
+        {"schema", "mosaic-session-v1"},
+        {"mosaic_version", QCoreApplication::applicationVersion()},
+        {"recorded_by", d->username},
+        {"session_start_utc", QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs)},
         {"session_start_elapsed_ns", elapsed_ns()},
-        {"session_folder",        d->sessionPath},
-        {"cameras",               cameras},
-        {"microphones",           mics},
-        {"room",                  d->settings.room.to_json()},
-        {"trigger_sources",       QJsonObject{
-            {"keyboard",          keys},
-            {"parallel_ports",    ports},
-        }},
-        {"recording",             QJsonObject{
-            {"video_enabled",    d->settings.record.enableVideo},
-            {"audio_enabled",    d->settings.record.enableAudio},
-            {"trigger_enabled",  d->settings.record.enableTrigger},
-            {"video_codec",      d->settings.video.codec},
-            {"audio_codec",      d->settings.audio.codec},
-        }},
+        {"session_folder", d->sessionPath},
+        {"cameras", cameras},
+        {"microphones", mics},
+        {"room", d->settings.room.to_json()},
+        {"trigger_sources",
+         QJsonObject{
+             {"keyboard", keys},
+             {"parallel_ports", ports},
+         }},
+        {"recording",
+         QJsonObject{
+             {"video_enabled", d->settings.record.enableVideo},
+             {"audio_enabled", d->settings.record.enableAudio},
+             {"trigger_enabled", d->settings.record.enableTrigger},
+             {"video_codec", d->settings.video.codec},
+             {"audio_codec", d->settings.audio.codec},
+         }},
     };
 
     QFile file(path);
@@ -154,17 +154,15 @@ bool RecordManager::start() {
     // that subfolder must not silently record zero audio while still
     // reporting a successful start — skip audio and surface the error
     // instead, same severity as the session-folder failure above.
-    if (d->settings.record.enableAudio && d->audioMgr &&
-        !d->settings.audio.microphones.empty()) {
+    if (d->settings.record.enableAudio && d->audioMgr && !d->settings.audio.microphones.empty()) {
         const QString audioDir = d->sessionPath + "/audio";
         if (!QDir().mkpath(audioDir)) {
             const QString msg = QString("Cannot create audio folder: %1").arg(audioDir);
             log_error(msg);
             emit error_occurred(msg);
         } else {
-            d->audioMgr->start(audioDir,
-                                d->settings.record.audioBasename,
-                                d->settings.audio.microphones);
+            d->audioMgr->start(audioDir, d->settings.record.audioBasename,
+                               d->settings.audio.microphones);
         }
     }
 
@@ -176,9 +174,7 @@ bool RecordManager::start() {
             log_error(msg);
             emit error_occurred(msg);
         } else {
-            d->videoMgr->start(videoDir,
-                                d->settings.record.videoBasename,
-                                d->settings.video);
+            d->videoMgr->start(videoDir, d->settings.record.videoBasename, d->settings.video);
         }
     } else if (d->settings.record.enableVideo) {
         for (int i = 0; i < static_cast<int>(d->settings.video.cameras.size()); ++i) {
@@ -200,13 +196,15 @@ bool RecordManager::start() {
 // ── Stop ───────────────────────────────────────────────────────────────────
 
 void RecordManager::stop() {
-    if (!d->recording) { return; }
+    if (!d->recording) {
+        return;
+    }
 
     d->timer.stop();
     d->recording = false;
 
-    const int     duration = d->elapsedMs;
-    const QString path     = d->sessionPath;
+    const int duration = d->elapsedMs;
+    const QString path = d->sessionPath;
 
     // Stop subsystems in reverse order.
     if (d->settings.record.enableVideo && d->videoMgr) {
@@ -222,7 +220,8 @@ void RecordManager::stop() {
     }
 
     log_info(QString("[RecordManager] Recording stopped. Duration: %1 ms. Files in: %2")
-                 .arg(duration).arg(path));
+                 .arg(duration)
+                 .arg(path));
 
     emit recording_stopped(path, duration);
 }
@@ -230,31 +229,30 @@ void RecordManager::stop() {
 // ── Timer tick ─────────────────────────────────────────────────────────────
 
 void RecordManager::tick() {
-    d->elapsedMs = static_cast<int>(
-        QDateTime::currentMSecsSinceEpoch() - d->startMs);
+    d->elapsedMs = static_cast<int>(QDateTime::currentMSecsSinceEpoch() - d->startMs);
     emit elapsed_ms_changed(d->elapsedMs);
 }
 
 // ── Accessors ──────────────────────────────────────────────────────────────
 
-bool    RecordManager::is_recording()        const { return d->recording;   }
-int     RecordManager::elapsed_ms()          const { return d->elapsedMs;   }
+bool RecordManager::is_recording() const { return d->recording; }
+int RecordManager::elapsed_ms() const { return d->elapsedMs; }
 QString RecordManager::current_session_path() const { return d->sessionPath; }
 
 // ── Path helpers ───────────────────────────────────────────────────────────
 
 QString RecordManager::build_session_path() const {
     const auto& rec = d->settings.record;
-    QString path = rec.directory;
-    if (!path.endsWith('/')) { path += '/'; }
-    path += rec.addTimestamp
-        ? QDateTime::currentDateTime().toString(rec.timestampFormat)
-        : QString("session");
+    QString path    = rec.directory;
+    if (!path.endsWith('/')) {
+        path += '/';
+    }
+    path += rec.addTimestamp ? QDateTime::currentDateTime().toString(rec.timestampFormat)
+                             : QString("session");
     return QDir::cleanPath(path);
 }
 
-QString RecordManager::build_file_path(const QString& basename,
-                                        const QString& ext) const {
+QString RecordManager::build_file_path(const QString& basename, const QString& ext) const {
     return d->sessionPath + "/" + basename + "." + ext;
 }
 

@@ -4,6 +4,7 @@ the 3D Pose Reconstruction plugin to get right, same failure class as
 gaze/ray_math.py's own tests (a sign/row-vs-column-major bug here silently
 produces a plausible-looking but wrong 3D point).
 """
+
 import sys
 from pathlib import Path
 
@@ -66,6 +67,7 @@ def _make_camera(index, position, target=(0.0, 0.0, 0.0)):
 
 # ── invert_rt ────────────────────────────────────────────────────────────
 
+
 def test_invert_rt_translation_only():
     m = _rt_translation_only(10.0, 20.0, 30.0)
     inv = invert_rt(m)
@@ -81,6 +83,7 @@ def test_invert_rt_composes_to_identity_for_arbitrary_transform():
 
 
 # ── triangulate_point_dlt ────────────────────────────────────────────────
+
 
 def test_triangulate_point_dlt_recovers_known_point_from_two_views():
     point = np.array([100.0, 50.0, 200.0])
@@ -135,6 +138,7 @@ def test_triangulate_point_dlt_rejects_mismatched_input_lengths():
 
 # ── triangulate_with_rejection (exercises the real cv2 undistort/project
 #    round-trip, not just the pure DLT core) ───────────────────────────────
+
 
 def test_triangulate_with_rejection_recovers_point_from_three_clean_views():
     point = np.array([0.0, 0.0, 1000.0])

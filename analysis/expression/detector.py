@@ -13,12 +13,12 @@ cache under analysis/expression/models/ (gitignored), re-downloading the
 same face_landmarker.task file facemask already has as an accepted
 tradeoff.
 """
+
 from __future__ import annotations
 
 import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
 
 import cv2
 import numpy as np
@@ -43,31 +43,57 @@ _MEDIAPIPE_MODEL_URL = (
 #: crashes.
 BLENDSHAPE_NAMES: list[str] = [
     "_neutral",
-    "browDownLeft", "browDownRight", "browInnerUp",
-    "browOuterUpLeft", "browOuterUpRight",
-    "cheekPuff", "cheekSquintLeft", "cheekSquintRight",
-    "eyeBlinkLeft", "eyeBlinkRight",
-    "eyeLookDownLeft", "eyeLookDownRight",
-    "eyeLookInLeft", "eyeLookInRight",
-    "eyeLookOutLeft", "eyeLookOutRight",
-    "eyeLookUpLeft", "eyeLookUpRight",
-    "eyeSquintLeft", "eyeSquintRight",
-    "eyeWideLeft", "eyeWideRight",
-    "jawForward", "jawLeft", "jawOpen", "jawRight",
+    "browDownLeft",
+    "browDownRight",
+    "browInnerUp",
+    "browOuterUpLeft",
+    "browOuterUpRight",
+    "cheekPuff",
+    "cheekSquintLeft",
+    "cheekSquintRight",
+    "eyeBlinkLeft",
+    "eyeBlinkRight",
+    "eyeLookDownLeft",
+    "eyeLookDownRight",
+    "eyeLookInLeft",
+    "eyeLookInRight",
+    "eyeLookOutLeft",
+    "eyeLookOutRight",
+    "eyeLookUpLeft",
+    "eyeLookUpRight",
+    "eyeSquintLeft",
+    "eyeSquintRight",
+    "eyeWideLeft",
+    "eyeWideRight",
+    "jawForward",
+    "jawLeft",
+    "jawOpen",
+    "jawRight",
     "mouthClose",
-    "mouthDimpleLeft", "mouthDimpleRight",
-    "mouthFrownLeft", "mouthFrownRight",
+    "mouthDimpleLeft",
+    "mouthDimpleRight",
+    "mouthFrownLeft",
+    "mouthFrownRight",
     "mouthFunnel",
-    "mouthLeft", "mouthRight",
-    "mouthLowerDownLeft", "mouthLowerDownRight",
-    "mouthPressLeft", "mouthPressRight",
+    "mouthLeft",
+    "mouthRight",
+    "mouthLowerDownLeft",
+    "mouthLowerDownRight",
+    "mouthPressLeft",
+    "mouthPressRight",
     "mouthPucker",
-    "mouthRollLower", "mouthRollUpper",
-    "mouthShrugLower", "mouthShrugUpper",
-    "mouthSmileLeft", "mouthSmileRight",
-    "mouthStretchLeft", "mouthStretchRight",
-    "mouthUpperUpLeft", "mouthUpperUpRight",
-    "noseSneerLeft", "noseSneerRight",
+    "mouthRollLower",
+    "mouthRollUpper",
+    "mouthShrugLower",
+    "mouthShrugUpper",
+    "mouthSmileLeft",
+    "mouthSmileRight",
+    "mouthStretchLeft",
+    "mouthStretchRight",
+    "mouthUpperUpLeft",
+    "mouthUpperUpRight",
+    "noseSneerLeft",
+    "noseSneerRight",
     "tongueOut",
 ]
 
@@ -87,9 +113,10 @@ class FaceExpression:
         Per-category activation, in ``[0, 1]``, parallel to
         :data:`BLENDSHAPE_NAMES`.
     """
+
     bbox_xyxy: tuple[float, float, float, float]
     confidence: float
-    blendshape_scores: list[float]   # parallel to BLENDSHAPE_NAMES
+    blendshape_scores: list[float]  # parallel to BLENDSHAPE_NAMES
 
 
 class MediaPipeExpressionDetector:
@@ -108,8 +135,7 @@ class MediaPipeExpressionDetector:
         from mediapipe.tasks import python as mp_python
         from mediapipe.tasks.python import vision as mp_vision
 
-        model_path = _ensure_download(
-            _MODELS_DIR / "face_landmarker.task", _MEDIAPIPE_MODEL_URL)
+        model_path = _ensure_download(_MODELS_DIR / "face_landmarker.task", _MEDIAPIPE_MODEL_URL)
 
         options = mp_vision.FaceLandmarkerOptions(
             base_options=mp_python.BaseOptions(model_asset_path=str(model_path)),
@@ -142,20 +168,23 @@ class MediaPipeExpressionDetector:
         result = self._landmarker.detect(mp_image)
 
         faces: list[FaceExpression] = []
-        for face_landmarks, categories in zip(result.face_landmarks, result.face_blendshapes):
+        zipped = zip(result.face_landmarks, result.face_blendshapes, strict=False)
+        for face_landmarks, categories in zipped:
             xs = [lm.x for lm in face_landmarks]
             ys = [lm.y for lm in face_landmarks]
             bbox = (min(xs) * w, min(ys) * h, max(xs) * w, max(ys) * h)
-            faces.append(FaceExpression(
-                bbox_xyxy=bbox,
-                # FaceLandmarkerResult carries no per-face detection score —
-                # only per-category blendshape scores. min_face_detection_
-                # confidence already gates which faces are returned at all,
-                # so a constant here is more honest than inventing a proxy
-                # metric from the blendshape scores themselves.
-                confidence=1.0,
-                blendshape_scores=_ordered_scores(categories),
-            ))
+            faces.append(
+                FaceExpression(
+                    bbox_xyxy=bbox,
+                    # FaceLandmarkerResult carries no per-face detection score —
+                    # only per-category blendshape scores. min_face_detection_
+                    # confidence already gates which faces are returned at all,
+                    # so a constant here is more honest than inventing a proxy
+                    # metric from the blendshape scores themselves.
+                    confidence=1.0,
+                    blendshape_scores=_ordered_scores(categories),
+                )
+            )
         return faces
 
 

@@ -1,10 +1,11 @@
 #pragma once
-#include "calibration/room_frame_solver.hpp"
-#include "core/settings.hpp"
-#include "video/video_frame.hpp"
 #include <QVector>
 #include <array>
 #include <memory>
+
+#include "calibration/room_frame_solver.hpp"
+#include "core/settings.hpp"
+#include "video/video_frame.hpp"
 
 namespace mosaic {
 
@@ -22,7 +23,8 @@ namespace mosaic {
 /// @code{.cpp}
 /// RoomCalibrationManager mgr;
 /// mgr.set_board({7, 5, 40.0, 30.0});
-/// for (int i = 0; i < cameraCount; ++i) mgr.set_camera_intrinsics(i, settings.cameras[i].calibration);
+/// for (int i = 0; i < cameraCount; ++i) mgr.set_camera_intrinsics(i,
+/// settings.cameras[i].calibration);
 ///
 /// // Repeat, moving the board through overlapping pairs of camera views:
 /// mgr.feed_shot(simultaneousFrames);
@@ -34,26 +36,26 @@ namespace mosaic {
 /// mgr.use_shot_as_plane(lastShotIndex, 0, planePoint, planeNormal);
 /// @endcode
 class RoomCalibrationManager {
-public:
+   public:
     /// @brief ChArUco board geometry.
     struct BoardSpec {
-        int    cols           = 7;      ///< Number of squares, horizontally.
-        int    rows           = 5;      ///< Number of squares, vertically.
-        double squareLengthMm = 40.0;   ///< Physical side length of one square, in mm.
-        double markerLengthMm = 30.0;   ///< Physical side length of one ArUco marker, in mm.
+        int cols              = 7;    ///< Number of squares, horizontally.
+        int rows              = 5;    ///< Number of squares, vertically.
+        double squareLengthMm = 40.0; ///< Physical side length of one square, in mm.
+        double markerLengthMm = 30.0; ///< Physical side length of one ArUco marker, in mm.
     };
 
     /// @brief Outcome of one camera's board detection within a single shot.
     struct CameraShotResult {
-        int  cameraIndex = -1;
-        bool found        = false;   ///< true if enough ChArUco corners were found to solve a pose.
-        int  cornerCount  = 0;
+        int cameraIndex = -1;
+        bool found      = false; ///< true if enough ChArUco corners were found to solve a pose.
+        int cornerCount = 0;
     };
 
     /// @brief Outcome of a solve() call.
     struct SolveResult {
-        std::vector<bool>   resolved;            ///< index = cameraIndex
-        std::vector<double> reprojectionRmsPx;    ///< index = cameraIndex; -1 = never directly seen
+        std::vector<bool> resolved;            ///< index = cameraIndex
+        std::vector<double> reprojectionRmsPx; ///< index = cameraIndex; -1 = never directly seen
     };
 
     RoomCalibrationManager();
@@ -88,9 +90,9 @@ public:
     /// (its solvePnP fit quality, independent of any BFS chain length).
     SolveResult solve(int cameraCount, int referenceCameraIndex);
 
-    [[nodiscard]] bool                   is_resolved(int cameraIndex) const;
+    [[nodiscard]] bool is_resolved(int cameraIndex) const;
     [[nodiscard]] std::array<double, 16> extrinsic_for(int cameraIndex) const;
-    [[nodiscard]] double                 reprojection_rms_for(int cameraIndex) const;
+    [[nodiscard]] double reprojection_rms_for(int cameraIndex) const;
 
     /// Uses the board's own pose from a specific (shot, camera) pair — where
     /// the board was presumably lying flat on the target surface — as the
@@ -100,10 +102,10 @@ public:
     /// axis) in room coordinates. Returns false if no matching detection
     /// exists or the camera is unresolved.
     [[nodiscard]] bool use_shot_as_plane(int shotIndex, int cameraIndex,
-                                          std::array<double, 3>& outPoint,
-                                          std::array<double, 3>& outNormal) const;
+                                         std::array<double, 3>& outPoint,
+                                         std::array<double, 3>& outNormal) const;
 
-private:
+   private:
     struct Impl;
     std::unique_ptr<Impl> d;
 };

@@ -14,7 +14,6 @@ namespace mosaic {
 ///
 /// @see ProfileManager
 struct Profile {
-
     /// @brief Privilege level for this profile.
     enum class Role : uint8_t {
         User  = 0, ///< Regular research-group profile.
@@ -22,28 +21,28 @@ struct Profile {
     };
 
     /// Unique login key — lowercase alphanumeric + underscore, 3–32 chars.
-    QString  username;
+    QString username;
 
     /// Human-readable group name shown in the login dialog and session metadata.
     /// Example: ``"Cognitive Science Lab"``.
-    QString  displayName;
+    QString displayName;
 
     /// One or two uppercase letters derived from displayName, shown inside
     /// the avatar circle.  Example: ``"CL"`` for *Cognitive Lab*.
-    QString  initials;
+    QString initials;
 
     /// Hex RGB colour for the avatar background.
     /// Assigned round-robin from a fixed palette on registration.
     /// Example: ``"#5566dd"``.
-    QString  accentColour;
+    QString accentColour;
 
     /// Hex-encoded random 32-byte salt used in the password hash.
     /// Empty string means no password was set.
-    QString  salt;
+    QString salt;
 
     /// Hex-encoded PBKDF2-HMAC-SHA256 output (100 000 iterations, 32-byte key).
     /// Empty string means no password was set — any login attempt succeeds.
-    QString  passwordHash;
+    QString passwordHash;
 
     /// UTC timestamp of the most recent successful login.
     QDateTime lastLogin;
@@ -58,14 +57,14 @@ struct Profile {
     QString institution;
 
     /// @returns @c true if this is the built-in unauthenticated guest session.
-    [[nodiscard]] bool is_guest()     const noexcept { return username == "guest"; }
+    [[nodiscard]] bool is_guest() const noexcept { return username == "guest"; }
 
     /// @returns @c true if a password hash is stored for this profile.
     ///          Profiles without a password always pass authentication.
     [[nodiscard]] bool has_password() const noexcept { return !passwordHash.isEmpty(); }
 
     /// @returns @c true if this profile has administrator privileges.
-    [[nodiscard]] bool is_admin()     const noexcept { return role == Role::Admin; }
+    [[nodiscard]] bool is_admin() const noexcept { return role == Role::Admin; }
 };
 
 } // namespace mosaic

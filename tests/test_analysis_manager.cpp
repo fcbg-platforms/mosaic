@@ -1,9 +1,12 @@
-#include "analysis/analysis_manager.hpp"
 #include <gtest/gtest.h>
+
 #include <QCoreApplication>
 #include <QEventLoop>
+#include <QFile>
 #include <QStringList>
 #include <QTimer>
+
+#include "analysis/analysis_manager.hpp"
 
 namespace mosaic {
 
@@ -20,7 +23,10 @@ template <typename Sender, typename PointerToMemberSignal>
 bool wait_for_signal(Sender* sender, PointerToMemberSignal signal, int timeoutMs = 5000) {
     QEventLoop loop;
     bool fired = false;
-    QObject::connect(sender, signal, &loop, [&fired, &loop] { fired = true; loop.quit(); });
+    QObject::connect(sender, signal, &loop, [&fired, &loop] {
+        fired = true;
+        loop.quit();
+    });
     QTimer::singleShot(timeoutMs, &loop, &QEventLoop::quit);
     loop.exec();
     return fired;
@@ -39,18 +45,41 @@ QString stub_executable_path() {
 }
 
 class AnalysisManagerTest : public ::testing::Test {
-protected:
+   protected:
     void SetUp() override {
+        // Fails loudly and immediately, with the exact missing path, rather
+        // than letting every subprocess-launching test below fail identically
+        // and unhelpfully with "is_running() == false" -- this is the direct
+        // diagnostic for "stub subprocess not launching/found" (a real,
+        // Windows-CI-only failure this project has hit before): tells us at
+        // a glance whether the stub simply wasn't built/placed here, as
+        // opposed to existing but failing to actually launch.
+        const QString stubPath = stub_executable_path();
+        ASSERT_TRUE(QFile::exists(stubPath))
+            << "analysis_test_stub not found at " << stubPath.toStdString()
+            << " -- expected as a sibling of mosaic_tests in "
+            << QCoreApplication::applicationDirPath().toStdString();
+
         // Every MOSAIC_TEST_STUB_* var is process-wide (qputenv has no
         // per-test scope), so start each test from a clean slate rather
         // than risk a value set by an earlier test leaking in.
         qunsetenv("MOSAIC_TEST_STUB_SLEEP_MS");
         qunsetenv("MOSAIC_TEST_STUB_ECHO_ENV");
         qunsetenv("MOSAIC_TEST_STUB_EXIT_CODE");
-        mgr.set_python_path(stub_executable_path());
+        mgr.set_python_path(stubPath);
+
+        // Captured for every test (not just SetupErrorWhenInterpreterMissing,
+        // which already checks it explicitly) so a genuine launch failure
+        // (as opposed to the stub simply taking longer than a test's
+        // wait_for_signal() timeout) surfaces the real OS-level reason --
+        // e.g. QProcess::FailedToStart's errorString() -- directly in the
+        // failing assertion's message instead of a bare "false".
+        QObject::connect(&mgr, &AnalysisManager::setup_error,
+                         [this](const QString& msg) { lastSetupError = msg; });
     }
 
     AnalysisManager mgr;
+    QString lastSetupError;
 };
 
 } // namespace
@@ -67,12 +96,12 @@ TEST_F(AnalysisManagerTest, StartsRealSubprocessAndEmitsAnalysisStarted) {
     ASSERT_FALSE(mgr.is_running());
     bool started = false;
     QObject::connect(&mgr, &AnalysisManager::analysis_started,
-                      [&started](const QString&) { started = true; });
+                     [&started](const QString&) { started = true; });
 
     mgr.analyze_session("session-a");
 
-    EXPECT_TRUE(mgr.is_running());
-    EXPECT_TRUE(started);
+    EXPECT_TRUE(mgr.is_running()) << "setup_error: " << lastSetupError.toStdString();
+    EXPECT_TRUE(started) << "setup_error: " << lastSetupError.toStdString();
 }
 
 TEST_F(AnalysisManagerTest, SeparatesStdoutAndStderrChannels) {
@@ -83,7 +112,7 @@ TEST_F(AnalysisManagerTest, SeparatesStdoutAndStderrChannels) {
     // ready()/on_stderr_ready()'s own doc comments).
     QStringList lines;
     QObject::connect(&mgr, &AnalysisManager::output_received,
-                      [&lines](const QString& line) { lines << line; });
+                     [&lines](const QString& line) { lines << line; });
 
     mgr.analyze_session("session-b");
     ASSERT_TRUE(wait_for_signal(&mgr, &AnalysisManager::analysis_finished));
@@ -96,7 +125,7 @@ TEST_F(AnalysisManagerTest, ExitCodeZeroMeansSuccess) {
     qputenv("MOSAIC_TEST_STUB_EXIT_CODE", "0");
     bool sawSuccess = false;
     QObject::connect(&mgr, &AnalysisManager::analysis_finished,
-                      [&sawSuccess](const QString&, bool success) { sawSuccess = success; });
+                     [&sawSuccess](const QString&, bool success) { sawSuccess = success; });
 
     mgr.analyze_session("session-c");
     ASSERT_TRUE(wait_for_signal(&mgr, &AnalysisManager::analysis_finished));
@@ -107,7 +136,7 @@ TEST_F(AnalysisManagerTest, NonZeroExitCodeMeansFailure) {
     qputenv("MOSAIC_TEST_STUB_EXIT_CODE", "1");
     bool sawSuccess = true;
     QObject::connect(&mgr, &AnalysisManager::analysis_finished,
-                      [&sawSuccess](const QString&, bool success) { sawSuccess = success; });
+                     [&sawSuccess](const QString&, bool success) { sawSuccess = success; });
 
     mgr.analyze_session("session-d");
     ASSERT_TRUE(wait_for_signal(&mgr, &AnalysisManager::analysis_finished));
@@ -123,7 +152,7 @@ TEST_F(AnalysisManagerTest, EnvVarsReachTheSubprocess) {
 
     QStringList lines;
     QObject::connect(&mgr, &AnalysisManager::output_received,
-                      [&lines](const QString& line) { lines << line; });
+                     [&lines](const QString& line) { lines << line; });
 
     mgr.run_diarization("session-e", "small", "", "secret-xyz", 0, 0, false);
     ASSERT_TRUE(wait_for_signal(&mgr, &AnalysisManager::analysis_finished));
@@ -136,10 +165,9 @@ TEST_F(AnalysisManagerTest, QueuesSecondJobWhileFirstIsRunning) {
     qputenv("MOSAIC_TEST_STUB_SLEEP_MS", "800");
 
     QStringList finishedOrder;
-    QObject::connect(&mgr, &AnalysisManager::analysis_finished,
-                      [&finishedOrder](const QString& sessionPath, bool) {
-                          finishedOrder << sessionPath;
-                      });
+    QObject::connect(
+        &mgr, &AnalysisManager::analysis_finished,
+        [&finishedOrder](const QString& sessionPath, bool) { finishedOrder << sessionPath; });
 
     mgr.analyze_session("session-first");
     ASSERT_TRUE(mgr.is_running());
@@ -167,7 +195,7 @@ TEST_F(AnalysisManagerTest, SetupErrorWhenInterpreterMissing) {
 
     QString errorMessage;
     QObject::connect(&mgr, &AnalysisManager::setup_error,
-                      [&errorMessage](const QString& msg) { errorMessage = msg; });
+                     [&errorMessage](const QString& msg) { errorMessage = msg; });
 
     mgr.analyze_session("session-missing-interpreter");
 

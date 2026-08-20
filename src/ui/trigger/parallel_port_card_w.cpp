@@ -1,5 +1,5 @@
 #include "ui/trigger/parallel_port_card_w.hpp"
-#include "ui/anim_utils.hpp"
+
 #include <QCheckBox>
 #include <QFrame>
 #include <QHBoxLayout>
@@ -10,29 +10,28 @@
 #include <QToolButton>
 #include <QVBoxLayout>
 
+#include "ui/anim_utils.hpp"
+
 namespace mosaic {
 
 struct ParallelPortCardW::Impl {
     ParallelPortConfig& config;
-    int                 index{0};
+    int index{0};
 
-    QWidget*     body      = nullptr;
+    QWidget* body          = nullptr;
     QToolButton* expandBtn = nullptr;
-    QLabel*      nameLabel = nullptr;
+    QLabel* nameLabel      = nullptr;
     // Purely visual "am I showing my settings right now" state — orthogonal
     // to config.enabled ("is this trigger source active"). The two must
     // never be wired to toggle each other: an unchecked-but-expanded card
     // shows its grayed-out body, a checked-but-collapsed card hides it.
-    bool         expanded  = true;
+    bool expanded = true;
 
     explicit Impl(ParallelPortConfig& cfg, int idx) : config(cfg), index(idx) {}
 };
 
-ParallelPortCardW::ParallelPortCardW(ParallelPortConfig& config,
-                                      int                index,
-                                      QWidget*           parent)
-    : QWidget(parent), d(std::make_unique<Impl>(config, index))
-{
+ParallelPortCardW::ParallelPortCardW(ParallelPortConfig& config, int index, QWidget* parent)
+    : QWidget(parent), d(std::make_unique<Impl>(config, index)) {
     // Same header/body collapsible-card shell as CameraCardW/KeyboardCardW/
     // MicrophoneCardW/SerialCardW — this was previously the one "card" that
     // didn't follow it (a single checkable QGroupBox with no expand/collapse
@@ -68,15 +67,17 @@ ParallelPortCardW::ParallelPortCardW(ParallelPortConfig& config,
 
     auto* expandBtn = new QToolButton;
     expandBtn->setText("▼");
-    expandBtn->setStyleSheet("QToolButton { background: transparent; border: none;"
-                             " color: #6666aa; font-size: 10px; }");
+    expandBtn->setStyleSheet(
+        "QToolButton { background: transparent; border: none;"
+        " color: #6666aa; font-size: 10px; }");
     expandBtn->setCursor(Qt::PointingHandCursor);
     d->expandBtn = expandBtn;
     headerLay->addWidget(expandBtn);
 
     d->nameLabel = new QLabel(QString("Parallel Port %1").arg(index + 1));
-    d->nameLabel->setStyleSheet("font-weight: bold; font-size: 12px;"
-                                " color: #c8c8e0; background: transparent;");
+    d->nameLabel->setStyleSheet(
+        "font-weight: bold; font-size: 12px;"
+        " color: #c8c8e0; background: transparent;");
     headerLay->addWidget(d->nameLabel);
     headerLay->addStretch();
 
@@ -158,8 +159,8 @@ ParallelPortCardW::ParallelPortCardW(ParallelPortConfig& config,
     form->addWidget(invertCk);
 
     // ── Send recording marker ────────────────────────────────────────────
-    auto* markerCk = new QCheckBox(
-        "Send recording start/stop marker on this port (Control-register INIT pin)");
+    auto* markerCk =
+        new QCheckBox("Send recording start/stop marker on this port (Control-register INIT pin)");
     markerCk->setChecked(config.sendRecordingMarker);
     markerCk->setToolTip(
         "Drives pin 16 (Control register, INIT) high when a recording starts "
@@ -174,8 +175,8 @@ ParallelPortCardW::ParallelPortCardW(ParallelPortConfig& config,
     form->addWidget(markerCk);
 
     // ── Platform note ─────────────────────────────────────────────────────
-    auto* noteLbl = new QLabel(
-        "Requires InpOut32.dll in the application directory (Windows only).");
+    auto* noteLbl =
+        new QLabel("Requires InpOut32.dll in the application directory (Windows only).");
     noteLbl->setProperty("role", "muted");
     noteLbl->setWordWrap(true);
     form->addWidget(noteLbl);
@@ -184,9 +185,7 @@ ParallelPortCardW::ParallelPortCardW(ParallelPortConfig& config,
     auto* removeBtn = new QPushButton("Remove");
     removeBtn->setFlat(true);
     removeBtn->setFixedWidth(70);
-    connect(removeBtn, &QPushButton::clicked, this, [this] {
-        emit remove_requested(d->index);
-    });
+    connect(removeBtn, &QPushButton::clicked, this, [this] { emit remove_requested(d->index); });
     auto* removeRow = new QHBoxLayout;
     removeRow->addStretch();
     removeRow->addWidget(removeBtn);

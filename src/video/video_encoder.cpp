@@ -1,44 +1,45 @@
 #include "video/video_encoder.hpp"
-#include "utils/logger.hpp"
-#include "utils/timestamp.hpp"
+
 #include <QFile>
 #include <atomic>
 #include <chrono>
 
+#include "utils/logger.hpp"
+#include "utils/timestamp.hpp"
+
 #if defined(MOSAIC_HAVE_FFMPEG)
 extern "C" {
-#  include <libavcodec/avcodec.h>
-#  include <libavformat/avformat.h>
-#  include <libavutil/avutil.h>
-#  include <libavutil/opt.h>
-#  include <libswscale/swscale.h>
+#include <libavcodec/avcodec.h>
+#include <libavformat/avformat.h>
+#include <libavutil/avutil.h>
+#include <libavutil/opt.h>
+#include <libswscale/swscale.h>
 }
 #endif
 
 namespace mosaic {
 
 struct VideoEncoder::Impl {
-    Config                                   cfg;
+    Config cfg;
     RingBuffer<std::shared_ptr<VideoFrame>>& frameBuffer;
-    FrameTimestampWriter                     tsWriter;
+    FrameTimestampWriter tsWriter;
 
-    std::atomic<bool>    stopFlag    {false};
-    std::atomic<int64_t> encCount    {0};
-    std::atomic<int64_t> dropCount   {0};
+    std::atomic<bool> stopFlag{false};
+    std::atomic<int64_t> encCount{0};
+    std::atomic<int64_t> dropCount{0};
 
-    explicit Impl(const Config& c,
-                  RingBuffer<std::shared_ptr<VideoFrame>>& buf)
+    explicit Impl(const Config& c, RingBuffer<std::shared_ptr<VideoFrame>>& buf)
         : cfg(c), frameBuffer(buf) {}
 };
 
-VideoEncoder::VideoEncoder(const Config&                           cfg,
-                            RingBuffer<std::shared_ptr<VideoFrame>>& frameBuffer,
-                            QObject*                                parent)
-    : QThread(parent)
-    , d(std::make_unique<Impl>(cfg, frameBuffer))
-{}
+VideoEncoder::VideoEncoder(const Config& cfg, RingBuffer<std::shared_ptr<VideoFrame>>& frameBuffer,
+                           QObject* parent)
+    : QThread(parent), d(std::make_unique<Impl>(cfg, frameBuffer)) {}
 
-VideoEncoder::~VideoEncoder() { stop_encoding(); wait(5000); }
+VideoEncoder::~VideoEncoder() {
+    stop_encoding();
+    wait(5000);
+}
 
 void VideoEncoder::start_encoding() {
     d->stopFlag.store(false);
@@ -65,8 +66,8 @@ void VideoEncoder::run() {
 // ── Stub fallback (no FFmpeg) ──────────────────────────────────────────────
 
 void VideoEncoder::run_stub_loop() {
-    log_warning(QString("[Encoder %1] FFmpeg not available — frames discarded.")
-                    .arg(d->cfg.cameraIndex));
+    log_warning(
+        QString("[Encoder %1] FFmpeg not available — frames discarded.").arg(d->cfg.cameraIndex));
 
     if (!d->tsWriter.start(d->cfg.timestampPath)) {
         emit encoding_error(d->cfg.cameraIndex,
@@ -82,14 +83,16 @@ void VideoEncoder::run_stub_loop() {
             QThread::msleep(1);
             continue;
         }
-        d->tsWriter.write(frame->frameId, frame->elapsedNs, frame->wallClockNs, frame->hwTimestampNs);
+        d->tsWriter.write(frame->frameId, frame->elapsedNs, frame->wallClockNs,
+                          frame->hwTimestampNs);
         d->encCount.fetch_add(1);
     }
 
     // Drain remaining frames.
     std::shared_ptr<VideoFrame> frame;
     while (d->frameBuffer.pop(frame)) {
-        d->tsWriter.write(frame->frameId, frame->elapsedNs, frame->wallClockNs, frame->hwTimestampNs);
+        d->tsWriter.write(frame->frameId, frame->elapsedNs, frame->wallClockNs,
+                          frame->hwTimestampNs);
         d->encCount.fetch_add(1);
     }
 
@@ -102,14 +105,21 @@ void VideoEncoder::run_stub_loop() {
 #if defined(MOSAIC_HAVE_FFMPEG)
 
 static void ffmpeg_log_callback(void*, int level, const char* fmt, va_list args) {
-    if (level > AV_LOG_WARNING) { return; }
+    if (level > AV_LOG_WARNING) {
+        return;
+    }
     char buf[512];
     std::vsnprintf(buf, sizeof(buf), fmt, args);
     // Strip trailing newline
     int len = static_cast<int>(std::strlen(buf));
-    while (len > 0 && (buf[len-1] == '\n' || buf[len-1] == '\r')) { buf[--len] = '\0'; }
-    if (level <= AV_LOG_ERROR) { log_error(QString("[FFmpeg] %1").arg(buf)); }
-    else { log_warning(QString("[FFmpeg] %1").arg(buf)); }
+    while (len > 0 && (buf[len - 1] == '\n' || buf[len - 1] == '\r')) {
+        buf[--len] = '\0';
+    }
+    if (level <= AV_LOG_ERROR) {
+        log_error(QString("[FFmpeg] %1").arg(buf));
+    } else {
+        log_warning(QString("[FFmpeg] %1").arg(buf));
+    }
 }
 
 void VideoEncoder::run_ffmpeg_loop() {
@@ -121,11 +131,12 @@ void VideoEncoder::run_ffmpeg_loop() {
     // Keep QByteArrays alive for the duration of the calls that use their data.
     const QByteArray preferredNameBytes = cfg.codec.toUtf8();
     const AVCodec* codec = avcodec_find_encoder_by_name(preferredNameBytes.constData());
-    bool usingGpu = cfg.codec.contains("nvenc") || cfg.codec.contains("videotoolbox");
+    bool usingGpu        = cfg.codec.contains("nvenc") || cfg.codec.contains("videotoolbox");
     if (!codec) {
         log_warning(QString("[Encoder %1] Codec '%2' not found, falling back to libx264")
-                        .arg(cfg.cameraIndex).arg(cfg.codec));
-        codec   = avcodec_find_encoder_by_name("libx264");
+                        .arg(cfg.cameraIndex)
+                        .arg(cfg.codec));
+        codec    = avcodec_find_encoder_by_name("libx264");
         usingGpu = false;
     }
     if (!codec) {
@@ -135,9 +146,9 @@ void VideoEncoder::run_ffmpeg_loop() {
 
     // ── Open output format context ──────────────────────────────────────────
     const QByteArray outputPathBytes = cfg.outputPath.toUtf8();
-    AVFormatContext* fmtCtx = nullptr;
-    if (avformat_alloc_output_context2(&fmtCtx, nullptr, nullptr,
-                                        outputPathBytes.constData()) < 0) {
+    AVFormatContext* fmtCtx          = nullptr;
+    if (avformat_alloc_output_context2(&fmtCtx, nullptr, nullptr, outputPathBytes.constData()) <
+        0) {
         emit encoding_error(cfg.cameraIndex,
                             QString("Cannot create output context for: %1").arg(cfg.outputPath));
         return;
@@ -154,10 +165,12 @@ void VideoEncoder::run_ffmpeg_loop() {
     // Returns nullptr if avcodec_open2 fails (caller should retry with fallback).
     auto try_open_codec = [&](const AVCodec* c, bool gpu) -> AVCodecContext* {
         AVCodecContext* ctx = avcodec_alloc_context3(c);
-        if (!ctx) { return nullptr; }
+        if (!ctx) {
+            return nullptr;
+        }
 
-        ctx->width     = cfg.width;
-        ctx->height    = cfg.height;
+        ctx->width  = cfg.width;
+        ctx->height = cfg.height;
         // 1 ms time_base lets PTS track real elapsed time from elapsed_ns.
         // Frame rate hint uses the nominal fps; actual inter-frame spacing
         // is determined by each frame's measured elapsed_ns timestamp.
@@ -167,7 +180,7 @@ void VideoEncoder::run_ffmpeg_loop() {
         ctx->gop_size  = static_cast<int>(cfg.fps * 2);
 
         if (gpu) {
-            ctx->bit_rate = cfg.bitrate * 1000LL;
+            ctx->bit_rate           = cfg.bitrate * 1000LL;
             const QByteArray preset = cfg.preset.toUtf8();
             av_opt_set(ctx->priv_data, "preset", preset.constData(), 0);
         } else {
@@ -191,7 +204,8 @@ void VideoEncoder::run_ffmpeg_loop() {
     if (!ctx && usingGpu) {
         log_warning(QString("[Encoder %1] GPU codec '%2' failed to open "
                             "(no compatible GPU/driver?), falling back to libx264")
-                        .arg(cfg.cameraIndex).arg(cfg.codec));
+                        .arg(cfg.cameraIndex)
+                        .arg(cfg.codec));
         const AVCodec* sw = avcodec_find_encoder_by_name("libx264");
         if (sw) {
             codec    = sw;
@@ -221,7 +235,9 @@ void VideoEncoder::run_ffmpeg_loop() {
     }
 
     if (avformat_write_header(fmtCtx, nullptr) < 0) {
-        if (!(fmtCtx->oformat->flags & AVFMT_NOFILE)) { avio_closep(&fmtCtx->pb); }
+        if (!(fmtCtx->oformat->flags & AVFMT_NOFILE)) {
+            avio_closep(&fmtCtx->pb);
+        }
         avcodec_free_context(&ctx);
         avformat_free_context(fmtCtx);
         emit encoding_error(cfg.cameraIndex,
@@ -230,10 +246,9 @@ void VideoEncoder::run_ffmpeg_loop() {
     }
 
     // ── Colour conversion context (BGR24 → YUV420P) ─────────────────────────
-    SwsContext* swsCtx = sws_getContext(
-        cfg.width, cfg.height, AV_PIX_FMT_BGR24,
-        cfg.width, cfg.height, AV_PIX_FMT_YUV420P,
-        SWS_BILINEAR, nullptr, nullptr, nullptr);
+    SwsContext* swsCtx =
+        sws_getContext(cfg.width, cfg.height, AV_PIX_FMT_BGR24, cfg.width, cfg.height,
+                       AV_PIX_FMT_YUV420P, SWS_BILINEAR, nullptr, nullptr, nullptr);
     if (!swsCtx) {
         av_write_trailer(fmtCtx);
         avcodec_free_context(&ctx);
@@ -244,9 +259,9 @@ void VideoEncoder::run_ffmpeg_loop() {
 
     // ── Allocate reusable AVFrame (YUV destination) ─────────────────────────
     AVFrame* avFrame = av_frame_alloc();
-    avFrame->format = AV_PIX_FMT_YUV420P;
-    avFrame->width  = cfg.width;
-    avFrame->height = cfg.height;
+    avFrame->format  = AV_PIX_FMT_YUV420P;
+    avFrame->width   = cfg.width;
+    avFrame->height  = cfg.height;
     av_frame_get_buffer(avFrame, 32);
 
     AVPacket* pkt = av_packet_alloc();
@@ -264,11 +279,17 @@ void VideoEncoder::run_ffmpeg_loop() {
     int64_t startNs = -1;
 
     auto encode_frame = [&](AVFrame* frame) {
-        if (avcodec_send_frame(ctx, frame) < 0) { return; }
+        if (avcodec_send_frame(ctx, frame) < 0) {
+            return;
+        }
         while (true) {
             const int ret = avcodec_receive_packet(ctx, pkt);
-            if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF) { break; }
-            if (ret < 0) { break; }
+            if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF) {
+                break;
+            }
+            if (ret < 0) {
+                break;
+            }
             av_packet_rescale_ts(pkt, ctx->time_base, stream->time_base);
             pkt->stream_index = stream->index;
             av_interleaved_write_frame(fmtCtx, pkt);
@@ -283,21 +304,22 @@ void VideoEncoder::run_ffmpeg_loop() {
             QThread::msleep(1);
             continue;
         }
-        if (!frame || !frame->is_valid()) { continue; }
+        if (!frame || !frame->is_valid()) {
+            continue;
+        }
 
         // Colour-convert BGR → YUV420P
         av_frame_make_writable(avFrame);
-        const uint8_t* srcData[1] = { frame->data.data() };
-        const int      srcStride[1] = { frame->stride };
-        sws_scale(swsCtx,
-                  srcData, srcStride, 0, cfg.height,
-                  avFrame->data, avFrame->linesize);
+        const uint8_t* srcData[1] = {frame->data.data()};
+        const int srcStride[1]    = {frame->stride};
+        sws_scale(swsCtx, srcData, srcStride, 0, cfg.height, avFrame->data, avFrame->linesize);
 
         if (startNs < 0) startNs = frame->elapsedNs;
-        avFrame->pts = (frame->elapsedNs - startNs) / 1'000'000;  // ns → ms
+        avFrame->pts = (frame->elapsedNs - startNs) / 1'000'000; // ns → ms
         encode_frame(avFrame);
 
-        d->tsWriter.write(frame->frameId, frame->elapsedNs, frame->wallClockNs, frame->hwTimestampNs);
+        d->tsWriter.write(frame->frameId, frame->elapsedNs, frame->wallClockNs,
+                          frame->hwTimestampNs);
         d->encCount.fetch_add(1);
     }
 
@@ -305,16 +327,18 @@ void VideoEncoder::run_ffmpeg_loop() {
     {
         std::shared_ptr<VideoFrame> frame;
         while (d->frameBuffer.pop(frame)) {
-            if (!frame || !frame->is_valid()) { continue; }
+            if (!frame || !frame->is_valid()) {
+                continue;
+            }
             av_frame_make_writable(avFrame);
-            const uint8_t* srcData[1] = { frame->data.data() };
-            const int      srcStride[1] = { frame->stride };
-            sws_scale(swsCtx, srcData, srcStride, 0, cfg.height,
-                      avFrame->data, avFrame->linesize);
+            const uint8_t* srcData[1] = {frame->data.data()};
+            const int srcStride[1]    = {frame->stride};
+            sws_scale(swsCtx, srcData, srcStride, 0, cfg.height, avFrame->data, avFrame->linesize);
             if (startNs < 0) startNs = frame->elapsedNs;
             avFrame->pts = (frame->elapsedNs - startNs) / 1'000'000;
             encode_frame(avFrame);
-            d->tsWriter.write(frame->frameId, frame->elapsedNs, frame->wallClockNs, frame->hwTimestampNs);
+            d->tsWriter.write(frame->frameId, frame->elapsedNs, frame->wallClockNs,
+                              frame->hwTimestampNs);
             d->encCount.fetch_add(1);
         }
     }
@@ -337,7 +361,8 @@ void VideoEncoder::run_ffmpeg_loop() {
     d->tsWriter.stop();
 
     log_info(QString("[Encoder %1] Finished. %2 frames encoded.")
-                 .arg(cfg.cameraIndex).arg(d->encCount.load()));
+                 .arg(cfg.cameraIndex)
+                 .arg(d->encCount.load()));
     emit encoding_stopped(cfg.cameraIndex, d->encCount.load());
 }
 

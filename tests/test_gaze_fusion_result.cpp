@@ -1,7 +1,9 @@
-#include "analysis/gaze_fusion_result.hpp"
 #include <gtest/gtest.h>
+
 #include <QFile>
 #include <QTemporaryDir>
+
+#include "analysis/gaze_fusion_result.hpp"
 
 using mosaic::GazeFusionResult;
 
@@ -126,8 +128,8 @@ TEST(GazeFusionResult, NearestFrameHandlesGapsAndBoundaries) {
     EXPECT_EQ(result.nearest_frame(9999999999)->tick, 2);
 
     // Mid-gap exact ties resolve to the earlier frame.
-    EXPECT_EQ(result.nearest_frame(1020000000)->tick, 0);   // midpoint of tick 0/1
-    EXPECT_EQ(result.nearest_frame(1060000000)->tick, 1);   // midpoint of tick 1/2
+    EXPECT_EQ(result.nearest_frame(1020000000)->tick, 0); // midpoint of tick 0/1
+    EXPECT_EQ(result.nearest_frame(1060000000)->tick, 1); // midpoint of tick 1/2
 }
 
 TEST(GazeFusionResult, NearestFrameOnEmptyResultReturnsNull) {
@@ -144,7 +146,7 @@ TEST(GazeFusionResult, HandlesZeroAndOneCameraFramesWithoutTarget) {
     const auto& oneCam = result.frames()[1];
     EXPECT_EQ(oneCam.numCameras, 1);
     EXPECT_FALSE(oneCam.isTriangulated);
-    EXPECT_DOUBLE_EQ(oneCam.residualRmsMm, -1.0);   // null in JSON -> -1 sentinel
+    EXPECT_DOUBLE_EQ(oneCam.residualRmsMm, -1.0); // null in JSON -> -1 sentinel
     EXPECT_FALSE(oneCam.hasTarget);
 
     const auto& zeroCam = result.frames()[2];

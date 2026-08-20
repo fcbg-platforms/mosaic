@@ -1,7 +1,9 @@
-#include "core/settings.hpp"
 #include <gtest/gtest.h>
+
 #include <QJsonArray>
 #include <QJsonObject>
+
+#include "core/settings.hpp"
 
 using mosaic::AudioSettings;
 using mosaic::MicrophoneParameters;
@@ -30,6 +32,5 @@ TEST(AudioPersistence, FromJsonReservesCapacityForLiveReferenceStability) {
     const auto loaded = AudioSettings::from_json(audioObj);
     ASSERT_TRUE(loaded.has_value());
     ASSERT_EQ(loaded->microphones.size(), 2u);
-    EXPECT_GE(loaded->microphones.capacity(),
-              static_cast<size_t>(AudioSettings::kMaxMicrophones));
+    EXPECT_GE(loaded->microphones.capacity(), static_cast<size_t>(AudioSettings::kMaxMicrophones));
 }

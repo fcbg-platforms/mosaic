@@ -1,7 +1,8 @@
 #pragma once
-#include "trigger/trigger_types.hpp"
 #include <QString>
 #include <memory>
+
+#include "trigger/trigger_types.hpp"
 
 namespace mosaic {
 
@@ -9,7 +10,7 @@ namespace mosaic {
 // Thread-safe: record_event() can be called from any thread.
 
 class TriggerRecorder {
-public:
+   public:
     TriggerRecorder();
     ~TriggerRecorder();
 
@@ -24,7 +25,7 @@ public:
 
     [[nodiscard]] bool is_recording() const;
 
-private:
+   private:
     struct Impl;
     std::unique_ptr<Impl> d;
 };

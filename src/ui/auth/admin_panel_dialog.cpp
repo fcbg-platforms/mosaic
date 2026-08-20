@@ -1,6 +1,5 @@
 #include "ui/auth/admin_panel_dialog.hpp"
-#include "ui/anim_utils.hpp"
-#include "utils/dpapi_crypt.hpp"
+
 #include <QCheckBox>
 #include <QDateTime>
 #include <QDesktopServices>
@@ -25,20 +24,22 @@
 #include <QUrl>
 #include <QVBoxLayout>
 
+#include "ui/anim_utils.hpp"
+#include "utils/dpapi_crypt.hpp"
+
 namespace mosaic {
 
 // ── Compact profile row widget ─────────────────────────────────────────────
 
 class ProfileRow : public QWidget {
     Q_OBJECT
-public:
+   public:
     explicit ProfileRow(const Profile& prof, QWidget* parent = nullptr)
-        : QWidget(parent), m_username(prof.username)
-    {
+        : QWidget(parent), m_username(prof.username) {
         setFixedHeight(58);
         setCursor(Qt::PointingHandCursor);
 
-        auto* lay  = new QHBoxLayout(this);
+        auto* lay = new QHBoxLayout(this);
         lay->setContentsMargins(10, 6, 12, 6);
         lay->setSpacing(10);
 
@@ -76,8 +77,9 @@ public:
         // Role badge
         if (prof.is_admin()) {
             auto* badge = new QLabel("♚ Admin");
-            badge->setStyleSheet("color: #ffcc00; background: #1a1400; border: 1px solid #664400;"
-                                 " border-radius: 8px; padding: 2px 7px; font-size: 10px;");
+            badge->setStyleSheet(
+                "color: #ffcc00; background: #1a1400; border: 1px solid #664400;"
+                " border-radius: 8px; padding: 2px 7px; font-size: 10px;");
             lay->addWidget(badge);
         }
 
@@ -85,9 +87,12 @@ public:
         QString lastSeen;
         if (prof.lastLogin.isValid()) {
             const qint64 daysDiff = prof.lastLogin.daysTo(QDateTime::currentDateTimeUtc());
-            if (daysDiff == 0) lastSeen = "today";
-            else if (daysDiff == 1) lastSeen = "yesterday";
-            else lastSeen = QString("%1d ago").arg(daysDiff);
+            if (daysDiff == 0)
+                lastSeen = "today";
+            else if (daysDiff == 1)
+                lastSeen = "yesterday";
+            else
+                lastSeen = QString("%1d ago").arg(daysDiff);
         }
         if (!lastSeen.isEmpty()) {
             auto* lastLbl = new QLabel(lastSeen);
@@ -101,22 +106,29 @@ public:
     void set_selected(bool selected) {
         if (m_selected == selected) return;
         m_selected = selected;
-        setStyleSheet(selected
-            ? "ProfileRow { background: #14143c; border-left: 3px solid #6666ee; }"
-            : "ProfileRow { background: transparent; border-left: 3px solid transparent; }");
+        setStyleSheet(
+            selected
+                ? "ProfileRow { background: #14143c; border-left: 3px solid #6666ee; }"
+                : "ProfileRow { background: transparent; border-left: 3px solid transparent; }");
     }
 
-signals:
+   signals:
     void clicked(QString username);
 
-protected:
+   protected:
     void mousePressEvent(QMouseEvent*) override { emit clicked(m_username); }
-    void enterEvent(QEnterEvent*)      override { if (!m_selected) setStyleSheet(
-        "ProfileRow { background: #0e0e28; border-left: 3px solid transparent; }"); }
-    void leaveEvent(QEvent*)           override { if (!m_selected) setStyleSheet(
-        "ProfileRow { background: transparent; border-left: 3px solid transparent; }"); }
+    void enterEvent(QEnterEvent*) override {
+        if (!m_selected)
+            setStyleSheet(
+                "ProfileRow { background: #0e0e28; border-left: 3px solid transparent; }");
+    }
+    void leaveEvent(QEvent*) override {
+        if (!m_selected)
+            setStyleSheet(
+                "ProfileRow { background: transparent; border-left: 3px solid transparent; }");
+    }
 
-private:
+   private:
     void set_avatar(const Profile& prof) {
         const QColor accent(prof.accentColour.isEmpty() ? "#5566bb" : prof.accentColour);
         QPixmap pix(40, 40);
@@ -140,28 +152,28 @@ private:
     QLabel* m_avatar  = nullptr;
     QLabel* m_nameLbl = nullptr;
     QLabel* m_subLbl  = nullptr;
-    bool    m_selected{false};
+    bool m_selected{false};
 };
 
 // ── Impl ───────────────────────────────────────────────────────────────────
 
 struct AdminPanelDialog::Impl {
     ProfileManager& profileMgr;
-    QString         adminUsername;
-    QString         selectedUsername;   // chosen profile to launch as
-    QString         detailUsername;     // profile whose detail pane is showing
+    QString adminUsername;
+    QString selectedUsername; // chosen profile to launch as
+    QString detailUsername;   // profile whose detail pane is showing
 
     // Left panel
-    QVBoxLayout*       listLayout  = nullptr;
+    QVBoxLayout* listLayout = nullptr;
     QList<ProfileRow*> rows;
 
     // Right panel / detail
-    QLabel*      detailHeader    = nullptr;
-    QLineEdit*   nameEdit        = nullptr;
-    QLineEdit*   institutionEdit = nullptr;
-    QLabel*      roleLabel       = nullptr;
-    QPushButton* roleBtn         = nullptr;
-    QPushButton* launchBtn       = nullptr;
+    QLabel* detailHeader       = nullptr;
+    QLineEdit* nameEdit        = nullptr;
+    QLineEdit* institutionEdit = nullptr;
+    QLabel* roleLabel          = nullptr;
+    QPushButton* roleBtn       = nullptr;
+    QPushButton* launchBtn     = nullptr;
 
     explicit Impl(ProfileManager& mgr, const QString& admin)
         : profileMgr(mgr), adminUsername(admin), selectedUsername(admin) {}
@@ -169,12 +181,10 @@ struct AdminPanelDialog::Impl {
 
 // ── AdminPanelDialog ────────────────────────────────────────────────────────
 
-AdminPanelDialog::AdminPanelDialog(ProfileManager& profileMgr,
-                                    const QString&  adminUsername,
-                                    QWidget*        parent)
-    : QDialog(parent, Qt::Window | Qt::FramelessWindowHint)
-    , d(std::make_unique<Impl>(profileMgr, adminUsername))
-{
+AdminPanelDialog::AdminPanelDialog(ProfileManager& profileMgr, const QString& adminUsername,
+                                   QWidget* parent)
+    : QDialog(parent, Qt::Window | Qt::FramelessWindowHint),
+      d(std::make_unique<Impl>(profileMgr, adminUsername)) {
     setModal(true);
     setMinimumSize(860, 580);
     resize(960, 640);
@@ -200,8 +210,8 @@ AdminPanelDialog::AdminPanelDialog(ProfileManager& profileMgr,
 
     build_ui();
 
-    connect(&profileMgr, &ProfileManager::profiles_changed,
-            this, &AdminPanelDialog::refresh_profile_list);
+    connect(&profileMgr, &ProfileManager::profiles_changed, this,
+            &AdminPanelDialog::refresh_profile_list);
 }
 
 AdminPanelDialog::~AdminPanelDialog() = default;
@@ -234,9 +244,10 @@ void AdminPanelDialog::build_ui() {
 
     auto* backBtn = new QPushButton("← Back to Login");
     backBtn->setFixedHeight(30);
-    backBtn->setStyleSheet("QPushButton { background: transparent; border: 1px solid #252545;"
-                           " border-radius: 4px; padding: 4px 12px; color: #666688; font-size: 11px; }"
-                           "QPushButton:hover { color: #9999cc; border-color: #44446a; }");
+    backBtn->setStyleSheet(
+        "QPushButton { background: transparent; border: 1px solid #252545;"
+        " border-radius: 4px; padding: 4px 12px; color: #666688; font-size: 11px; }"
+        "QPushButton:hover { color: #9999cc; border-color: #44446a; }");
     connect(backBtn, &QPushButton::clicked, this, &QDialog::reject);
     headerLay->addWidget(backBtn);
 
@@ -352,7 +363,9 @@ void AdminPanelDialog::build_profile_list(QWidget* parent) {
 
 void AdminPanelDialog::refresh_profile_list() {
     // Remove existing rows
-    for (auto* row : d->rows) { row->deleteLater(); }
+    for (auto* row : d->rows) {
+        row->deleteLater();
+    }
     d->rows.clear();
 
     // Remove all items except the trailing stretch
@@ -439,7 +452,7 @@ void AdminPanelDialog::build_detail_pane(QWidget* parent) {
     // Role section
     make_section("ROLE");
     auto* roleRow = new QHBoxLayout;
-    d->roleLabel = new QLabel;
+    d->roleLabel  = new QLabel;
     d->roleLabel->setStyleSheet("color: #9090c0; font-size: 12px;");
     d->roleBtn = new QPushButton;
     connect(d->roleBtn, &QPushButton::clicked, this, &AdminPanelDialog::toggle_role);
@@ -449,7 +462,7 @@ void AdminPanelDialog::build_detail_pane(QWidget* parent) {
 
     // Security section
     make_section("SECURITY");
-    auto* pwRow = new QHBoxLayout;
+    auto* pwRow  = new QHBoxLayout;
     auto* pwHint = new QLabel("Reset password for this profile");
     pwHint->setStyleSheet("color: #7070a0; font-size: 11px;");
     auto* pwBtn = new QPushButton("Reset password…");
@@ -477,7 +490,8 @@ void AdminPanelDialog::build_detail_pane(QWidget* parent) {
     // Danger zone
     make_section("DANGER ZONE");
     auto* dangerRow = new QHBoxLayout;
-    auto* dangerHint = new QLabel("Permanently removes the profile from the manifest (data stays on disk).");
+    auto* dangerHint =
+        new QLabel("Permanently removes the profile from the manifest (data stays on disk).");
     dangerHint->setWordWrap(true);
     dangerHint->setStyleSheet("color: #554444; font-size: 11px;");
     auto* deleteBtn = new QPushButton("🗑  Delete profile…");
@@ -530,15 +544,18 @@ void AdminPanelDialog::populate_detail(const QString& username) {
     if (prof->is_admin()) {
         d->roleLabel->setText("This profile has  <b style='color:#ffcc44'>Admin</b>  privileges.");
         d->roleBtn->setText("Demote to User");
-        d->roleBtn->setStyleSheet("QPushButton { background: #1a1000; border: 1px solid #664400;"
-                                  " color: #cc8800; } "
-                                  "QPushButton:hover { background: #2a1800; border-color: #aa6600; color: #ffaa00; }");
+        d->roleBtn->setStyleSheet(
+            "QPushButton { background: #1a1000; border: 1px solid #664400;"
+            " color: #cc8800; } "
+            "QPushButton:hover { background: #2a1800; border-color: #aa6600; color: #ffaa00; }");
     } else {
-        d->roleLabel->setText("This profile has standard  <b style='color:#8888cc'>User</b>  privileges.");
+        d->roleLabel->setText(
+            "This profile has standard  <b style='color:#8888cc'>User</b>  privileges.");
         d->roleBtn->setText("Promote to Admin");
-        d->roleBtn->setStyleSheet("QPushButton { background: #0a0a1a; border: 1px solid #333388;"
-                                  " color: #7777cc; } "
-                                  "QPushButton:hover { background: #14143a; border-color: #5555cc; color: #aaaaff; }");
+        d->roleBtn->setStyleSheet(
+            "QPushButton { background: #0a0a1a; border: 1px solid #333388;"
+            " color: #7777cc; } "
+            "QPushButton:hover { background: #14143a; border-color: #5555cc; color: #aaaaff; }");
     }
 
     // Prevent deleting the currently logged-in admin account
@@ -563,7 +580,7 @@ void AdminPanelDialog::save_institution() {
 void AdminPanelDialog::reset_password() {
     if (d->detailUsername.isEmpty()) return;
 
-    bool ok = false;
+    bool ok             = false;
     const QString newPw = QInputDialog::getText(
         this, "Reset password",
         QString("New password for @%1  (leave blank to remove password):").arg(d->detailUsername),
@@ -579,8 +596,8 @@ void AdminPanelDialog::reset_password() {
     d->profileMgr.change_password(d->detailUsername, newPw);
 
     const QString msg = newPw.isEmpty()
-        ? QString("Password removed from @%1.").arg(d->detailUsername)
-        : QString("Password updated for @%1.").arg(d->detailUsername);
+                            ? QString("Password removed from @%1.").arg(d->detailUsername)
+                            : QString("Password updated for @%1.").arg(d->detailUsername);
     QMessageBox::information(this, "Done", msg);
 }
 
@@ -590,25 +607,22 @@ void AdminPanelDialog::toggle_role() {
     const Profile* prof = d->profileMgr.find(d->detailUsername);
     if (!prof) return;
 
-    const bool isAdmin = prof->is_admin();
+    const bool isAdmin   = prof->is_admin();
     const QString action = isAdmin ? "demote" : "promote";
-    const auto btn = QMessageBox::question(
+    const auto btn       = QMessageBox::question(
         this, "Change role",
         QString("Are you sure you want to %1 @%2 %3?")
-            .arg(action, d->detailUsername,
-                 isAdmin ? "to a regular user" : "to admin"));
+            .arg(action, d->detailUsername, isAdmin ? "to a regular user" : "to admin"));
 
     if (btn != QMessageBox::Yes) return;
 
-    d->profileMgr.set_role(d->detailUsername,
-        isAdmin ? Profile::Role::User : Profile::Role::Admin);
+    d->profileMgr.set_role(d->detailUsername, isAdmin ? Profile::Role::User : Profile::Role::Admin);
     populate_detail(d->detailUsername);
 }
 
 void AdminPanelDialog::open_config_folder() {
     if (d->detailUsername.isEmpty()) return;
-    QDesktopServices::openUrl(
-        QUrl::fromLocalFile(ProfileManager::profile_dir(d->detailUsername)));
+    QDesktopServices::openUrl(QUrl::fromLocalFile(ProfileManager::profile_dir(d->detailUsername)));
 }
 
 void AdminPanelDialog::export_config() {
@@ -617,32 +631,31 @@ void AdminPanelDialog::export_config() {
     const QString src = ProfileManager::settings_path(d->detailUsername);
     if (!QFile::exists(src)) {
         QMessageBox::information(this, "No config",
-            "This profile has no saved configuration yet. "
-            "Launch MOSAIC as this profile and save settings first.");
+                                 "This profile has no saved configuration yet. "
+                                 "Launch MOSAIC as this profile and save settings first.");
         return;
     }
 
     const QString dst = QFileDialog::getSaveFileName(
-        this, "Export configuration",
-        QString("%1_settings.json").arg(d->detailUsername),
+        this, "Export configuration", QString("%1_settings.json").arg(d->detailUsername),
         "JSON (*.json)");
     if (dst.isEmpty()) return;
 
     QFile::remove(dst);
     if (!QFile::copy(src, dst)) {
         QMessageBox::critical(this, "Export failed",
-            "Could not copy the settings file. Check file permissions.");
+                              "Could not copy the settings file. Check file permissions.");
     } else {
         QMessageBox::information(this, "Exported",
-            QString("Configuration exported to:\n%1").arg(dst));
+                                 QString("Configuration exported to:\n%1").arg(dst));
     }
 }
 
 void AdminPanelDialog::import_config() {
     if (d->detailUsername.isEmpty()) return;
 
-    const QString src = QFileDialog::getOpenFileName(
-        this, "Import configuration", {}, "JSON (*.json)");
+    const QString src =
+        QFileDialog::getOpenFileName(this, "Import configuration", {}, "JSON (*.json)");
     if (src.isEmpty()) return;
 
     const auto btn = QMessageBox::question(
@@ -656,7 +669,7 @@ void AdminPanelDialog::import_config() {
     QFile::remove(dst);
     if (!QFile::copy(src, dst)) {
         QMessageBox::critical(this, "Import failed",
-            "Could not write the settings file. Check file permissions.");
+                              "Could not write the settings file. Check file permissions.");
         return;
     }
 
@@ -674,18 +687,20 @@ void AdminPanelDialog::import_config() {
     QString note;
     QFile importedFile(dst);
     if (importedFile.open(QIODevice::ReadOnly)) {
-        const auto obj = QJsonDocument::fromJson(importedFile.readAll())
-                              .object()["analysis"].toObject();
+        const auto obj =
+            QJsonDocument::fromJson(importedFile.readAll()).object()["analysis"].toObject();
         const QString storedToken = obj["hf_token"].toString();
         if (!storedToken.isEmpty() && dpapi_decrypt(storedToken).isEmpty()) {
-            note = "\n\nNote: this file's Hugging Face diarization token was "
-                   "encrypted on a different Windows account or machine and "
-                   "could not be decrypted here — re-enter it in the "
-                   "Diarization plugin if needed.";
+            note =
+                "\n\nNote: this file's Hugging Face diarization token was "
+                "encrypted on a different Windows account or machine and "
+                "could not be decrypted here — re-enter it in the "
+                "Diarization plugin if needed.";
         }
     }
 
-    QMessageBox::information(this, "Imported",
+    QMessageBox::information(
+        this, "Imported",
         QString("Configuration imported for @%1.%2").arg(d->detailUsername, note));
 }
 
@@ -693,18 +708,17 @@ void AdminPanelDialog::delete_profile() {
     if (d->detailUsername.isEmpty()) return;
     if (d->detailUsername == d->adminUsername) {
         QMessageBox::warning(this, "Cannot delete",
-            "You cannot delete the currently logged-in admin account.");
+                             "You cannot delete the currently logged-in admin account.");
         return;
     }
 
-    const auto btn = QMessageBox::question(
-        this, "Delete profile",
-        QString("Are you sure you want to delete @%1?\n\n"
-                "The profile data directory will remain on disk "
-                "and can be recovered manually.")
-            .arg(d->detailUsername),
-        QMessageBox::Yes | QMessageBox::Cancel,
-        QMessageBox::Cancel);
+    const auto btn =
+        QMessageBox::question(this, "Delete profile",
+                              QString("Are you sure you want to delete @%1?\n\n"
+                                      "The profile data directory will remain on disk "
+                                      "and can be recovered manually.")
+                                  .arg(d->detailUsername),
+                              QMessageBox::Yes | QMessageBox::Cancel, QMessageBox::Cancel);
 
     if (btn != QMessageBox::Yes) return;
 
@@ -719,7 +733,9 @@ void AdminPanelDialog::delete_profile() {
 // ── Key handling ───────────────────────────────────────────────────────────
 
 void AdminPanelDialog::keyPressEvent(QKeyEvent* event) {
-    if (event->key() == Qt::Key_Escape) { return; }
+    if (event->key() == Qt::Key_Escape) {
+        return;
+    }
     QDialog::keyPressEvent(event);
 }
 

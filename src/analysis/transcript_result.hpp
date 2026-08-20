@@ -10,7 +10,7 @@ namespace mosaic {
 struct TranscriptSegment {
     int64_t startMs = 0;
     int64_t endMs   = 0;
-    QString speaker;   ///< Empty = no diarization turn overlapped, or diarization wasn't run.
+    QString speaker; ///< Empty = no diarization turn overlapped, or diarization wasn't run.
     QString text;
 };
 
@@ -24,7 +24,7 @@ struct TranscriptSegment {
 ///   if (result.is_valid()) { ... }
 /// @endcode
 class TranscriptResult {
-public:
+   public:
     TranscriptResult() = default;
 
     /// Parses jsonPath. Returns a default-constructed (is_valid() == false)
@@ -42,12 +42,12 @@ public:
     /// between segments, before the first, or after the last one ends.
     [[nodiscard]] const TranscriptSegment* segment_at(int64_t ms) const;
 
-private:
-    bool                        valid_          = false;
-    bool                        hasDiarization_ = false;
-    QString                     sourceAudio_;
-    QString                     language_;
-    QVector<TranscriptSegment>  segments_;
+   private:
+    bool valid_          = false;
+    bool hasDiarization_ = false;
+    QString sourceAudio_;
+    QString language_;
+    QVector<TranscriptSegment> segments_;
 };
 
 } // namespace mosaic

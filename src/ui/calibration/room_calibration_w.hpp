@@ -1,10 +1,11 @@
 #pragma once
-#include "calibration/room_calibration_manager.hpp"
-#include "core/settings.hpp"
 #include <QImage>
 #include <QVBoxLayout>
 #include <QWidget>
 #include <memory>
+
+#include "calibration/room_calibration_manager.hpp"
+#include "core/settings.hpp"
 
 namespace mosaic {
 
@@ -31,9 +32,9 @@ class VideoManager;
 //   └──────────────────────────────────────────────┘
 class RoomCalibrationW : public QWidget {
     Q_OBJECT
-public:
+   public:
     explicit RoomCalibrationW(VideoSettings& videoSettings, RoomSettings& roomSettings,
-                               VideoManager* videoMgr, QWidget* parent = nullptr);
+                              VideoManager* videoMgr, QWidget* parent = nullptr);
     ~RoomCalibrationW() override;
 
     // Re-reads every camera's current intrinsic calibration from
@@ -41,10 +42,10 @@ public:
     // the Intrinsics page saves a (re-)calibration.
     void refresh_intrinsics();
 
-signals:
+   signals:
     void extrinsics_saved();
 
-private:
+   private:
     void build_board_section(QVBoxLayout* parent);
     void build_camera_section(QVBoxLayout* parent);
     void build_capture_section(QVBoxLayout* parent);

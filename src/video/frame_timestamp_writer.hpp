@@ -17,7 +17,7 @@ namespace mosaic {
 // The file is flushed and closed in stop() from whatever thread calls it.
 
 class FrameTimestampWriter {
-public:
+   public:
     FrameTimestampWriter();
     ~FrameTimestampWriter();
 
@@ -30,10 +30,10 @@ public:
     // Flushes and closes the file.
     void stop();
 
-    [[nodiscard]] bool    is_open()        const;
+    [[nodiscard]] bool is_open() const;
     [[nodiscard]] int64_t frames_written() const;
 
-private:
+   private:
     struct Impl;
     std::unique_ptr<Impl> d;
 };

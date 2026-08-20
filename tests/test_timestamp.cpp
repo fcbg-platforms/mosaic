@@ -1,13 +1,13 @@
-#include "utils/timestamp.hpp"
 #include <gtest/gtest.h>
-#include <thread>
+
 #include <chrono>
+#include <thread>
+
+#include "utils/timestamp.hpp"
 
 // ── elapsed_ns ─────────────────────────────────────────────────────────────
 
-TEST(Timestamp, ElapsedNsIsNonNegative) {
-    EXPECT_GE(mosaic::elapsed_ns(), 0LL);
-}
+TEST(Timestamp, ElapsedNsIsNonNegative) { EXPECT_GE(mosaic::elapsed_ns(), 0LL); }
 
 TEST(Timestamp, ElapsedNsGrowsMonotonically) {
     const int64_t t1 = mosaic::elapsed_ns();
@@ -26,15 +26,13 @@ TEST(Timestamp, ElapsedMsMatchesNs) {
 
 TEST(Timestamp, ElapsedSMatchesNs) {
     const int64_t ns = mosaic::elapsed_ns();
-    const double   s = mosaic::elapsed_s();
+    const double s   = mosaic::elapsed_s();
     EXPECT_NEAR(static_cast<double>(ns) / 1e9, s, 0.002);
 }
 
 // ── wall_clock_ns ──────────────────────────────────────────────────────────
 
-TEST(Timestamp, WallClockNsIsPositive) {
-    EXPECT_GT(mosaic::wall_clock_ns(), 0LL);
-}
+TEST(Timestamp, WallClockNsIsPositive) { EXPECT_GT(mosaic::wall_clock_ns(), 0LL); }
 
 TEST(Timestamp, WallClockNsGrowsMonotonically) {
     const int64_t w1 = mosaic::wall_clock_ns();
@@ -45,16 +43,14 @@ TEST(Timestamp, WallClockNsGrowsMonotonically) {
 
 // ── wall_clock_string ──────────────────────────────────────────────────────
 
-TEST(Timestamp, WallClockStringNotEmpty) {
-    EXPECT_FALSE(mosaic::wall_clock_string().isEmpty());
-}
+TEST(Timestamp, WallClockStringNotEmpty) { EXPECT_FALSE(mosaic::wall_clock_string().isEmpty()); }
 
 TEST(Timestamp, WallClockFilenameFormat) {
     // Expected pattern: "YYYY-MM-DD_HH-MM-SS" — 19 characters.
     const QString name = mosaic::wall_clock_filename();
     EXPECT_EQ(name.length(), 19);
-    EXPECT_EQ(name[4],  '-');
-    EXPECT_EQ(name[7],  '-');
+    EXPECT_EQ(name[4], '-');
+    EXPECT_EQ(name[7], '-');
     EXPECT_EQ(name[10], '_');
     EXPECT_EQ(name[13], '-');
     EXPECT_EQ(name[16], '-');
@@ -77,11 +73,13 @@ TEST(Timestamp, ElapsedNsThreadSafe) {
             }
         });
     }
-    for (auto& thr : threads) { thr.join(); }
+    for (auto& thr : threads) {
+        thr.join();
+    }
 
     for (int t = 0; t < kThreads; ++t) {
         for (int i = 1; i < kSamples; ++i) {
-            EXPECT_GE(results[t][i], results[t][i-1])
+            EXPECT_GE(results[t][i], results[t][i - 1])
                 << "Thread " << t << " sample " << i << " went backwards.";
         }
     }

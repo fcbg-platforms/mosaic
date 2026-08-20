@@ -1,26 +1,26 @@
 #pragma once
-#include "audio/audio_manager.hpp"
-#include "core/settings.hpp"
-#include "ui/audio/audio_waveform_w.hpp"
 #include <QVBoxLayout>
 #include <QWidget>
 #include <memory>
+
+#include "audio/audio_manager.hpp"
+#include "core/settings.hpp"
+#include "ui/audio/audio_waveform_w.hpp"
 
 namespace mosaic {
 
 class AudioSettingsW : public QWidget {
     Q_OBJECT
-public:
+   public:
     // audioMgr may be nullptr in unit tests; level meters are simply inactive.
-    explicit AudioSettingsW(AudioSettings& settings,
-                             AudioManager*  audioMgr,
-                             QWidget*       parent = nullptr);
+    explicit AudioSettingsW(AudioSettings& settings, AudioManager* audioMgr,
+                            QWidget* parent = nullptr);
     ~AudioSettingsW() override;
 
-signals:
+   signals:
     void settings_changed();
 
-private:
+   private:
     void build_encoding_section(QVBoxLayout* parent);
     void build_microphones_section(QVBoxLayout* parent);
     void build_waveform_section(QVBoxLayout* parent);

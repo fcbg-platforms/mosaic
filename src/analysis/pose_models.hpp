@@ -11,10 +11,10 @@ namespace mosaic {
 /// exists in one place.
 inline QList<QPair<QString, QString>> pose_model_options() {
     return {
-        {"YOLOv8n-pose  (fastest, CPU OK)",  "yolov8n-pose.pt"},
-        {"YOLOv8s-pose  (balanced)",         "yolov8s-pose.pt"},
-        {"YOLOv8m-pose  (accurate, GPU)",    "yolov8m-pose.pt"},
-        {"YOLOv8l-pose  (best, GPU req.)",   "yolov8l-pose.pt"},
+        {"YOLOv8n-pose  (fastest, CPU OK)", "yolov8n-pose.pt"},
+        {"YOLOv8s-pose  (balanced)", "yolov8s-pose.pt"},
+        {"YOLOv8m-pose  (accurate, GPU)", "yolov8m-pose.pt"},
+        {"YOLOv8l-pose  (best, GPU req.)", "yolov8l-pose.pt"},
     };
 }
 
@@ -25,7 +25,7 @@ inline QList<QPair<QString, QString>> pose_model_options() {
 /// keypoint options, appended after a separator.
 inline QList<QPair<QString, QString>> pose_depth_model_options() {
     return {
-        {"YOLO26n Depth  (fastest, experimental)",  "yolo26n-depth.pt"},
+        {"YOLO26n Depth  (fastest, experimental)", "yolo26n-depth.pt"},
         {"YOLO26s Depth  (balanced, experimental)", "yolo26s-depth.pt"},
         {"YOLO26m Depth  (accurate, experimental)", "yolo26m-depth.pt"},
     };
