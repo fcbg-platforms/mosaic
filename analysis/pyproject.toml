@@ -2,7 +2,12 @@
 name = "mosaic-analysis"
 version = "0.1.0"
 description = "Post-recording batch pose/motion analysis for MOSAIC sessions (YOLOv8-pose)"
-requires-python = ">=3.10"
+# py-feat>=2.1.0 (below) itself requires >=3.11 — the floor used to be a
+# stale >=3.10, which was the direct cause of `uv sync`/`uv lock` resolver
+# conflicts this project hit more than once (had to fall back to manual
+# `uv pip install py-feat` instead of a clean sync). No `analysis/uv.lock`
+# existed until this floor was fixed to match reality.
+requires-python = ">=3.11"
 dependencies = [
     "numpy>=1.24",
     "opencv-python>=4.8",
@@ -23,8 +28,8 @@ dependencies = [
     "py-feat>=2.1.0",
 ]
 
-[tool.uv]
-dev-dependencies = [
+[dependency-groups]
+dev = [
     "pytest>=7.0",
 ]
 
