@@ -50,10 +50,18 @@ namespace mosaic {
 // at all. Checking the working directory too (typical when launched from a
 // shell/IDE with cwd at the source root) makes this resolve correctly here,
 // exactly like the analysis/ Python plugins already do.
+//
+// Two different "up N levels" depths, both real: 4 levels matches
+// scripts/configure.ps1's own documented -B build/$BuildType convention
+// (build/<Cfg>/bin/<Cfg>/mosaic.exe); 3 levels matches ci.yml's plain
+// -B build convention (build/bin/<Cfg>/mosaic.exe) — see
+// AnalysisManager::find_venv_python()'s doc comment for the full story of
+// how the 3-level case went unnoticed until a CI-only test caught it.
 static QString find_relative_to_app(const QString& relPath) {
     const QStringList bases = {
         QCoreApplication::applicationDirPath(),
-        QCoreApplication::applicationDirPath() + "/../../../..", // Xcode bundle
+        QCoreApplication::applicationDirPath() + "/../../../..", // Xcode bundle / configure.ps1
+        QCoreApplication::applicationDirPath() + "/../../..",    // ci.yml's `-B build`
         QDir::currentPath(),
     };
     for (const QString& base : bases) {
