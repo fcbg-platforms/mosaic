@@ -26,16 +26,22 @@
       `.pre-commit-config.yaml` hooks runs this automatically. CI enforces both via the
       `lint-python` job.
 - [ ] C++ changes (`src/`, `tests/`) pass `clang-format --dry-run --Werror` against the repo-root
-      `.clang-format`. CI enforces this via the `lint-cpp` job. `.clang-tidy` is also configured
-      in the repo but is **not yet CI-enforced** — running it for real needs a valid
-      `compile_commands.json` from a full Qt+vcpkg build, which would make a "just check style"
-      job as heavy as the full build job; treat it as a manual/local check for now.
+      `.clang-format`. CI enforces this via the `lint-cpp` job.
+- [ ] `.clang-tidy` is CI-enforced via the `clang-tidy` job (Windows, `-G Ninja` + real `cl.exe`,
+      pinned `clang-tidy==19.1.0.1` — deliberately not the same `18.1.8` `.clang-format`/
+      pre-commit pin: 18.1.8's bundled Clang frontend hard-errors against this project's MSVC STL
+      version, which requires Clang ≥19 — diff-scoped to changed `.cpp` files). It is **advisory, not
+      blocking**: this ~150-file codebase has never had a clang-tidy pass before this job existed,
+      and its check set (`cppcoreguidelines-*`/`modernize-*`/`readability-*`/`performance-*`) is
+      known to be noisy against normal Qt parent-owns-child idioms — findings are reported in the
+      job summary but don't fail the check yet, pending a first triage pass. Skips entirely on a
+      PR/push touching no `.cpp`/`.hpp` files.
 - [ ] No unrelated file churn — check `git status`/`git diff` before staging.
 
 ## Code style
 
-- C++: follow `.clang-format`/`.clang-tidy` already configured in the repo (`.clang-format` is
-  CI-enforced; `.clang-tidy` is not yet, see above).
+- C++: follow `.clang-format`/`.clang-tidy` already configured in the repo — both are CI-enforced
+  (`.clang-tidy` advisory-only for now, see above).
 - Python: `ruff`, config at repo-root `ruff.toml`, shared across `python/`, `analysis/`, `docs/`.
 
 ## Reporting issues / proposing features

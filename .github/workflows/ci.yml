@@ -85,6 +85,153 @@ jobs:
           echo "$files"
           clang-format --dry-run --Werror $files
 
+  clang-tidy:
+    runs-on: windows-latest
+
+    # .clang-tidy is configured (cppcoreguidelines-*/modernize-*/readability-*/
+    # performance-*/clang-analyzer-*) but had never been run once against this
+    # ~150-file codebase before this job existed. Advisory only for now (see
+    # .clang-tidy's own WarningsAsErrors: "") — reports findings in the job
+    # summary but never fails the check, pending a first triage pass; diff-
+    # scoped to changed .cpp files, mirroring lint-cpp's own "only new drift,
+    # not the whole untriaged tree" convention.
+    #
+    # Needs its own separate build from build-and-test: clang-tidy needs a
+    # real compile_commands.json, and CMAKE_EXPORT_COMPILE_COMMANDS is
+    # silently ignored by the multi-config Visual Studio generator
+    # build-and-test uses (a documented CMake limitation for multi-config
+    # generators, not a bug here) — so this job configures with -G Ninja and
+    # the real MSVC cl.exe instead of switching generators for everyone.
+    # clang-tidy auto-detects "cl"/"cl.exe" as the compiler driver in
+    # compile_commands.json and parses MSVC-style flags correctly on its
+    # own, so no separate clang-cl toolchain is needed.
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Determine merge-base with main
+        id: base
+        shell: bash
+        run: |
+          git fetch origin main --quiet
+          echo "sha=$(git merge-base origin/main HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Check for changed C++ files
+        id: changed
+        shell: bash
+        run: |
+          files=$(git diff --name-only ${{ steps.base.outputs.sha }} -- src tests | grep -E '\.(cpp|hpp)$' || true)
+          if [ -z "$files" ]; then
+            echo "No changed C++ files — skipping clang-tidy entirely."
+            echo "has_files=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "has_files=true" >> "$GITHUB_OUTPUT"
+          echo "Changed files:"
+          echo "$files"
+          # Only .cpp files are handed to clang-tidy directly — it analyzes
+          # translation units, matched 1:1 against compile_commands.json
+          # entries. A .hpp's own issues still surface via HeaderFilterRegex
+          # when a .cpp that includes it is checked; a diff touching *only*
+          # a header with no .cpp in the same diff isn't directly
+          # re-checked this round — a known, accepted limitation for a
+          # first pass, not an oversight.
+          cpp_files=$(echo "$files" | grep -E '\.cpp$' || true)
+          {
+            echo "cpp_files<<TIDY_EOF"
+            echo "$cpp_files"
+            echo "TIDY_EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Setup MSVC dev environment
+        if: steps.changed.outputs.has_files == 'true'
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Setup Ninja
+        if: steps.changed.outputs.has_files == 'true'
+        uses: seanmiddleditch/gha-setup-ninja@v6
+
+      - name: Install Qt
+        if: steps.changed.outputs.has_files == 'true'
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.8.*'
+          modules: 'qtmultimedia qtserialport qtcharts'
+          cache: true
+
+      - name: Setup vcpkg (with binary caching)
+        if: steps.changed.outputs.has_files == 'true'
+        uses: lukka/run-vcpkg@v11
+        with:
+          vcpkgJsonGlob: 'vcpkg.json'
+
+      - name: Configure (Ninja + cl.exe, for compile_commands.json)
+        if: steps.changed.outputs.has_files == 'true'
+        shell: pwsh
+        # CMAKE_BUILD_TYPE=Release is required here even though build-and-
+        # test's own multi-config VS-generator build never sets it — Ninja
+        # is a single-config generator, so without an explicit build type
+        # vcpkg's toolchain silently links the Debug-variant vcpkg libs
+        # (verified directly: an unset CMAKE_BUILD_TYPE here linked
+        # opencv_calib3d4d.lib/opencv_objdetect4d.lib from
+        # vcpkg_installed/x64-windows/debug/lib against Release-ish compile
+        # flags, producing dozens of LNK2019 unresolved externals for
+        # cv::calibrateCamera/cv::aruco::* — a real, silent trap for any
+        # single-config Ninja build of this project, not clang-tidy-specific).
+        run: >
+          cmake -S . -B build -G Ninja
+          -DCMAKE_BUILD_TYPE=Release
+          -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl
+          -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+          -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake"
+          -DVCPKG_TARGET_TRIPLET=x64-windows
+          -DMOSAIC_BUILD_TESTS=ON
+          -DMOSAIC_ENABLE_CAMERAS=OFF
+          -DMOSAIC_ENABLE_FFMPEG=OFF
+
+      - name: Build (produces generated Qt moc/ui sources too)
+        if: steps.changed.outputs.has_files == 'true'
+        run: cmake --build build --parallel
+
+      - name: Install clang-tidy
+        if: steps.changed.outputs.has_files == 'true'
+        # NOT pinned to the same 18.1.8 as .clang-format/pre-commit's
+        # clang-tidy mirror would suggest — verified directly (this exact
+        # combination was smoke-tested locally before landing) that 18.1.8's
+        # bundled Clang frontend fails a hard compile error against this
+        # toolset's MSVC STL: `yvals_core.h` static_asserts on
+        # `_ALLOW_COMPILER_AND_STL_VERSION_MISMATCH`-gated versions,
+        # requiring Clang >=19 for MSVC 19.44's STL. 19.1.0.1 is the oldest
+        # pip-published clang-tidy release that clears that gate.
+        run: pip install clang-tidy==19.1.0.1
+
+      - name: Run clang-tidy on changed files (advisory only)
+        if: steps.changed.outputs.has_files == 'true'
+        shell: bash
+        run: |
+          files="${{ steps.changed.outputs.cpp_files }}"
+          {
+            echo "## clang-tidy results"
+            echo ""
+            echo "Advisory only (see \`.clang-tidy\`'s \`WarningsAsErrors: \"\"\`) — never fails this job."
+            echo ""
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ -z "$files" ]; then
+            echo "_Changed files were header-only — nothing to run clang-tidy on directly this round._" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          echo "Checking:"
+          echo "$files"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          clang-tidy -p build $files 2>&1 | tee clang-tidy-report.txt | tail -c 60000 >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          warnings=$(grep -c "warning:" clang-tidy-report.txt || true)
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Total warnings: ${warnings:-0}**" >> "$GITHUB_STEP_SUMMARY"
+
   build-and-test:
     runs-on: windows-latest
 
