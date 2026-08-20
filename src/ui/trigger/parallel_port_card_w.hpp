@@ -1,7 +1,8 @@
 #pragma once
-#include "core/settings.hpp"
 #include <QWidget>
 #include <memory>
+
+#include "core/settings.hpp"
 
 namespace mosaic {
 
@@ -10,19 +11,17 @@ namespace mosaic {
 
 class ParallelPortCardW : public QWidget {
     Q_OBJECT
-public:
-    explicit ParallelPortCardW(ParallelPortConfig& config,
-                                int                index,
-                                QWidget*           parent = nullptr);
+   public:
+    explicit ParallelPortCardW(ParallelPortConfig& config, int index, QWidget* parent = nullptr);
     ~ParallelPortCardW() override;
 
     void set_index(int index);
 
-signals:
+   signals:
     void config_changed();
     void remove_requested(int index);
 
-private:
+   private:
     struct Impl;
     std::unique_ptr<Impl> d;
 };

@@ -18,9 +18,10 @@ being written down, not reconstructed from memory — see each function's own
 docstring for its exact source and any ambiguity found during that
 verification.
 """
+
 from __future__ import annotations
 
-from typing import Callable
+from collections.abc import Callable
 
 import numpy as np
 

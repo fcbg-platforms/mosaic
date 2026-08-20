@@ -1,13 +1,15 @@
 #include "trigger/parallel_port_trigger.hpp"
-#include "utils/logger.hpp"
-#include "utils/timestamp.hpp"
+
 #include <QTimer>
 #include <array>
 #include <atomic>
 
+#include "utils/logger.hpp"
+#include "utils/timestamp.hpp"
+
 #if defined(MOSAIC_HAVE_PARALLEL_PORT) && defined(Q_OS_WIN)
-#  define WIN32_LEAN_AND_MEAN
-#  include <windows.h>
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
 #endif
 
 namespace mosaic {
@@ -16,25 +18,32 @@ namespace mosaic {
 
 #if defined(MOSAIC_HAVE_PARALLEL_PORT) && defined(Q_OS_WIN)
 
-using Inp32Fn = short (__stdcall*)(short portAddress);
-using Out32Fn = void  (__stdcall*)(short portAddress, short data);
+using Inp32Fn = short(__stdcall*)(short portAddress);
+using Out32Fn = void(__stdcall*)(short portAddress, short data);
 
 struct InpOut32 {
-    HMODULE  handle{nullptr};
-    Inp32Fn  inp32{nullptr};
-    Out32Fn  out32{nullptr};
+    HMODULE handle{nullptr};
+    Inp32Fn inp32{nullptr};
+    Out32Fn out32{nullptr};
 
     bool load() {
         handle = LoadLibraryA("inpout32.dll");
-        if (!handle) { handle = LoadLibraryA("inpoutx64.dll"); }
-        if (!handle) { return false; }
+        if (!handle) {
+            handle = LoadLibraryA("inpoutx64.dll");
+        }
+        if (!handle) {
+            return false;
+        }
         inp32 = reinterpret_cast<Inp32Fn>(GetProcAddress(handle, "Inp32"));
         out32 = reinterpret_cast<Out32Fn>(GetProcAddress(handle, "Out32"));
         return inp32 != nullptr && out32 != nullptr;
     }
 
     void unload() {
-        if (handle) { FreeLibrary(handle); handle = nullptr; }
+        if (handle) {
+            FreeLibrary(handle);
+            handle = nullptr;
+        }
         inp32 = nullptr;
         out32 = nullptr;
     }
@@ -48,14 +57,14 @@ struct InpOut32 {
 
 struct ParallelPortTrigger::Impl {
     ParallelPortConfig config;
-    QTimer             timer;
-    uint8_t            lastByte{0xFF};
-    std::atomic<int>   eventCount{0};
-    bool               active{false};
+    QTimer timer;
+    uint8_t lastByte{0xFF};
+    std::atomic<int> eventCount{0};
+    bool active{false};
 
 #if defined(MOSAIC_HAVE_PARALLEL_PORT) && defined(Q_OS_WIN)
-    InpOut32           driver;
-    short              portAddr{0x378};
+    InpOut32 driver;
+    short portAddr{0x378};
 #endif
 
     explicit Impl(const ParallelPortConfig& cfg) : config(cfg) {}
@@ -63,7 +72,9 @@ struct ParallelPortTrigger::Impl {
     // Read one byte from the port; returns 0 and logs on error.
     uint8_t read_port() {
 #if defined(MOSAIC_HAVE_PARALLEL_PORT) && defined(Q_OS_WIN)
-        if (!driver.inp32) { return 0; }
+        if (!driver.inp32) {
+            return 0;
+        }
         return static_cast<uint8_t>(driver.inp32(portAddr) & 0xFF);
 #else
         return 0;
@@ -77,10 +88,12 @@ struct ParallelPortTrigger::Impl {
     // read-modify-write if a second Control-register consumer is ever added.
     void write_control_bit([[maybe_unused]] bool high) {
 #if defined(MOSAIC_HAVE_PARALLEL_PORT) && defined(Q_OS_WIN)
-        if (!driver.out32) { return; }
-        constexpr short kInitBit = 1 << 2;   // Control-register bit 2 = INIT
-                                              // (pin 16) — not historically
-                                              // inverted, unlike bits 0/1/3.
+        if (!driver.out32) {
+            return;
+        }
+        constexpr short kInitBit = 1 << 2; // Control-register bit 2 = INIT
+                                           // (pin 16) — not historically
+                                           // inverted, unlike bits 0/1/3.
         driver.out32(static_cast<short>(portAddr + 2), high ? kInitBit : 0);
 #endif
     }
@@ -98,19 +111,19 @@ struct ParallelPortTrigger::Impl {
 
 // ── ParallelPortTrigger ────────────────────────────────────────────────────
 
-ParallelPortTrigger::ParallelPortTrigger(const ParallelPortConfig& config,
-                                          QObject* parent)
-    : QObject(parent), d(std::make_unique<Impl>(config))
-{
+ParallelPortTrigger::ParallelPortTrigger(const ParallelPortConfig& config, QObject* parent)
+    : QObject(parent), d(std::make_unique<Impl>(config)) {
     connect(&d->timer, &QTimer::timeout, this, [this] {
-        const uint8_t raw      = d->read_port();
-        const uint8_t current  = d->effective_byte(raw);
-        const uint8_t prev     = d->effective_byte(d->lastByte);
-        const uint8_t changed  = current ^ prev;
-        d->lastByte = raw;
+        const uint8_t raw     = d->read_port();
+        const uint8_t current = d->effective_byte(raw);
+        const uint8_t prev    = d->effective_byte(d->lastByte);
+        const uint8_t changed = current ^ prev;
+        d->lastByte           = raw;
 
         for (int bit = 0; bit < 8; ++bit) {
-            if (!(changed & (1u << bit))) { continue; }
+            if (!(changed & (1u << bit))) {
+                continue;
+            }
 
             const bool rising = (current >> bit) & 1u;
             TriggerEvent ev;
@@ -127,13 +140,16 @@ ParallelPortTrigger::ParallelPortTrigger(const ParallelPortConfig& config,
 ParallelPortTrigger::~ParallelPortTrigger() { stop(); }
 
 bool ParallelPortTrigger::start() {
-    if (!d->config.enabled) { return false; }
+    if (!d->config.enabled) {
+        return false;
+    }
 
 #if defined(MOSAIC_HAVE_PARALLEL_PORT) && defined(Q_OS_WIN)
     d->portAddr = Impl::parse_port_address(d->config.portAddress);
 
     if (!d->driver.load()) {
-        const QString msg = "InpOut32.dll not found. "
+        const QString msg =
+            "InpOut32.dll not found. "
             "Download from http://www.highrez.co.uk/downloads/inpout32/ "
             "and place it next to mosaic.exe.";
         log_error(QString("[ParallelPort] %1").arg(msg));
@@ -147,7 +163,8 @@ bool ParallelPortTrigger::start() {
     d->timer.start();
     d->active = true;
     log_info(QString("[ParallelPort] Polling 0x%1 every %2 ms.")
-                 .arg(d->config.portAddress).arg(d->config.pollRateMs));
+                 .arg(d->config.portAddress)
+                 .arg(d->config.pollRateMs));
     return true;
 #else
     log_warning("[ParallelPort] Parallel port support not compiled in.");
@@ -166,13 +183,13 @@ void ParallelPortTrigger::stop() {
     d->active = false;
 }
 
-bool ParallelPortTrigger::is_active()    const { return d->active; }
-int  ParallelPortTrigger::events_fired() const {
-    return d->eventCount.load();
-}
+bool ParallelPortTrigger::is_active() const { return d->active; }
+int ParallelPortTrigger::events_fired() const { return d->eventCount.load(); }
 
 void ParallelPortTrigger::set_recording_marker(bool active) {
-    if (!d->active) { return; }   // port never opened successfully
+    if (!d->active) {
+        return;
+    } // port never opened successfully
     d->write_control_bit(active);
 }
 

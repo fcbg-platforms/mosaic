@@ -23,7 +23,6 @@ Or without CMake::
 
 import os
 import sys
-import textwrap
 from pathlib import Path
 
 # ---------------------------------------------------------------------------
@@ -48,11 +47,11 @@ _doxygen_xml = os.environ.get(
 # ---------------------------------------------------------------------------
 # Project metadata
 # ---------------------------------------------------------------------------
-project   = "MOSAIC"
-author    = "CSRU Lab"
+project = "MOSAIC"
+author = "CSRU Lab"
 copyright = "2024–2026, CSRU Lab"
-version   = "0.1"
-release   = "0.1.0"
+version = "0.1"
+release = "0.1.0"
 
 # ---------------------------------------------------------------------------
 # Extensions
@@ -60,11 +59,11 @@ release   = "0.1.0"
 extensions = [
     "breathe",
     "exhale",
-    "sphinx.ext.autodoc",       # Python API reference (analysis/ package)
+    "sphinx.ext.autodoc",  # Python API reference (analysis/ package)
     "sphinx.ext.autosummary",
-    "sphinx.ext.napoleon",      # numpydoc-style docstring rendering
-    "sphinx.ext.mathjax",       # .. math:: rendering for docs/math/*
-    "myst_parser",              # Markdown support
+    "sphinx.ext.napoleon",  # numpydoc-style docstring rendering
+    "sphinx.ext.mathjax",  # .. math:: rendering for docs/math/*
+    "myst_parser",  # Markdown support
     "sphinx.ext.intersphinx",
     "sphinx.ext.viewcode",
     "sphinx.ext.autosectionlabel",
@@ -75,10 +74,10 @@ extensions = [
 # ---------------------------------------------------------------------------
 # Breathe — C++ API bridge
 # ---------------------------------------------------------------------------
-breathe_projects          = {"MOSAIC": _doxygen_xml}
-breathe_default_project   = "MOSAIC"
-breathe_default_members   = ("members", "undoc-members")
-breathe_show_include      = True
+breathe_projects = {"MOSAIC": _doxygen_xml}
+breathe_default_project = "MOSAIC"
+breathe_default_members = ("members", "undoc-members")
+breathe_show_include = True
 breathe_order_parameters_first = True
 
 # ---------------------------------------------------------------------------
@@ -86,21 +85,17 @@ breathe_order_parameters_first = True
 # ---------------------------------------------------------------------------
 exhale_args = {
     # where Exhale writes its generated RST files
-    "containmentFolder":     "./api",
-    "rootFileName":          "library_root.rst",
-    "rootFileTitle":         "API Reference",
-    "doxygenStripFromPath":  str(project_root / "src"),
-
+    "containmentFolder": "./api",
+    "rootFileName": "library_root.rst",
+    "rootFileTitle": "API Reference",
+    "doxygenStripFromPath": str(project_root / "src"),
     # page titles
-    "createTreeView":        True,
-    "treeViewIsBootstrap":   False,
-
+    "createTreeView": True,
+    "treeViewIsBootstrap": False,
     # Show the full signature on every function page
-    "exhaleExecutesDoxygen": False,   # we run Doxygen via CMake
-
+    "exhaleExecutesDoxygen": False,  # we run Doxygen via CMake
     # Link to source in a "View source" button
     "contentsDirectives": True,
-
     # Curation — cuts the generated tree down to genuinely browsable API.
     # listingExclude hides matches from the class/namespace hierarchy tree
     # views (the page itself may still exist and be cross-linked from a
@@ -108,7 +103,6 @@ exhale_args = {
     # the flat top-level nav). *::Impl structs are pImpl-idiom internals,
     # never meant to be browsed to directly.
     "listingExclude": [r".*::Impl$", r".*_1_1_Impl$"],
-
     # unabridgedOrphanKinds excludes an entity *kind* from the flat "Full
     # API" listing (unabridged_api.rst.include) that otherwise gives every
     # single extracted entity its own top-level sidebar toctree entry.
@@ -122,20 +116,20 @@ exhale_args = {
 # ---------------------------------------------------------------------------
 # Napoleon — render numpydoc-style docstrings (analysis/ package)
 # ---------------------------------------------------------------------------
-napoleon_google_docstring         = False
-napoleon_numpy_docstring          = True
-napoleon_include_init_with_doc    = True
+napoleon_google_docstring = False
+napoleon_numpy_docstring = True
+napoleon_include_init_with_doc = True
 napoleon_include_private_with_doc = False
 napoleon_include_special_with_doc = False
-napoleon_use_param                = True
-napoleon_use_rtype                = True
-napoleon_use_ivar                 = False
-napoleon_attr_annotations         = True
+napoleon_use_param = True
+napoleon_use_rtype = True
+napoleon_use_ivar = False
+napoleon_attr_annotations = True
 
 # ---------------------------------------------------------------------------
 # Autodoc / Autosummary — Python analysis/ API reference (docs/analysis_api.rst)
 # ---------------------------------------------------------------------------
-autodoc_typehints    = "description"   # keep signatures short, types in the body
+autodoc_typehints = "description"  # keep signatures short, types in the body
 autodoc_member_order = "bysource"
 autosummary_generate = True
 autosummary_generate_overwrite = True
@@ -169,7 +163,7 @@ autodoc_mock_imports = [
 # ---------------------------------------------------------------------------
 mathjax3_config = {
     "tex": {
-        "tags": "ams",   # numbered \tag{}/equation environments, AMS-style
+        "tags": "ams",  # numbered \tag{}/equation environments, AMS-style
     },
 }
 
@@ -177,8 +171,8 @@ mathjax3_config = {
 # MyST — Markdown options
 # ---------------------------------------------------------------------------
 myst_enable_extensions = [
-    "colon_fence",      # ::: fences like RST directives
-    "deflist",          # definition lists
+    "colon_fence",  # ::: fences like RST directives
+    "deflist",  # definition lists
     "fieldlist",
     "substitution",
 ]
@@ -189,7 +183,7 @@ myst_heading_anchors = 3
 # ---------------------------------------------------------------------------
 html_theme = "pydata_sphinx_theme"
 
-html_title       = "MOSAIC"
+html_title = "MOSAIC"
 html_short_title = "MOSAIC"
 
 html_theme_options = {
@@ -198,37 +192,33 @@ html_theme_options = {
         # (src/ui/auth/login_dialog.cpp) — see docs/_static/logo-{light,dark}.svg's
         # own comment for the geometry/color correspondence.
         "image_light": "_static/logo-light.svg",
-        "image_dark":  "_static/logo-dark.svg",
+        "image_dark": "_static/logo-dark.svg",
         "text": "MOSAIC",
         "alt_text": "MOSAIC — Multi-camera Observatory for Social & Activity Interaction Capture",
     },
-    "navbar_align":  "left",
+    "navbar_align": "left",
     "show_nav_level": 2,
     "navigation_depth": 3,
     "show_toc_level": 2,
     "header_links_before_dropdown": 6,
-
     # Footer
     "footer_start": ["copyright"],
     "footer_center": [],
-    "footer_end":   ["sphinx-version"],
-
+    "footer_end": ["sphinx-version"],
     # Syntax highlighting
     "pygments_light_style": "friendly",
-    "pygments_dark_style":  "monokai",
-
+    "pygments_dark_style": "monokai",
     # Article-level sidebar
     "primary_sidebar_end": ["indices.html"],
     "secondary_sidebar_items": ["page-toc", "edit-this-page"],
-
     # Announcement banner (optional — remove if not needed)
     # "announcement": "MOSAIC is under active development.",
 }
 
-html_static_path   = ["_static"]
-html_css_files     = ["custom.css"]
-html_favicon       = "_static/logo-light.svg"
-html_show_sphinx   = False
+html_static_path = ["_static"]
+html_css_files = ["custom.css"]
+html_favicon = "_static/logo-light.svg"
+html_show_sphinx = False
 html_show_sourcelink = True
 
 # ---------------------------------------------------------------------------
@@ -236,19 +226,19 @@ html_show_sourcelink = True
 # ---------------------------------------------------------------------------
 intersphinx_mapping = {
     "python": ("https://docs.python.org/3", None),
-    "numpy":  ("https://numpy.org/doc/stable/", None),
-    "scipy":  ("https://docs.scipy.org/doc/scipy/", None),
+    "numpy": ("https://numpy.org/doc/stable/", None),
+    "scipy": ("https://docs.scipy.org/doc/scipy/", None),
     "pandas": ("https://pandas.pydata.org/docs/", None),
 }
 
 # ---------------------------------------------------------------------------
 # General
 # ---------------------------------------------------------------------------
-exclude_patterns  = ["_build", ".venv", "Thumbs.db", ".DS_Store"]
-source_suffix     = {".rst": "restructuredtext", ".md": "markdown"}
-master_doc        = "index"
-language          = "en"
-pygments_style    = "monokai"
+exclude_patterns = ["_build", ".venv", "Thumbs.db", ".DS_Store"]
+source_suffix = {".rst": "restructuredtext", ".md": "markdown"}
+master_doc = "index"
+language = "en"
+pygments_style = "monokai"
 pygments_dark_style = "monokai"
 
 # autosectionlabel — prefix with document name to avoid clashes

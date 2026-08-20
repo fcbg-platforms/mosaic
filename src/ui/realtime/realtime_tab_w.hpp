@@ -1,12 +1,13 @@
 #pragma once
+#include <QWidget>
+#include <memory>
+
 #include "analysis/pose_worker.hpp"
 #include "analysis/transcript_worker.hpp"
 #include "audio/audio_manager.hpp"
 #include "core/settings.hpp"
 #include "record/record_manager.hpp"
 #include "video/video_manager.hpp"
-#include <QWidget>
-#include <memory>
 
 namespace mosaic {
 
@@ -41,14 +42,10 @@ namespace mosaic {
 // tile's own small 2D gaze compass is the honest room-level summary.
 class RealtimeTabW : public QWidget {
     Q_OBJECT
-public:
-    explicit RealtimeTabW(AppSettings&      settings,
-                          VideoManager*      videoMgr,
-                          AudioManager*      audioMgr,
-                          RecordManager*     recordMgr,
-                          PoseWorker*        poseWorker,
-                          TranscriptWorker*  transcriptWorker = nullptr,
-                          QWidget*           parent = nullptr);
+   public:
+    explicit RealtimeTabW(AppSettings& settings, VideoManager* videoMgr, AudioManager* audioMgr,
+                          RecordManager* recordMgr, PoseWorker* poseWorker,
+                          TranscriptWorker* transcriptWorker = nullptr, QWidget* parent = nullptr);
     ~RealtimeTabW() override;
 
     // Restores the tab's internal splitter (tile grid vs. audio strip) to
@@ -56,7 +53,7 @@ public:
     // layout action.
     void reset_layout();
 
-private:
+   private:
     void build_ui();
     void rebuild_tiles();
     void rebuild_trace_camera_combo();

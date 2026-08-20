@@ -11,16 +11,21 @@ the same row-major 4x4 homogeneous-transform convention used on the C++
 side (room_frame::Mat4 / CalibrationData::extrinsicRt): point_room = R *
 point_local + t, camera 0 always identity.
 """
+
 from __future__ import annotations
 
 import numpy as np
 
 
-def camera_ray_from_pose(rotation: np.ndarray, translation: np.ndarray,
-                          gaze_dx: float, gaze_dy: float,
-                          eye_origin_model_mm: np.ndarray,
-                          max_eye_yaw_deg: float = 30.0,
-                          max_eye_pitch_deg: float = 20.0) -> tuple[np.ndarray, np.ndarray]:
+def camera_ray_from_pose(
+    rotation: np.ndarray,
+    translation: np.ndarray,
+    gaze_dx: float,
+    gaze_dy: float,
+    eye_origin_model_mm: np.ndarray,
+    max_eye_yaw_deg: float = 30.0,
+    max_eye_pitch_deg: float = 20.0,
+) -> tuple[np.ndarray, np.ndarray]:
     """Turn a solved head pose plus a 2D iris-offset into a 3D camera-space gaze ray.
 
     Parameters
@@ -68,24 +73,25 @@ def camera_ray_from_pose(rotation: np.ndarray, translation: np.ndarray,
 
     origin = rotation @ eye_origin_model_mm + translation
 
-    yaw   = np.radians(gaze_dx * max_eye_yaw_deg)
+    yaw = np.radians(gaze_dx * max_eye_yaw_deg)
     pitch = np.radians(gaze_dy * max_eye_pitch_deg)
 
     cos_y, sin_y = np.cos(yaw), np.sin(yaw)
     cos_p, sin_p = np.cos(pitch), np.sin(pitch)
-    rot_yaw   = np.array([[cos_y, 0.0, sin_y], [0.0, 1.0, 0.0], [-sin_y, 0.0, cos_y]])
+    rot_yaw = np.array([[cos_y, 0.0, sin_y], [0.0, 1.0, 0.0], [-sin_y, 0.0, cos_y]])
     rot_pitch = np.array([[1.0, 0.0, 0.0], [0.0, cos_p, -sin_p], [0.0, sin_p, cos_p]])
 
-    forward_model   = np.array([0.0, 0.0, 1.0])
+    forward_model = np.array([0.0, 0.0, 1.0])
     direction_model = rot_yaw @ (rot_pitch @ forward_model)
-    direction       = rotation @ direction_model
-    direction       = direction / np.linalg.norm(direction)
+    direction = rotation @ direction_model
+    direction = direction / np.linalg.norm(direction)
 
     return origin, direction
 
 
-def transform_ray_to_room(origin_cam: np.ndarray, direction_cam: np.ndarray,
-                           extrinsic_rt) -> tuple[np.ndarray, np.ndarray]:
+def transform_ray_to_room(
+    origin_cam: np.ndarray, direction_cam: np.ndarray, extrinsic_rt
+) -> tuple[np.ndarray, np.ndarray]:
     """Transform a camera-local ray into room coordinates.
 
     Parameters
@@ -107,12 +113,12 @@ def transform_ray_to_room(origin_cam: np.ndarray, direction_cam: np.ndarray,
     """
     m = np.asarray(extrinsic_rt, dtype=np.float64).reshape(4, 4)
     rot = m[:3, :3]
-    t   = m[:3, 3]
+    t = m[:3, 3]
 
-    origin_cam    = np.asarray(origin_cam, dtype=np.float64)
+    origin_cam = np.asarray(origin_cam, dtype=np.float64)
     direction_cam = np.asarray(direction_cam, dtype=np.float64)
 
-    origin_room    = rot @ origin_cam + t
+    origin_room = rot @ origin_cam + t
     direction_room = rot @ direction_cam
     direction_room = direction_room / np.linalg.norm(direction_room)
     return origin_room, direction_room
@@ -149,7 +155,7 @@ def closest_point_of_rays(origins, directions) -> tuple[np.ndarray, float]:
     is what should flag it as untrustworthy to a caller, not an
     exception. See :doc:`/math/gaze_fusion` for the full derivation.
     """
-    origins    = [np.asarray(o, dtype=np.float64) for o in origins]
+    origins = [np.asarray(o, dtype=np.float64) for o in origins]
     directions = [np.asarray(d, dtype=np.float64) / np.linalg.norm(d) for d in directions]
 
     if len(origins) == 1:
@@ -157,7 +163,7 @@ def closest_point_of_rays(origins, directions) -> tuple[np.ndarray, float]:
 
     a = np.zeros((3, 3))
     b = np.zeros(3)
-    for o, d in zip(origins, directions):
+    for o, d in zip(origins, directions, strict=False):
         proj = np.eye(3) - np.outer(d, d)
         a += proj
         b += proj @ o
@@ -168,7 +174,7 @@ def closest_point_of_rays(origins, directions) -> tuple[np.ndarray, float]:
         point = np.linalg.pinv(a) @ b
 
     sq_errs = []
-    for o, d in zip(origins, directions):
+    for o, d in zip(origins, directions, strict=False):
         proj = np.eye(3) - np.outer(d, d)
         residual_vec = proj @ (point - o)
         sq_errs.append(float(np.dot(residual_vec, residual_vec)))
@@ -203,9 +209,9 @@ def ray_plane_intersection(origin, direction, plane_point, plane_normal, eps: fl
         (``t < 0`` — gaze pointing away from the surface). See
         :doc:`/math/gaze_fusion` for the derivation.
     """
-    origin       = np.asarray(origin, dtype=np.float64)
-    direction    = np.asarray(direction, dtype=np.float64)
-    plane_point  = np.asarray(plane_point, dtype=np.float64)
+    origin = np.asarray(origin, dtype=np.float64)
+    direction = np.asarray(direction, dtype=np.float64)
+    plane_point = np.asarray(plane_point, dtype=np.float64)
     plane_normal = np.asarray(plane_normal, dtype=np.float64)
     plane_normal = plane_normal / np.linalg.norm(plane_normal)
 

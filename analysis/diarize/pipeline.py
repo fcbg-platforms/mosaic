@@ -17,10 +17,11 @@ functions that need them) rather than at module level, for the same
 reason: importing this module (e.g. to reach assign_speakers() in a test)
 should not require the heavy ML stack to be installed.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Optional, TypedDict
+from typing import TypedDict
 
 
 class WhisperSegment(TypedDict):
@@ -33,8 +34,9 @@ class WhisperSegment(TypedDict):
     text : str
         Transcribed text for this segment.
     """
-    start: float   # seconds
-    end: float     # seconds
+
+    start: float  # seconds
+    end: float  # seconds
     text: str
 
 
@@ -48,8 +50,9 @@ class DiarizationTurn(TypedDict):
     speaker : str
         Speaker label (e.g. ``"SPEAKER_00"``).
     """
-    start: float   # seconds
-    end: float     # seconds
+
+    start: float  # seconds
+    end: float  # seconds
     speaker: str
 
 
@@ -66,15 +69,17 @@ class TranscriptSegment(TypedDict):
     text : str
         Transcribed text for this segment.
     """
+
     start_ms: int
     end_ms: int
-    speaker: Optional[str]   # None = no diarization turn overlapped (or none was run)
+    speaker: str | None  # None = no diarization turn overlapped (or none was run)
     text: str
 
 
 # ── Device selection ──────────────────────────────────────────────────────────
 
-def resolve_device(device_arg: Optional[str]) -> str:
+
+def resolve_device(device_arg: str | None) -> str:
     """Resolve which device to run inference on.
 
     Parameters
@@ -97,10 +102,12 @@ def resolve_device(device_arg: Optional[str]) -> str:
     if device_arg:
         return device_arg
     import torch
+
     return "cuda" if torch.cuda.is_available() else "cpu"
 
 
 # ── Transcription (faster-whisper) ────────────────────────────────────────────
+
 
 def load_whisper_model(model_size: str, device: str):
     """Load a faster-whisper model once, for reuse across a whole session.
@@ -130,8 +137,9 @@ def load_whisper_model(model_size: str, device: str):
     return WhisperModel(model_size, device=device, compute_type=compute_type)
 
 
-def transcribe_audio(model, audio_path: Path,
-                      language: Optional[str]) -> tuple[list[WhisperSegment], str]:
+def transcribe_audio(
+    model, audio_path: Path, language: str | None
+) -> tuple[list[WhisperSegment], str]:
     """Transcribe one audio file with a pre-loaded whisper model.
 
     Parameters
@@ -153,8 +161,7 @@ def transcribe_audio(model, audio_path: Path,
     """
     segments_iter, info = model.transcribe(str(audio_path), language=language or None)
     segments: list[WhisperSegment] = [
-        {"start": seg.start, "end": seg.end, "text": seg.text.strip()}
-        for seg in segments_iter
+        {"start": seg.start, "end": seg.end, "text": seg.text.strip()} for seg in segments_iter
     ]
     return segments, info.language
 
@@ -217,7 +224,8 @@ def load_diarization_pipeline(hf_token: str, device: str):
         # version), so a still-`use_auth_token=`-shaped call throws
         # TypeError immediately, never reaching the network at all.
         pipeline = Pipeline.from_pretrained(
-            "pyannote/speaker-diarization-community-1", token=hf_token)
+            "pyannote/speaker-diarization-community-1", token=hf_token
+        )
     except Exception as exc:  # noqa: BLE001 - re-raised with actionable context below
         raise RuntimeError(
             f"Could not load the pyannote diarization pipeline ({exc}). {_GATING_HELP}"
@@ -248,7 +256,7 @@ def _load_waveform_dict(audio_path: Path) -> dict:
 
     sample_rate, samples = wavfile.read(str(audio_path))
     if samples.ndim == 1:
-        samples = samples[:, None]   # mono -> (time, 1)
+        samples = samples[:, None]  # mono -> (time, 1)
     if np.issubdtype(samples.dtype, np.integer):
         # e.g. int16 -> 32768.0, matching this project's established PCM
         # normalization convention (src/audio/audio_envelope.cpp).
@@ -258,8 +266,9 @@ def _load_waveform_dict(audio_path: Path) -> dict:
     return {"waveform": waveform, "sample_rate": int(sample_rate)}
 
 
-def diarize_audio(pipeline, audio_path: Path,
-                   min_speakers: int, max_speakers: int) -> list[DiarizationTurn]:
+def diarize_audio(
+    pipeline, audio_path: Path, min_speakers: int, max_speakers: int
+) -> list[DiarizationTurn]:
     """Run a pre-loaded diarization pipeline against one audio file.
 
     Parameters
@@ -304,8 +313,10 @@ def diarize_audio(pipeline, audio_path: Path,
 
 # ── Speaker assignment (pure, no I/O) ─────────────────────────────────────────
 
-def assign_speakers(whisper_segments: list[WhisperSegment],
-                     diarization_turns: list[DiarizationTurn]) -> list[TranscriptSegment]:
+
+def assign_speakers(
+    whisper_segments: list[WhisperSegment], diarization_turns: list[DiarizationTurn]
+) -> list[TranscriptSegment]:
     """Label each transcribed segment with its best-overlapping speaker turn.
 
     Parameters
@@ -333,17 +344,19 @@ def assign_speakers(whisper_segments: list[WhisperSegment],
     """
     result: list[TranscriptSegment] = []
     for seg in whisper_segments:
-        best_speaker: Optional[str] = None
+        best_speaker: str | None = None
         best_overlap = 0.0
         for turn in diarization_turns:
             overlap = min(seg["end"], turn["end"]) - max(seg["start"], turn["start"])
             if overlap > best_overlap:
                 best_overlap = overlap
                 best_speaker = turn["speaker"]
-        result.append({
-            "start_ms": round(seg["start"] * 1000),
-            "end_ms":   round(seg["end"] * 1000),
-            "speaker":  best_speaker,
-            "text":     seg["text"],
-        })
+        result.append(
+            {
+                "start_ms": round(seg["start"] * 1000),
+                "end_ms": round(seg["end"] * 1000),
+                "speaker": best_speaker,
+                "text": seg["text"],
+            }
+        )
     return result

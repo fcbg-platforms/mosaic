@@ -1,4 +1,5 @@
 """Helpers for the C++ ↔ Python IPC protocol used by frame_server.py."""
+
 from __future__ import annotations
 
 import struct
@@ -6,7 +7,7 @@ from typing import BinaryIO
 
 import numpy as np
 
-_HEADER_FMT = "<IIII"   # cam_idx, width, height, reserved
+_HEADER_FMT = "<IIII"  # cam_idx, width, height, reserved
 _HEADER_SIZE = struct.calcsize(_HEADER_FMT)
 
 

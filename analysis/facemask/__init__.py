@@ -1,5 +1,6 @@
 """Face-detection backends and blur/box masking helpers for MOSAIC's
 Face Masking analysis plugin."""
+
 from .detectors import (
     Box,
     FaceDetector,

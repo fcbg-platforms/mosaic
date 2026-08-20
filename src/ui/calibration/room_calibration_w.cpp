@@ -1,5 +1,5 @@
 #include "ui/calibration/room_calibration_w.hpp"
-#include "video/video_manager.hpp"
+
 #include <QAbstractItemView>
 #include <QColor>
 #include <QComboBox>
@@ -18,17 +18,19 @@
 #include <QTimer>
 #include <QVBoxLayout>
 
+#include "video/video_manager.hpp"
+
 namespace mosaic {
 
 struct RoomCalibrationW::Impl {
-    VideoSettings&         videoSettings;
-    RoomSettings&          roomSettings;
-    VideoManager*          videoMgr;
+    VideoSettings& videoSettings;
+    RoomSettings& roomSettings;
+    VideoManager* videoMgr;
     RoomCalibrationManager manager;
 
     // Board configuration
-    QSpinBox*       colsSpin   = nullptr;
-    QSpinBox*       rowsSpin   = nullptr;
+    QSpinBox* colsSpin         = nullptr;
+    QSpinBox* rowsSpin         = nullptr;
     QDoubleSpinBox* squareSpin = nullptr;
     QDoubleSpinBox* markerSpin = nullptr;
 
@@ -37,9 +39,9 @@ struct RoomCalibrationW::Impl {
     QVector<QLabel*> foundDots;
 
     // Capture
-    QPushButton*        captureBtn   = nullptr;
-    QLabel*              shotCountLbl = nullptr;
-    QTimer                captureTimer;
+    QPushButton* captureBtn = nullptr;
+    QLabel* shotCountLbl    = nullptr;
+    QTimer captureTimer;
     // Extra grace period after captureTimer closes a shot's acceptance
     // window, before the button re-enables a NEW capture — purely a UX
     // pacing choice (avoids the button flickering enabled/disabled right at
@@ -49,10 +51,10 @@ struct RoomCalibrationW::Impl {
     // frame delayed past this whole window (e.g. GigE resend) is dropped
     // rather than misattributed to whichever shot happens to be active when
     // it finally arrives.
-    QTimer                cooldownTimer;
-    bool                  awaitingShot  = false;
-    QVector<VideoFrame>   pendingFrames;
-    int                   lastShotIndex = -1;
+    QTimer cooldownTimer;
+    bool awaitingShot = false;
+    QVector<VideoFrame> pendingFrames;
+    int lastShotIndex = -1;
     // Incremented once per capture_shot() call and passed to every
     // request_calibration_frame() call for that shot. on_calibration_frame_ready()
     // only accepts a reply whose echoed token matches the CURRENT value —
@@ -61,29 +63,28 @@ struct RoomCalibrationW::Impl {
     // capture+cooldown window (e.g. GigE resend) would otherwise still be
     // silently misattributed to whatever shot is active when it finally
     // arrives.
-    uint64_t              currentShotToken = 0;
+    uint64_t currentShotToken = 0;
 
     // Solve
-    QComboBox*    referenceCombo = nullptr;
-    QPushButton*  solveBtn       = nullptr;
-    QTableWidget* resultTable    = nullptr;
+    QComboBox* referenceCombo = nullptr;
+    QPushButton* solveBtn     = nullptr;
+    QTableWidget* resultTable = nullptr;
 
     // Plane + save
-    QPushButton*           usePlaneBtn    = nullptr;
-    QPushButton*           saveBtn        = nullptr;
-    QLabel*                planeStatusLbl = nullptr;
-    bool                   pendingPlane   = false;
-    std::array<double, 3>  pendingPlanePoint  = {0, 0, 0};
-    std::array<double, 3>  pendingPlaneNormal = {0, 0, 1};
+    QPushButton* usePlaneBtn                 = nullptr;
+    QPushButton* saveBtn                     = nullptr;
+    QLabel* planeStatusLbl                   = nullptr;
+    bool pendingPlane                        = false;
+    std::array<double, 3> pendingPlanePoint  = {0, 0, 0};
+    std::array<double, 3> pendingPlaneNormal = {0, 0, 1};
 
     explicit Impl(VideoSettings& vs, RoomSettings& rs, VideoManager* vm)
         : videoSettings(vs), roomSettings(rs), videoMgr(vm) {}
 };
 
 RoomCalibrationW::RoomCalibrationW(VideoSettings& videoSettings, RoomSettings& roomSettings,
-                                    VideoManager* videoMgr, QWidget* parent)
-    : QWidget(parent), d(std::make_unique<Impl>(videoSettings, roomSettings, videoMgr))
-{
+                                   VideoManager* videoMgr, QWidget* parent)
+    : QWidget(parent), d(std::make_unique<Impl>(videoSettings, roomSettings, videoMgr)) {
     d->captureTimer.setSingleShot(true);
     d->cooldownTimer.setSingleShot(true);
 
@@ -124,10 +125,9 @@ RoomCalibrationW::RoomCalibrationW(VideoSettings& videoSettings, RoomSettings& r
     rebuild_board_spec();
     refresh_intrinsics();
 
-    connect(d->videoMgr, &VideoManager::calibration_frame_ready,
-            this,         &RoomCalibrationW::on_calibration_frame_ready);
-    connect(d->videoMgr, &VideoManager::frame_preview,
-            this,         &RoomCalibrationW::on_preview_frame);
+    connect(d->videoMgr, &VideoManager::calibration_frame_ready, this,
+            &RoomCalibrationW::on_calibration_frame_ready);
+    connect(d->videoMgr, &VideoManager::frame_preview, this, &RoomCalibrationW::on_preview_frame);
     connect(&d->captureTimer, &QTimer::timeout, this, &RoomCalibrationW::finalize_shot);
     connect(&d->cooldownTimer, &QTimer::timeout, this, [this] {
         d->captureBtn->setEnabled(true);
@@ -139,7 +139,8 @@ RoomCalibrationW::~RoomCalibrationW() = default;
 
 void RoomCalibrationW::refresh_intrinsics() {
     for (int i = 0; i < static_cast<int>(d->videoSettings.cameras.size()); ++i) {
-        d->manager.set_camera_intrinsics(i, d->videoSettings.cameras[static_cast<size_t>(i)].calibration);
+        d->manager.set_camera_intrinsics(
+            i, d->videoSettings.cameras[static_cast<size_t>(i)].calibration);
     }
 }
 
@@ -225,8 +226,9 @@ void RoomCalibrationW::build_camera_section(QVBoxLayout* parent) {
         auto* thumb = new QLabel("(no frame)");
         thumb->setAlignment(Qt::AlignCenter);
         thumb->setFixedSize(120, 68);
-        thumb->setStyleSheet("QLabel { background: #09090f; border-radius: 4px; "
-                              "color: #404060; font-size: 10px; }");
+        thumb->setStyleSheet(
+            "QLabel { background: #09090f; border-radius: 4px; "
+            "color: #404060; font-size: 10px; }");
         d->thumbLabels[i] = thumb;
         col->addWidget(thumb);
 
@@ -240,7 +242,9 @@ void RoomCalibrationW::build_camera_section(QVBoxLayout* parent) {
 
         row->addLayout(col);
     }
-    if (n == 0) { row->addWidget(new QLabel("No cameras configured")); }
+    if (n == 0) {
+        row->addWidget(new QLabel("No cameras configured"));
+    }
     row->addStretch();
 
     parent->addWidget(box);
@@ -255,8 +259,12 @@ void RoomCalibrationW::on_preview_frame(int cameraIndex, QImage frame) {
     // correctly reflects both tab levels (this page inside CalibrationW's
     // inner QTabWidget, which is itself inside the outer settings
     // QTabWidget) plus the main window's own visibility.
-    if (!isVisible()) { return; }
-    if (cameraIndex < 0 || cameraIndex >= d->thumbLabels.size()) { return; }
+    if (!isVisible()) {
+        return;
+    }
+    if (cameraIndex < 0 || cameraIndex >= d->thumbLabels.size()) {
+        return;
+    }
     d->thumbLabels[cameraIndex]->setPixmap(
         QPixmap::fromImage(frame).scaled(120, 68, Qt::KeepAspectRatio, Qt::FastTransformation));
 }
@@ -264,10 +272,10 @@ void RoomCalibrationW::on_preview_frame(int cameraIndex, QImage frame) {
 // ── Capture section ────────────────────────────────────────────────────────
 
 void RoomCalibrationW::build_capture_section(QVBoxLayout* parent) {
-    auto* box = new QGroupBox("Capture");
+    auto* box  = new QGroupBox("Capture");
     auto* vlay = new QVBoxLayout(box);
 
-    auto* row1 = new QHBoxLayout;
+    auto* row1    = new QHBoxLayout;
     d->captureBtn = new QPushButton("▶  Capture shot");
     connect(d->captureBtn, &QPushButton::clicked, this, &RoomCalibrationW::capture_shot);
     row1->addWidget(d->captureBtn);
@@ -308,7 +316,7 @@ void RoomCalibrationW::build_capture_section(QVBoxLayout* parent) {
     row2->addStretch();
     vlay->addLayout(row2);
 
-    auto* row3 = new QHBoxLayout;
+    auto* row3     = new QHBoxLayout;
     d->usePlaneBtn = new QPushButton("Use last shot as plane");
     d->usePlaneBtn->setEnabled(false);
     connect(d->usePlaneBtn, &QPushButton::clicked, this, &RoomCalibrationW::use_shot_as_plane);
@@ -332,7 +340,9 @@ void RoomCalibrationW::build_capture_section(QVBoxLayout* parent) {
 // ── Capture flow ──────────────────────────────────────────────────────────
 
 void RoomCalibrationW::capture_shot() {
-    if (d->awaitingShot) { return; }
+    if (d->awaitingShot) {
+        return;
+    }
     d->awaitingShot = true;
     ++d->currentShotToken;
     d->pendingFrames.clear();
@@ -347,11 +357,13 @@ void RoomCalibrationW::capture_shot() {
 }
 
 void RoomCalibrationW::on_calibration_frame_ready(int cameraIndex, QImage frame, uint64_t token) {
-    if (!d->awaitingShot || frame.isNull() || token != d->currentShotToken) { return; }
+    if (!d->awaitingShot || frame.isNull() || token != d->currentShotToken) {
+        return;
+    }
 
     const QImage bgr = (frame.format() == QImage::Format_BGR888)
-        ? frame
-        : frame.convertToFormat(QImage::Format_BGR888);
+                           ? frame
+                           : frame.convertToFormat(QImage::Format_BGR888);
 
     VideoFrame vf;
     vf.cameraIndex = cameraIndex;
@@ -372,14 +384,15 @@ void RoomCalibrationW::finalize_shot() {
     d->cooldownTimer.start(250);
 
     const int shotsBefore = d->manager.shot_count();
-    const auto results = d->manager.feed_shot(d->pendingFrames);
+    const auto results    = d->manager.feed_shot(d->pendingFrames);
     d->pendingFrames.clear();
 
     for (const auto& r : results) {
-        if (r.cameraIndex < 0 || r.cameraIndex >= d->foundDots.size()) { continue; }
+        if (r.cameraIndex < 0 || r.cameraIndex >= d->foundDots.size()) {
+            continue;
+        }
         d->foundDots[r.cameraIndex]->setText(r.found ? "●" : "○");
-        d->foundDots[r.cameraIndex]->setStyleSheet(
-            r.found ? "color: #44cc44;" : "color: #cc4444;");
+        d->foundDots[r.cameraIndex]->setStyleSheet(r.found ? "color: #44cc44;" : "color: #cc4444;");
         d->foundDots[r.cameraIndex]->setToolTip(
             r.found ? QString("%1 ChArUco corners found").arg(r.cornerCount)
                     : "No usable board detection in this shot.");
@@ -395,7 +408,9 @@ void RoomCalibrationW::finalize_shot() {
 
 void RoomCalibrationW::solve() {
     const int cameraCount = static_cast<int>(d->videoSettings.cameras.size());
-    if (cameraCount == 0) { return; }
+    if (cameraCount == 0) {
+        return;
+    }
 
     const int refIdx = d->referenceCombo->currentIndex();
     d->manager.solve(cameraCount, refIdx < 0 ? 0 : refIdx);
@@ -403,7 +418,9 @@ void RoomCalibrationW::solve() {
 
     const bool anyResolved = [&] {
         for (int i = 0; i < cameraCount; ++i) {
-            if (d->manager.is_resolved(i)) { return true; }
+            if (d->manager.is_resolved(i)) {
+                return true;
+            }
         }
         return false;
     }();
@@ -415,8 +432,8 @@ void RoomCalibrationW::update_result_table() {
     const int n = static_cast<int>(d->videoSettings.cameras.size());
     d->resultTable->setRowCount(n);
     for (int i = 0; i < n; ++i) {
-        const bool   resolved = d->manager.is_resolved(i);
-        const double rms      = d->manager.reprojection_rms_for(i);
+        const bool resolved = d->manager.is_resolved(i);
+        const double rms    = d->manager.reprojection_rms_for(i);
 
         auto* camItem = new QTableWidgetItem(QString("Camera %1").arg(i));
         auto* resItem = new QTableWidgetItem(resolved ? "Yes" : "No");
@@ -431,7 +448,9 @@ void RoomCalibrationW::update_result_table() {
 }
 
 void RoomCalibrationW::use_shot_as_plane() {
-    if (d->lastShotIndex < 0) { return; }
+    if (d->lastShotIndex < 0) {
+        return;
+    }
 
     std::array<double, 3> point{}, normal{};
     bool ok = false;
@@ -443,7 +462,8 @@ void RoomCalibrationW::use_shot_as_plane() {
     }
 
     if (!ok) {
-        QMessageBox::warning(this, "No plane available",
+        QMessageBox::warning(
+            this, "No plane available",
             "The last captured shot has no detection from an already-resolved camera. "
             "Run Solve first, then capture (or re-use) a shot with the board flat on the "
             "target surface.");
@@ -454,12 +474,15 @@ void RoomCalibrationW::use_shot_as_plane() {
     d->pendingPlanePoint  = point;
     d->pendingPlaneNormal = normal;
     d->planeStatusLbl->setText(
-        QString("Plane candidate ready — point (%1, %2, %3) mm. Click \"Save to settings\" to persist.")
-            .arg(point[0], 0, 'f', 1).arg(point[1], 0, 'f', 1).arg(point[2], 0, 'f', 1));
+        QString(
+            "Plane candidate ready — point (%1, %2, %3) mm. Click \"Save to settings\" to persist.")
+            .arg(point[0], 0, 'f', 1)
+            .arg(point[1], 0, 'f', 1)
+            .arg(point[2], 0, 'f', 1));
 }
 
 void RoomCalibrationW::save_to_settings() {
-    int savedCount = 0;
+    int savedCount   = 0;
     int clearedCount = 0;
     for (int i = 0; i < static_cast<int>(d->videoSettings.cameras.size()); ++i) {
         auto& cal = d->videoSettings.cameras[static_cast<size_t>(i)].calibration;
@@ -490,12 +513,14 @@ void RoomCalibrationW::save_to_settings() {
     emit extrinsics_saved();
 
     QString msg = QString("Extrinsics stored for %1 camera(s).%2")
-        .arg(savedCount)
-        .arg(d->pendingPlane ? "\nRoom plane also stored." : "");
+                      .arg(savedCount)
+                      .arg(d->pendingPlane ? "\nRoom plane also stored." : "");
     if (clearedCount > 0) {
-        msg += QString("\n%1 camera(s) previously calibrated no longer resolved and had "
-                        "their extrinsics cleared — re-run Solve with more overlapping shots "
-                        "to restore them.").arg(clearedCount);
+        msg += QString(
+                   "\n%1 camera(s) previously calibrated no longer resolved and had "
+                   "their extrinsics cleared — re-run Solve with more overlapping shots "
+                   "to restore them.")
+                   .arg(clearedCount);
     }
     msg += "\nWritten to the settings file on application exit.";
     QMessageBox::information(this, "Room calibration saved", msg);

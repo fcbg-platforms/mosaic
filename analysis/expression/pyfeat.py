@@ -56,6 +56,7 @@ py-feat is fast-moving and had a breaking rename (Detector -> Detectorv1)
 the same day this module was written — do not trust these names as fact
 without that check.
 """
+
 from __future__ import annotations
 
 import os
@@ -68,9 +69,26 @@ import numpy as np
 #: feat/pretrained.py's AU_LANDMARK_MAP["Feat"]). Values are a continuous
 #: [0,1] calibrated probability, NOT the classic FACS 0-5 intensity scale.
 AU_NAMES: list[str] = [
-    "AU01", "AU02", "AU04", "AU05", "AU06", "AU07", "AU09", "AU10",
-    "AU11", "AU12", "AU14", "AU15", "AU17", "AU20", "AU23", "AU24",
-    "AU25", "AU26", "AU28", "AU43",
+    "AU01",
+    "AU02",
+    "AU04",
+    "AU05",
+    "AU06",
+    "AU07",
+    "AU09",
+    "AU10",
+    "AU11",
+    "AU12",
+    "AU14",
+    "AU15",
+    "AU17",
+    "AU20",
+    "AU23",
+    "AU24",
+    "AU25",
+    "AU26",
+    "AU28",
+    "AU43",
 ]
 
 #: py-feat's own resmasknet emotion columns (lowercase in the Fex
@@ -79,9 +97,13 @@ AU_NAMES: list[str] = [
 #: differently-named CATEGORIES ("Happy"/"Sad") on purpose: each backend
 #: owns its own label vocabulary, same precedent FERPLUS_LABELS already set.
 _EMOTION_COLUMN_TO_LABEL: dict[str, str] = {
-    "anger": "Anger", "disgust": "Disgust", "fear": "Fear",
-    "happiness": "Happiness", "sadness": "Sadness",
-    "surprise": "Surprise", "neutral": "Neutral",
+    "anger": "Anger",
+    "disgust": "Disgust",
+    "fear": "Fear",
+    "happiness": "Happiness",
+    "sadness": "Sadness",
+    "surprise": "Surprise",
+    "neutral": "Neutral",
 }
 
 
@@ -191,7 +213,9 @@ def _bgr_crop_to_tensor(face_crop_bgr: np.ndarray):
     return torch.from_numpy(chw).unsqueeze(0)
 
 
-def _fex_row_to_result(au_values: dict, emotion_values: dict) -> tuple[str, float, dict[str, float]]:
+def _fex_row_to_result(
+    au_values: dict, emotion_values: dict
+) -> tuple[str, float, dict[str, float]]:
     """Pure argmax-over-emotions + AU-passthrough — the one testable piece
     of this backend, isolated from the actual Detectorv1 call exactly like
     ferplus.py's ``_softmax_and_label()`` isolates softmax+argmax from the
@@ -225,7 +249,9 @@ def _fex_row_to_result(au_values: dict, emotion_values: dict) -> tuple[str, floa
         _EMOTION_COLUMN_TO_LABEL.get(name, name): (0.0 if _isnan(value) else float(value))
         for name, value in emotion_values.items()
     }
-    best_label = max(clean_emotions, key=lambda k: clean_emotions[k]) if clean_emotions else "Neutral"
+    best_label = (
+        max(clean_emotions, key=lambda k: clean_emotions[k]) if clean_emotions else "Neutral"
+    )
     best_score = clean_emotions.get(best_label, 0.0)
 
     au_dict = {

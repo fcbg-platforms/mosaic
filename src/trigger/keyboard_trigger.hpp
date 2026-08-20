@@ -1,8 +1,9 @@
 #pragma once
-#include "core/settings.hpp"
-#include "trigger/trigger_types.hpp"
 #include <QKeySequence>
 #include <QObject>
+
+#include "core/settings.hpp"
+#include "trigger/trigger_types.hpp"
 
 namespace mosaic {
 
@@ -13,7 +14,7 @@ namespace mosaic {
 
 class KeyboardTrigger : public QObject {
     Q_OBJECT
-public:
+   public:
     explicit KeyboardTrigger(KeyTriggerConfig& config, QObject* parent = nullptr);
     ~KeyboardTrigger() override;
 
@@ -28,15 +29,25 @@ public:
 
     bool eventFilter(QObject* obj, QEvent* event) override;
 
-signals:
+   signals:
     void triggered(mosaic::TriggerEvent event);
     void count_changed(int count);
 
-private:
+   private:
     KeyTriggerConfig& m_config;
-    QKeySequence      m_keySeq;
-    bool              m_active{false};
-    int               m_fireCount{0};
+    QKeySequence m_keySeq;
+    bool m_active{false};
+    int m_fireCount{0};
+
+    // Explicit key-down state, so a physical press only ever fires once
+    // regardless of *why* the platform delivered more than one KeyPress
+    // event for it (OS auto-repeat — see isAutoRepeat() below — or any
+    // other source of duplicate delivery). Reset on the matching
+    // KeyRelease. m_keyDownAtNs guards against a release that's never
+    // seen at all (e.g. focus moves to another application mid-press) —
+    // without it, one lost release would permanently wedge this trigger.
+    bool m_keyDown{false};
+    int64_t m_keyDownAtNs{0};
 };
 
 } // namespace mosaic

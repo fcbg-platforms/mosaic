@@ -1,10 +1,10 @@
 #include "ui/session/session_browser_w.hpp"
-#include "ui/session/session_player_w.hpp"
-#include "session/session_info.hpp"
+
 #include <QAbstractScrollArea>
 #include <QApplication>
 #include <QClipboard>
 #include <QComboBox>
+#include <QCoreApplication>
 #include <QDesktopServices>
 #include <QDir>
 #include <QEvent>
@@ -31,47 +31,48 @@
 #include <QTableWidget>
 #include <QTableWidgetItem>
 #include <QTextEdit>
+#include <QTextStream>
 #include <QTime>
 #include <QTimeEdit>
-#include <QCoreApplication>
-#include <QTextStream>
 #include <QTimer>
 #include <QVBoxLayout>
+
+#include "session/session_info.hpp"
+#include "ui/session/session_player_w.hpp"
 
 namespace mosaic {
 
 // ── SessionRow — one entry in the left-panel list ─────────────────────────
 
 class SessionRow : public QWidget {
-public:
+   public:
     using ClickCb = std::function<void(const QString&)>;
 
-    explicit SessionRow(const SessionInfo& info,
-                        ClickCb            onClick,
-                        QWidget*           parent = nullptr)
-        : QWidget(parent), m_info(info), m_onClick(std::move(onClick))
-    {
+    explicit SessionRow(const SessionInfo& info, ClickCb onClick, QWidget* parent = nullptr)
+        : QWidget(parent), m_info(info), m_onClick(std::move(onClick)) {
         setFixedHeight(80);
         setCursor(Qt::PointingHandCursor);
         setMouseTracking(true);
     }
 
     void set_selected(bool s) {
-        if (m_selected == s) { return; }
+        if (m_selected == s) {
+            return;
+        }
         m_selected = s;
         update();
     }
 
     const QString& session_path() const { return m_info.path; }
 
-protected:
+   protected:
     void paintEvent(QPaintEvent*) override {
         QPainter p(this);
         p.setRenderHint(QPainter::Antialiasing);
 
-        const QColor bg = m_selected ? QColor("#181838")
-                        : m_hovered  ? QColor("#0f0f28")
-                                     : QColor("#0a0a22");
+        const QColor bg = m_selected  ? QColor("#181838")
+                          : m_hovered ? QColor("#0f0f28")
+                                      : QColor("#0a0a22");
         p.fillRect(rect(), bg);
 
         if (m_selected) {
@@ -85,9 +86,10 @@ protected:
         p.setFont(titleFont);
         p.setPen(QColor("#d0d0f0"));
 
-        const QString dateStr = m_info.startUtc.isValid()
-            ? m_info.startUtc.toLocalTime().toString("yyyy-MM-dd   hh:mm:ss")
-            : m_info.name;
+        const QString dateStr =
+            m_info.startUtc.isValid()
+                ? m_info.startUtc.toLocalTime().toString("yyyy-MM-dd   hh:mm:ss")
+                : m_info.name;
         p.drawText(QRect(14, 10, width() - 18, 18), Qt::AlignLeft | Qt::AlignVCenter, dateStr);
 
         // Sub-line: @user · cameras · duration
@@ -97,14 +99,20 @@ protected:
         p.setPen(QColor("#5858a0"));
 
         QStringList subs;
-        if (!m_info.recordedBy.isEmpty()) { subs << ("@" + m_info.recordedBy); }
-        if (m_info.cameraCount > 0) { subs << (QString::number(m_info.cameraCount) + " cam"); }
-        if (m_info.durationMs > 0)  { subs << m_info.format_duration(); }
-        p.drawText(QRect(14, 32, width() - 18, 15),
-                   Qt::AlignLeft | Qt::AlignVCenter, subs.join(" · "));
+        if (!m_info.recordedBy.isEmpty()) {
+            subs << ("@" + m_info.recordedBy);
+        }
+        if (m_info.cameraCount > 0) {
+            subs << (QString::number(m_info.cameraCount) + " cam");
+        }
+        if (m_info.durationMs > 0) {
+            subs << m_info.format_duration();
+        }
+        p.drawText(QRect(14, 32, width() - 18, 15), Qt::AlignLeft | Qt::AlignVCenter,
+                   subs.join(" · "));
 
         // Analysis badges
-        int bx = 14;
+        int bx       = 14;
         const int by = 53;
         const int bh = 15;
 
@@ -124,7 +132,7 @@ protected:
         };
 
         if (m_info.hasPoseAnalysis) {
-            drawBadge("POSE",   QColor("#0a2a0a"), QColor("#44cc44"));
+            drawBadge("POSE", QColor("#0a2a0a"), QColor("#44cc44"));
         }
         if (m_info.hasMotionAnalysis) {
             drawBadge("MOTION", QColor("#0a0a2a"), QColor("#4488ff"));
@@ -145,8 +153,8 @@ protected:
             drawBadge("HR", QColor("#2a0a14"), QColor("#ff5577"));
         }
         if (!m_info.annotations.isEmpty()) {
-            drawBadge(QString("%1 notes").arg(m_info.annotations.size()),
-                      QColor("#1a100a"), QColor("#cc8844"));
+            drawBadge(QString("%1 notes").arg(m_info.annotations.size()), QColor("#1a100a"),
+                      QColor("#cc8844"));
         }
 
         // Divider
@@ -155,68 +163,78 @@ protected:
     }
 
     void mousePressEvent(QMouseEvent*) override {
-        if (m_onClick) { m_onClick(m_info.path); }
+        if (m_onClick) {
+            m_onClick(m_info.path);
+        }
     }
 
-    void enterEvent(QEnterEvent*) override { m_hovered = true;  update(); }
-    void leaveEvent(QEvent*)      override { m_hovered = false; update(); }
+    void enterEvent(QEnterEvent*) override {
+        m_hovered = true;
+        update();
+    }
+    void leaveEvent(QEvent*) override {
+        m_hovered = false;
+        update();
+    }
 
-private:
+   private:
     SessionInfo m_info;
-    ClickCb     m_onClick;
-    bool        m_selected = false;
-    bool        m_hovered  = false;
+    ClickCb m_onClick;
+    bool m_selected = false;
+    bool m_hovered  = false;
 };
 
 // ── Impl ──────────────────────────────────────────────────────────────────
 
 struct SessionBrowserW::Impl {
-    QString           recordsDir;
-    QStringList       extraDirectories;   // item 27 — admin-only aggregate view
-    AnalysisManager*  analysisMgr = nullptr;
+    QString recordsDir;
+    QStringList extraDirectories; // item 27 — admin-only aggregate view
+    AnalysisManager* analysisMgr = nullptr;
 
-    QList<SessionInfo>  sessions;
-    int                 currentIndex = -1;
+    QList<SessionInfo> sessions;
+    int currentIndex = -1;
 
     // Panels stored so the constructor can give them to the splitter
-    QWidget*     leftPanelWidget  = nullptr;
-    QWidget*     rightPanelWidget = nullptr;
+    QWidget* leftPanelWidget  = nullptr;
+    QWidget* rightPanelWidget = nullptr;
 
     // Left panel
-    QLabel*      countLbl      = nullptr;
-    QLineEdit*   searchBar     = nullptr;
-    QWidget*     rowContainer  = nullptr;
-    QVBoxLayout* rowLayout     = nullptr;
+    QLabel* countLbl       = nullptr;
+    QLineEdit* searchBar   = nullptr;
+    QWidget* rowContainer  = nullptr;
+    QVBoxLayout* rowLayout = nullptr;
     QList<SessionRow*> rows;
 
     // Right panel
-    QStackedWidget* rightStack  = nullptr;
+    QStackedWidget* rightStack = nullptr;
 
     // Detail header
-    QLabel*      nameLbl        = nullptr;
-    QLabel*      metaLbl        = nullptr;
-    QLabel*      filesLbl       = nullptr;
-    QPushButton* playBtn        = nullptr;
+    QLabel* nameLbl      = nullptr;
+    QLabel* metaLbl      = nullptr;
+    QLabel* filesLbl     = nullptr;
+    QPushButton* playBtn = nullptr;
 
     // Analysis section
-    QPushButton* runPoseBtn     = nullptr;
-    QPushButton* runMotionBtn   = nullptr;
-    QLabel*      analysisFilesLbl = nullptr;
-    QTextEdit*   analysisLog    = nullptr;
-    QLabel*      analysisStatus = nullptr;
+    QPushButton* runPoseBtn   = nullptr;
+    QPushButton* runMotionBtn = nullptr;
+    QLabel* analysisFilesLbl  = nullptr;
+    QTextEdit* analysisLog    = nullptr;
+    QLabel* analysisStatus    = nullptr;
 
     // Annotation section
-    QTableWidget* annotTable   = nullptr;
-    QTimeEdit*    annotTime    = nullptr;
-    QComboBox*    annotCat     = nullptr;
-    QLineEdit*    annotNote    = nullptr;
-    QPushButton*  addAnnotBtn  = nullptr;
+    QTableWidget* annotTable = nullptr;
+    QTimeEdit* annotTime     = nullptr;
+    QComboBox* annotCat      = nullptr;
+    QLineEdit* annotNote     = nullptr;
+    QPushButton* addAnnotBtn = nullptr;
 
     // Running analysis process
-    QProcess*    proc          = nullptr;
+    QProcess* proc = nullptr;
 
     SessionInfo* current() {
-        if (currentIndex < 0 || currentIndex >= sessions.size()) { return nullptr; }
+        if (currentIndex < 0 || currentIndex >= sessions.size()) {
+            return nullptr;
+        }
         return &sessions[currentIndex];
     }
 };
@@ -232,28 +250,23 @@ static QLabel* section_header(const QString& text) {
     return lbl;
 }
 
-static QLabel* chip_label(const QString& text,
-                           const QString& bg = "#12122a",
-                           const QString& fg = "#8888b0") {
+static QLabel* chip_label(const QString& text, const QString& bg = "#12122a",
+                          const QString& fg = "#8888b0") {
     auto* lbl = new QLabel(text);
-    lbl->setStyleSheet(
-        QString("QLabel { background: %1; color: %2; border-radius: 4px;"
-                " padding: 2px 8px; font-size: 11px; }").arg(bg, fg));
+    lbl->setStyleSheet(QString("QLabel { background: %1; color: %2; border-radius: 4px;"
+                               " padding: 2px 8px; font-size: 11px; }")
+                           .arg(bg, fg));
     return lbl;
 }
 
 // ── Constructor ────────────────────────────────────────────────────────────
 
-SessionBrowserW::SessionBrowserW(const QString&     recordsDir,
-                                  AnalysisManager*   analysisMgr,
-                                  const QStringList& extraDirectories,
-                                  QWidget*           parent)
-    : QDialog(parent)
-    , d(std::make_unique<Impl>())
-{
+SessionBrowserW::SessionBrowserW(const QString& recordsDir, AnalysisManager* analysisMgr,
+                                 const QStringList& extraDirectories, QWidget* parent)
+    : QDialog(parent), d(std::make_unique<Impl>()) {
     d->recordsDir       = recordsDir;
     d->extraDirectories = extraDirectories;
-    d->analysisMgr = analysisMgr;
+    d->analysisMgr      = analysisMgr;
 
     setWindowTitle("Session Browser & Annotator");
     resize(1160, 730);
@@ -286,8 +299,7 @@ SessionBrowserW::SessionBrowserW(const QString&     recordsDir,
         "  border-radius: 4px; color: #8090b0; font-family: monospace;"
         "  font-size: 11px; }"
         "QTimeEdit { background: #10102a; border: 1px solid #252550;"
-        "  border-radius: 4px; padding: 3px 8px; color: #c0c0e0; }"
-    );
+        "  border-radius: 4px; padding: 3px 8px; color: #c0c0e0; }");
 
     auto* root = new QHBoxLayout(this);
     root->setContentsMargins(0, 0, 0, 0);
@@ -322,7 +334,7 @@ SessionBrowserW::~SessionBrowserW() {
 // ── Left panel ─────────────────────────────────────────────────────────────
 
 void SessionBrowserW::build_left_panel() {
-    auto* leftWidget = new QWidget;
+    auto* leftWidget   = new QWidget;
     d->leftPanelWidget = leftWidget;
     leftWidget->setFixedWidth(300);
     leftWidget->setStyleSheet("background: #08081e;");
@@ -352,8 +364,7 @@ void SessionBrowserW::build_left_panel() {
     d->searchBar = new QLineEdit;
     d->searchBar->setPlaceholderText("Filter sessions…");
     d->searchBar->setClearButtonEnabled(true);
-    connect(d->searchBar, &QLineEdit::textChanged,
-            this, &SessionBrowserW::apply_filter);
+    connect(d->searchBar, &QLineEdit::textChanged, this, &SessionBrowserW::apply_filter);
 
     headerBox->addLayout(titleRow);
     headerBox->addWidget(d->searchBar);
@@ -387,9 +398,8 @@ void SessionBrowserW::build_left_panel() {
     footerBox->addStretch();
     footerBox->addWidget(refreshBtn);
 
-    connect(openFolderBtn, &QPushButton::clicked, this, [this] {
-        QDesktopServices::openUrl(QUrl::fromLocalFile(d->recordsDir));
-    });
+    connect(openFolderBtn, &QPushButton::clicked, this,
+            [this] { QDesktopServices::openUrl(QUrl::fromLocalFile(d->recordsDir)); });
     connect(refreshBtn, &QPushButton::clicked, this, &SessionBrowserW::rebuild_session_list);
 
     vbox->addWidget(footer);
@@ -398,7 +408,7 @@ void SessionBrowserW::build_left_panel() {
 // ── Right panel ────────────────────────────────────────────────────────────
 
 void SessionBrowserW::build_right_panel() {
-    auto* rightWidget = new QWidget;
+    auto* rightWidget   = new QWidget;
     d->rightPanelWidget = rightWidget;
     rightWidget->setStyleSheet("background: #070718;");
     auto* rightBox = new QVBoxLayout(rightWidget);
@@ -409,7 +419,7 @@ void SessionBrowserW::build_right_panel() {
 
     // ── Page 0: no selection ────────────────────────────────────────────
     auto* noSelPage = new QWidget;
-    auto* nsCtr = new QVBoxLayout(noSelPage);
+    auto* nsCtr     = new QVBoxLayout(noSelPage);
     nsCtr->setAlignment(Qt::AlignCenter);
     auto* nsLbl = new QLabel("Select a session to view details");
     nsLbl->setStyleSheet("color: #3a3a70; font-size: 14px;");
@@ -428,7 +438,7 @@ void SessionBrowserW::build_right_panel() {
 
     // ── Session title bar ────────────────────────────────────────────────
     auto* titleBar = new QHBoxLayout;
-    d->nameLbl = new QLabel("—");
+    d->nameLbl     = new QLabel("—");
     d->nameLbl->setStyleSheet("font-size: 17px; font-weight: bold; color: #e0e0ff;");
     d->nameLbl->setWordWrap(true);
 
@@ -452,7 +462,9 @@ void SessionBrowserW::build_right_panel() {
         "QPushButton:pressed{ background: #071218; }");
     connect(d->playBtn, &QPushButton::clicked, this, [this] {
         auto* info = d->current();
-        if (!info) { return; }
+        if (!info) {
+            return;
+        }
         auto* player = new SessionPlayerW(*info, this);
         player->setAttribute(Qt::WA_DeleteOnClose);
         player->show();
@@ -463,7 +475,9 @@ void SessionBrowserW::build_right_panel() {
     closeBtn->setToolTip("Close detail");
     connect(closeBtn, &QPushButton::clicked, this, [this] {
         d->currentIndex = -1;
-        for (auto* row : d->rows) { row->set_selected(false); }
+        for (auto* row : d->rows) {
+            row->set_selected(false);
+        }
         d->rightStack->setCurrentIndex(0);
     });
 
@@ -486,7 +500,7 @@ void SessionBrowserW::build_right_panel() {
     // Chips are rebuilt in populate_detail — we add a container widget
     auto* chipsWidget = new QWidget;
     chipsWidget->setObjectName("chipsWidget");
-    auto* chipsInner  = new QHBoxLayout(chipsWidget);
+    auto* chipsInner = new QHBoxLayout(chipsWidget);
     chipsInner->setContentsMargins(0, 0, 0, 0);
     chipsInner->setSpacing(6);
     chipsRow->addWidget(chipsWidget);
@@ -501,7 +515,8 @@ void SessionBrowserW::build_right_panel() {
     // ── Files section ───────────────────────────────────────────────────
     detailBox->addWidget(section_header("Files"));
     d->filesLbl = new QLabel;
-    d->filesLbl->setStyleSheet("color: #7070a0; font-size: 12px; font-family: monospace; margin-bottom: 6px;");
+    d->filesLbl->setStyleSheet(
+        "color: #7070a0; font-size: 12px; font-family: monospace; margin-bottom: 6px;");
     d->filesLbl->setWordWrap(true);
     detailBox->addWidget(d->filesLbl);
 
@@ -514,8 +529,8 @@ void SessionBrowserW::build_right_panel() {
     detailBox->addWidget(section_header("Analysis"));
 
     auto* analysisRow = new QHBoxLayout;
-    d->runPoseBtn   = new QPushButton("▶  Run Pose (YOLOv8)");
-    d->runMotionBtn = new QPushButton("▶  Run Motion (MOG2)");
+    d->runPoseBtn     = new QPushButton("▶  Run Pose (YOLOv8)");
+    d->runMotionBtn   = new QPushButton("▶  Run Motion (MOG2)");
     d->runPoseBtn->setStyleSheet(
         "QPushButton { background: #0a2a0a; border: 1px solid #1a4a1a;"
         "  color: #44cc44; border-radius: 4px; padding: 5px 14px; }"
@@ -526,7 +541,7 @@ void SessionBrowserW::build_right_panel() {
         "  color: #4488ff; border-radius: 4px; padding: 5px 14px; }"
         "QPushButton:hover { background: #0f0f3a; border-color: #4488ff; }"
         "QPushButton:disabled { color: #334488; border-color: #0f0f2a; }");
-    connect(d->runPoseBtn,   &QPushButton::clicked, this, &SessionBrowserW::run_pose_analysis);
+    connect(d->runPoseBtn, &QPushButton::clicked, this, &SessionBrowserW::run_pose_analysis);
     connect(d->runMotionBtn, &QPushButton::clicked, this, &SessionBrowserW::run_motion_analysis);
     analysisRow->addWidget(d->runPoseBtn);
     analysisRow->addWidget(d->runMotionBtn);
@@ -534,8 +549,9 @@ void SessionBrowserW::build_right_panel() {
     detailBox->addLayout(analysisRow);
 
     d->analysisFilesLbl = new QLabel;
-    d->analysisFilesLbl->setStyleSheet("color: #446644; font-size: 11px;"
-                                       " font-family: monospace; margin: 4px 0;");
+    d->analysisFilesLbl->setStyleSheet(
+        "color: #446644; font-size: 11px;"
+        " font-family: monospace; margin: 4px 0;");
     d->analysisFilesLbl->setWordWrap(true);
     detailBox->addWidget(d->analysisFilesLbl);
 
@@ -596,16 +612,14 @@ void SessionBrowserW::build_right_panel() {
 
     d->annotNote = new QLineEdit;
     d->annotNote->setPlaceholderText("Note (optional)…");
-    connect(d->annotNote, &QLineEdit::returnPressed,
-            this, &SessionBrowserW::add_annotation);
+    connect(d->annotNote, &QLineEdit::returnPressed, this, &SessionBrowserW::add_annotation);
 
     d->addAnnotBtn = new QPushButton("+ Add");
     d->addAnnotBtn->setStyleSheet(
         "QPushButton { background: #0a1a3a; border: 1px solid #1a2a5a;"
         "  color: #5588ff; border-radius: 4px; padding: 4px 12px; }"
         "QPushButton:hover { background: #0f2050; border-color: #5588ff; }");
-    connect(d->addAnnotBtn, &QPushButton::clicked,
-            this, &SessionBrowserW::add_annotation);
+    connect(d->addAnnotBtn, &QPushButton::clicked, this, &SessionBrowserW::add_annotation);
 
     addRow->addWidget(new QLabel("Time:"));
     addRow->addWidget(d->annotTime);
@@ -621,7 +635,7 @@ void SessionBrowserW::build_right_panel() {
 
     auto* saveBtn   = new QPushButton("💾  Save annotations");
     auto* exportBtn = new QPushButton("📄  Export CSV");
-    connect(saveBtn,   &QPushButton::clicked, this, &SessionBrowserW::save_annotations);
+    connect(saveBtn, &QPushButton::clicked, this, &SessionBrowserW::save_annotations);
     connect(exportBtn, &QPushButton::clicked, this, &SessionBrowserW::export_annot_csv);
     actionRow->addWidget(saveBtn);
     actionRow->addWidget(exportBtn);
@@ -651,13 +665,17 @@ void SessionBrowserW::rebuild_session_list() {
     }
 
     // Remove old rows
-    for (auto* row : d->rows) { row->deleteLater(); }
+    for (auto* row : d->rows) {
+        row->deleteLater();
+    }
     d->rows.clear();
 
     // Remove stretch
     while (d->rowLayout->count() > 0) {
         auto* item = d->rowLayout->takeAt(0);
-        if (item->widget()) { item->widget()->hide(); }
+        if (item->widget()) {
+            item->widget()->hide();
+        }
         delete item;
     }
 
@@ -667,12 +685,13 @@ void SessionBrowserW::rebuild_session_list() {
         const auto& info = d->sessions[i];
         if (!filter.isEmpty()) {
             const QString hay = (info.name + info.recordedBy).toLower();
-            if (!hay.contains(filter)) { continue; }
+            if (!hay.contains(filter)) {
+                continue;
+            }
         }
 
-        auto* row = new SessionRow(info, [this](const QString& path) {
-            select_session(path);
-        }, d->rowContainer);
+        auto* row = new SessionRow(
+            info, [this](const QString& path) { select_session(path); }, d->rowContainer);
 
         d->rowLayout->addWidget(row);
         d->rows.append(row);
@@ -688,19 +707,22 @@ void SessionBrowserW::rebuild_session_list() {
     if (d->currentIndex >= 0 && d->currentIndex < d->sessions.size()) {
         const QString path = d->sessions[d->currentIndex].path;
         for (auto* row : d->rows) {
-            if (row->session_path() == path) { row->set_selected(true); }
+            if (row->session_path() == path) {
+                row->set_selected(true);
+            }
         }
     } else {
         d->currentIndex = -1;
-        if (d->rightStack) { d->rightStack->setCurrentIndex(0); }
+        if (d->rightStack) {
+            d->rightStack->setCurrentIndex(0);
+        }
     }
 }
 
 void SessionBrowserW::apply_filter(const QString& text) {
     const QString lower = text.trimmed().toLower();
     for (auto* row : d->rows) {
-        const bool show = lower.isEmpty()
-            || row->session_path().toLower().contains(lower);
+        const bool show = lower.isEmpty() || row->session_path().toLower().contains(lower);
         row->setVisible(show);
     }
 }
@@ -711,9 +733,14 @@ void SessionBrowserW::select_session(const QString& path) {
     // Find in sessions list
     int idx = -1;
     for (int i = 0; i < d->sessions.size(); ++i) {
-        if (d->sessions[i].path == path) { idx = i; break; }
+        if (d->sessions[i].path == path) {
+            idx = i;
+            break;
+        }
     }
-    if (idx < 0) { return; }
+    if (idx < 0) {
+        return;
+    }
 
     d->currentIndex = idx;
     for (auto* row : d->rows) {
@@ -728,17 +755,23 @@ void SessionBrowserW::select_session(const QString& path) {
 
 void SessionBrowserW::populate_detail() {
     auto* info = d->current();
-    if (!info) { return; }
+    if (!info) {
+        return;
+    }
 
     // Title
     d->nameLbl->setText(info->startUtc.isValid()
-        ? info->startUtc.toLocalTime().toString("yyyy-MM-dd  hh:mm:ss")
-        : info->name);
+                            ? info->startUtc.toLocalTime().toString("yyyy-MM-dd  hh:mm:ss")
+                            : info->name);
 
     // Meta line
     QStringList meta;
-    if (!info->recordedBy.isEmpty()) { meta << ("Recorded by @" + info->recordedBy); }
-    if (!info->mosaicVersion.isEmpty()) { meta << ("MOSAIC " + info->mosaicVersion); }
+    if (!info->recordedBy.isEmpty()) {
+        meta << ("Recorded by @" + info->recordedBy);
+    }
+    if (!info->mosaicVersion.isEmpty()) {
+        meta << ("MOSAIC " + info->mosaicVersion);
+    }
     if (!info->videoCodec.isEmpty() || !info->audioCodec.isEmpty()) {
         meta << (info->videoCodec + "/" + info->audioCodec);
     }
@@ -750,21 +783,21 @@ void SessionBrowserW::populate_detail() {
         auto* layout = qobject_cast<QHBoxLayout*>(chipsWidget->layout());
         while (layout && layout->count()) {
             auto* item = layout->takeAt(0);
-            if (item->widget()) { item->widget()->deleteLater(); }
+            if (item->widget()) {
+                item->widget()->deleteLater();
+            }
             delete item;
         }
         if (layout) {
             if (info->cameraCount > 0) {
-                layout->addWidget(chip_label(
-                    QString("📷  %1 camera%2")
-                        .arg(info->cameraCount)
-                        .arg(info->cameraCount > 1 ? "s" : "")));
+                layout->addWidget(chip_label(QString("📷  %1 camera%2")
+                                                 .arg(info->cameraCount)
+                                                 .arg(info->cameraCount > 1 ? "s" : "")));
             }
             if (info->micCount > 0) {
-                layout->addWidget(chip_label(
-                    QString("🎤  %1 mic%2")
-                        .arg(info->micCount)
-                        .arg(info->micCount > 1 ? "s" : "")));
+                layout->addWidget(chip_label(QString("🎤  %1 mic%2")
+                                                 .arg(info->micCount)
+                                                 .arg(info->micCount > 1 ? "s" : "")));
             }
             if (info->durationMs > 0) {
                 layout->addWidget(chip_label("⏱  " + info->format_duration()));
@@ -777,8 +810,12 @@ void SessionBrowserW::populate_detail() {
     // relative to the session dir (e.g. "video/video_0.mp4") so callers can
     // join them onto info->path directly; display only the bare filename.
     QStringList fileLines;
-    for (const auto& fn : info->videoFiles) { fileLines << ("  🎬  " + QFileInfo(fn).fileName()); }
-    for (const auto& fn : info->audioFiles) { fileLines << ("  🔊  " + QFileInfo(fn).fileName()); }
+    for (const auto& fn : info->videoFiles) {
+        fileLines << ("  🎬  " + QFileInfo(fn).fileName());
+    }
+    for (const auto& fn : info->audioFiles) {
+        fileLines << ("  🔊  " + QFileInfo(fn).fileName());
+    }
     fileLines << ("  📁  " + info->path);
     d->filesLbl->setText(fileLines.join("\n"));
 
@@ -789,9 +826,7 @@ void SessionBrowserW::populate_detail() {
         QStringList alines;
         for (const auto& fn : info->analysisFiles) {
             const QFileInfo fi(info->path + "/" + fn);
-            alines << QString("  ✓  %1  (%2 KB)")
-                .arg(fi.fileName())
-                .arg(fi.size() / 1024);
+            alines << QString("  ✓  %1  (%2 KB)").arg(fi.fileName()).arg(fi.size() / 1024);
         }
         d->analysisFilesLbl->setText(alines.join("\n"));
     }
@@ -807,12 +842,14 @@ void SessionBrowserW::populate_detail() {
 
 void SessionBrowserW::rebuild_annot_table() {
     auto* info = d->current();
-    if (!info) { return; }
+    if (!info) {
+        return;
+    }
 
     d->annotTable->setRowCount(0);
 
     for (int row = 0; row < info->annotations.size(); ++row) {
-        const auto& ann = info->annotations[row];
+        const auto& ann       = info->annotations[row];
         const QColor catColor = AnnotationCategory::color_for(ann.category);
         const QColor rowBg    = catColor.darker(350);
 
@@ -836,8 +873,7 @@ void SessionBrowserW::rebuild_annot_table() {
         delBtn->setStyleSheet("color: #884444; font-size: 11px;");
         delBtn->setCursor(Qt::PointingHandCursor);
         const int r = row;
-        connect(delBtn, &QPushButton::clicked, this,
-                [this, r] { delete_annotation(r); });
+        connect(delBtn, &QPushButton::clicked, this, [this, r] { delete_annotation(r); });
         d->annotTable->setCellWidget(row, 3, delBtn);
 
         d->annotTable->setRowHeight(row, 26);
@@ -846,12 +882,14 @@ void SessionBrowserW::rebuild_annot_table() {
 
 void SessionBrowserW::add_annotation() {
     auto* info = d->current();
-    if (!info) { return; }
+    if (!info) {
+        return;
+    }
 
     Annotation ann;
     const QTime t = d->annotTime->time();
-    ann.timestampMs = static_cast<int64_t>(
-        (t.hour() * 3600 + t.minute() * 60 + t.second()) * 1000LL);
+    ann.timestampMs =
+        static_cast<int64_t>((t.hour() * 3600 + t.minute() * 60 + t.second()) * 1000LL);
     ann.category = d->annotCat->currentText();
     ann.note     = d->annotNote->text().trimmed();
 
@@ -870,7 +908,9 @@ void SessionBrowserW::add_annotation() {
 
 void SessionBrowserW::delete_annotation(int row) {
     auto* info = d->current();
-    if (!info || row < 0 || row >= info->annotations.size()) { return; }
+    if (!info || row < 0 || row >= info->annotations.size()) {
+        return;
+    }
     info->annotations.removeAt(row);
     info->save_annotations();
     rebuild_annot_table();
@@ -880,7 +920,9 @@ void SessionBrowserW::save_annotations() {
     if (auto* info = d->current()) {
         // Sync any in-table edits back to the model before saving
         for (int row = 0; row < d->annotTable->rowCount(); ++row) {
-            if (row >= info->annotations.size()) { break; }
+            if (row >= info->annotations.size()) {
+                break;
+            }
             auto& ann = info->annotations[row];
             if (auto* item = d->annotTable->item(row, 1)) {
                 ann.category = item->text();
@@ -891,31 +933,32 @@ void SessionBrowserW::save_annotations() {
         }
         info->save_annotations();
         d->analysisStatus->setText("Annotations saved.");
-        QTimer::singleShot(2000, d->analysisStatus, [this] {
-            d->analysisStatus->clear();
-        });
+        QTimer::singleShot(2000, d->analysisStatus, [this] { d->analysisStatus->clear(); });
     }
 }
 
 void SessionBrowserW::export_annot_csv() {
     auto* info = d->current();
-    if (!info || info->annotations.isEmpty()) { return; }
+    if (!info || info->annotations.isEmpty()) {
+        return;
+    }
 
     const QString dst = QFileDialog::getSaveFileName(
-        this, "Export Annotations",
-        info->path + "/annotations.csv",
-        "CSV files (*.csv)");
-    if (dst.isEmpty()) { return; }
+        this, "Export Annotations", info->path + "/annotations.csv", "CSV files (*.csv)");
+    if (dst.isEmpty()) {
+        return;
+    }
 
     QFile f(dst);
-    if (!f.open(QIODevice::WriteOnly | QIODevice::Text)) { return; }
+    if (!f.open(QIODevice::WriteOnly | QIODevice::Text)) {
+        return;
+    }
 
     QTextStream ts(&f);
     ts << "timestamp_ms,timestamp_hms,category,note\n";
     for (const auto& ann : info->annotations) {
         const QString escaped = QString(ann.note).replace('"', "\"\"");
-        ts << ann.timestampMs << ","
-           << SessionInfo::ms_to_hms(ann.timestampMs) << ","
+        ts << ann.timestampMs << "," << SessionInfo::ms_to_hms(ann.timestampMs) << ","
            << ann.category << ","
            << "\"" << escaped << "\"\n";
     }
@@ -926,7 +969,9 @@ void SessionBrowserW::export_annot_csv() {
 
 void SessionBrowserW::run_pose_analysis() {
     auto* info = d->current();
-    if (!info) { return; }
+    if (!info) {
+        return;
+    }
 
     if (d->analysisMgr) {
         d->analysisMgr->analyze_session(info->path);
@@ -950,7 +995,9 @@ void SessionBrowserW::run_pose_analysis() {
 
 void SessionBrowserW::run_motion_analysis() {
     auto* info = d->current();
-    if (!info) { return; }
+    if (!info) {
+        return;
+    }
 
     const QString python = find_python();
     if (python.isEmpty()) {
@@ -967,7 +1014,10 @@ void SessionBrowserW::run_motion_analysis() {
     QString script;
     for (const auto& base : candidateDirs) {
         const QString candidate = QDir(base).filePath("analysis/run_motion.py");
-        if (QFile::exists(candidate)) { script = candidate; break; }
+        if (QFile::exists(candidate)) {
+            script = candidate;
+            break;
+        }
     }
     if (script.isEmpty()) {
         d->analysisStatus->setText("run_motion.py not found. Check analysis/ directory.");
@@ -1003,26 +1053,26 @@ void SessionBrowserW::launch_analysis(const QString& exe, const QStringList& arg
 
     connect(d->proc, qOverload<int, QProcess::ExitStatus>(&QProcess::finished), this,
             [this](int code, QProcess::ExitStatus) {
-        d->runPoseBtn->setEnabled(true);
-        d->runMotionBtn->setEnabled(true);
-        const QString msg = (code == 0) ? "Analysis complete." : "Analysis failed.";
-        d->analysisStatus->setText(msg);
-        // Refresh analysis files list
-        if (auto* info = d->current()) {
-            *info = SessionInfo::load(info->path);
-            if (info->analysisFiles.isEmpty()) {
-                d->analysisFilesLbl->setText("No analysis results yet.");
-            } else {
-                QStringList bareNames;
-                for (const auto& fn : info->analysisFiles) {
-                    bareNames << QFileInfo(fn).fileName();
+                d->runPoseBtn->setEnabled(true);
+                d->runMotionBtn->setEnabled(true);
+                const QString msg = (code == 0) ? "Analysis complete." : "Analysis failed.";
+                d->analysisStatus->setText(msg);
+                // Refresh analysis files list
+                if (auto* info = d->current()) {
+                    *info = SessionInfo::load(info->path);
+                    if (info->analysisFiles.isEmpty()) {
+                        d->analysisFilesLbl->setText("No analysis results yet.");
+                    } else {
+                        QStringList bareNames;
+                        for (const auto& fn : info->analysisFiles) {
+                            bareNames << QFileInfo(fn).fileName();
+                        }
+                        d->analysisFilesLbl->setText(bareNames.join("  "));
+                    }
                 }
-                d->analysisFilesLbl->setText(bareNames.join("  "));
-            }
-        }
-        // Refresh the session row badge
-        rebuild_session_list();
-    });
+                // Refresh the session row badge
+                rebuild_session_list();
+            });
 
     d->proc->start(exe, args);
 }
@@ -1037,15 +1087,21 @@ QString SessionBrowserW::find_python() const {
     };
     for (const auto& base : candidateBases) {
         const QString venvPy = QDir(base).filePath("analysis/.venv/bin/python3");
-        if (QFile::exists(venvPy)) { return venvPy; }
+        if (QFile::exists(venvPy)) {
+            return venvPy;
+        }
         const QString venvPyAlt = QDir(base).filePath("analysis/.venv/bin/python");
-        if (QFile::exists(venvPyAlt)) { return venvPyAlt; }
+        if (QFile::exists(venvPyAlt)) {
+            return venvPyAlt;
+        }
     }
     // Fall back to system python
     for (const auto& name : {"python3", "python"}) {
         QProcess probe;
         probe.start(name, {"--version"});
-        if (probe.waitForFinished(2000) && probe.exitCode() == 0) { return name; }
+        if (probe.waitForFinished(2000) && probe.exitCode() == 0) {
+            return name;
+        }
     }
     return {};
 }

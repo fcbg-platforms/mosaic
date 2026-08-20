@@ -1,8 +1,9 @@
 #pragma once
-#include "core/settings.hpp"
-#include "trigger/trigger_types.hpp"
 #include <QObject>
 #include <memory>
+
+#include "core/settings.hpp"
+#include "trigger/trigger_types.hpp"
 
 namespace mosaic {
 
@@ -29,7 +30,7 @@ namespace mosaic {
 /// @see TriggerEvent, KeyboardTrigger, ParallelPortTrigger
 class TriggerManager : public QObject {
     Q_OBJECT
-public:
+   public:
     /// @param settings  Trigger settings (key bindings, serial/parallel ports).
     ///                  Held by reference — must outlive this object.
     /// @param parent    Qt parent object.
@@ -74,7 +75,7 @@ public:
     ///               if @p index is out of range.
     [[nodiscard]] QObject* keyboard_trigger_at(int index) const;
 
-signals:
+   signals:
     /// Emitted on the main thread for every trigger event, regardless of source.
     /// Connect to this signal to react to events in real time.
     ///
@@ -88,10 +89,10 @@ signals:
     /// @param event   The trigger event that caused the action.
     void action_requested(mosaic::TriggerAction action, mosaic::TriggerEvent event);
 
-private slots:
+   private slots:
     void on_trigger_fired(mosaic::TriggerEvent event);
 
-private:
+   private:
     struct Impl;
     std::unique_ptr<Impl> d;
 };

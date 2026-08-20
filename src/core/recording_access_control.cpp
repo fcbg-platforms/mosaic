@@ -14,8 +14,7 @@ bool is_legacy_shared_record_directory(const QString& directory) {
     return directory == legacy_shared_record_directory();
 }
 
-QString resolve_migration_target(const QString& recordedBy,
-                                  const QSet<QString>& knownUsernames) {
+QString resolve_migration_target(const QString& recordedBy, const QSet<QString>& knownUsernames) {
     if (!recordedBy.isEmpty() && knownUsernames.contains(recordedBy)) {
         return default_record_directory_for(recordedBy);
     }

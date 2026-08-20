@@ -1,9 +1,10 @@
 #pragma once
-#include "core/settings.hpp"
-#include "video/video_frame.hpp"
 #include <QImage>
 #include <QObject>
 #include <memory>
+
+#include "core/settings.hpp"
+#include "video/video_frame.hpp"
 
 namespace mosaic {
 
@@ -38,7 +39,7 @@ namespace mosaic {
 /// @see VideoGrabber, VideoEncoder, FrameTimestampWriter, RecordManager
 class VideoManager : public QObject {
     Q_OBJECT
-public:
+   public:
     explicit VideoManager(QObject* parent = nullptr);
     ~VideoManager() override;
 
@@ -48,7 +49,7 @@ public:
     ///                  determines how many devices are opened.
     /// @returns         The number of cameras successfully opened.  May be less
     ///                  than @c settings.cameras.size() if some devices fail.
-    int  open(const VideoSettings& settings);
+    int open(const VideoSettings& settings);
 
     /// @brief Closes all open camera handles.
     ///
@@ -71,8 +72,7 @@ public:
     /// @param sessionDir    Absolute path to the session folder (must exist).
     /// @param videoBasename Basename for video files (e.g. @c "video").
     /// @param settings      Video settings (codec, preset, per-camera FPS/resolution).
-    void start(const QString&       sessionDir,
-               const QString&       videoBasename,
+    void start(const QString& sessionDir, const QString& videoBasename,
                const VideoSettings& settings);
 
     /// @brief Stops all grabbers and encoders, flushing and closing every file.
@@ -105,33 +105,33 @@ public:
     void request_calibration_frame(int configIndex, uint64_t token = 0);
 
     /// @returns @c true while a recording session is active.
-    [[nodiscard]] bool    is_recording()          const;
+    [[nodiscard]] bool is_recording() const;
 
     /// @returns @c true while a live preview session is active (started via
     /// start_preview(), not yet stopped by start()/close()). Used to guard
     /// actions that would race with a running ActionCommandTicker, which
     /// touches Pylon's CTlFactory from a background thread for as long as
     /// either preview or recording keeps it alive.
-    [[nodiscard]] bool    is_previewing()         const;
+    [[nodiscard]] bool is_previewing() const;
 
     /// @returns The number of cameras that were successfully opened.
-    [[nodiscard]] int     camera_count()           const;
+    [[nodiscard]] int camera_count() const;
 
     /// @returns Total frames encoded across all cameras since the last start().
-    [[nodiscard]] int64_t total_frames_encoded()   const;
+    [[nodiscard]] int64_t total_frames_encoded() const;
 
     /// @returns Total frames dropped (ring buffer overflow) since last start().
-    [[nodiscard]] int64_t total_frames_dropped()   const;
+    [[nodiscard]] int64_t total_frames_dropped() const;
 
     /// @brief Per-camera real-time performance snapshot.
     struct CameraStats {
-        double  fps               = 0.0;  ///< Measured grab rate (frames/s).
-        int64_t framesGrabbed     = 0;    ///< Total frames grabbed since start().
-        int64_t framesEncoded     = 0;    ///< Total frames encoded since start().
-        int64_t framesDropped     = 0;    ///< Frames lost to ring-buffer overflow.
-        int     ringFillPct       = 0;    ///< Ring buffer fill level, 0–100.
-        bool    grabberRunning    = false;
-        int64_t lastFrameElapsedNs = -1;  ///< elapsed_ns() of the most recent frame, -1 if none yet.
+        double fps                 = 0.0; ///< Measured grab rate (frames/s).
+        int64_t framesGrabbed      = 0;   ///< Total frames grabbed since start().
+        int64_t framesEncoded      = 0;   ///< Total frames encoded since start().
+        int64_t framesDropped      = 0;   ///< Frames lost to ring-buffer overflow.
+        int ringFillPct            = 0;   ///< Ring buffer fill level, 0–100.
+        bool grabberRunning        = false;
+        int64_t lastFrameElapsedNs = -1; ///< elapsed_ns() of the most recent frame, -1 if none yet.
     };
 
     /// @brief Returns a performance snapshot for one camera.
@@ -139,7 +139,7 @@ public:
     /// @param index  Zero-based camera index.  Returns a zeroed struct if out of range.
     [[nodiscard]] CameraStats camera_stats(int index) const;
 
-signals:
+   signals:
     /// Emitted on the main thread when a camera device is successfully opened.
     void camera_opened(int cameraIndex, int width, int height, double fps);
 
@@ -171,10 +171,10 @@ signals:
     /// hwTriggerSource == "Action1").
     void action_command_capability(int cameraIndex, bool supported);
 
-private slots:
+   private slots:
     void on_encoder_stopped(int cameraIndex, int64_t frames);
 
-private:
+   private:
     // Arms every unit's grabber (start_grabbing()) first, then, for every
     // Action1-ready unit, starts a background ActionCommandTicker that
     // fires one GigE Vision IssueActionCommand() per frame, continuously,

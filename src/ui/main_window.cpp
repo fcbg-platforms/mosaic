@@ -1,4 +1,27 @@
 #include "ui/main_window.hpp"
+
+#include <QAction>
+#include <QCloseEvent>
+#include <QCoreApplication>
+#include <QDateTime>
+#include <QDesktopServices>
+#include <QDir>
+#include <QFileInfo>
+#include <QLabel>
+#include <QMenuBar>
+#include <QQmlContext>
+#include <QQuickWidget>
+#include <QSet>
+#include <QSettings>
+#include <QSplitter>
+#include <QStatusBar>
+#include <QTabBar>
+#include <QTabWidget>
+#include <QTimer>
+#include <QVBoxLayout>
+#include <array>
+#include <memory>
+
 #include "analysis/pose_worker.hpp"
 #include "analysis/transcript_worker.hpp"
 #include "ui/analysis/analysis_tab_w.hpp"
@@ -14,29 +37,8 @@
 #include "ui/trigger/trigger_settings_w.hpp"
 #include "ui/video/performance_monitor_w.hpp"
 #include "ui/video/video_settings_w.hpp"
-#include "video/video_feed_provider.hpp"
 #include "utils/logger.hpp"
-#include <QAction>
-#include <QCloseEvent>
-#include <QCoreApplication>
-#include <QDateTime>
-#include <QDesktopServices>
-#include <QDir>
-#include <array>
-#include <memory>
-#include <QFileInfo>
-#include <QLabel>
-#include <QMenuBar>
-#include <QQmlContext>
-#include <QQuickWidget>
-#include <QSet>
-#include <QSettings>
-#include <QTimer>
-#include <QSplitter>
-#include <QStatusBar>
-#include <QTabBar>
-#include <QTabWidget>
-#include <QVBoxLayout>
+#include "video/video_feed_provider.hpp"
 
 namespace mosaic {
 
@@ -51,75 +53,73 @@ namespace mosaic {
 static QString find_relative_to_app(const QString& relPath) {
     const QStringList bases = {
         QCoreApplication::applicationDirPath(),
-        QCoreApplication::applicationDirPath() + "/../../../..",  // Xcode bundle
+        QCoreApplication::applicationDirPath() + "/../../../..", // Xcode bundle
         QDir::currentPath(),
     };
     for (const QString& base : bases) {
         const QString candidate = QDir(base).filePath(relPath);
-        if (QFileInfo::exists(candidate)) { return candidate; }
+        if (QFileInfo::exists(candidate)) {
+            return candidate;
+        }
     }
     return {};
 }
 
 struct MainWindow::Impl {
-    AppSettings&     settings;
-    QString          username;
+    AppSettings& settings;
+    QString username;
     // Per-user recording access control (item 27) — resolved once in
     // Application::initialize(), read-only from here on.
-    bool             isAdmin       = false;
-    QStringList      otherUserDirectories;
-    TriggerManager*  triggerMgr   = nullptr;
-    AudioManager*    audioMgr     = nullptr;
-    VideoManager*    videoMgr     = nullptr;
-    RecordManager*   recordMgr    = nullptr;
-    AnalysisManager* analysisMgr  = nullptr;
-    MonitorBridge*   bridge       = nullptr;
+    bool isAdmin = false;
+    QStringList otherUserDirectories;
+    TriggerManager* triggerMgr   = nullptr;
+    AudioManager* audioMgr       = nullptr;
+    VideoManager* videoMgr       = nullptr;
+    RecordManager* recordMgr     = nullptr;
+    AnalysisManager* analysisMgr = nullptr;
+    MonitorBridge* bridge        = nullptr;
 
-    QTabWidget*     topTabs       = nullptr;
-    QSplitter*      mainSplitter  = nullptr;
-    QSplitter*      rightSplitter = nullptr;
-    QTabWidget*     settingsTabs  = nullptr;
-    QQuickWidget*   monitorView   = nullptr;
-    LoggerPanelW*   loggerPanel   = nullptr;
-    QLabel*         statusLabel   = nullptr;
-    PoseWorker*        poseWorker       = nullptr;
-    TranscriptWorker*  transcriptWorker = nullptr;
-    RealtimeTabW*      realtimeTab      = nullptr;
-    AnalysisTabW*   analysisTab   = nullptr;
-    VideoSettingsW* videoSettingsW = nullptr;
+    QTabWidget* topTabs                = nullptr;
+    QSplitter* mainSplitter            = nullptr;
+    QSplitter* rightSplitter           = nullptr;
+    QTabWidget* settingsTabs           = nullptr;
+    QQuickWidget* monitorView          = nullptr;
+    LoggerPanelW* loggerPanel          = nullptr;
+    PoseWorker* poseWorker             = nullptr;
+    TranscriptWorker* transcriptWorker = nullptr;
+    RealtimeTabW* realtimeTab          = nullptr;
+    AnalysisTabW* analysisTab          = nullptr;
+    VideoSettingsW* videoSettingsW     = nullptr;
 
     // Coalesces rapid-fire camera_params_changed emissions (e.g. dragging a
     // slider fires valueChanged on every intermediate tick) into a single
     // VideoManager::apply_live_params() call per camera, ~150ms after the
     // user stops changing that camera's controls, instead of one blocking
     // round-trip of GenICam node writes per tick.
-    QTimer*     liveApplyDebounce       = nullptr;
-    QSet<int>   pendingLiveApplyIndices;
+    QTimer* liveApplyDebounce = nullptr;
+    QSet<int> pendingLiveApplyIndices;
 
-    explicit Impl(AppSettings& s, const QString& user, bool admin,
-                  const QStringList& otherDirs, TriggerManager* tm,
-                  AudioManager* am, VideoManager* vm, RecordManager* rm,
+    explicit Impl(AppSettings& s, const QString& user, bool admin, const QStringList& otherDirs,
+                  TriggerManager* tm, AudioManager* am, VideoManager* vm, RecordManager* rm,
                   AnalysisManager* anlm)
-        : settings(s), username(user), isAdmin(admin)
-        , otherUserDirectories(otherDirs)
-        , triggerMgr(tm), audioMgr(am), videoMgr(vm), recordMgr(rm)
-        , analysisMgr(anlm) {}
+        : settings(s),
+          username(user),
+          isAdmin(admin),
+          otherUserDirectories(otherDirs),
+          triggerMgr(tm),
+          audioMgr(am),
+          videoMgr(vm),
+          recordMgr(rm),
+          analysisMgr(anlm) {}
 };
 
-MainWindow::MainWindow(AppSettings&      settings,
-                        const QString&    username,
-                        TriggerManager*   triggerMgr,
-                        AudioManager*     audioMgr,
-                        VideoManager*     videoMgr,
-                        RecordManager*    recordMgr,
-                        AnalysisManager*  analysisMgr,
-                        bool              isAdmin,
-                        const QStringList& otherUserDirectories,
-                        QWidget*          parent)
-    : QMainWindow(parent)
-    , d(std::make_unique<Impl>(settings, username, isAdmin, otherUserDirectories,
-                                triggerMgr, audioMgr, videoMgr, recordMgr, analysisMgr))
-{
+MainWindow::MainWindow(AppSettings& settings, const QString& username, TriggerManager* triggerMgr,
+                       AudioManager* audioMgr, VideoManager* videoMgr, RecordManager* recordMgr,
+                       AnalysisManager* analysisMgr, bool isAdmin,
+                       const QStringList& otherUserDirectories, QWidget* parent)
+    : QMainWindow(parent),
+      d(std::make_unique<Impl>(settings, username, isAdmin, otherUserDirectories, triggerMgr,
+                               audioMgr, videoMgr, recordMgr, analysisMgr)) {
     const QString userLabel = (username == "guest") ? "Guest" : ("@" + username);
     setWindowTitle(QString("MOSAIC — %1").arg(userLabel));
     setMinimumSize(1200, 720);
@@ -148,9 +148,8 @@ void MainWindow::build_menu_bar() {
     auto* openAction = new QAction("&Open recordings folder…", this);
     openAction->setShortcut(QKeySequence("Ctrl+Shift+O"));
     connect(openAction, &QAction::triggered, this, [this] {
-        const QString path = d->recordMgr
-            ? d->recordMgr->current_session_path()
-            : d->settings.record.directory;
+        const QString path =
+            d->recordMgr ? d->recordMgr->current_session_path() : d->settings.record.directory;
         QDesktopServices::openUrl(QUrl::fromLocalFile(path));
     });
     file->addAction(openAction);
@@ -159,16 +158,15 @@ void MainWindow::build_menu_bar() {
     browseAction->setShortcut(QKeySequence("Ctrl+B"));
     connect(browseAction, &QAction::triggered, this, [this] {
         SessionBrowserW browser(d->settings.record.directory, d->analysisMgr,
-                                 d->isAdmin ? d->otherUserDirectories : QStringList{}, this);
+                                d->isAdmin ? d->otherUserDirectories : QStringList{}, this);
         browser.exec();
     });
     file->addAction(browseAction);
     file->addSeparator();
 
-    auto* switchAction = new QAction(
-        QString("Switch profile  (current: %1)").arg(
-            d->username == "guest" ? "Guest" : "@" + d->username),
-        this);
+    auto* switchAction = new QAction(QString("Switch profile  (current: %1)")
+                                         .arg(d->username == "guest" ? "Guest" : "@" + d->username),
+                                     this);
     switchAction->setShortcut(QKeySequence("Ctrl+Shift+P"));
     connect(switchAction, &QAction::triggered, this, [this] {
         if (d->recordMgr && d->recordMgr->is_recording()) {
@@ -184,8 +182,7 @@ void MainWindow::build_menu_bar() {
 
     auto* quitAction = new QAction("&Quit", this);
     quitAction->setShortcut(QKeySequence::Quit);
-    connect(quitAction, &QAction::triggered,
-            QCoreApplication::instance(), &QCoreApplication::quit);
+    connect(quitAction, &QAction::triggered, QCoreApplication::instance(), &QCoreApplication::quit);
     file->addAction(quitAction);
 
     auto* view = menuBar()->addMenu("&View");
@@ -195,7 +192,9 @@ void MainWindow::build_menu_bar() {
         // available height is the window height minus the tab bar itself.
         const int tabBarH = d->topTabs ? d->topTabs->tabBar()->height() : 0;
         d->rightSplitter->setSizes({height() - tabBarH - 200, 200});
-        if (d->realtimeTab) { d->realtimeTab->reset_layout(); }
+        if (d->realtimeTab) {
+            d->realtimeTab->reset_layout();
+        }
     });
     view->addSeparator();
 
@@ -204,22 +203,28 @@ void MainWindow::build_menu_bar() {
     logToggle->setCheckable(true);
     logToggle->setChecked(true);
     connect(logToggle, &QAction::toggled, this, [this](bool shown) {
-        if (d->loggerPanel) { d->loggerPanel->setVisible(shown); }
+        if (d->loggerPanel) {
+            d->loggerPanel->setVisible(shown);
+        }
     });
     view->addAction(logToggle);
 
-    auto* record = menuBar()->addMenu("&Record");
+    auto* record      = menuBar()->addMenu("&Record");
     auto* startAction = new QAction("▶  Start recording", this);
     startAction->setShortcut(QKeySequence("Ctrl+R"));
     connect(startAction, &QAction::triggered, this, [this] {
-        if (d->bridge) { d->bridge->startRecording(); }
+        if (d->bridge) {
+            d->bridge->startRecording();
+        }
     });
     record->addAction(startAction);
 
     auto* stopAction = new QAction("■  Stop recording", this);
     stopAction->setShortcut(QKeySequence("Ctrl+."));
     connect(stopAction, &QAction::triggered, this, [this] {
-        if (d->bridge) { d->bridge->stopRecording(); }
+        if (d->bridge) {
+            d->bridge->stopRecording();
+        }
     });
     record->addAction(stopAction);
 
@@ -251,7 +256,7 @@ void MainWindow::build_central_widget() {
     d->settingsTabs->setDocumentMode(true);
 
     auto* videoSettingsW = new VideoSettingsW(d->settings.video);
-    d->videoSettingsW = videoSettingsW;
+    d->videoSettingsW    = videoSettingsW;
     d->settingsTabs->addTab(videoSettingsW, "Video");
     // Cameras are already opened and previewing by the time MainWindow is
     // constructed (Application::initialize() does this first) — start
@@ -259,18 +264,14 @@ void MainWindow::build_central_widget() {
     // clickable before the recording_started/stopped guards in
     // build_status_bar() ever fire.
     videoSettingsW->set_discover_enabled(!(d->videoMgr && d->videoMgr->camera_count() > 0));
-    d->settingsTabs->addTab(
-        new AudioSettingsW(d->settings.audio, d->audioMgr),                "Audio");
-    d->settingsTabs->addTab(
-        new TriggerSettingsW(d->settings.trigger, d->triggerMgr),      "Triggers");
-    d->settingsTabs->addTab(
-        new TriggerEventPanelW(d->triggerMgr),                            "Events");
-    d->settingsTabs->addTab(
-        new RecordSettingsW(d->settings.record, d->isAdmin),                "Record");
-    d->settingsTabs->addTab(
-        new PerformanceMonitorW(d->videoMgr, d->audioMgr, d->analysisMgr),  "Perf");
-    d->settingsTabs->addTab(
-        new CalibrationW(d->settings.video, d->settings.room, d->videoMgr),   "Calibrate");
+    d->settingsTabs->addTab(new AudioSettingsW(d->settings.audio, d->audioMgr), "Audio");
+    d->settingsTabs->addTab(new TriggerSettingsW(d->settings.trigger, d->triggerMgr), "Triggers");
+    d->settingsTabs->addTab(new TriggerEventPanelW(d->triggerMgr), "Events");
+    d->settingsTabs->addTab(new RecordSettingsW(d->settings.record, d->isAdmin), "Record");
+    d->settingsTabs->addTab(new PerformanceMonitorW(d->videoMgr, d->audioMgr, d->analysisMgr),
+                            "Perf");
+    d->settingsTabs->addTab(new CalibrationW(d->settings.video, d->settings.room, d->videoMgr),
+                            "Calibrate");
 
     d->mainSplitter->addWidget(d->settingsTabs);
 
@@ -286,7 +287,7 @@ void MainWindow::build_central_widget() {
     d->bridge = new MonitorBridge(d->recordMgr, d->settings.video, this);
 
     // Register the camera-frame image provider before loading QML.
-    auto* feedProvider = new VideoFeedProvider;    // owned by QML engine
+    auto* feedProvider = new VideoFeedProvider; // owned by QML engine
     d->monitorView->engine()->addImageProvider("videofeed", feedProvider);
     d->bridge->set_feed_provider(feedProvider);
 
@@ -301,14 +302,13 @@ void MainWindow::build_central_widget() {
 
     // Wire preview frames from VideoManager to MonitorBridge → image provider.
     if (d->videoMgr) {
-        connect(d->videoMgr, &VideoManager::frame_preview,
-                d->bridge, &MonitorBridge::on_frame_preview,
-                Qt::QueuedConnection);
+        connect(d->videoMgr, &VideoManager::frame_preview, d->bridge,
+                &MonitorBridge::on_frame_preview, Qt::QueuedConnection);
         // Live per-camera "does this firmware support GigE Vision Action
         // Command triggering" readout — see gige_action_command.hpp /
         // CameraCardW::set_action_command_capability().
-        connect(d->videoMgr, &VideoManager::action_command_capability,
-                videoSettingsW, &VideoSettingsW::set_action_command_capability);
+        connect(d->videoMgr, &VideoManager::action_command_capability, videoSettingsW,
+                &VideoSettingsW::set_action_command_capability);
     }
 
     // When the camera list changes, fully reload the hardware.
@@ -397,11 +397,12 @@ void MainWindow::build_central_widget() {
         const QString interp = find_relative_to_app(interpRel);
         const QString script = find_relative_to_app("python/pose/frame_server.py");
         if (interp.isEmpty() || script.isEmpty()) {
-            log_warning("Real-time pose/gaze unavailable — python/.venv or "
-                        "python/pose/frame_server.py not found next to the "
-                        "application or in the working directory. The "
-                        "Real-time tab will show no skeleton/gaze overlay "
-                        "until the python/ venv is set up and reachable.");
+            log_warning(
+                "Real-time pose/gaze unavailable — python/.venv or "
+                "python/pose/frame_server.py not found next to the "
+                "application or in the working directory. The "
+                "Real-time tab will show no skeleton/gaze overlay "
+                "until the python/ venv is set up and reachable.");
         } else {
             d->poseWorker = new PoseWorker(this);
             if (d->poseWorker->start(interp, script)) {
@@ -423,24 +424,27 @@ void MainWindow::build_central_widget() {
                     // Per-camera timestamps prevent one fast camera from starving others.
                     auto ts = std::make_shared<std::array<qint64, 16>>();
                     ts->fill(0);
-                    connect(d->videoMgr, &VideoManager::frame_preview,
-                            this, [this, ts](int camIdx, QImage frame) {
-                        if (!d->poseWorker || !d->poseWorker->is_running()) return;
-                        if (camIdx < 0 || camIdx >= static_cast<int>(ts->size())) return;
-                        // Per-camera opt-out (Real-time tab's "Analyze"
-                        // checkbox) — separate from PoseWorker::is_paused()
-                        // below: this is a per-camera user preference, that
-                        // is a global recording-in-progress resource policy;
-                        // neither should be able to stomp the other.
-                        if (camIdx < static_cast<int>(d->settings.video.cameras.size()) &&
-                            !d->settings.video.cameras[static_cast<size_t>(camIdx)].liveAnalysisEnabled) {
-                            return;
-                        }
-                        const qint64 nowMs = QDateTime::currentMSecsSinceEpoch();
-                        if (nowMs - (*ts)[camIdx] < 200) return;   // 5 fps per camera
-                        (*ts)[camIdx] = nowMs;
-                        d->poseWorker->submit_frame(camIdx, frame);
-                    }, Qt::QueuedConnection);
+                    connect(
+                        d->videoMgr, &VideoManager::frame_preview, this,
+                        [this, ts](int camIdx, QImage frame) {
+                            if (!d->poseWorker || !d->poseWorker->is_running()) return;
+                            if (camIdx < 0 || camIdx >= static_cast<int>(ts->size())) return;
+                            // Per-camera opt-out (Real-time tab's "Analyze"
+                            // checkbox) — separate from PoseWorker::is_paused()
+                            // below: this is a per-camera user preference, that
+                            // is a global recording-in-progress resource policy;
+                            // neither should be able to stomp the other.
+                            if (camIdx < static_cast<int>(d->settings.video.cameras.size()) &&
+                                !d->settings.video.cameras[static_cast<size_t>(camIdx)]
+                                     .liveAnalysisEnabled) {
+                                return;
+                            }
+                            const qint64 nowMs = QDateTime::currentMSecsSinceEpoch();
+                            if (nowMs - (*ts)[camIdx] < 200) return; // 5 fps per camera
+                            (*ts)[camIdx] = nowMs;
+                            d->poseWorker->submit_frame(camIdx, frame);
+                        },
+                        Qt::QueuedConnection);
                 }
                 if (d->recordMgr) {
                     // Auto-pause pose/gaze inference while recording is
@@ -456,11 +460,12 @@ void MainWindow::build_central_widget() {
                 }
                 log_info("Pose worker started — real-time pose overlay active.");
             } else {
-                log_warning("Real-time pose worker failed to start (found "
-                            "python.exe/frame_server.py, but launching the "
-                            "process failed) — the Real-time tab will show "
-                            "no skeleton/gaze overlay. Check mosaic.log above "
-                            "this line for the underlying process error.");
+                log_warning(
+                    "Real-time pose worker failed to start (found "
+                    "python.exe/frame_server.py, but launching the "
+                    "process failed) — the Real-time tab will show "
+                    "no skeleton/gaze overlay. Check mosaic.log above "
+                    "this line for the underlying process error.");
             }
         }
     }
@@ -481,14 +486,16 @@ void MainWindow::build_central_widget() {
         const QString transcriptInterp = find_relative_to_app(transcriptInterpRel);
         const QString transcriptScript = find_relative_to_app("analysis/run_live_transcribe.py");
         if (transcriptInterp.isEmpty() || transcriptScript.isEmpty()) {
-            log_warning("Live transcript unavailable — analysis/.venv or "
-                        "analysis/run_live_transcribe.py not found next to the "
-                        "application or in the working directory. The "
-                        "Real-time tab's Transcript panel will show no live "
-                        "captions until the analysis/ venv is set up and reachable.");
+            log_warning(
+                "Live transcript unavailable — analysis/.venv or "
+                "analysis/run_live_transcribe.py not found next to the "
+                "application or in the working directory. The "
+                "Real-time tab's Transcript panel will show no live "
+                "captions until the analysis/ venv is set up and reachable.");
         } else {
             d->transcriptWorker = new TranscriptWorker(this);
-            if (d->transcriptWorker->start(transcriptInterp, transcriptScript, {"--model", "tiny"})) {
+            if (d->transcriptWorker->start(transcriptInterp, transcriptScript,
+                                           {"--model", "tiny"})) {
                 if (d->audioMgr && !d->settings.audio.microphones.empty()) {
                     // Mic 0 only for v1 — see RealtimeTabW's own doc comment
                     // for the scope justification. AudioManager emits
@@ -496,11 +503,13 @@ void MainWindow::build_central_widget() {
                     // recording (matches VideoManager::frame_preview's
                     // always-on behavior feeding PoseWorker); pause is
                     // enforced below via set_paused(), not here.
-                    connect(d->audioMgr, &AudioManager::raw_pcm_ready, d->transcriptWorker,
-                            [this](int micIdx, QByteArray pcm, int sr, int ch) {
-                        if (micIdx != 0 || !d->transcriptWorker) return;
-                        d->transcriptWorker->submit_chunk(0, sr, ch, pcm);
-                    }, Qt::QueuedConnection);
+                    connect(
+                        d->audioMgr, &AudioManager::raw_pcm_ready, d->transcriptWorker,
+                        [this](int micIdx, QByteArray pcm, int sr, int ch) {
+                            if (micIdx != 0 || !d->transcriptWorker) return;
+                            d->transcriptWorker->submit_chunk(0, sr, ch, pcm);
+                        },
+                        Qt::QueuedConnection);
                 }
                 if (d->recordMgr) {
                     // Same auto-pause reasoning/wiring as PoseWorker's block
@@ -508,17 +517,19 @@ void MainWindow::build_central_widget() {
                     // RealtimeTabW, holds regardless of which tab is open.
                     connect(d->recordMgr, &RecordManager::recording_started, d->transcriptWorker,
                             [this](const QString&) { d->transcriptWorker->set_paused(true); });
-                    connect(d->recordMgr, &RecordManager::recording_stopped, d->transcriptWorker,
-                            [this](const QString&, int) { d->transcriptWorker->set_paused(false); });
+                    connect(
+                        d->recordMgr, &RecordManager::recording_stopped, d->transcriptWorker,
+                        [this](const QString&, int) { d->transcriptWorker->set_paused(false); });
                 }
                 log_info("Transcript worker started — live captions active.");
             } else {
-                log_warning("Live transcript worker failed to start (found "
-                            "python.exe/run_live_transcribe.py, but launching "
-                            "the process failed) — the Real-time tab's "
-                            "Transcript panel will show no live captions. "
-                            "Check mosaic.log above this line for the "
-                            "underlying process error.");
+                log_warning(
+                    "Live transcript worker failed to start (found "
+                    "python.exe/run_live_transcribe.py, but launching "
+                    "the process failed) — the Real-time tab's "
+                    "Transcript panel will show no live captions. "
+                    "Check mosaic.log above this line for the "
+                    "underlying process error.");
             }
         }
     }
@@ -542,25 +553,29 @@ void MainWindow::build_central_widget() {
 
     d->topTabs->addTab(d->mainSplitter, "Live");
 
-    d->realtimeTab = new RealtimeTabW(d->settings, d->videoMgr, d->audioMgr,
-                                       d->recordMgr, d->poseWorker, d->transcriptWorker);
+    d->realtimeTab = new RealtimeTabW(d->settings, d->videoMgr, d->audioMgr, d->recordMgr,
+                                      d->poseWorker, d->transcriptWorker);
     d->topTabs->addTab(d->realtimeTab, "Real-time");
 
     d->analysisTab = new AnalysisTabW(d->settings, d->analysisMgr,
-                                       d->isAdmin ? d->otherUserDirectories : QStringList{});
+                                      d->isAdmin ? d->otherUserDirectories : QStringList{});
     d->topTabs->addTab(d->analysisTab, "Analysis");
 }
 
 // ── Status bar ─────────────────────────────────────────────────────────────
 
 void MainWindow::build_status_bar() {
-    d->statusLabel = new QLabel("Ready");
-    statusBar()->addWidget(d->statusLabel);
+    // No message label here by design — this used to surface the last
+    // warning/error, recording state, and frame-drop notices as transient
+    // text at the very bottom of the window; removed on request since that
+    // text was distracting/unwanted. The LoggerPanelW dock (View → Logs)
+    // remains the place to see warnings/errors. The side effects those
+    // handlers also had (disabling "Discover cameras" while recording, in
+    // particular) are preserved below — only the on-screen text is gone.
 
     // User chip in the right corner of the status bar.
-    const QString userLabel = (d->username == "guest")
-        ? "👤  Guest session"
-        : QString("👤  @%1").arg(d->username);
+    const QString userLabel =
+        (d->username == "guest") ? "👤  Guest session" : QString("👤  @%1").arg(d->username);
     auto* userChip = new QLabel(userLabel);
     userChip->setStyleSheet(
         "QLabel { background: #12122a; border: 1px solid #252545; border-radius: 10px;"
@@ -568,46 +583,23 @@ void MainWindow::build_status_bar() {
     userChip->setToolTip("Current profile — use File → Switch profile to change");
     statusBar()->addPermanentWidget(userChip);
 
-    // Show the last warning/error in the status bar as a quick heads-up.
-    connect(&Logger::instance(), &Logger::entry_added,
-            this, [this](int level, QString /*ts*/, QString /*loc*/, QString msg) {
-        if (level >= static_cast<int>(LogLevel::Warning)) {
-            d->statusLabel->setText(msg);
-        }
-    }, Qt::QueuedConnection);
-
     if (d->recordMgr) {
         connect(d->recordMgr, &RecordManager::recording_started, this,
-                [this](const QString& path) {
-            d->statusLabel->setText(QString("● Recording  →  %1").arg(path));
-            d->statusLabel->setStyleSheet("color: #ff6666; font-weight: bold;");
-            if (d->videoSettingsW) { d->videoSettingsW->set_discover_enabled(false); }
-        });
+                [this](const QString& /*path*/) {
+                    if (d->videoSettingsW) {
+                        d->videoSettingsW->set_discover_enabled(false);
+                    }
+                });
         connect(d->recordMgr, &RecordManager::recording_stopped, this,
-                [this](const QString& /*path*/, int durationMs) {
-            d->statusLabel->setText(
-                QString("Recording stopped. Duration: %1 s")
-                    .arg(durationMs / 1000.0, 0, 'f', 1));
-            d->statusLabel->setStyleSheet("");
-            // Preview auto-resumes right after recording stops (see
-            // Application's own recording_stopped handler), keeping every
-            // Action1-armed camera's ticker alive — only re-enable if there
-            // are genuinely no cameras open at all.
-            if (d->videoSettingsW && d->videoMgr) {
-                d->videoSettingsW->set_discover_enabled(d->videoMgr->camera_count() == 0);
-            }
-        });
-    }
-
-    // Show frame-drop warnings from VideoManager.
-    if (d->videoMgr) {
-        connect(d->videoMgr, &VideoManager::frame_dropped, this,
-                [this](int cameraIndex, int64_t frameId) {
-            d->statusLabel->setText(
-                QString("⚠ Frame dropped — camera %1, frame %2")
-                    .arg(cameraIndex).arg(frameId));
-            d->statusLabel->setStyleSheet("color: #ddaa44;");
-        }, Qt::QueuedConnection);
+                [this](const QString& /*path*/, int /*durationMs*/) {
+                    // Preview auto-resumes right after recording stops (see
+                    // Application's own recording_stopped handler), keeping every
+                    // Action1-armed camera's ticker alive — only re-enable if there
+                    // are genuinely no cameras open at all.
+                    if (d->videoSettingsW && d->videoMgr) {
+                        d->videoSettingsW->set_discover_enabled(d->videoMgr->camera_count() == 0);
+                    }
+                });
     }
 }
 
@@ -619,7 +611,7 @@ void MainWindow::closeEvent(QCloseEvent* event) {
     }
     QSettings prefs("CSRU", "MOSAIC");
     prefs.setValue("mainWindow/geometry", saveGeometry());
-    prefs.setValue("mainWindow/state",    saveState());
+    prefs.setValue("mainWindow/state", saveState());
     QMainWindow::closeEvent(event);
 }
 

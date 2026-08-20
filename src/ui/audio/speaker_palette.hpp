@@ -1,7 +1,7 @@
 #pragma once
 #include <QMap>
-#include <QStringList>
 #include <QString>
+#include <QStringList>
 
 namespace mosaic {
 

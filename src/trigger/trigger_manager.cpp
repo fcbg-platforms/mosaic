@@ -1,4 +1,5 @@
 #include "trigger/trigger_manager.hpp"
+
 #include "trigger/keyboard_trigger.hpp"
 #include "trigger/parallel_port_trigger.hpp"
 #ifdef MOSAIC_HAVE_SERIAL
@@ -12,22 +13,19 @@ namespace mosaic {
 struct TriggerManager::Impl {
     TriggerSettings& settings;
 
-    std::vector<std::unique_ptr<KeyboardTrigger>>      keyTriggers;
+    std::vector<std::unique_ptr<KeyboardTrigger>> keyTriggers;
 #ifdef MOSAIC_HAVE_SERIAL
-    std::vector<std::unique_ptr<SerialTrigger>>        serialTriggers;
+    std::vector<std::unique_ptr<SerialTrigger>> serialTriggers;
 #endif
-    std::vector<std::unique_ptr<ParallelPortTrigger>>  portTriggers;
-    std::unique_ptr<TriggerRecorder>                   recorder;
+    std::vector<std::unique_ptr<ParallelPortTrigger>> portTriggers;
+    std::unique_ptr<TriggerRecorder> recorder;
 
     explicit Impl(TriggerSettings& s)
-        : settings(s)
-        , recorder(std::make_unique<TriggerRecorder>())
-    {}
+        : settings(s), recorder(std::make_unique<TriggerRecorder>()) {}
 };
 
 TriggerManager::TriggerManager(TriggerSettings& settings, QObject* parent)
-    : QObject(parent), d(std::make_unique<Impl>(settings))
-{
+    : QObject(parent), d(std::make_unique<Impl>(settings)) {
     reload();
 }
 
@@ -37,11 +35,17 @@ TriggerManager::~TriggerManager() = default;
 
 void TriggerManager::reload() {
     // ── Tear down existing sources ─────────────────────────────────────────
-    for (auto& kt : d->keyTriggers)    { kt->set_active(false); }
+    for (auto& kt : d->keyTriggers) {
+        kt->set_active(false);
+    }
 #ifdef MOSAIC_HAVE_SERIAL
-    for (auto& st : d->serialTriggers) { st->close(); }
+    for (auto& st : d->serialTriggers) {
+        st->close();
+    }
 #endif
-    for (auto& pp : d->portTriggers)   { pp->stop(); }
+    for (auto& pp : d->portTriggers) {
+        pp->stop();
+    }
     d->keyTriggers.clear();
 #ifdef MOSAIC_HAVE_SERIAL
     d->serialTriggers.clear();
@@ -56,9 +60,19 @@ void TriggerManager::reload() {
     // ── Keyboard triggers ──────────────────────────────────────────────────
     d->settings.keyboardTriggers.reserve(32);
     for (auto& cfg : d->settings.keyboardTriggers) {
+        // A trigger defaults to enabled=true, keySeq="" — it looks active
+        // but KeyboardTrigger::eventFilter() silently returns on every key
+        // press until a key is actually bound. Warn here the same way
+        // serial/parallel-port triggers already warn on a failed open,
+        // below — this one has no equivalent open()/start() failure to
+        // hang the warning off, so it's checked explicitly instead.
+        if (cfg.enabled && cfg.keySeq.isEmpty()) {
+            log_warning(QString("[TriggerManager] Keyboard trigger '%1' is Active but has no "
+                                "key bound — it will never fire. Bind a key in the Triggers tab.")
+                            .arg(cfg.name));
+        }
         auto kt = std::make_unique<KeyboardTrigger>(cfg, this);
-        connect(kt.get(), &KeyboardTrigger::triggered,
-                this,     &TriggerManager::on_trigger_fired);
+        connect(kt.get(), &KeyboardTrigger::triggered, this, &TriggerManager::on_trigger_fired);
         kt->set_active(true);
         d->keyTriggers.push_back(std::move(kt));
     }
@@ -66,17 +80,17 @@ void TriggerManager::reload() {
     // ── Serial triggers ────────────────────────────────────────────────────
 #ifdef MOSAIC_HAVE_SERIAL
     for (auto& cfg : d->settings.serialTriggers) {
-        if (!cfg.enabled || cfg.portName.isEmpty()) { continue; }
+        if (!cfg.enabled || cfg.portName.isEmpty()) {
+            continue;
+        }
         auto st = std::make_unique<SerialTrigger>(cfg, this);
-        connect(st.get(), &SerialTrigger::triggered,
-                this,     &TriggerManager::on_trigger_fired);
-        connect(st.get(), &SerialTrigger::error_occurred, this,
-                [](const QString& msg) {
-                    log_error(QString("[TriggerManager] Serial error: %1").arg(msg));
-                });
+        connect(st.get(), &SerialTrigger::triggered, this, &TriggerManager::on_trigger_fired);
+        connect(st.get(), &SerialTrigger::error_occurred, this, [](const QString& msg) {
+            log_error(QString("[TriggerManager] Serial error: %1").arg(msg));
+        });
         if (!st->open()) {
-            log_warning(QString("[TriggerManager] Serial port '%1' failed to open.")
-                            .arg(cfg.portName));
+            log_warning(
+                QString("[TriggerManager] Serial port '%1' failed to open.").arg(cfg.portName));
         }
         d->serialTriggers.push_back(std::move(st));
     }
@@ -84,14 +98,15 @@ void TriggerManager::reload() {
 
     // ── Parallel port triggers ─────────────────────────────────────────────
     for (auto& cfg : d->settings.parallelPorts) {
-        if (!cfg.enabled) { continue; }
+        if (!cfg.enabled) {
+            continue;
+        }
         auto ppt = std::make_unique<ParallelPortTrigger>(cfg, this);
-        connect(ppt.get(), &ParallelPortTrigger::triggered,
-                this,       &TriggerManager::on_trigger_fired);
-        connect(ppt.get(), &ParallelPortTrigger::error_occurred, this,
-                [](const QString& msg) {
-                    log_error(QString("[TriggerManager] Parallel port error: %1").arg(msg));
-                });
+        connect(ppt.get(), &ParallelPortTrigger::triggered, this,
+                &TriggerManager::on_trigger_fired);
+        connect(ppt.get(), &ParallelPortTrigger::error_occurred, this, [](const QString& msg) {
+            log_error(QString("[TriggerManager] Parallel port error: %1").arg(msg));
+        });
         const bool started = ppt->start();
         if (!started) {
             log_warning(QString("[TriggerManager] Parallel port 0x%1 failed to start.")
@@ -112,18 +127,23 @@ void TriggerManager::reload() {
 
 // ── Action lookup ──────────────────────────────────────────────────────────
 
-static TriggerAction lookup_action(const TriggerSettings& settings,
-                                   const TriggerEvent& ev) {
+static TriggerAction lookup_action(const TriggerSettings& settings, const TriggerEvent& ev) {
     if (ev.source == "keyboard") {
         for (const auto& cfg : settings.keyboardTriggers) {
-            if (cfg.name == ev.label) { return cfg.action; }
+            if (cfg.name == ev.label) {
+                return cfg.action;
+            }
         }
     } else if (ev.source == "serial") {
         for (const auto& cfg : settings.serialTriggers) {
-            if (cfg.name == ev.label) { return cfg.action; }
+            if (cfg.name == ev.label) {
+                return cfg.action;
+            }
         }
     } else if (ev.source == "parallel_port") {
-        if (!settings.parallelPorts.empty()) { return settings.parallelPorts[0].action; }
+        if (!settings.parallelPorts.empty()) {
+            return settings.parallelPorts[0].action;
+        }
     }
     return TriggerAction::Log;
 }
@@ -152,14 +172,18 @@ void TriggerManager::start_recording(const QString& csvPath) {
     } else {
         log_info(QString("[TriggerManager] Trigger recorder started → %1").arg(csvPath));
         for (auto& pp : d->portTriggers) {
-            if (pp->config().sendRecordingMarker) { pp->set_recording_marker(true); }
+            if (pp->config().sendRecordingMarker) {
+                pp->set_recording_marker(true);
+            }
         }
     }
 }
 
 void TriggerManager::stop_recording() {
     for (auto& pp : d->portTriggers) {
-        if (pp->config().sendRecordingMarker) { pp->set_recording_marker(false); }
+        if (pp->config().sendRecordingMarker) {
+            pp->set_recording_marker(false);
+        }
     }
     d->recorder->stop();
     log_info("[TriggerManager] Trigger recorder stopped.");
@@ -174,7 +198,9 @@ int TriggerManager::keyboard_trigger_count() const {
 }
 
 QObject* TriggerManager::keyboard_trigger_at(int index) const {
-    if (index < 0 || index >= static_cast<int>(d->keyTriggers.size())) { return nullptr; }
+    if (index < 0 || index >= static_cast<int>(d->keyTriggers.size())) {
+        return nullptr;
+    }
     return d->keyTriggers[static_cast<size_t>(index)].get();
 }
 

@@ -2,6 +2,7 @@
 directly as a numpy array (bypassing its internal ffmpeg-based file
 decoder). scipy is already a mosaic-analysis dependency (see
 analysis/diarize/pipeline.py's own scipy.io.wavfile use)."""
+
 from __future__ import annotations
 
 from math import gcd

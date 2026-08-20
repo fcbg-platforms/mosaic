@@ -16,6 +16,7 @@ derivation steps, which weren't independently verified during this
 feature's research pass (see algorithms.py's own docstrings for exactly
 what was and wasn't confirmed against a primary source).
 """
+
 import sys
 from pathlib import Path
 
@@ -37,8 +38,9 @@ def _dominant_freq_hz(signal: np.ndarray, fs: float) -> float:
     return float(freqs[band][np.argmax(mags[band])])
 
 
-def _synthetic_clean_rgb(pulse_hz: float, fs: float, duration_s: float,
-                          baseline=(180.0, 120.0, 90.0)) -> np.ndarray:
+def _synthetic_clean_rgb(
+    pulse_hz: float, fs: float, duration_s: float, baseline=(180.0, 120.0, 90.0)
+) -> np.ndarray:
     """A clean (no interferer) synthetic RGB signal: a fixed skin-tone
     baseline plus a small pulse-frequency oscillation, weighted per
     channel by typical relative pulsatile amplitude (green strongest, red
@@ -54,9 +56,13 @@ def _synthetic_clean_rgb(pulse_hz: float, fs: float, duration_s: float,
     return np.column_stack([r, g, b])
 
 
-def _synthetic_rgb_with_white_interferer(pulse_hz: float, interferer_hz: float, fs: float,
-                                          duration_s: float,
-                                          baseline=(180.0, 120.0, 90.0)) -> np.ndarray:
+def _synthetic_rgb_with_white_interferer(
+    pulse_hz: float,
+    interferer_hz: float,
+    fs: float,
+    duration_s: float,
+    baseline=(180.0, 120.0, 90.0),
+) -> np.ndarray:
     """As above, plus a large "white"/specular-like interferer — an
     identical additive term added to all three channels equally, at a
     different, out-of-band-adjacent frequency — the standard synthetic
@@ -64,7 +70,7 @@ def _synthetic_rgb_with_white_interferer(pulse_hz: float, interferer_hz: float, 
     are designed to suppress relative to a naive single-channel method."""
     rgb = _synthetic_clean_rgb(pulse_hz, fs, duration_s, baseline)
     t = np.arange(int(fs * duration_s)) / fs
-    interferer = 15.0 * np.sin(2 * np.pi * interferer_hz * t)   # much larger than the pulse
+    interferer = 15.0 * np.sin(2 * np.pi * interferer_hz * t)  # much larger than the pulse
     return rgb + interferer[:, None]
 
 
@@ -75,7 +81,7 @@ class TestFrequencyRecovery:
 
     FS = 30.0
     DURATION_S = 10.0
-    PULSE_HZ = 1.2   # 72 BPM
+    PULSE_HZ = 1.2  # 72 BPM
 
     @pytest.mark.parametrize("backend_name", ["green", "chrom", "pos"])
     def test_recovers_known_pulse_frequency(self, backend_name):
@@ -115,7 +121,7 @@ class TestDegenerateWindows:
 
     @pytest.mark.parametrize("fn", [chrom_signal, pos_signal])
     def test_flat_window_returns_zeros_not_nan_or_crash(self, fn):
-        rgb = np.tile([180.0, 120.0, 90.0], (20, 1))   # perfectly constant — zero variance
+        rgb = np.tile([180.0, 120.0, 90.0], (20, 1))  # perfectly constant — zero variance
         result = fn(rgb)
         assert np.all(np.isfinite(result))
         assert np.allclose(result, 0.0)
@@ -132,11 +138,12 @@ class TestWhiteInterfererSuppression:
     FS = 30.0
     DURATION_S = 10.0
     PULSE_HZ = 1.2
-    INTERFERER_HZ = 0.3   # a plausible ambient-flicker-style frequency, clearly separate from pulse
+    INTERFERER_HZ = 0.3  # a plausible ambient-flicker-style frequency, clearly separate from pulse
 
     def test_chrom_and_pos_suppress_shared_interferer_more_than_green(self):
-        rgb = _synthetic_rgb_with_white_interferer(self.PULSE_HZ, self.INTERFERER_HZ,
-                                                     self.FS, self.DURATION_S)
+        rgb = _synthetic_rgb_with_white_interferer(
+            self.PULSE_HZ, self.INTERFERER_HZ, self.FS, self.DURATION_S
+        )
 
         def interferer_to_pulse_power_ratio(signal: np.ndarray) -> float:
             n = len(signal)

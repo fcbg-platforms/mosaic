@@ -9,6 +9,7 @@
 // binary. RUN_ALL_TESTS() itself still runs synchronously -- pumping
 // happens only inside tests that explicitly ask for it.
 #include <gtest/gtest.h>
+
 #include <QCoreApplication>
 
 int main(int argc, char** argv) {

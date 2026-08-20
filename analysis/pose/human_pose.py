@@ -9,11 +9,10 @@ Recommended model weights by speed/accuracy trade-off:
 
 Install: pip install ultralytics
 """
+
 from __future__ import annotations
 
 import time
-from pathlib import Path
-from typing import List, Optional
 
 import numpy as np
 
@@ -22,6 +21,7 @@ from .keypoints import PoseResult, SubjectPose
 # ── lazy import: ultralytics is optional ─────────────────────────────────────
 try:
     from ultralytics import YOLO as _YOLO
+
     _ULTRALYTICS_OK = True
 except ImportError:
     _ULTRALYTICS_OK = False
@@ -53,17 +53,15 @@ class HumanPoseEstimator:
     def __init__(
         self,
         model_name: str = "yolov8n-pose.pt",
-        device: Optional[str] = None,
+        device: str | None = None,
         conf_threshold: float = 0.40,
-        iou_threshold: float  = 0.70,
+        iou_threshold: float = 0.70,
     ) -> None:
         if not _ULTRALYTICS_OK:
-            raise ImportError(
-                "ultralytics is not installed.  Run: pip install ultralytics"
-            )
+            raise ImportError("ultralytics is not installed.  Run: pip install ultralytics")
 
         self._conf = conf_threshold
-        self._iou  = iou_threshold
+        self._iou = iou_threshold
         self._device = device or self._auto_device()
 
         print(f"[HumanPoseEstimator] Loading {model_name} on {self._device} …", flush=True)
@@ -112,16 +110,16 @@ class HumanPoseEstimator:
         )
         inference_ms = (time.perf_counter() - t0) * 1000.0
 
-        subjects: List[SubjectPose] = []
+        subjects: list[SubjectPose] = []
         for res in results:
             if res.keypoints is None:
                 continue
-            kpts_xy   = res.keypoints.xy.cpu().numpy()    # (N, 17, 2)
-            kpts_conf = res.keypoints.conf                 # may be None
-            boxes     = res.boxes
+            kpts_xy = res.keypoints.xy.cpu().numpy()  # (N, 17, 2)
+            kpts_conf = res.keypoints.conf  # may be None
+            boxes = res.boxes
 
             for i, kxy in enumerate(kpts_xy):
-                vis: List[float]
+                vis: list[float]
                 if kpts_conf is not None:
                     vis = kpts_conf[i].cpu().numpy().tolist()
                 else:
@@ -133,13 +131,15 @@ class HumanPoseEstimator:
                     b = boxes.xyxy[i].cpu().numpy()
                     bbox = (float(b[0]), float(b[1]), float(b[2]), float(b[3]))
 
-                subjects.append(SubjectPose(
-                    subject_id=i,
-                    confidence=det_conf,
-                    keypoints=[(float(pt[0]), float(pt[1])) for pt in kxy],
-                    visibilities=vis,
-                    bbox_xyxy=bbox,
-                ))
+                subjects.append(
+                    SubjectPose(
+                        subject_id=i,
+                        confidence=det_conf,
+                        keypoints=[(float(pt[0]), float(pt[1])) for pt in kxy],
+                        visibilities=vis,
+                        bbox_xyxy=bbox,
+                    )
+                )
 
         return PoseResult(
             frame_index=frame_index,
@@ -156,6 +156,7 @@ class HumanPoseEstimator:
     def _auto_device() -> str:
         try:
             import torch
+
             if torch.cuda.is_available():
                 return "cuda:0"
             if torch.backends.mps.is_available():

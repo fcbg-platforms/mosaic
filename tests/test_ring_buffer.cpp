@@ -1,7 +1,9 @@
-#include "utils/ring_buffer.hpp"
 #include <gtest/gtest.h>
+
 #include <thread>
 #include <vector>
+
+#include "utils/ring_buffer.hpp"
 
 using mosaic::RingBuffer;
 
@@ -33,7 +35,9 @@ TEST(RingBuffer, FullPush) {
 
 TEST(RingBuffer, OrderPreserved) {
     RingBuffer<int> buf(16);
-    for (int i = 0; i < 8; ++i) { EXPECT_TRUE(buf.push(i)); }
+    for (int i = 0; i < 8; ++i) {
+        EXPECT_TRUE(buf.push(i));
+    }
     for (int i = 0; i < 8; ++i) {
         int out{};
         EXPECT_TRUE(buf.pop(out));
@@ -48,14 +52,14 @@ TEST(RingBuffer, CapacityRoundsUpToPowerOfTwo) {
 
 TEST(RingBuffer, AvailableTracking) {
     RingBuffer<int> buf(8);
-    EXPECT_EQ(buf.available_read(),  0U);
+    EXPECT_EQ(buf.available_read(), 0U);
     EXPECT_EQ(buf.available_write(), 8U);
     (void)buf.push(1);
-    EXPECT_EQ(buf.available_read(),  1U);
+    EXPECT_EQ(buf.available_read(), 1U);
     EXPECT_EQ(buf.available_write(), 7U);
     int out{};
     (void)buf.pop(out);
-    EXPECT_EQ(buf.available_read(),  0U);
+    EXPECT_EQ(buf.available_read(), 0U);
     EXPECT_EQ(buf.available_write(), 8U);
 }
 
@@ -80,14 +84,16 @@ TEST(RingBuffer, ConcurrentSpsc) {
 
     std::thread producer([&] {
         for (int i = 0; i < kItems; ++i) {
-            while (!buf.push(i)) { /* spin */ }
+            while (!buf.push(i)) { /* spin */
+            }
         }
     });
 
     std::thread consumer([&] {
         for (int expected = 0; expected < kItems; ++expected) {
             int val{};
-            while (!buf.pop(val)) { /* spin */ }
+            while (!buf.pop(val)) { /* spin */
+            }
             EXPECT_EQ(val, expected);
         }
     });

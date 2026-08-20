@@ -1,23 +1,24 @@
 #include "video/frame_timestamp_writer.hpp"
-#include "utils/logger.hpp"
+
 #include <QFile>
 #include <QMutex>
 #include <QMutexLocker>
 #include <QTextStream>
 #include <atomic>
 
+#include "utils/logger.hpp"
+
 namespace mosaic {
 
 struct FrameTimestampWriter::Impl {
-    QFile           file;
-    QTextStream     stream;
-    QMutex          mutex;
+    QFile file;
+    QTextStream stream;
+    QMutex mutex;
     std::atomic<int64_t> count{0};
-    bool            open{false};
+    bool open{false};
 };
 
-FrameTimestampWriter::FrameTimestampWriter()
-    : d(std::make_unique<Impl>()) {}
+FrameTimestampWriter::FrameTimestampWriter() : d(std::make_unique<Impl>()) {}
 
 FrameTimestampWriter::~FrameTimestampWriter() { stop(); }
 
@@ -40,7 +41,8 @@ bool FrameTimestampWriter::start(const QString& path) {
     return true;
 }
 
-void FrameTimestampWriter::write(int64_t frameId, int64_t elapsedNs, int64_t wallNs, int64_t hwTimestampNs) {
+void FrameTimestampWriter::write(int64_t frameId, int64_t elapsedNs, int64_t wallNs,
+                                 int64_t hwTimestampNs) {
     QMutexLocker lock(&d->mutex);
     if (!d->open) return;
     d->stream << frameId << ',' << elapsedNs << ',' << wallNs << ',' << hwTimestampNs << '\n';
@@ -55,7 +57,7 @@ void FrameTimestampWriter::stop() {
     d->open = false;
 }
 
-bool    FrameTimestampWriter::is_open()        const { return d->open; }
+bool FrameTimestampWriter::is_open() const { return d->open; }
 int64_t FrameTimestampWriter::frames_written() const {
     return d->count.load(std::memory_order_relaxed);
 }

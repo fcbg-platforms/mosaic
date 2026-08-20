@@ -47,6 +47,7 @@ wall-clock receive time for display instead of interpreting these directly
 
 See analysis/README.rst for full documentation.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -65,27 +66,26 @@ _MODELS_DIR = Path(__file__).parent / "diarize" / "models"
 _MODELS_DIR.mkdir(parents=True, exist_ok=True)
 os.environ.setdefault("HF_HOME", str(_MODELS_DIR))
 
+import numpy as np  # noqa: E402
 from diarize.pipeline import load_whisper_model, resolve_device  # noqa: E402
 from transcribe.resample import pcm16_to_mono_float32, resample_to_16k  # noqa: E402
 from transcribe.windowing import Segment, confirm_segments, trim_buffer_samples  # noqa: E402
 
-import numpy as np  # noqa: E402
-
-_HEADER_FMT = "<iiiiii"   # mic, sample_rate, channels, sample_format, sample_count, reserved
+_HEADER_FMT = "<iiiiii"  # mic, sample_rate, channels, sample_format, sample_count, reserved
 _HEADER_SIZE = struct.calcsize(_HEADER_FMT)
 
 WHISPER_SAMPLE_RATE = 16000
-STEP_SEC = 1.5              # minimum new audio required before a pass is triggered
-WINDOW_MAX_SEC = 10.0        # hard cap on rolling-buffer length (safety valve)
-TRAILING_MARGIN_SEC = 1.0    # confirm rule margin (see windowing.py docstring)
-MIN_AUDIO_SEC = 0.5          # skip a pass if the buffer is shorter than this
+STEP_SEC = 1.5  # minimum new audio required before a pass is triggered
+WINDOW_MAX_SEC = 10.0  # hard cap on rolling-buffer length (safety valve)
+TRAILING_MARGIN_SEC = 1.0  # confirm rule margin (see windowing.py docstring)
+MIN_AUDIO_SEC = 0.5  # skip a pass if the buffer is shorter than this
 
 
 class MicState:
     def __init__(self) -> None:
-        self.buffer = np.zeros(0, dtype=np.float32)   # mono, 16kHz
-        self.buf_start_ms = 0.0                         # absolute ms of buffer[0]
-        self.new_audio_sec = 0.0                         # since last pass, gates STEP_SEC
+        self.buffer = np.zeros(0, dtype=np.float32)  # mono, 16kHz
+        self.buf_start_ms = 0.0  # absolute ms of buffer[0]
+        self.new_audio_sec = 0.0  # since last pass, gates STEP_SEC
 
 
 def read_chunk() -> tuple[int, int, int, np.ndarray] | tuple[None, None, None, None]:
@@ -97,7 +97,8 @@ def read_chunk() -> tuple[int, int, int, np.ndarray] | tuple[None, None, None, N
         return None, None, None, None
 
     mic, sample_rate, channels, sample_format, sample_count, _reserved = struct.unpack(
-        _HEADER_FMT, header)
+        _HEADER_FMT, header
+    )
     n_bytes = sample_count * channels * 2
     payload = sys.stdin.buffer.read(n_bytes)
     if len(payload) < n_bytes:
@@ -123,14 +124,18 @@ def run_pass(model, mic: int, state: MicState) -> dict | None:
 
     t0 = time.perf_counter()
     segments_iter, _info = model.transcribe(
-        state.buffer, language=None, vad_filter=True,
-        condition_on_previous_text=False, beam_size=1,
+        state.buffer,
+        language=None,
+        vad_filter=True,
+        condition_on_previous_text=False,
+        beam_size=1,
     )
     segments = [Segment(s.start, s.end, s.text.strip()) for s in segments_iter]
     pass_ms = (time.perf_counter() - t0) * 1000.0
 
     confirmed, tentative_text, watermark = confirm_segments(
-        segments, buffer_duration_sec, TRAILING_MARGIN_SEC)
+        segments, buffer_duration_sec, TRAILING_MARGIN_SEC
+    )
 
     # Safety valve: if nothing confirmed and the buffer is at its cap, force
     # a trim to bound growth (documented limitation — see windowing.py).
@@ -138,9 +143,11 @@ def run_pass(model, mic: int, state: MicState) -> dict | None:
         watermark = max(0.0, buffer_duration_sec - TRAILING_MARGIN_SEC)
 
     new_final_segments = [
-        {"start_ms": round(state.buf_start_ms + s.start_sec * 1000),
-         "end_ms":   round(state.buf_start_ms + s.end_sec * 1000),
-         "text":     s.text}
+        {
+            "start_ms": round(state.buf_start_ms + s.start_sec * 1000),
+            "end_ms": round(state.buf_start_ms + s.end_sec * 1000),
+            "text": s.text,
+        }
         for s in confirmed
     ]
 
@@ -160,14 +167,18 @@ def run_pass(model, mic: int, state: MicState) -> dict | None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="MOSAIC live transcription IPC server")
-    parser.add_argument("--model", default="tiny",
-                         choices=["tiny", "base", "small", "medium", "large-v3"])
+    parser.add_argument(
+        "--model", default="tiny", choices=["tiny", "base", "small", "medium", "large-v3"]
+    )
     parser.add_argument("--device", default=None)
     args = parser.parse_args()
 
     device = resolve_device(args.device)
-    print(f"[run_live_transcribe] Loading whisper model={args.model} device={device}...",
-          file=sys.stderr, flush=True)
+    print(
+        f"[run_live_transcribe] Loading whisper model={args.model} device={device}...",
+        file=sys.stderr,
+        flush=True,
+    )
     model = load_whisper_model(args.model, device)
     print("[run_live_transcribe] Ready.", file=sys.stderr, flush=True)
 

@@ -1,6 +1,7 @@
 #pragma once
-#include "calibration/rms_quality.hpp"
 #include <QString>
+
+#include "calibration/rms_quality.hpp"
 
 namespace mosaic {
 

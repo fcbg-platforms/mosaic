@@ -1,5 +1,6 @@
-#include "utils/dpapi_crypt.hpp"
 #include <gtest/gtest.h>
+
+#include "utils/dpapi_crypt.hpp"
 
 namespace mosaic {
 
@@ -10,7 +11,7 @@ TEST(DpapiCrypt, RoundTripsANormalToken) {
     // protection) — any plain string exercises the same code path, since
     // dpapi_encrypt()/dpapi_decrypt() have no format-specific logic at all.
     const QString original = "not-a-real-token-just-test-fixture-text-12345";
-    const QString stored    = dpapi_encrypt(original);
+    const QString stored   = dpapi_encrypt(original);
     EXPECT_EQ(dpapi_decrypt(stored), original);
 }
 
@@ -20,7 +21,7 @@ TEST(DpapiCrypt, EncryptingProducesTheVersionedMarkerOnWindows) {
 #if defined(Q_OS_WIN)
     const QString stored = dpapi_encrypt("some-token");
     EXPECT_TRUE(stored.startsWith("dpapi:v1:"));
-    EXPECT_NE(stored, "some-token");   // must not be stored as plaintext
+    EXPECT_NE(stored, "some-token"); // must not be stored as plaintext
 #else
     GTEST_SKIP() << "DPAPI marker only applies on Windows builds";
 #endif

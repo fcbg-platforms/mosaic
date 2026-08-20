@@ -17,32 +17,32 @@ using Vec3 = std::array<double, 3>;
 /// One contributing camera's raw gaze data within a single fused frame.
 /// Mirrors run_gaze_fusion.py's per-frame "per_camera" entries exactly.
 struct GazeFusionCamera {
-    int    cameraIndex = -1;
-    QRectF faceBoxPx;              ///< face_box_px, that camera's video pixel space.
+    int cameraIndex = -1;
+    QRectF faceBoxPx; ///< face_box_px, that camera's video pixel space.
     double gazeDx = 0.0, gazeDy = 0.0;
-    Vec3   originRoom    = {0, 0, 0};
-    Vec3   directionRoom = {0, 0, 0};
-    double confidence    = 0.0;
+    Vec3 originRoom    = {0, 0, 0};
+    Vec3 directionRoom = {0, 0, 0};
+    double confidence  = 0.0;
 };
 
 /// Static per-camera room position (extrinsic_rt's translation column),
 /// written once per file — used by the room-view widget's camera icons.
 struct GazeFusionRoomCamera {
-    int  index = -1;
+    int index         = -1;
     Vec3 positionRoom = {0, 0, 0};
 };
 
 /// One fused master-tick. Mirrors run_gaze_fusion.py's per-frame JSON object.
 struct GazeFusionFrame {
-    int64_t tick           = 0;
-    int64_t timestampNs    = 0;
-    int     numCameras     = 0;
-    bool    isTriangulated = false;
-    Vec3    fusedOriginRoom    = {0, 0, 0};
-    Vec3    fusedDirectionRoom = {0, 0, 0};
-    double  residualRmsMm  = -1.0;   ///< -1 = not applicable (numCameras < 2).
-    bool    hasTarget      = false;
-    Vec3    targetPointRoom = {0, 0, 0};
+    int64_t tick            = 0;
+    int64_t timestampNs     = 0;
+    int numCameras          = 0;
+    bool isTriangulated     = false;
+    Vec3 fusedOriginRoom    = {0, 0, 0};
+    Vec3 fusedDirectionRoom = {0, 0, 0};
+    double residualRmsMm    = -1.0; ///< -1 = not applicable (numCameras < 2).
+    bool hasTarget          = false;
+    Vec3 targetPointRoom    = {0, 0, 0};
     QVector<GazeFusionCamera> perCamera;
 };
 
@@ -62,7 +62,7 @@ struct GazeFusionFrame {
 ///   if (result.is_valid()) { ... }
 /// @endcode
 class GazeFusionResult {
-public:
+   public:
     GazeFusionResult() = default;
 
     /// Parses jsonPath. Returns a default-constructed (is_valid() == false)
@@ -84,14 +84,14 @@ public:
     /// nullptr if there are no frames.
     [[nodiscard]] const GazeFusionFrame* nearest_frame(int64_t timestampNsEstimate) const;
 
-private:
-    bool        valid_        = false;
+   private:
+    bool valid_ = false;
     QStringList sourceVideos_;
     QVector<GazeFusionRoomCamera> cameras_;
-    bool        planeDefined_ = false;
-    Vec3        planePoint_  = {0, 0, 0};
-    Vec3        planeNormal_ = {0, 0, 1};
-    double      masterFps_    = 25.0;
+    bool planeDefined_ = false;
+    Vec3 planePoint_   = {0, 0, 0};
+    Vec3 planeNormal_  = {0, 0, 1};
+    double masterFps_  = 25.0;
     QVector<GazeFusionFrame> frames_;
 };
 

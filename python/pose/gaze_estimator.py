@@ -12,9 +12,9 @@ The standard face_landmarker model outputs 478 landmarks:
 Gaze direction is estimated from the iris-centre offset relative to the
 eye-socket centre, normalised by the inter-canthus width of that eye.
 """
+
 from __future__ import annotations
 
-import os
 import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
@@ -26,22 +26,22 @@ from mediapipe.tasks import python as _mp_python
 from mediapipe.tasks.python import vision as _mp_vision
 
 # ── Landmark indices ───────────────────────────────────────────────────────
-_LEFT_IRIS_CENTER  = 468
+_LEFT_IRIS_CENTER = 468
 _RIGHT_IRIS_CENTER = 473
 
-_LEFT_EYE_OUTER   = 33
-_LEFT_EYE_INNER   = 133
-_LEFT_EYE_TOP     = 159
-_LEFT_EYE_BOTTOM  = 145
+_LEFT_EYE_OUTER = 33
+_LEFT_EYE_INNER = 133
+_LEFT_EYE_TOP = 159
+_LEFT_EYE_BOTTOM = 145
 
-_RIGHT_EYE_INNER  = 362
-_RIGHT_EYE_OUTER  = 263
-_RIGHT_EYE_TOP    = 386
+_RIGHT_EYE_INNER = 362
+_RIGHT_EYE_OUTER = 263
+_RIGHT_EYE_TOP = 386
 _RIGHT_EYE_BOTTOM = 374
 
-_HERE       = Path(__file__).parent
+_HERE = Path(__file__).parent
 _MODEL_FILE = _HERE / "face_landmarker.task"
-_MODEL_URL  = (
+_MODEL_URL = (
     "https://storage.googleapis.com/mediapipe-models/"
     "face_landmarker/face_landmarker/float16/1/face_landmarker.task"
 )
@@ -49,7 +49,7 @@ _MODEL_URL  = (
 
 def _ensure_model() -> str:
     if not _MODEL_FILE.exists():
-        print(f"[gaze] Downloading face_landmarker.task …", flush=True)
+        print("[gaze] Downloading face_landmarker.task …", flush=True)
         urllib.request.urlretrieve(_MODEL_URL, _MODEL_FILE)
         print(f"[gaze] Downloaded to {_MODEL_FILE}", flush=True)
     return str(_MODEL_FILE)
@@ -57,20 +57,24 @@ def _ensure_model() -> str:
 
 @dataclass
 class GazeResult:
-    face_box:   tuple[float, float, float, float]  # x, y, w, h  (0-1 normalised)
-    left_iris:  tuple[float, float]               # normalised x, y
+    face_box: tuple[float, float, float, float]  # x, y, w, h  (0-1 normalised)
+    left_iris: tuple[float, float]  # normalised x, y
     right_iris: tuple[float, float]
-    gaze_dx:    float                             # -1 = left, +1 = right
-    gaze_dy:    float                             # -1 = up,   +1 = down
+    gaze_dx: float  # -1 = left, +1 = right
+    gaze_dy: float  # -1 = up,   +1 = down
 
     def to_dict(self) -> dict:
         return {
-            "face_box":   {"x": self.face_box[0], "y": self.face_box[1],
-                           "w": self.face_box[2], "h": self.face_box[3]},
-            "left_iris":  {"x": self.left_iris[0],  "y": self.left_iris[1]},
+            "face_box": {
+                "x": self.face_box[0],
+                "y": self.face_box[1],
+                "w": self.face_box[2],
+                "h": self.face_box[3],
+            },
+            "left_iris": {"x": self.left_iris[0], "y": self.left_iris[1]},
             "right_iris": {"x": self.right_iris[0], "y": self.right_iris[1]},
-            "gaze_dx":    self.gaze_dx,
-            "gaze_dy":    self.gaze_dy,
+            "gaze_dx": self.gaze_dx,
+            "gaze_dy": self.gaze_dy,
         }
 
 
@@ -93,9 +97,9 @@ class GazeEstimator:
 
     def estimate(self, frame_bgr: np.ndarray) -> GazeResult | None:
         """Run gaze estimation on one BGR frame.  Returns GazeResult or None."""
-        rgb      = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
+        rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
         mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
-        result   = self._landmarker.detect(mp_image)
+        result = self._landmarker.detect(mp_image)
 
         if not result.face_landmarks:
             return None
@@ -111,17 +115,17 @@ class GazeEstimator:
         fw, fh = max(xs) - fx, max(ys) - fy
 
         # ── Iris centres ───────────────────────────────────────────────────
-        li_x, li_y = lm[_LEFT_IRIS_CENTER].x,  lm[_LEFT_IRIS_CENTER].y
+        li_x, li_y = lm[_LEFT_IRIS_CENTER].x, lm[_LEFT_IRIS_CENTER].y
         ri_x, ri_y = lm[_RIGHT_IRIS_CENTER].x, lm[_RIGHT_IRIS_CENTER].y
 
         # ── Eye-socket geometry for normalisation ──────────────────────────
-        left_cx  = (lm[_LEFT_EYE_OUTER].x  + lm[_LEFT_EYE_INNER].x)  / 2
-        left_cy  = (lm[_LEFT_EYE_TOP].y    + lm[_LEFT_EYE_BOTTOM].y) / 2
-        left_w   = abs(lm[_LEFT_EYE_OUTER].x - lm[_LEFT_EYE_INNER].x)
+        left_cx = (lm[_LEFT_EYE_OUTER].x + lm[_LEFT_EYE_INNER].x) / 2
+        left_cy = (lm[_LEFT_EYE_TOP].y + lm[_LEFT_EYE_BOTTOM].y) / 2
+        left_w = abs(lm[_LEFT_EYE_OUTER].x - lm[_LEFT_EYE_INNER].x)
 
         right_cx = (lm[_RIGHT_EYE_INNER].x + lm[_RIGHT_EYE_OUTER].x) / 2
-        right_cy = (lm[_RIGHT_EYE_TOP].y   + lm[_RIGHT_EYE_BOTTOM].y) / 2
-        right_w  = abs(lm[_RIGHT_EYE_INNER].x - lm[_RIGHT_EYE_OUTER].x)
+        right_cy = (lm[_RIGHT_EYE_TOP].y + lm[_RIGHT_EYE_BOTTOM].y) / 2
+        right_w = abs(lm[_RIGHT_EYE_INNER].x - lm[_RIGHT_EYE_OUTER].x)
 
         eye_w = (left_w + right_w) / 2
         if eye_w < 1e-6:
@@ -145,7 +149,7 @@ class GazeEstimator:
     def close(self) -> None:
         self._landmarker.close()
 
-    def __enter__(self) -> "GazeEstimator":
+    def __enter__(self) -> GazeEstimator:
         return self
 
     def __exit__(self, *_) -> None:
