@@ -197,6 +197,19 @@ void AnalysisManager::run_rppg_analysis(const QString& sessionPath, const QStrin
     enqueue_or_launch(sessionPath, "analysis/run_rppg.py", args, {});
 }
 
+void AnalysisManager::run_gaze2d_analysis(const QString& sessionPath, double minConfidence,
+                                          int frameSkip) {
+    const QStringList args = {
+        "--session",        sessionPath,
+        "--min-confidence", QString::number(minConfidence),
+        "--skip",           QString::number(qMax(1, frameSkip)),
+    };
+    // No secrets involved. No sync_manifest.json pre-generation, unlike
+    // run_gaze_fusion()/run_pose3d_reconstruction() — single-camera
+    // analysis, no cross-camera sync dependency, same as run_rppg_analysis().
+    enqueue_or_launch(sessionPath, "analysis/run_gaze2d.py", args, {});
+}
+
 void AnalysisManager::enqueue_or_launch(const QString& sessionPath, const QString& scriptRelPath,
                                         const QStringList& args, const QProcessEnvironment& env) {
     const Job job{sessionPath, scriptRelPath, args, env};

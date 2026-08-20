@@ -152,6 +152,9 @@ class SessionRow : public QWidget {
         if (m_info.hasRppg) {
             drawBadge("HR", QColor("#2a0a14"), QColor("#ff5577"));
         }
+        if (m_info.hasGaze2d) {
+            drawBadge("GAZE 2D", QColor("#2a2a0a"), QColor("#dddd44"));
+        }
         if (!m_info.annotations.isEmpty()) {
             drawBadge(QString("%1 notes").arg(m_info.annotations.size()), QColor("#1a100a"),
                       QColor("#cc8844"));

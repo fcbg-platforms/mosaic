@@ -75,6 +75,13 @@ live only in a PR description or a plan file where it'll be forgotten.
       truth.
 - [ ] rPPG debug overlay — confirm the ROI boxes actually track forehead/cheek skin, not
       hair/background, on real footage.
+- [ ] 2D Gaze (calibration-free) — run against a real recorded session with a visible face;
+      confirm the bbox+direction-arrow video overlay tracks the subject's real gaze direction,
+      the dx/dy/magnitude chart populates plausibly, and the stats readout (`% frames with face`,
+      mean dx/dy, `% on target`) looks sensible. Confirm the `SessionBrowserW` "GAZE 2D" badge
+      (yellow, distinct from "GAZE"'s cyan Multi-Camera Gaze Fusion badge) appears correctly and
+      the two plugins' outputs aren't cross-classified (both write files containing the substring
+      "gaze").
 
 ## Real-time tab
 

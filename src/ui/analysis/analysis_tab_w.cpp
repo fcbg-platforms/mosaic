@@ -50,6 +50,7 @@
 #include <limits>
 
 #include "analysis/expression_result.hpp"
+#include "analysis/gaze2d_result.hpp"
 #include "analysis/gaze_fusion_result.hpp"
 #include "analysis/pose_analysis_result.hpp"
 #include "analysis/pose_kinematics.hpp"
@@ -758,9 +759,11 @@ struct AnalysisTabW::Impl {
     QSpinBox* pose3dSmoothingWindowSpin      = nullptr; // pose3d
     QCheckBox* showSmoothedCheck = nullptr; // pose3d — room view only, see set_show_smoothed()
     QComboBox* rppgBackendCombo  = nullptr; // rppg
-    QDoubleSpinBox* rppgWindowSecSpin = nullptr; // rppg
-    QDoubleSpinBox* rppgHopSecSpin    = nullptr; // rppg
-    QSpinBox* rppgSmoothingSpin       = nullptr; // rppg
+    QDoubleSpinBox* rppgWindowSecSpin       = nullptr; // rppg
+    QDoubleSpinBox* rppgHopSecSpin          = nullptr; // rppg
+    QSpinBox* rppgSmoothingSpin             = nullptr; // rppg
+    QDoubleSpinBox* gaze2dMinConfidenceSpin = nullptr; // gaze2d
+    QSpinBox* gaze2dSkipSpin                = nullptr; // gaze2d
 
     QPushButton* runBtn = nullptr;
     QLabel* statusLbl   = nullptr;
@@ -859,6 +862,18 @@ struct AnalysisTabW::Impl {
                                                 // pose_tracking_quality_for() already established
     QPushButton* exportRppgBtn = nullptr;       // rppg only
 
+    // Calibration-free 2D Gaze view controls — mirrors rppgRowW's
+    // own-container pattern. Reuses the shared MetricsChartW (via
+    // set_single_series()) for the dx/dy/magnitude-over-time trace, same
+    // reuse rppg/pose-kinematics already established. metricCombo below is
+    // pose kinematics' own Position/Speed/Acceleration combo — this
+    // plugin gets its own separate combo (gaze2dMetricCombo) since its
+    // metric choices (dx/dy/magnitude) are a different vocabulary.
+    QWidget* gaze2dRowW          = nullptr; // gaze2d only
+    QComboBox* gaze2dMetricCombo = nullptr; // gaze2d only — dx / dy / magnitude
+    QLabel* gaze2dStatsLbl       = nullptr; // gaze2d only
+    QPushButton* exportGaze2dBtn = nullptr; // gaze2d only
+
     // Kinematics view controls — reshape how the already-loaded
     // currentResult is displayed, not what gets launched (unlike runBox's
     // model/skip controls), so they live in their own row. Pose only —
@@ -887,6 +902,7 @@ struct AnalysisTabW::Impl {
     Skeleton3DResult currentSkeleton3D;       // pose3d only
     TriggerFrameMap currentTriggerFrameMap;   // trigger_sync only
     RppgResult currentRppgResult;             // rppg only
+    Gaze2dResult currentGaze2dResult;         // gaze2d only
 
     // AnalysisManager is a single shared instance (also used by
     // SessionBrowserW's "Run Pose" button and PerformanceMonitorW's
@@ -935,6 +951,7 @@ struct AnalysisTabW::Impl {
         currentSkeleton3D       = Skeleton3DResult();
         currentTriggerFrameMap  = TriggerFrameMap();
         currentRppgResult       = RppgResult();
+        currentGaze2dResult     = Gaze2dResult();
     }
 };
 
@@ -1101,6 +1118,7 @@ void AnalysisTabW::build_ui() {
     d->pluginCombo->addItem("3D Pose Reconstruction", "pose3d");
     d->pluginCombo->addItem("EEG/Trigger ↔ Frame Sync", "trigger_sync");
     d->pluginCombo->addItem("Remote Heart Rate (rPPG, experimental)", "rppg");
+    d->pluginCombo->addItem("2D Gaze (calibration-free)", "gaze2d");
     controlsRow->addWidget(new QLabel("Plugin:"));
     controlsRow->addWidget(d->pluginCombo);
     connect(d->pluginCombo, &QComboBox::currentIndexChanged, this, &AnalysisTabW::select_plugin);
@@ -1466,6 +1484,31 @@ void AnalysisTabW::build_ui() {
         "too, regardless of this setting.");
     rppgCtlLay->addWidget(d->rppgSmoothingSpin);
     d->controlsStack->addWidget(rppgPage);
+
+    // ── 2D Gaze (calibration-free) controls page ────────────────────────
+    // No backend choice (unlike rPPG's 3 algorithms) — there's only one
+    // iris-offset heuristic, the same one already running live in the
+    // Real-time tab. Frame-skip IS offered here (unlike rPPG), matching
+    // Pose's/Expression's convention — see analysis/run_gaze2d.py's own
+    // module doc comment for why this differs from rPPG's Nyquist-driven
+    // omission.
+    auto* gaze2dPage   = new QWidget;
+    auto* gaze2dCtlLay = new QHBoxLayout(gaze2dPage);
+    gaze2dCtlLay->setContentsMargins(0, 0, 0, 0);
+
+    d->gaze2dMinConfidenceSpin = new QDoubleSpinBox;
+    d->gaze2dMinConfidenceSpin->setRange(0.1, 1.0);
+    d->gaze2dMinConfidenceSpin->setSingleStep(0.05);
+    d->gaze2dMinConfidenceSpin->setValue(0.5);
+    d->gaze2dMinConfidenceSpin->setPrefix("min conf ");
+    gaze2dCtlLay->addWidget(d->gaze2dMinConfidenceSpin);
+
+    d->gaze2dSkipSpin = new QSpinBox;
+    d->gaze2dSkipSpin->setRange(1, 30);
+    d->gaze2dSkipSpin->setValue(1);
+    d->gaze2dSkipSpin->setPrefix("skip ");
+    gaze2dCtlLay->addWidget(d->gaze2dSkipSpin);
+    d->controlsStack->addWidget(gaze2dPage);
 
     controlsRow->addWidget(d->controlsStack, 1);
 
@@ -1883,6 +1926,33 @@ void AnalysisTabW::build_ui() {
     d->rppgRowW->setVisible(false); // shown only for the rppg plugin
     rightLay->addWidget(d->rppgRowW);
 
+    // ── 2D Gaze (calibration-free) view controls: metric combo (dx / dy /
+    //    magnitude), stats readout, and CSV export. gaze2d only — own
+    //    container so select_plugin() can hide the whole row with one call.
+    d->gaze2dRowW      = new QWidget;
+    auto* gaze2dRowLay = new QHBoxLayout(d->gaze2dRowW);
+    gaze2dRowLay->setContentsMargins(0, 0, 0, 0);
+
+    d->gaze2dMetricCombo = new QComboBox;
+    d->gaze2dMetricCombo->addItem("dx", "dx");
+    d->gaze2dMetricCombo->addItem("dy", "dy");
+    d->gaze2dMetricCombo->addItem("magnitude", "magnitude");
+    connect(d->gaze2dMetricCombo, &QComboBox::currentIndexChanged, this,
+            &AnalysisTabW::update_gaze2d_view);
+    gaze2dRowLay->addWidget(new QLabel("Metric:"));
+    gaze2dRowLay->addWidget(d->gaze2dMetricCombo);
+
+    d->gaze2dStatsLbl = new QLabel;
+    d->gaze2dStatsLbl->setStyleSheet("color:#7070a0; font-size:11px;");
+    gaze2dRowLay->addWidget(d->gaze2dStatsLbl, 1);
+
+    d->exportGaze2dBtn = new QPushButton("Export CSV");
+    connect(d->exportGaze2dBtn, &QPushButton::clicked, this, &AnalysisTabW::export_gaze2d_csv);
+    gaze2dRowLay->addWidget(d->exportGaze2dBtn);
+
+    d->gaze2dRowW->setVisible(false); // shown only for the gaze2d plugin
+    rightLay->addWidget(d->gaze2dRowW);
+
     d->resultsSplitter     = new QSplitter(Qt::Horizontal);
     auto*& resultsSplitter = d->resultsSplitter;
     d->player = new PoseOverlayPlayerW;    // reused for audio-only playback in diarize mode too —
@@ -2080,6 +2150,7 @@ void AnalysisTabW::select_plugin(int index) {
     const bool isPose3D      = is_pose3d_plugin();
     const bool isTriggerSync = is_trigger_sync_plugin();
     const bool isRppg        = is_rppg_plugin();
+    const bool isGaze2d      = is_gaze2d_plugin();
     // A depth model selected within the Pose plugin produces a colorized
     // video, not keypoints — the keypoint/chart controls below need to stay
     // hidden for it, same as they are for every non-pose plugin.
@@ -2104,7 +2175,7 @@ void AnalysisTabW::select_plugin(int index) {
     set_visible_animated(d->depthModeHintLbl, isPose && is_pose_depth_selected());
     set_visible_animated(d->blendshapeFieldW, isExpression);
     set_visible_animated(d->trackFieldW, isPose3D);
-    set_visible_animated(d->chart, isPoseKeypoints || isExpression || isRppg);
+    set_visible_animated(d->chart, isPoseKeypoints || isExpression || isRppg || isGaze2d);
     set_visible_animated(d->kinematicsRowW, isPoseKeypoints);
     // subjectPickerRowW's own further narrowing (hidden when the session has
     // <=1 detected subject) happens inside rebuild_subject_chips(), called
@@ -2121,6 +2192,7 @@ void AnalysisTabW::select_plugin(int index) {
     set_visible_animated(d->triggerSyncRowW, isTriggerSync);
     set_visible_animated(d->triggerSyncTable, isTriggerSync);
     set_visible_animated(d->rppgRowW, isRppg);
+    set_visible_animated(d->gaze2dRowW, isGaze2d);
     set_visible_animated(d->openFolderBtn, isFaceMask || is_pose_depth_selected());
     set_visible_animated(d->sourceRowW, !isDiarize);
     set_visible_animated(d->micRowW, isDiarize);
@@ -2228,6 +2300,15 @@ QString AnalysisTabW::rppg_json_path_for(const QString& videoRelPath) const {
            d->rppgBackendCombo->currentData().toString() + ".rppg.json";
 }
 
+QString AnalysisTabW::gaze2d_json_path_for(const QString& videoRelPath) const {
+    // Own subfolder — mirrors pose_json_path_for()'s/expression_json_path_for()'s
+    // exact convention, see analysis/run_gaze2d.py::process_session()'s
+    // matching gaze2d_dir. No model/backend namespacing (unlike Pose's/
+    // rPPG's) — there's only one algorithm. Same forward-only caveat as
+    // every other subfolder-relocated plugin.
+    return "gaze2d/" + QFileInfo(videoRelPath).completeBaseName() + ".gaze2d.json";
+}
+
 bool AnalysisTabW::is_pose_plugin() const {
     return d->pluginCombo->currentData().toString() == "pose";
 }
@@ -2258,6 +2339,10 @@ bool AnalysisTabW::is_trigger_sync_plugin() const {
 
 bool AnalysisTabW::is_rppg_plugin() const {
     return d->pluginCombo->currentData().toString() == "rppg";
+}
+
+bool AnalysisTabW::is_gaze2d_plugin() const {
+    return d->pluginCombo->currentData().toString() == "gaze2d";
 }
 
 bool AnalysisTabW::is_pose_depth_selected() const {
@@ -2454,6 +2539,7 @@ void AnalysisTabW::reload_current_camera_result() {
         update_kinematics_chart();
         update_expression_view();
         update_rppg_view();
+        update_gaze2d_view();
         return;
     }
 
@@ -2589,6 +2675,28 @@ void AnalysisTabW::reload_current_camera_result() {
                 "rPPG ran, but no window had a reliable estimate in this "
                 "camera's footage — try a different camera, better lighting, "
                 "or check the subject held still and faced the camera.");
+            d->statusLbl->setStyleSheet("color:#ddaa33; font-size:15px; font-weight:600;");
+        }
+        return;
+    }
+
+    if (is_gaze2d_plugin()) {
+        d->player->set_video(videoAbs);
+
+        const QString gaze2dAbs = info->path + "/" + gaze2d_json_path_for(videoRel);
+        d->currentGaze2dResult =
+            QFileInfo::exists(gaze2dAbs) ? Gaze2dResult::load(gaze2dAbs) : Gaze2dResult();
+        d->player->set_gaze2d_result(d->currentGaze2dResult, d->cameraCombo->currentIndex());
+
+        update_gaze2d_view();
+
+        if (!d->currentGaze2dResult.is_valid() || d->currentGaze2dResult.frames().isEmpty()) {
+            d->statusLbl->setText("No analysis yet for this camera — click Run.");
+            d->statusLbl->setStyleSheet("color:#6060a0; font-size:15px; font-weight:600;");
+        } else if (d->currentGaze2dResult.pct_frames_with_face() <= 0.0) {
+            d->statusLbl->setText(
+                "2D Gaze ran, but no face was detected in this camera's "
+                "footage — try a different camera, or check its framing/lighting.");
             d->statusLbl->setStyleSheet("color:#ddaa33; font-size:15px; font-weight:600;");
         }
         return;
@@ -3456,6 +3564,90 @@ void AnalysisTabW::export_rppg_csv() {
     });
 }
 
+void AnalysisTabW::update_gaze2d_view() {
+    const auto& result = d->currentGaze2dResult;
+    if (!result.is_valid() || result.frames().isEmpty()) {
+        d->chart->set_single_series({}, "Gaze");
+        d->chart->set_title("No analysis yet");
+        d->gaze2dStatsLbl->clear();
+        d->chart->set_playhead_ms(d->player->position_ms());
+        return;
+    }
+
+    const QString metric = d->gaze2dMetricCombo->currentData().toString();
+
+    // Gaze2dFrame::timestampMs is app-launch-relative (elapsed_ns from
+    // timestamps_camN.csv), NOT video-relative — same convention
+    // RppgFrame/RppgWindow use (see PoseOverlayPlayerW::Impl::
+    // gaze2d_timestamp_estimate()'s doc comment). The chart's x-axis and
+    // set_playhead_ms() below both operate in the PLAYER's video-relative
+    // (0-based) timeline, so t0 must be subtracted here before plotting —
+    // matching update_expression_view()'s identical t0-normalization,
+    // rather than plotting the raw absolute timestamp (which would offset
+    // every point, and the playhead line, by the recording's pre-analysis
+    // elapsed time).
+    const int64_t t0 = result.frames().first().timestampMs;
+
+    QVector<QPointF> points;
+    points.reserve(result.frames().size());
+    for (const auto& frame : result.frames()) {
+        if (!frame.faceDetected) {
+            continue; // no detection this frame — skip, don't fabricate
+        }
+        double value = 0.0;
+        if (metric == "dx") {
+            value = frame.gazeDx;
+        } else if (metric == "dy") {
+            value = frame.gazeDy;
+        } else {
+            value = std::hypot(frame.gazeDx, frame.gazeDy);
+        }
+        points.append(QPointF(static_cast<double>(frame.timestampMs - t0), value));
+    }
+
+    // Floors the axis at the last analyzed frame's own (t0-relative)
+    // timestamp (regardless of whether every frame had a detected face),
+    // matching update_expression_view()'s identical reasoning for why the
+    // axis must span the full analyzed range, not just the plotted points.
+    const double lastAnalyzedMs = static_cast<double>(result.frames().last().timestampMs - t0);
+    d->chart->set_single_series(points, "Gaze " + metric, QString(), lastAnalyzedMs);
+    d->chart->set_title("2D Gaze — " + metric);
+    d->chart->set_playhead_ms(d->player->position_ms());
+
+    QStringList parts;
+    parts << QString("%1% frames with face").arg(result.pct_frames_with_face() * 100.0, 0, 'f', 0);
+    if (result.mean_gaze_dx() && result.mean_gaze_dy()) {
+        parts << QString("mean dx %1  dy %2")
+                     .arg(*result.mean_gaze_dx(), 0, 'f', 2)
+                     .arg(*result.mean_gaze_dy(), 0, 'f', 2);
+    }
+    if (result.pct_on_target()) {
+        parts << QString("%1% on target").arg(*result.pct_on_target() * 100.0, 0, 'f', 0);
+    }
+    d->gaze2dStatsLbl->setText(parts.join("  ·  "));
+}
+
+void AnalysisTabW::export_gaze2d_csv() {
+    const auto* info = d->current_session();
+    if (!info || !d->currentGaze2dResult.is_valid()) {
+        return;
+    }
+
+    const QString suggested = info->path + "/gaze2d.csv";
+
+    export_csv(this, "Export 2D Gaze", suggested, [&](QTextStream& ts) {
+        ts << "frame_index,timestamp_ms,face_detected,face_box_x,face_box_y,face_box_w,"
+              "face_box_h,gaze_dx,gaze_dy\n";
+        for (const auto& frame : d->currentGaze2dResult.frames()) {
+            ts << frame.frameIndex << "," << frame.timestampMs << "," << frame.faceDetected << ","
+               << frame.faceBoxPx.x() << "," << frame.faceBoxPx.y() << ","
+               << frame.faceBoxPx.width() << "," << frame.faceBoxPx.height() << ","
+               << (frame.faceDetected ? QString::number(frame.gazeDx) : QString()) << ","
+               << (frame.faceDetected ? QString::number(frame.gazeDy) : QString()) << "\n";
+        }
+    });
+}
+
 void AnalysisTabW::run_analysis() {
     if (d->currentSessionPath.isEmpty()) {
         return;
@@ -3554,6 +3746,9 @@ void AnalysisTabW::run_analysis() {
                                           d->rppgBackendCombo->currentData().toString(),
                                           d->rppgWindowSecSpin->value(), d->rppgHopSecSpin->value(),
                                           d->rppgSmoothingSpin->value());
+    } else if (plugin == "gaze2d") {
+        d->analysisMgr->run_gaze2d_analysis(
+            d->currentSessionPath, d->gaze2dMinConfidenceSpin->value(), d->gaze2dSkipSpin->value());
     } else {
         // Defensive: pluginCombo only ever offers the ids handled above, but
         // a silent fallthrough here would otherwise launch face-masking with
