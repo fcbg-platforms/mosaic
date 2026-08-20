@@ -83,6 +83,7 @@ struct SessionInfo {
     bool hasGazeFusion     = false;
     bool hasSkeleton3D     = false;
     bool hasRppg           = false;
+    bool hasGaze2d         = false;
     QStringList videoFiles;
     QStringList audioFiles;
     QStringList analysisFiles;
@@ -113,12 +114,13 @@ struct SessionInfo {
         // Video/audio recordings live under video/ and audio/ subfolders.
         // Pose output has its own pose/ subfolder (analysis/run_pose.py's
         // pose_dir), Expression has its own expression/ subfolder
-        // (analysis/run_expression.py's expression_dir), and rPPG has its
-        // own rppg/ subfolder (analysis/run_rppg.py's rppg_dir); per-video
-        // motion output still lands beside its source video in video/;
-        // session-level aggregate motion output (motion_results.*,
+        // (analysis/run_expression.py's expression_dir), rPPG has its own
+        // rppg/ subfolder (analysis/run_rppg.py's rppg_dir), and 2D Gaze has
+        // its own gaze2d/ subfolder (analysis/run_gaze2d.py's gaze2d_dir);
+        // per-video motion output still lands beside its source video in
+        // video/; session-level aggregate motion output (motion_results.*,
         // motion_heatmap.png, …) stays at the session root — so analysis
-        // files are scanned across all six locations. Entries are stored
+        // files are scanned across all seven locations. Entries are stored
         // as paths relative to the session dir (e.g. "video/video_0.mp4",
         // "pose/video_0.pose.json") so callers can join them onto `path`
         // directly without needing to know which subfolder a given file
@@ -155,7 +157,13 @@ struct SessionInfo {
                     if (fi.fileName().contains("expression")) {
                         info.hasExpression = true;
                     }
-                    if (fi.fileName().contains("gaze")) {
+                    // Checked before the plain "gaze" substring below —
+                    // "video_0.gaze2d.json" also contains "gaze", and would
+                    // otherwise be mis-classified as Multi-Camera Gaze
+                    // Fusion output too.
+                    if (fi.fileName().contains("gaze2d")) {
+                        info.hasGaze2d = true;
+                    } else if (fi.fileName().contains("gaze")) {
                         info.hasGazeFusion = true;
                     }
                     if (fi.fileName().contains("skeleton")) {
@@ -173,6 +181,7 @@ struct SessionInfo {
         classify(QDir(dir + "/pose"), "pose/");
         classify(QDir(dir + "/expression"), "expression/");
         classify(QDir(dir + "/rppg"), "rppg/");
+        classify(QDir(dir + "/gaze2d"), "gaze2d/");
 
         // Approximate duration: video file mtime vs session start
         if (info.startUtc.isValid()) {

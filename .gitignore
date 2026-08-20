@@ -65,6 +65,11 @@ analysis/gaze/models/
 # convention as the entries above.
 analysis/rppg/models/
 
+# Auto-downloaded MediaPipe FaceLandmarker weights (analysis/gaze2d
+# backend, used by the calibration-free 2D Gaze plugin) — same
+# per-plugin-owns-its-cache convention as the entries above.
+analysis/gaze2d/models/
+
 # Logs
 *.log
 

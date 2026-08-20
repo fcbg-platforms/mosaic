@@ -225,6 +225,26 @@ class AnalysisManager : public QObject {
     void run_rppg_analysis(const QString& sessionPath, const QString& backend, double windowSec,
                            double hopSec, int smoothingWindows);
 
+    /// @brief Estimate a calibration-free, per-camera 2D gaze direction
+    /// (normalized [-1,1] iris-offset heuristic — the same math already
+    /// running live in the Real-time tab) over the course of a recorded
+    /// session's video. No camera intrinsic or room/extrinsic calibration
+    /// is required, unlike Multi-Camera Gaze Fusion. Writes one
+    /// "<video_stem>.gaze2d.json" per camera into the session's own
+    /// gaze2d/ subfolder — originals are never modified.
+    ///
+    /// Always runs when called directly, exactly like analyze_session(). If
+    /// a previous analysis is still running, this queues the new job. No
+    /// sync_manifest.json dependency, unlike run_gaze_fusion()/
+    /// run_pose3d_reconstruction() — this is a single-camera analysis with
+    /// no cross-camera synchronization need.
+    ///
+    /// @param sessionPath    Absolute path to the recorded session directory.
+    /// @param minConfidence  Face detection/presence/tracking confidence
+    ///                       threshold.
+    /// @param frameSkip      Process every Nth frame (1 = every frame).
+    void run_gaze2d_analysis(const QString& sessionPath, double minConfidence, int frameSkip);
+
     /// @brief Stop the currently running analysis process immediately.
     void stop();
 

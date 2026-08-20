@@ -12,7 +12,7 @@ namespace mosaic {
 // Top-level "Analysis" tab: pick a recorded session, run a post-hoc analysis
 // plugin, and review the result in-app.
 //
-// Seven plugins today, selected via a combo box: Pose (YOLOv8) — a
+// Nine plugins today, selected via a combo box: Pose (YOLOv8) — a
 // synchronised video+skeleton-overlay player alongside a per-keypoint
 // metrics plot; Face Masking — plain playback of an anonymized output video
 // written to a sibling "anonymized/" folder, never touching the original
@@ -46,12 +46,19 @@ namespace mosaic {
 // stats readout, and a persistent on-screen disclaimer — not a medical
 // device, not clinically validated; no blood-pressure or heart-rate-
 // variability estimate is attempted (see item 21's plan section for why both
-// were deliberately descoped). AnalysisManager (analysis/analysis_manager.hpp)
-// runs each ML-backed plugin's script through the same shared subprocess
-// queue. For Pose, the metrics plot can show raw Position (x/y) or, entirely
-// computed client-side from the already-loaded result (no extra Python run
-// needed — see analysis/pose_kinematics.hpp), derived Speed/Acceleration with
-// optional smoothing and an optional manual px-to-mm scale.
+// were deliberately descoped); and 2D Gaze (calibration-free) — the same
+// normalized [-1,1] iris-offset gaze heuristic already running live in the
+// Real-time tab (a third independent copy, per this project's own
+// documented cross-plugin duplication convention — see
+// analysis/gaze2d/estimator.py's module docstring), needing NO camera
+// intrinsic or room/extrinsic calibration at all (unlike Multi-Camera Gaze
+// Fusion), shown as a per-frame dx/dy/magnitude chart plus a per-camera
+// bbox+direction-arrow video overlay and a stats readout. AnalysisManager
+// (analysis/analysis_manager.hpp) runs each ML-backed plugin's script through the same shared
+// subprocess queue. For Pose, the metrics plot can show raw Position (x/y) or, entirely computed
+// client-side from the already-loaded result (no extra Python run needed — see
+// analysis/pose_kinematics.hpp), derived Speed/Acceleration with optional smoothing and an optional
+// manual px-to-mm scale.
 class AnalysisTabW : public QWidget {
     Q_OBJECT
    public:
@@ -92,6 +99,8 @@ class AnalysisTabW : public QWidget {
     void export_trigger_sync_csv();
     void update_rppg_view();
     void export_rppg_csv();
+    void update_gaze2d_view();
+    void export_gaze2d_csv();
     [[nodiscard]] bool is_pose_plugin() const;
     [[nodiscard]] bool is_diarize_plugin() const;
     [[nodiscard]] bool is_expression_plugin() const;
@@ -100,6 +109,7 @@ class AnalysisTabW : public QWidget {
     [[nodiscard]] bool is_pose3d_plugin() const;
     [[nodiscard]] bool is_trigger_sync_plugin() const;
     [[nodiscard]] bool is_rppg_plugin() const;
+    [[nodiscard]] bool is_gaze2d_plugin() const;
     [[nodiscard]] bool is_pose_depth_selected() const;
     [[nodiscard]] QString slug_for_model(const QString& modelId) const;
     [[nodiscard]] QString pose_json_path_for(const QString& videoRelPath) const;
@@ -108,6 +118,7 @@ class AnalysisTabW : public QWidget {
     [[nodiscard]] QString transcript_json_path_for(const QString& audioRelPath) const;
     [[nodiscard]] QString expression_json_path_for(const QString& videoRelPath) const;
     [[nodiscard]] QString rppg_json_path_for(const QString& videoRelPath) const;
+    [[nodiscard]] QString gaze2d_json_path_for(const QString& videoRelPath) const;
 
     struct Impl;
     std::unique_ptr<Impl> d;
