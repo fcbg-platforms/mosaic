@@ -91,6 +91,20 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # AnalysisManagerTest launches a small, freshly-built, unsigned helper
+      # exe (tests/analysis_stub) via QProcess -- on windows-latest specifically
+      # (never reproduced locally), QProcess::waitForStarted() for that exact
+      # binary fails near-instantly on every attempt, consistent with Windows
+      # Defender's real-time scanner blocking/quarantining a brand-new,
+      # unsigned executable with generic "read env vars, exit with a
+      # caller-chosen code" behavior before it's ever allowed to run. This is
+      # a well-known class of GitHub-hosted Windows runner flakiness for
+      # freshly-compiled native test doubles -- excluding the build output
+      # directory from scanning is the standard mitigation.
+      - name: Exclude build directory from Windows Defender scanning
+        shell: pwsh
+        run: Add-MpPreference -ExclusionPath "${{ github.workspace }}\build"
+
       - name: Install Qt
         uses: jurplel/install-qt-action@v4
         with:

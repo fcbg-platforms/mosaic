@@ -245,6 +245,7 @@ def _analyse_video(
     results: list[_AnalysedFrame] = []
     frame_idx = 0
     t_start = time.perf_counter()
+    progress_interval = max(1, total // 200)
 
     while True:
         ok, frame = cap.read()
@@ -261,7 +262,7 @@ def _analyse_video(
             results.append(_AnalysedFrame(frame_id=frame_id, timestamp_ns=ts_ns, sample=sample))
 
         frame_idx += 1
-        if frame_idx % 100 == 0:
+        if frame_idx % progress_interval == 0:
             elapsed = time.perf_counter() - t_start
             pct = frame_idx / max(total, 1) * 100
             print(

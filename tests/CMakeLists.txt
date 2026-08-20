@@ -3,7 +3,15 @@ find_package(GTest REQUIRED)
 # (PBKDF2 password hashing) — lives in QtNetwork, not QtCore.
 find_package(Qt6 REQUIRED COMPONENTS Core Network)
 
+# Hermetic stand-in for the real Python interpreter, used only by
+# test_analysis_manager.cpp (via AnalysisManager::set_python_path()) — see
+# analysis_stub/main.cpp's own doc comment. Deliberately zero Qt
+# dependency, built as a plain sibling executable in the same output
+# directory as mosaic_tests itself.
+add_executable(analysis_test_stub analysis_stub/main.cpp)
+
 add_executable(mosaic_tests
+    test_main.cpp
     test_ring_buffer.cpp
     test_timestamp.cpp
     test_sync_manifest.cpp
@@ -26,6 +34,8 @@ add_executable(mosaic_tests
     test_realtime_metrics.cpp
     test_speaker_palette.cpp
     test_recording_access_control.cpp
+    test_dpapi_crypt.cpp
+    test_analysis_manager.cpp
     "${CMAKE_SOURCE_DIR}/src/core/recording_access_control.cpp"
     "${CMAKE_SOURCE_DIR}/src/ui/audio/speaker_palette.cpp"
     "${CMAKE_SOURCE_DIR}/src/video/gige_action_command.cpp"
@@ -43,18 +53,30 @@ add_executable(mosaic_tests
     "${CMAKE_SOURCE_DIR}/src/analysis/transcript_result.cpp"
     "${CMAKE_SOURCE_DIR}/src/analysis/expression_result.cpp"
     "${CMAKE_SOURCE_DIR}/src/analysis/realtime_metrics.cpp"
+    "${CMAKE_SOURCE_DIR}/src/analysis/analysis_manager.cpp"
     "${CMAKE_SOURCE_DIR}/src/utils/logger.cpp"
+    "${CMAKE_SOURCE_DIR}/src/utils/dpapi_crypt.cpp"
     "${CMAKE_SOURCE_DIR}/src/core/settings.cpp"
     "${CMAKE_SOURCE_DIR}/src/auth/profile_manager.cpp"
     # Add new test files here as subsystems grow.
 )
 
+# So `cmake --build . --target mosaic_tests` alone still produces the stub
+# it needs at runtime, without requiring a separate "build everything" pass.
+add_dependencies(mosaic_tests analysis_test_stub)
+
 target_link_libraries(mosaic_tests PRIVATE
-    GTest::gtest_main
+    GTest::gtest    # was GTest::gtest_main — test_main.cpp now provides main()
+                    # itself, so QCoreApplication exists for QProcess's async
+                    # signals (see test_analysis_manager.cpp's wait_for_signal()).
     mosaic_compiler_options
     Qt6::Core       # needed for QString / QDateTime used in timestamp.hpp
     Qt6::Network    # needed for QPasswordDigestor used by profile_manager.cpp
 )
+
+if(WIN32)
+    target_link_libraries(mosaic_tests PRIVATE Crypt32)  # utils/dpapi_crypt.cpp
+endif()
 
 target_include_directories(mosaic_tests PRIVATE
     "${CMAKE_SOURCE_DIR}/src"

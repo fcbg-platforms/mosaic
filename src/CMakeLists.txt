@@ -45,6 +45,8 @@ qt_add_executable(mosaic MACOSX_BUNDLE
     utils/logger.cpp
     utils/timestamp.hpp
     utils/ring_buffer.hpp
+    utils/dpapi_crypt.hpp
+    utils/dpapi_crypt.cpp
 
     # ── Core ──────────────────────────────────────────────────────────────
     core/settings.hpp
@@ -225,6 +227,12 @@ target_link_libraries(mosaic PRIVATE
     Qt6::QuickWidgets
     Qt6::Charts
 )
+
+if(WIN32)
+    # CryptProtectData/CryptUnprotectData (utils/dpapi_crypt.cpp) — protects
+    # the Hugging Face token at rest in settings.json.
+    target_link_libraries(mosaic PRIVATE Crypt32)
+endif()
 
 # ── Optional hardware subsystems ───────────────────────────────────────────
 
