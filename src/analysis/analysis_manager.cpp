@@ -390,10 +390,22 @@ void AnalysisManager::on_process_finished(int exitCode, int exitStatus) {
 // ── Path discovery ─────────────────────────────────────────────────────────
 
 QString AnalysisManager::find_venv_python() const {
-    // Search relative to app executable and project root.
+    // Search relative to app executable and project root. Two different
+    // "up N levels to reach the repo root" depths are both real, currently-
+    // used build layouts on Windows with the multi-config VS generator --
+    // not redundant, not a typo:
+    //   - 4 levels: scripts/configure.ps1's own documented convention
+    //     (-B build/$BuildType), giving build/<Cfg>/bin/<Cfg>/mosaic.exe.
+    //   - 3 levels: what .github/workflows/ci.yml actually configures with
+    //     (-B build, no per-config subfolder baked into the binary dir
+    //     name), giving build/bin/<Cfg>/mosaic.exe. This depth was missing
+    //     entirely until a CI-only test failure (AnalysisManagerTest) first
+    //     exercised this code path for real and caught it -- every prior
+    //     "works on my machine" verification used the 4-level layout above.
     const QStringList bases = {
         QCoreApplication::applicationDirPath(),
-        QCoreApplication::applicationDirPath() + "/../../../..", // Xcode bundle
+        QCoreApplication::applicationDirPath() + "/../../../..", // Xcode bundle / configure.ps1
+        QCoreApplication::applicationDirPath() + "/../../..",    // ci.yml's `-B build`
         QDir::currentPath(),
     };
 
@@ -430,9 +442,12 @@ QString AnalysisManager::find_python() const {
 }
 
 QString AnalysisManager::find_script(const QString& scriptRelPath) const {
+    // Same two real, currently-used build-layout depths as
+    // find_venv_python() above -- see that function's doc comment.
     const QStringList bases = {
         QCoreApplication::applicationDirPath(),
-        QCoreApplication::applicationDirPath() + "/../../../..",
+        QCoreApplication::applicationDirPath() + "/../../../..", // Xcode bundle / configure.ps1
+        QCoreApplication::applicationDirPath() + "/../../..",    // ci.yml's `-B build`
         QDir::currentPath(),
     };
 
