@@ -22,6 +22,7 @@ add_executable(mosaic_tests
     test_gige_action_command.cpp
     test_pose_analysis_result.cpp
     test_pose_kinematics.cpp
+    test_dyadic_kinematics.cpp
     test_transcript_result.cpp
     test_expression_result.cpp
     test_rms_quality.cpp
@@ -52,6 +53,7 @@ add_executable(mosaic_tests
     "${CMAKE_SOURCE_DIR}/src/analysis/gaze2d_result.cpp"
     "${CMAKE_SOURCE_DIR}/src/analysis/pose_analysis_result.cpp"
     "${CMAKE_SOURCE_DIR}/src/analysis/pose_kinematics.cpp"
+    "${CMAKE_SOURCE_DIR}/src/analysis/dyadic_kinematics.cpp"
     "${CMAKE_SOURCE_DIR}/src/analysis/transcript_result.cpp"
     "${CMAKE_SOURCE_DIR}/src/analysis/expression_result.cpp"
     "${CMAKE_SOURCE_DIR}/src/analysis/realtime_metrics.cpp"

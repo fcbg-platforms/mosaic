@@ -95,6 +95,8 @@ class AnalysisTabW : public QWidget {
     void export_gaze_csv();
     void update_pose3d_view();
     void export_skeleton3d_csv();
+    void update_dyadic_view();
+    void export_dyad_csv();
     void update_trigger_sync_view();
     void export_trigger_sync_csv();
     void update_rppg_view();
