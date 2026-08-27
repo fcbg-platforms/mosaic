@@ -55,6 +55,20 @@ class Skeleton3DRoomViewW : public QWidget {
     // the next repaint.
     void set_show_smoothed(bool showSmoothed);
 
+    // Highlights two selected tracks (by trackId) with a connecting dashed
+    // line + a live distance readout between their hip-midpoints — the
+    // visual companion to the Analysis tab's Dyad Analysis panel
+    // (analysis/dyadic_kinematics.hpp computes the same distance value from
+    // the same raw positions, independently, for the chart/stats). Drawn
+    // only for the currently-displayed frame, and only when both tracks
+    // have a valid "left_hip"/"right_hip" pair there — resolved from the
+    // already-loaded result's own keypoint_names() (cached by set_result()),
+    // never a hardcoded COCO index. Pass -1 for either id to clear the
+    // highlight (the default, no-dyad-selected state). Self-contained: does
+    // not require a matching call to set_result() first or after — reads
+    // straight from whatever result/frame is already current at paint time.
+    void set_dyad_tracks(int trackIdA, int trackIdB);
+
    protected:
     void paintEvent(QPaintEvent*) override;
     void mousePressEvent(QMouseEvent*) override;

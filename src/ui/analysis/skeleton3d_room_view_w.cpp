@@ -42,6 +42,30 @@ struct Skeleton3DRoomViewW::Impl {
     int64_t positionMs = 0;
     bool showSmoothed  = false;
 
+    // Dyad highlight — see set_dyad_tracks()'s own doc comment. Hip-keypoint
+    // indices are resolved once per set_result() call (by name, not a
+    // hardcoded COCO index), mirroring dyadic_kinematics.cpp's own
+    // resolve-once-by-name discipline.
+    int dyadTrackA = -1;
+    int dyadTrackB = -1;
+    int idxLHip    = -1;
+    int idxRHip    = -1;
+
+    [[nodiscard]] std::optional<QVector3D> hip_midpoint(const Skeleton3DPerson& person,
+                                                        bool smoothed) const {
+        if (idxLHip < 0 || idxRHip < 0 || idxLHip >= person.keypoints.size() ||
+            idxRHip >= person.keypoints.size()) {
+            return std::nullopt;
+        }
+        const auto& l = person.keypoints[idxLHip];
+        const auto& r = person.keypoints[idxRHip];
+        if (!l.valid || !r.valid) {
+            return std::nullopt;
+        }
+        return (to_qvec3(drawn_position(l, smoothed)) + to_qvec3(drawn_position(r, smoothed))) *
+               0.5f;
+    }
+
     // Orbit-camera spherical coordinates around `target`, room Z-up (same
     // "XY is the floor plane, Z is height" convention GazeRoomViewW's
     // top-down view already establishes for this codebase's room frame).
@@ -133,7 +157,9 @@ Skeleton3DRoomViewW::Skeleton3DRoomViewW(QWidget* parent)
 Skeleton3DRoomViewW::~Skeleton3DRoomViewW() = default;
 
 void Skeleton3DRoomViewW::set_result(const Skeleton3DResult& result) {
-    d->result = result;
+    d->result  = result;
+    d->idxLHip = result.keypoint_names().indexOf("left_hip");
+    d->idxRHip = result.keypoint_names().indexOf("right_hip");
     d->recompute_bounds();
     update();
 }
@@ -145,6 +171,12 @@ void Skeleton3DRoomViewW::set_position_ms(int64_t positionMs) {
 
 void Skeleton3DRoomViewW::set_show_smoothed(bool showSmoothed) {
     d->showSmoothed = showSmoothed;
+    update();
+}
+
+void Skeleton3DRoomViewW::set_dyad_tracks(int trackIdA, int trackIdB) {
+    d->dyadTrackA = trackIdA;
+    d->dyadTrackB = trackIdB;
     update();
 }
 
@@ -354,6 +386,53 @@ void Skeleton3DRoomViewW::paintEvent(QPaintEvent*) {
                                     p.setPen(color);
                                     p.drawText(*pt + QPointF(6, -6),
                                                QString("track %1").arg(trackId));
+                                }});
+                }
+            }
+        }
+
+        // Dyad highlight — a dashed neutral-white connector (not one of
+        // kSubjectColors, so it reads as a "relationship" marker rather than
+        // a 3rd person's own color) plus a live distance readout between the
+        // two selected tracks' hip-midpoints, drawn only when both are
+        // present with valid hips in THIS frame. Computed straight from raw
+        // frame data (not compute_dyadic_kinematics()'s precomputed series),
+        // keeping this widget as self-contained as its every other draw
+        // primitive already is.
+        if (d->dyadTrackA >= 0 && d->dyadTrackB >= 0) {
+            const Skeleton3DPerson* personA = nullptr;
+            const Skeleton3DPerson* personB = nullptr;
+            for (const auto& person : frame->people) {
+                if (person.trackId == d->dyadTrackA) {
+                    personA = &person;
+                } else if (person.trackId == d->dyadTrackB) {
+                    personB = &person;
+                }
+            }
+            const auto hipA = personA ? d->hip_midpoint(*personA, d->showSmoothed) : std::nullopt;
+            const auto hipB = personB ? d->hip_midpoint(*personB, d->showSmoothed) : std::nullopt;
+            if (hipA && hipB) {
+                const auto pa = project(*hipA);
+                const auto pb = project(*hipB);
+                if (pa && pb) {
+                    const float depth      = (eye_depth(*hipA) + eye_depth(*hipB)) * 0.5f;
+                    const double distanceM = (*hipA - *hipB).length() / 1000.0;
+                    const QPointF mid      = (*pa + *pb) * 0.5;
+                    ops.append({depth, [pa, pb, mid, distanceM](QPainter& p) {
+                                    QPen linePen(QColor(230, 230, 240, 180), 2, Qt::DashLine);
+                                    p.setPen(linePen);
+                                    p.drawLine(*pa, *pb);
+
+                                    const QString label = QString("%1 m").arg(distanceM, 0, 'f', 2);
+                                    const QFontMetrics fm(p.font());
+                                    const QRectF bg =
+                                        QRectF(mid - QPointF(fm.horizontalAdvance(label) / 2.0, 8),
+                                               QSizeF(fm.horizontalAdvance(label) + 6, 16));
+                                    p.setPen(Qt::NoPen);
+                                    p.setBrush(QColor(10, 10, 26, 210));
+                                    p.drawRoundedRect(bg, 3, 3);
+                                    p.setPen(QColor(230, 230, 240));
+                                    p.drawText(bg, Qt::AlignCenter, label);
                                 }});
                 }
             }

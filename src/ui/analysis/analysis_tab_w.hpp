@@ -33,23 +33,25 @@ namespace mosaic {
 // cross-camera person association (multi-person capable, unlike Gaze
 // Fusion's single-subject design), shown as a per-camera reprojected
 // skeleton overlay plus an interactive, orbit-rotatable 3D room view
-// (Skeleton3DRoomViewW); EEG/Trigger ↔ Frame Sync — resolves every event
-// in the session's trigger.csv (e.g. an EEG amplifier's parallel-port trigger
-// cable) to its nearest frame in every camera (analysis/trigger_frame_map.hpp),
-// shown as a click-to-seek table, computed synchronously in C++ (no
-// subprocess — unlike every other plugin here, this is pure fast CSV-to-CSV
-// arithmetic with no ML dependency, the same shape as SyncManifest's own
-// synchronous generate()); and Remote Heart Rate (rPPG) — an EXPERIMENTAL,
-// research-grade-only camera-based heart-rate estimate (analysis/rppg/,
-// classical Green/CHROM/POS signal-processing algorithms, no deep learning),
-// shown as a BPM-over-time chart plus a per-camera face-ROI debug overlay, a
-// stats readout, and a persistent on-screen disclaimer — not a medical
-// device, not clinically validated; no blood-pressure or heart-rate-
-// variability estimate is attempted (see item 21's plan section for why both
-// were deliberately descoped); and 2D Gaze (calibration-free) — the same
-// normalized [-1,1] iris-offset gaze heuristic already running live in the
-// Real-time tab (a third independent copy, per this project's own
-// documented cross-plugin duplication convention — see
+// (Skeleton3DRoomViewW) — the same already-loaded result additionally
+// drives a Dyad Analysis panel (analysis/dyadic_kinematics.hpp) deriving
+// interpersonal distance, approach/retreat rate, torso-facing similarity,
+// and movement-synchrony ("congruent motion") between two picked tracked
+// people, purely client-side from the reconstruction already on screen (no
+// extra Python run needed), shown as a metric-over-time chart plus a live
+// distance readout drawn directly in the 3D room view; EEG/Trigger ↔ Frame Sync — resolves every
+// event in the session's trigger.csv (e.g. an EEG amplifier's parallel-port trigger cable) to its
+// nearest frame in every camera (analysis/trigger_frame_map.hpp), shown as a click-to-seek table,
+// computed synchronously in C++ (no subprocess — unlike every other plugin here, this is pure fast
+// CSV-to-CSV arithmetic with no ML dependency, the same shape as SyncManifest's own synchronous
+// generate()); and Remote Heart Rate (rPPG) — an EXPERIMENTAL, research-grade-only camera-based
+// heart-rate estimate (analysis/rppg/, classical Green/CHROM/POS signal-processing algorithms, no
+// deep learning), shown as a BPM-over-time chart plus a per-camera face-ROI debug overlay, a stats
+// readout, and a persistent on-screen disclaimer — not a medical device, not clinically validated;
+// no blood-pressure or heart-rate- variability estimate is attempted (see item 21's plan section
+// for why both were deliberately descoped); and 2D Gaze (calibration-free) — the same normalized
+// [-1,1] iris-offset gaze heuristic already running live in the Real-time tab (a third independent
+// copy, per this project's own documented cross-plugin duplication convention — see
 // analysis/gaze2d/estimator.py's module docstring), needing NO camera
 // intrinsic or room/extrinsic calibration at all (unlike Multi-Camera Gaze
 // Fusion), shown as a per-frame dx/dy/magnitude chart plus a per-camera
@@ -95,6 +97,8 @@ class AnalysisTabW : public QWidget {
     void export_gaze_csv();
     void update_pose3d_view();
     void export_skeleton3d_csv();
+    void update_dyadic_view();
+    void export_dyad_csv();
     void update_trigger_sync_view();
     void export_trigger_sync_csv();
     void update_rppg_view();
