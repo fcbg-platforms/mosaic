@@ -90,11 +90,22 @@ jobs:
 
     # .clang-tidy is configured (cppcoreguidelines-*/modernize-*/readability-*/
     # performance-*/clang-analyzer-*) but had never been run once against this
-    # ~150-file codebase before this job existed. Advisory only for now (see
-    # .clang-tidy's own WarningsAsErrors: "") — reports findings in the job
-    # summary but never fails the check, pending a first triage pass; diff-
-    # scoped to changed .cpp files, mirroring lint-cpp's own "only new drift,
-    # not the whole untriaged tree" convention.
+    # ~150-file codebase before this job existed. Advisory only for now —
+    # reports findings in the job summary but never fails the check, pending
+    # a first triage pass; diff-scoped to changed .cpp files, mirroring
+    # lint-cpp's own "only new drift, not the whole untriaged tree"
+    # convention.
+    #
+    # The "Run clang-tidy" step below explicitly forces its own exit code to
+    # 0 rather than relying on .clang-tidy's WarningsAsErrors: "" alone —
+    # WarningsAsErrors only controls which *lint* diagnostics are promoted
+    # to errors; clang-tidy's own process still exits non-zero whenever it
+    # hits a genuine compile/parse error while analyzing a file (verified
+    # directly), and this job's `bash -e -o pipefail` shell would otherwise
+    # let that fail the whole step — contradicting "never fails this job"
+    # (a real bug, caught when PR #42's run went red with no way to see why,
+    # since clang-tidy's output here is redirected straight to the step
+    # summary file, never to stdout/the job log).
     #
     # Needs its own separate build from build-and-test: clang-tidy needs a
     # real compile_commands.json, and CMAKE_EXPORT_COMPILE_COMMANDS is
@@ -216,7 +227,7 @@ jobs:
           {
             echo "## clang-tidy results"
             echo ""
-            echo "Advisory only (see \`.clang-tidy\`'s \`WarningsAsErrors: \"\"\`) — never fails this job."
+            echo "Advisory only — reports findings below but never fails this job (regardless of clang-tidy's own exit code)."
             echo ""
           } >> "$GITHUB_STEP_SUMMARY"
           if [ -z "$files" ]; then
@@ -226,11 +237,26 @@ jobs:
           echo "Checking:"
           echo "$files"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
+          # See this job's own top-of-file comment: clang-tidy can exit
+          # non-zero for reasons unrelated to lint findings (a real compile
+          # error somewhere in the translation unit, an internal crash,
+          # etc.), which `set -e -o pipefail` would otherwise turn into a
+          # failed step — disable that just for this one command, capture
+          # its real exit code via PIPESTATUS (not tee's, which is always
+          # 0), then unconditionally exit 0 at the end of this step.
+          set +e
           clang-tidy -p build $files 2>&1 | tee clang-tidy-report.txt | tail -c 60000 >> "$GITHUB_STEP_SUMMARY"
+          tidy_status="${PIPESTATUS[0]}"
+          set -e
           echo '```' >> "$GITHUB_STEP_SUMMARY"
           warnings=$(grep -c "warning:" clang-tidy-report.txt || true)
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "**Total warnings: ${warnings:-0}**" >> "$GITHUB_STEP_SUMMARY"
+          if [ "$tidy_status" -ne 0 ]; then
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "**Note:** clang-tidy itself exited with code ${tidy_status} (not just lint warnings — likely a real compile/parse error; see the output above). Still advisory — this doesn't fail the job." >> "$GITHUB_STEP_SUMMARY"
+          fi
+          exit 0
 
   build-and-test:
     runs-on: windows-latest

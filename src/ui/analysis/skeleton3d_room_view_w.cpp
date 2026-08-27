@@ -1,5 +1,6 @@
 #include "ui/analysis/skeleton3d_room_view_w.hpp"
 
+#include <QFontMetrics>
 #include <QMatrix4x4>
 #include <QMouseEvent>
 #include <QPainter>
@@ -41,6 +42,16 @@ struct Skeleton3DRoomViewW::Impl {
     Skeleton3DResult result;
     int64_t positionMs = 0;
     bool showSmoothed  = false;
+
+    // Hip-keypoint indices resolved once in set_result() from the result's
+    // own keypoint_names() — never a hardcoded COCO index. -1 if the
+    // loaded result has no "left_hip"/"right_hip" entry, in which case the
+    // dyad highlight simply never draws.
+    int idxLHip = -1;
+    int idxRHip = -1;
+    // Selected dyad, set via set_dyad_tracks(); -1/-1 = no highlight.
+    int dyadTrackA = -1;
+    int dyadTrackB = -1;
 
     // Orbit-camera spherical coordinates around `target`, room Z-up (same
     // "XY is the floor plane, Z is height" convention GazeRoomViewW's
@@ -133,7 +144,9 @@ Skeleton3DRoomViewW::Skeleton3DRoomViewW(QWidget* parent)
 Skeleton3DRoomViewW::~Skeleton3DRoomViewW() = default;
 
 void Skeleton3DRoomViewW::set_result(const Skeleton3DResult& result) {
-    d->result = result;
+    d->result  = result;
+    d->idxLHip = static_cast<int>(result.keypoint_names().indexOf("left_hip"));
+    d->idxRHip = static_cast<int>(result.keypoint_names().indexOf("right_hip"));
     d->recompute_bounds();
     update();
 }
@@ -145,6 +158,12 @@ void Skeleton3DRoomViewW::set_position_ms(int64_t positionMs) {
 
 void Skeleton3DRoomViewW::set_show_smoothed(bool showSmoothed) {
     d->showSmoothed = showSmoothed;
+    update();
+}
+
+void Skeleton3DRoomViewW::set_dyad_tracks(int trackIdA, int trackIdB) {
+    d->dyadTrackA = trackIdA;
+    d->dyadTrackB = trackIdB;
     update();
 }
 
@@ -354,6 +373,80 @@ void Skeleton3DRoomViewW::paintEvent(QPaintEvent*) {
                                     p.setPen(color);
                                     p.drawText(*pt + QPointF(6, -6),
                                                QString("track %1").arg(trackId));
+                                }});
+                }
+            }
+        }
+
+        // Dyad highlight: a connecting line + live distance readout between
+        // the two selected tracks' hip-midpoints, drawn only if both are
+        // present with valid hips in this exact frame — see
+        // set_dyad_tracks()'s own doc comment.
+        if (d->dyadTrackA >= 0 && d->dyadTrackB >= 0 && d->dyadTrackA != d->dyadTrackB &&
+            d->idxLHip >= 0 && d->idxRHip >= 0) {
+            const Skeleton3DPerson* personA = nullptr;
+            const Skeleton3DPerson* personB = nullptr;
+            for (const auto& p : frame->people) {
+                if (p.trackId == d->dyadTrackA) {
+                    personA = &p;
+                }
+                if (p.trackId == d->dyadTrackB) {
+                    personB = &p;
+                }
+            }
+            const bool bothHaveHips =
+                personA && personB && d->idxLHip < personA->keypoints.size() &&
+                d->idxRHip < personA->keypoints.size() && d->idxLHip < personB->keypoints.size() &&
+                d->idxRHip < personB->keypoints.size() && personA->keypoints[d->idxLHip].valid &&
+                personA->keypoints[d->idxRHip].valid && personB->keypoints[d->idxLHip].valid &&
+                personB->keypoints[d->idxRHip].valid;
+
+            if (bothHaveHips) {
+                const QVector3D hipMidA =
+                    (to_qvec3(drawn_position(personA->keypoints[d->idxLHip], d->showSmoothed)) +
+                     to_qvec3(drawn_position(personA->keypoints[d->idxRHip], d->showSmoothed))) *
+                    0.5f;
+                const QVector3D hipMidB =
+                    (to_qvec3(drawn_position(personB->keypoints[d->idxLHip], d->showSmoothed)) +
+                     to_qvec3(drawn_position(personB->keypoints[d->idxRHip], d->showSmoothed))) *
+                    0.5f;
+                // The printed distance ALWAYS uses raw positions, regardless
+                // of set_show_smoothed() — matching the 2D video overlay's
+                // own "always raw" precedent for exactly this reason: the
+                // Dyad Analysis panel's stats/chart/CSV (analysis_tab_w.cpp,
+                // compute_dyadic_kinematics()) are computed from raw
+                // positionRoom only, so this label must agree with that
+                // authoritative number rather than silently disagreeing
+                // whenever "Show smoothed" happens to be on. The drawn LINE
+                // itself still follows the toggle, matching every other
+                // keypoint/edge in this view.
+                const QVector3D hipMidARaw =
+                    (to_qvec3(personA->keypoints[d->idxLHip].positionRoom) +
+                     to_qvec3(personA->keypoints[d->idxRHip].positionRoom)) *
+                    0.5f;
+                const QVector3D hipMidBRaw =
+                    (to_qvec3(personB->keypoints[d->idxLHip].positionRoom) +
+                     to_qvec3(personB->keypoints[d->idxRHip].positionRoom)) *
+                    0.5f;
+                const auto pA = project(hipMidA);
+                const auto pB = project(hipMidB);
+                if (pA && pB) {
+                    const float depth = (eye_depth(hipMidA) + eye_depth(hipMidB)) * 0.5f;
+                    const QString label =
+                        QString("%1 m").arg((hipMidARaw - hipMidBRaw).length() / 1000.0, 0, 'f', 2);
+                    const QPointF mid = (*pA + *pB) * 0.5;
+                    ops.append({depth, [pA, pB, mid, label](QPainter& p) {
+                                    p.setPen(QPen(QColor(255, 255, 255, 190), 2, Qt::DashLine));
+                                    p.drawLine(*pA, *pB);
+
+                                    const QFontMetrics fm(p.font());
+                                    QRectF textRect = fm.boundingRect(label).adjusted(-4, -2, 4, 2);
+                                    textRect.moveCenter(mid);
+                                    p.setPen(Qt::NoPen);
+                                    p.setBrush(QColor(10, 10, 26, 220));
+                                    p.drawRoundedRect(textRect, 4, 4);
+                                    p.setPen(QColor(255, 255, 255, 230));
+                                    p.drawText(textRect, Qt::AlignCenter, label);
                                 }});
                 }
             }

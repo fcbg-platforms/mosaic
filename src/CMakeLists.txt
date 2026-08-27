@@ -24,6 +24,8 @@ qt_add_executable(mosaic MACOSX_BUNDLE
     analysis/pose_analysis_result.cpp
     analysis/pose_kinematics.hpp
     analysis/pose_kinematics.cpp
+    analysis/dyadic_kinematics.hpp
+    analysis/dyadic_kinematics.cpp
     analysis/transcript_result.hpp
     analysis/transcript_result.cpp
     analysis/expression_result.hpp
