@@ -38,6 +38,8 @@ add_executable(mosaic_tests
     test_recording_access_control.cpp
     test_dpapi_crypt.cpp
     test_analysis_manager.cpp
+    test_session_health.cpp
+    "${CMAKE_SOURCE_DIR}/src/session/session_health.cpp"
     "${CMAKE_SOURCE_DIR}/src/core/recording_access_control.cpp"
     "${CMAKE_SOURCE_DIR}/src/ui/audio/speaker_palette.cpp"
     "${CMAKE_SOURCE_DIR}/src/video/gige_action_command.cpp"

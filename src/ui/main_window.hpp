@@ -53,6 +53,12 @@ class MainWindow : public QMainWindow {
     void build_central_widget();
     void build_status_bar();
 
+    // Gathers each configured camera's VideoManager::camera_stats() +
+    // action_ticks_fired() + a SyncManifest lookup into a SessionHealthReport
+    // and shows it in a new, non-modal SessionHealthDialog. Called right
+    // after RecordManager::recording_stopped fires — see build_status_bar().
+    void show_session_health(const QString& sessionPath, int durationMs);
+
     struct Impl;
     std::unique_ptr<Impl> d;
 };

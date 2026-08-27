@@ -95,6 +95,16 @@ class VideoGrabber : public QThread {
     [[nodiscard]] int64_t frames_dropped() const; // dropped due to full ring buffer
     [[nodiscard]] double current_fps() const;
 
+    // Cumulative GVSP-incomplete-frame count for this camera's whole open()
+    // session — never reset, unlike the "N incomplete frame(s) in last 5s"
+    // warning's own 5s-windowed counter (see run_pylon_loop()), which is
+    // reset to 0 right after each log line. Distinct from frames_dropped(),
+    // which is ring-buffer overflow (a full local buffer), not GigE packet
+    // loss (a frame that started arriving and never completed). Used by
+    // SessionHealthReport to surface this per-camera, post-recording,
+    // instead of only as a periodically-reset log line.
+    [[nodiscard]] int64_t incomplete_frames_total() const;
+
     // elapsed_ns() of the most recently grabbed frame, or -1 if none yet.
     // Used by PerformanceMonitorW to show a live cross-camera skew estimate
     // (max - min across cameras) while recording — a coarse, once-per-second

@@ -175,10 +175,14 @@ qt_add_executable(mosaic MACOSX_BUNDLE
 
     # ── Session browser & player ──────────────────────────────────────────
     session/session_info.hpp
+    session/session_health.hpp
+    session/session_health.cpp
     ui/session/session_browser_w.hpp
     ui/session/session_browser_w.cpp
     ui/session/session_player_w.hpp
     ui/session/session_player_w.cpp
+    ui/session/session_health_dialog.hpp
+    ui/session/session_health_dialog.cpp
 
     # ── Analysis tab ─────────────────────────────────────────────────────
     ui/analysis/subject_colors.hpp
