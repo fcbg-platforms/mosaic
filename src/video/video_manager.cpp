@@ -65,6 +65,15 @@ class ActionCommandTicker : public QThread {
           m_grabbers(std::move(grabbers)),
           m_period(std::chrono::duration<double, std::milli>(periodMs)) {}
 
+    // Total action-command ticks fired so far this ticker's lifetime.
+    // Cross-thread-safe (atomic); read by VideoManager::stop_action_ticker()
+    // right before this object is destroyed, since the running total would
+    // otherwise be lost the instant that happens — see
+    // VideoManager::action_ticks_fired()'s own doc comment.
+    [[nodiscard]] int64_t ticks_fired() const {
+        return m_ticksFired.load(std::memory_order_relaxed);
+    }
+
    protected:
     void run() override {
         // ActionCommandSession::fire() already catches per-target
@@ -86,6 +95,7 @@ class ActionCommandTicker : public QThread {
                 const int fired =
                     m_session->fire(m_targets, k_action_group_key, k_action_group_mask);
                 ++ticksFired;
+                m_ticksFired.store(ticksFired, std::memory_order_relaxed);
                 if (fired < static_cast<int>(m_targets.size())) {
                     log_warning(QString("[VideoManager] ActionCommandTicker: only %1/%2 action-"
                                         "command broadcasts succeeded this tick.")
@@ -190,6 +200,7 @@ class ActionCommandTicker : public QThread {
     std::vector<ActionCommandTarget> m_targets;
     std::vector<VideoGrabber*> m_grabbers;
     std::chrono::duration<double, std::milli> m_period;
+    std::atomic<int64_t> m_ticksFired{0};
 };
 
 struct CameraUnit {
@@ -222,6 +233,11 @@ struct VideoManager::Impl {
     // recording). Only non-null while at least one such camera is running
     // — see arm_and_fire_action_commands()/stop_action_ticker().
     std::unique_ptr<ActionCommandTicker> actionTicker;
+
+    // Snapshot of the most recently stopped actionTicker's own ticks_fired()
+    // — see VideoManager::action_ticks_fired()'s doc comment. -1 = Action1
+    // triggering was never used in this VideoManager's lifetime.
+    int64_t lastActionTicksFired = -1;
 };
 
 VideoManager::VideoManager(QObject* parent) : QObject(parent), d(std::make_unique<Impl>()) {}
@@ -507,6 +523,14 @@ void VideoManager::request_calibration_frame(int configIndex, uint64_t token) {
 }
 
 void VideoManager::arm_and_fire_action_commands() {
+    // Reset up front, before deciding whether a ticker is even needed this
+    // call — otherwise a session that doesn't use Action1 triggering would
+    // silently keep reporting an earlier session's tick count via
+    // action_ticks_fired() (see that accessor's own doc comment), since
+    // stop_action_ticker() only snapshots a fresh value when a ticker
+    // actually existed to snapshot.
+    d->lastActionTicksFired = -1;
+
     // Identify every unit eligible to be freshly armed this call, and the
     // Action1-ready subset among them.
     std::vector<CameraUnit*> pending;       // all not-yet-running units
@@ -636,6 +660,8 @@ void VideoManager::stop_action_ticker() {
         d->actionTicker->terminate();
         d->actionTicker->wait();
     }
+    // Snapshot before destroying — see action_ticks_fired()'s doc comment.
+    d->lastActionTicksFired = d->actionTicker->ticks_fired();
     d->actionTicker.reset();
 }
 
@@ -656,6 +682,15 @@ bool VideoManager::is_previewing() const { return d->previewing; }
 int VideoManager::camera_count() const { return d->cameraCount; }
 int64_t VideoManager::total_frames_encoded() const { return d->totalEncoded.load(); }
 int64_t VideoManager::total_frames_dropped() const { return d->totalDropped.load(); }
+int64_t VideoManager::action_ticks_fired() const { return d->lastActionTicksFired; }
+
+bool VideoManager::camera_action_command_ready(int index) const {
+    if (index < 0 || index >= static_cast<int>(d->units.size())) {
+        return false;
+    }
+    const auto& unit = d->units[static_cast<size_t>(index)];
+    return unit.grabber && unit.grabber->action_command_ready();
+}
 
 VideoManager::CameraStats VideoManager::camera_stats(int index) const {
     CameraStats stats;
@@ -669,6 +704,9 @@ VideoManager::CameraStats VideoManager::camera_stats(int index) const {
         stats.framesDropped      = unit.grabber->frames_dropped();
         stats.grabberRunning     = unit.grabber->isRunning();
         stats.lastFrameElapsedNs = unit.grabber->last_frame_elapsed_ns();
+        stats.configuredFps      = unit.grabber->configured_fps();
+        stats.achievableFps      = unit.grabber->achievable_fps();
+        stats.incompleteFrames   = unit.grabber->incomplete_frames_total();
     }
     if (unit.encoder) {
         stats.framesEncoded = unit.encoder->frames_encoded();

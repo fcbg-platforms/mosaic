@@ -132,12 +132,41 @@ class VideoManager : public QObject {
         int ringFillPct            = 0;   ///< Ring buffer fill level, 0–100.
         bool grabberRunning        = false;
         int64_t lastFrameElapsedNs = -1; ///< elapsed_ns() of the most recent frame, -1 if none yet.
+        double configuredFps       = 0.0; ///< VideoGrabber::configured_fps().
+        double achievableFps = -1.0; ///< VideoGrabber::achievable_fps(), -1 = not yet measured.
+        int64_t incompleteFrames =
+            0; ///< VideoGrabber::incomplete_frames_total() (GVSP packet loss).
     };
 
     /// @brief Returns a performance snapshot for one camera.
     ///
     /// @param index  Zero-based camera index.  Returns a zeroed struct if out of range.
     [[nodiscard]] CameraStats camera_stats(int index) const;
+
+    /// @returns The number of GigE Vision Action Command ticks fired during
+    /// this camera group's most recently *attempted* arm_and_fire_action_commands()
+    /// call (recording or preview, whichever ran most recently), or -1 if
+    /// that call didn't use Action1 triggering at all — reset to -1 at the
+    /// start of every arm_and_fire_action_commands() call, before a ticker
+    /// is even created, so a session that doesn't use Action1 never reports
+    /// a stale count left over from an earlier session that did. Snapshotted
+    /// in stop_action_ticker() right before the ticker is destroyed, since
+    /// the live tick count itself is otherwise lost the instant the ticker
+    /// object goes away. This is one shared, group-wide count — see
+    /// camera_action_command_ready() for whether it's even meaningful for a
+    /// particular camera. Combined with a camera's own frames_grabbed() by
+    /// SessionHealthReport to report how many trigger broadcasts a camera
+    /// missed, not just how many frames it captured.
+    [[nodiscard]] int64_t action_ticks_fired() const;
+
+    /// @returns Whether this camera was Action1-ready (and therefore part of
+    /// the Action Command target group whose shared tick count
+    /// action_ticks_fired() reports) as of its last open()/probe. False for
+    /// out-of-range indices and for any camera not opened for Action1
+    /// triggering, in which case action_ticks_fired()'s count is unrelated
+    /// to it and callers must not apply it to that camera (a session can mix
+    /// Action1-armed and free-running cameras).
+    [[nodiscard]] bool camera_action_command_ready(int index) const;
 
    signals:
     /// Emitted on the main thread when a camera device is successfully opened.

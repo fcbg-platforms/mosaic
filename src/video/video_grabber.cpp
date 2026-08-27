@@ -41,6 +41,10 @@ struct VideoGrabber::Impl {
     std::atomic<bool> pylonInitialized{false};
     std::atomic<int64_t> frameCounter{0};
     std::atomic<int64_t> dropCounter{0};
+    // Cumulative GVSP-incomplete-frame count — see incomplete_frames_total()'s
+    // doc comment in video_grabber.hpp. Incremented alongside run_pylon_loop()'s
+    // own local, periodically-reset warnCount; this one never resets.
+    std::atomic<int64_t> incompleteFrameTotal{0};
     std::atomic<double> currentFps{0.0};
     std::atomic<int64_t> lastFrameElapsedNs{-1};
 
@@ -983,6 +987,7 @@ void VideoGrabber::run_pylon_loop() {
             }
             if (!result->GrabSucceeded()) {
                 ++warnCount;
+                d->incompleteFrameTotal.fetch_add(1, std::memory_order_relaxed);
                 const auto now = SteadyClock::now();
                 if (std::chrono::duration<double>(now - lastWarnTime).count() >= 5.0) {
                     log_warning(
@@ -1221,6 +1226,7 @@ bool VideoGrabber::is_actually_grabbing() const { return d->actuallyGrabbing.loa
 bool VideoGrabber::is_open() const { return d->deviceOpen.load(); }
 int64_t VideoGrabber::frames_grabbed() const { return d->frameCounter.load(); }
 int64_t VideoGrabber::frames_dropped() const { return d->dropCounter.load(); }
+int64_t VideoGrabber::incomplete_frames_total() const { return d->incompleteFrameTotal.load(); }
 double VideoGrabber::current_fps() const { return d->currentFps.load(); }
 int64_t VideoGrabber::last_frame_elapsed_ns() const { return d->lastFrameElapsedNs.load(); }
 

@@ -23,7 +23,9 @@
 #include <memory>
 
 #include "analysis/pose_worker.hpp"
+#include "analysis/sync_manifest.hpp"
 #include "analysis/transcript_worker.hpp"
+#include "session/session_health.hpp"
 #include "ui/analysis/analysis_tab_w.hpp"
 #include "ui/audio/audio_settings_w.hpp"
 #include "ui/calibration/calibration_w.hpp"
@@ -33,6 +35,7 @@
 #include "ui/realtime/realtime_tab_w.hpp"
 #include "ui/record/record_settings_w.hpp"
 #include "ui/session/session_browser_w.hpp"
+#include "ui/session/session_health_dialog.hpp"
 #include "ui/trigger/trigger_event_panel_w.hpp"
 #include "ui/trigger/trigger_settings_w.hpp"
 #include "ui/video/performance_monitor_w.hpp"
@@ -608,7 +611,71 @@ void MainWindow::build_status_bar() {
                         d->videoSettingsW->set_discover_enabled(d->videoMgr->camera_count() == 0);
                     }
                 });
+        connect(
+            d->recordMgr, &RecordManager::recording_stopped, this,
+            [this](const QString& path, int durationMs) { show_session_health(path, durationMs); });
     }
+}
+
+void MainWindow::show_session_health(const QString& sessionPath, int durationMs) {
+    if (!d->videoMgr) {
+        return;
+    }
+
+    // Cheap and synchronous per SyncManifest's own doc comment — generating
+    // it here, right after every timestamps_camN.csv is finalized, also
+    // leaves a fresh (not stale, see sync_manifest_is_stale()) manifest on
+    // disk for later on-demand consumers (AnalysisManager, SessionPlayerW)
+    // to reuse instead of redundantly regenerating it themselves.
+    SyncManifest sync   = SyncManifest::generate(sessionPath);
+    const bool haveSync = sync.is_valid();
+    if (haveSync) {
+        sync.save(sessionPath);
+    }
+
+    QVector<CameraHealthInput> inputs;
+    const int n = static_cast<int>(d->settings.video.cameras.size());
+    for (int i = 0; i < n; ++i) {
+        const auto stats = d->videoMgr->camera_stats(i);
+        CameraHealthInput in;
+        in.index            = i;
+        in.name             = d->settings.video.cameras[static_cast<size_t>(i)].friendlyName;
+        in.framesGrabbed    = stats.framesGrabbed;
+        in.framesEncoded    = stats.framesEncoded;
+        in.framesDropped    = stats.framesDropped;
+        in.incompleteFrames = stats.incompleteFrames;
+        in.configuredFps    = stats.configuredFps;
+        in.achievableFps    = stats.achievableFps;
+
+        // action_ticks_fired() is one shared, group-wide count — only
+        // meaningful for a camera that was actually part of the Action1
+        // target group (a session can mix Action1-armed and free-running
+        // cameras), so it must not be applied uniformly to every camera.
+        const int64_t ticks = d->videoMgr->action_ticks_fired();
+        if (ticks >= 0 && d->videoMgr->camera_action_command_ready(i)) {
+            in.actionTicksFired = ticks;
+        }
+
+        if (haveSync) {
+            for (int c = 0; c < sync.camera_count(); ++c) {
+                const auto& camSync = sync.camera_info(c);
+                if (camSync.index == i) {
+                    in.syncCoveragePct = camSync.coveragePct;
+                    in.syncMeanDeltaMs = camSync.meanDeltaMs;
+                    in.syncMaxDeltaMs  = camSync.maxDeltaMs;
+                    break;
+                }
+            }
+        }
+
+        inputs.push_back(in);
+    }
+
+    const QString name = QFileInfo(sessionPath).fileName();
+    const auto report  = build_session_health_report(sessionPath, name, durationMs, inputs);
+
+    auto* dlg = new SessionHealthDialog(report, this);
+    dlg->show();
 }
 
 // ── Close ──────────────────────────────────────────────────────────────────
