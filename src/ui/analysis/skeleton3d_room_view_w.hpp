@@ -55,6 +55,20 @@ class Skeleton3DRoomViewW : public QWidget {
     // the next repaint.
     void set_show_smoothed(bool showSmoothed);
 
+    // Highlights two selected tracks (by trackId) with a connecting line +
+    // a live distance readout between their hip-midpoints, drawn only when
+    // both are present with valid left_hip/right_hip keypoints in the
+    // currently-displayed frame — the visual companion to the results
+    // view's Dyad Analysis panel. Pass -1 for either id (the default) to
+    // clear the highlight. Hip-keypoint indices are resolved once, by name,
+    // from the result's own keypoint_names() in set_result() — never a
+    // hardcoded COCO index — so the highlight simply never draws (not a
+    // crash) if the loaded result has no "left_hip"/"right_hip" entries.
+    // Respects set_show_smoothed() the same way every other keypoint in
+    // this view does. Takes effect on the next repaint; does not require
+    // set_result() to be called again.
+    void set_dyad_tracks(int trackIdA, int trackIdB);
+
    protected:
     void paintEvent(QPaintEvent*) override;
     void mousePressEvent(QMouseEvent*) override;

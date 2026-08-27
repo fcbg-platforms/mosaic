@@ -49,6 +49,7 @@
 #include <functional>
 #include <limits>
 
+#include "analysis/dyadic_kinematics.hpp"
 #include "analysis/expression_result.hpp"
 #include "analysis/gaze2d_result.hpp"
 #include "analysis/gaze_fusion_result.hpp"
@@ -837,6 +838,23 @@ struct AnalysisTabW::Impl {
     QPushButton* exportPose3dBtn            = nullptr; // pose3d only
     Skeleton3DRoomViewW* skeleton3dRoomView = nullptr; // pose3d only
 
+    // Dyad Analysis — a derived-metrics mode added within the 3D Pose
+    // Reconstruction plugin's own results view (mirrors item 16's own
+    // precedent: Pose Kinematics is a Metric mode inside the Pose plugin,
+    // not a separate plugin), since it needs no new Python job/JSON — it's
+    // pure C++ math over the already-loaded currentSkeleton3D. Own-container
+    // row, same pattern as pose3dRowW. Uses the SAME shared d->chart as
+    // every other single-series plugin view (Pose Kinematics/rPPG/
+    // Expression/2D Gaze) — see select_plugin()'s d->chart visibility
+    // condition, which pose3d must now be included in.
+    QWidget* dyadRowW          = nullptr; // pose3d only
+    QComboBox* dyadTrackACombo = nullptr; // pose3d only
+    QComboBox* dyadTrackBCombo = nullptr; // pose3d only
+    QComboBox* dyadMetricCombo = nullptr; // pose3d only
+    QSpinBox* dyadWindowSpin   = nullptr; // pose3d only — congruent-motion rolling window
+    QLabel* dyadStatsLbl       = nullptr; // pose3d only
+    QPushButton* exportDyadBtn = nullptr; // pose3d only
+
     // EEG/Trigger sync view controls — mirrors pose3dRowW's own-container
     // pattern. No model/backend/skip controls page exists for this plugin
     // (nothing to tune — it's a deterministic CSV-to-CSV lookup), so its
@@ -900,9 +918,11 @@ struct AnalysisTabW::Impl {
     ExpressionResult currentExpressionResult; // expression only
     GazeFusionResult currentGazeFusion;       // gaze_fusion only
     Skeleton3DResult currentSkeleton3D;       // pose3d only
-    TriggerFrameMap currentTriggerFrameMap;   // trigger_sync only
-    RppgResult currentRppgResult;             // rppg only
-    Gaze2dResult currentGaze2dResult;         // gaze2d only
+    DyadicKinematicsSeries currentDyad;       // pose3d only — derived from currentSkeleton3D +
+                                        // the selected Track A/B pair, see update_dyadic_view()
+    TriggerFrameMap currentTriggerFrameMap; // trigger_sync only
+    RppgResult currentRppgResult;           // rppg only
+    Gaze2dResult currentGaze2dResult;       // gaze2d only
 
     // AnalysisManager is a single shared instance (also used by
     // SessionBrowserW's "Run Pose" button and PerformanceMonitorW's
@@ -949,6 +969,7 @@ struct AnalysisTabW::Impl {
         currentTranscript       = TranscriptResult();
         currentGazeFusion       = GazeFusionResult();
         currentSkeleton3D       = Skeleton3DResult();
+        currentDyad             = DyadicKinematicsSeries();
         currentTriggerFrameMap  = TriggerFrameMap();
         currentRppgResult       = RppgResult();
         currentGaze2dResult     = Gaze2dResult();
@@ -1850,6 +1871,70 @@ void AnalysisTabW::build_ui() {
     d->pose3dRowW->setVisible(false); // shown only for the pose3d plugin
     rightLay->addWidget(d->pose3dRowW);
 
+    // ── Dyad Analysis row: interpersonal distance/approach-rate/facingness/
+    //    congruent-motion between two selected tracks, computed live from
+    //    the already-loaded currentSkeleton3D (compute_dyadic_kinematics(),
+    //    src/analysis/dyadic_kinematics.hpp) — no new Python job. Pose3d
+    //    only, own container so select_plugin() can hide the whole row with
+    //    one call, matching pose3dRowW's own convention. Track A/B combos
+    //    are (re-)populated in reload_current_camera_result()'s pose3d
+    //    branch, reusing the same trackIds list that already builds
+    //    trackCombo, right below where this row is inserted.
+    d->dyadRowW   = new QWidget;
+    auto* dyadRow = new QHBoxLayout(d->dyadRowW);
+    dyadRow->setContentsMargins(0, 0, 0, 0);
+
+    dyadRow->addWidget(new QLabel("Dyad:"));
+    d->dyadTrackACombo = new QComboBox;
+    d->dyadTrackACombo->setToolTip("First person of the pair to compare.");
+    dyadRow->addWidget(d->dyadTrackACombo);
+    dyadRow->addWidget(new QLabel("↔")); // <-> (left-right arrow), the "compared to" glyph
+    d->dyadTrackBCombo = new QComboBox;
+    d->dyadTrackBCombo->setToolTip("Second person of the pair to compare.");
+    dyadRow->addWidget(d->dyadTrackBCombo);
+
+    d->dyadMetricCombo = new QComboBox;
+    d->dyadMetricCombo->addItem("Distance (mm)", "distance");
+    d->dyadMetricCombo->addItem("Approach rate (mm/s)", "approach_rate");
+    d->dyadMetricCombo->addItem("Facingness (cosine)", "facing");
+    d->dyadMetricCombo->addItem("Congruent motion (r)", "congruent_motion");
+    d->dyadMetricCombo->setToolTip(
+        "Facingness: torso-heading cosine similarity. -1 = oriented oppositely (commonly "
+        "face-to-face in a two-person interaction, but also consistent with standing "
+        "back-to-back facing directly away from each other — position-independent by "
+        "construction). +1 = oriented the same way (e.g. side-by-side). 0 = perpendicular.\n\n"
+        "Congruent motion: rolling-window Pearson correlation of the two people's own "
+        "instantaneous speed.");
+    dyadRow->addWidget(d->dyadMetricCombo);
+
+    d->dyadWindowSpin = new QSpinBox;
+    d->dyadWindowSpin->setRange(5, 120);
+    d->dyadWindowSpin->setValue(30);
+    d->dyadWindowSpin->setPrefix("window ");
+    d->dyadWindowSpin->setToolTip(
+        "Trailing window size (in paired valid samples), only meaningful for the Congruent "
+        "motion metric.");
+    dyadRow->addWidget(d->dyadWindowSpin);
+
+    d->dyadStatsLbl = new QLabel;
+    d->dyadStatsLbl->setStyleSheet("color:#7070a0; font-size:11px;");
+    dyadRow->addWidget(d->dyadStatsLbl, 1);
+
+    d->exportDyadBtn = new QPushButton("Export CSV");
+    d->exportDyadBtn->setToolTip(
+        "Exports tick/timestamp/distance/approach-rate/facingness/congruent-motion for the "
+        "selected pair as CSV.");
+    connect(d->exportDyadBtn, &QPushButton::clicked, this, &AnalysisTabW::export_dyad_csv);
+    dyadRow->addWidget(d->exportDyadBtn);
+
+    for (auto* combo : {d->dyadTrackACombo, d->dyadTrackBCombo, d->dyadMetricCombo}) {
+        connect(combo, &QComboBox::currentIndexChanged, this, &AnalysisTabW::update_dyadic_view);
+    }
+    connect(d->dyadWindowSpin, &QSpinBox::valueChanged, this, &AnalysisTabW::update_dyadic_view);
+
+    d->dyadRowW->setVisible(false); // shown only for the pose3d plugin
+    rightLay->addWidget(d->dyadRowW);
+
     // ── EEG/Trigger sync view controls: resolved-trigger count + CSV
     //    export. trigger_sync only — own container so select_plugin() can
     //    hide the whole row with one call, mirroring pose3dRowW.
@@ -2175,7 +2260,11 @@ void AnalysisTabW::select_plugin(int index) {
     set_visible_animated(d->depthModeHintLbl, isPose && is_pose_depth_selected());
     set_visible_animated(d->blendshapeFieldW, isExpression);
     set_visible_animated(d->trackFieldW, isPose3D);
-    set_visible_animated(d->chart, isPoseKeypoints || isExpression || isRppg || isGaze2d);
+    // isPose3D included so the shared chart can show the Dyad Analysis
+    // series — pose3d's own room-view/2D-overlay results view never needed
+    // it before Dyad Analysis was added.
+    set_visible_animated(d->chart,
+                         isPoseKeypoints || isExpression || isRppg || isGaze2d || isPose3D);
     set_visible_animated(d->kinematicsRowW, isPoseKeypoints);
     // subjectPickerRowW's own further narrowing (hidden when the session has
     // <=1 detected subject) happens inside rebuild_subject_chips(), called
@@ -2188,6 +2277,7 @@ void AnalysisTabW::select_plugin(int index) {
     set_visible_animated(d->gazeFusionRowW, isGazeFusion);
     set_visible_animated(d->roomView, isGazeFusion);
     set_visible_animated(d->pose3dRowW, isPose3D);
+    set_visible_animated(d->dyadRowW, isPose3D);
     set_visible_animated(d->skeleton3dRoomView, isPose3D);
     set_visible_animated(d->triggerSyncRowW, isTriggerSync);
     set_visible_animated(d->triggerSyncTable, isTriggerSync);
@@ -2433,7 +2523,32 @@ void AnalysisTabW::reload_current_camera_result() {
         }
         d->trackCombo->blockSignals(false);
 
+        // Dyad Analysis track pickers — same trackIds list, real ids only
+        // (no "All tracks" entry, a dyad needs exactly two specific people).
+        // Default A/B to the first two distinct ids so the panel shows
+        // something useful immediately rather than starting empty.
+        d->dyadTrackACombo->blockSignals(true);
+        d->dyadTrackBCombo->blockSignals(true);
+        d->dyadTrackACombo->clear();
+        d->dyadTrackBCombo->clear();
+        for (int tid : trackIds) {
+            d->dyadTrackACombo->addItem(QString("Track %1").arg(tid), tid);
+            d->dyadTrackBCombo->addItem(QString("Track %1").arg(tid), tid);
+        }
+        const bool hasDyadPair = trackIds.size() >= 2;
+        if (hasDyadPair) {
+            d->dyadTrackACombo->setCurrentIndex(0);
+            d->dyadTrackBCombo->setCurrentIndex(1);
+        }
+        d->dyadTrackACombo->setEnabled(hasDyadPair);
+        d->dyadTrackBCombo->setEnabled(hasDyadPair);
+        d->dyadMetricCombo->setEnabled(hasDyadPair);
+        d->dyadWindowSpin->setEnabled(hasDyadPair);
+        d->dyadTrackACombo->blockSignals(false);
+        d->dyadTrackBCombo->blockSignals(false);
+
         update_pose3d_view();
+        update_dyadic_view();
 
         if (!d->currentSkeleton3D.is_valid()) {
             d->statusLbl->setText("No 3D reconstruction yet for this session — click Run.");
@@ -3377,6 +3492,134 @@ void AnalysisTabW::export_skeleton3d_csv() {
                        << (kp.valid ? QString::number(kp.reprojectionErrorPx) : QString()) << "\n";
                 }
             }
+        }
+    });
+}
+
+// ── Dyad Analysis view ───────────────────────────────────────────────────
+// (interpersonal metrics derived from the pose3d plugin's own already-loaded
+// currentSkeleton3D — see src/analysis/dyadic_kinematics.hpp)
+
+void AnalysisTabW::update_dyadic_view() {
+    if (!d->dyadTrackACombo->isEnabled() || d->dyadTrackACombo->count() < 2) {
+        d->currentDyad = DyadicKinematicsSeries();
+        d->dyadStatsLbl->setText("Only 1 tracked person in this result — dyad analysis needs 2.");
+        d->skeleton3dRoomView->set_dyad_tracks(-1, -1);
+        d->chart->set_single_series({}, QString());
+        d->chart->set_title("Dyad Analysis — needs 2 tracked people");
+        return;
+    }
+
+    const int trackIdA = d->dyadTrackACombo->currentData().toInt();
+    const int trackIdB = d->dyadTrackBCombo->currentData().toInt();
+
+    // The two combos have no built-in mutual exclusion (either can be set
+    // to the same track), and compute_dyadic_kinematics() intentionally
+    // returns an empty series for that case (it isn't a real pair) — catch
+    // it explicitly here with an accurate message instead of letting it
+    // fall through to the generic "no overlapping data" text below, which
+    // would misattribute the real cause.
+    if (trackIdA == trackIdB) {
+        d->currentDyad = DyadicKinematicsSeries();
+        d->dyadStatsLbl->setText("Select two different people to compare.");
+        d->skeleton3dRoomView->set_dyad_tracks(-1, -1);
+        d->chart->set_single_series({}, QString());
+        d->chart->set_title("Dyad Analysis — select two different tracks");
+        return;
+    }
+
+    d->currentDyad = compute_dyadic_kinematics(d->currentSkeleton3D, trackIdA, trackIdB,
+                                               d->dyadWindowSpin->value());
+    d->skeleton3dRoomView->set_dyad_tracks(trackIdA, trackIdB);
+
+    const auto& stats = d->currentDyad.stats;
+    if (std::isnan(stats.meanDistanceMm)) {
+        d->dyadStatsLbl->setText("No overlapping tracked data for this pair.");
+    } else {
+        const QString facingText    = std::isnan(stats.meanFacingCosine)
+                                          ? "n/a"
+                                          : QString::number(stats.meanFacingCosine, 'f', 2);
+        const QString congruentText = std::isnan(stats.meanCongruentMotionCorr)
+                                          ? "n/a"
+                                          : QString::number(stats.meanCongruentMotionCorr, 'f', 2);
+        d->dyadStatsLbl->setText(
+            QString("dist %1mm (min %2, max %3)  ·  facing %4  ·  congruent motion %5  ·  "
+                    "%6% ticks both present")
+                .arg(stats.meanDistanceMm, 0, 'f', 0)
+                .arg(stats.minDistanceMm, 0, 'f', 0)
+                .arg(stats.maxDistanceMm, 0, 'f', 0)
+                .arg(facingText, congruentText)
+                .arg(stats.pctTicksBothPresent * 100.0, 0, 'f', 0));
+    }
+
+    const int64_t t0 = d->currentSkeleton3D.frames().isEmpty()
+                           ? 0
+                           : d->currentSkeleton3D.frames().first().timestampNs;
+    const double minDurationMs =
+        d->currentSkeleton3D.frames().isEmpty()
+            ? 0.0
+            : (d->currentSkeleton3D.frames().last().timestampNs - t0) / 1e6;
+
+    const QString metric = d->dyadMetricCombo->currentData().toString();
+    QString yAxisLabel;
+    QVector<QPointF> points;
+    points.reserve(d->currentDyad.samples.size());
+    for (const auto& sample : d->currentDyad.samples) {
+        double value = std::numeric_limits<double>::quiet_NaN();
+        if (metric == "distance") {
+            value      = sample.distanceMm;
+            yAxisLabel = "Distance (mm)";
+        } else if (metric == "approach_rate") {
+            value      = sample.approachRateMmPerS;
+            yAxisLabel = "Approach rate (mm/s, negative = closing)";
+        } else if (metric == "facing") {
+            value      = sample.facingCosine;
+            yAxisLabel = "Facingness (cosine)";
+        } else { // "congruent_motion"
+            value      = sample.congruentMotionCorr;
+            yAxisLabel = "Congruent motion (r)";
+        }
+        if (std::isnan(value)) {
+            continue;
+        }
+        points.append(QPointF((sample.timestampNs - t0) / 1e6, value));
+    }
+    d->chart->set_single_series(points, yAxisLabel, QString(), minDurationMs);
+    d->chart->set_title(QString("Dyad: Track %1 ↔ Track %2 — %3")
+                            .arg(trackIdA)
+                            .arg(trackIdB)
+                            .arg(d->dyadMetricCombo->currentText()));
+    d->chart->set_playhead_ms(d->player->position_ms());
+}
+
+void AnalysisTabW::export_dyad_csv() {
+    const auto* info = d->current_session();
+    if (!info || d->currentDyad.samples.isEmpty()) {
+        return;
+    }
+
+    const int trackIdA      = d->dyadTrackACombo->currentData().toInt();
+    const int trackIdB      = d->dyadTrackBCombo->currentData().toInt();
+    const QString suggested = info->path + QString("/dyad_%1_%2.csv").arg(trackIdA).arg(trackIdB);
+
+    export_csv(this, "Export Dyad Analysis", suggested, [&](QTextStream& ts) {
+        ts << "# facing_cosine: -1 ~ oriented oppositely (commonly face-to-face in a two-person "
+              "interaction, but also consistent with standing back-to-back facing opposite "
+              "directions - position-independent by construction); +1 ~ oriented the same way\n";
+        ts << "tick,timestamp_ns,distance_mm,approach_rate_mm_s,facing_cosine,"
+              "congruent_motion_corr\n";
+        const auto& frames = d->currentSkeleton3D.frames();
+        for (int i = 0; i < d->currentDyad.samples.size(); ++i) {
+            const auto& s = d->currentDyad.samples[i];
+            // samples[i] corresponds 1:1, in order, to frames()[i] — see
+            // compute_dyadic_kinematics()'s own doc comment.
+            const int64_t tick      = i < frames.size() ? frames[i].tick : i;
+            const auto num_or_blank = [](double v) {
+                return std::isnan(v) ? QString() : QString::number(v);
+            };
+            ts << tick << "," << s.timestampNs << "," << num_or_blank(s.distanceMm) << ","
+               << num_or_blank(s.approachRateMmPerS) << "," << num_or_blank(s.facingCosine) << ","
+               << num_or_blank(s.congruentMotionCorr) << "\n";
         }
     });
 }
