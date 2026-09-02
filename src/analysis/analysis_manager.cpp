@@ -210,6 +210,20 @@ void AnalysisManager::run_gaze2d_analysis(const QString& sessionPath, double min
     enqueue_or_launch(sessionPath, "analysis/run_gaze2d.py", args, {});
 }
 
+void AnalysisManager::run_sync_repair(const QString& sessionPath, double masterFps) {
+    const QStringList args = {
+        "--session",
+        sessionPath,
+        "--master-fps",
+        QString::number(qMax(0.0, masterFps)),
+    };
+    // No secrets involved. No sync_manifest.json pre-generation/dependency
+    // at all, unlike run_gaze_fusion()/run_pose3d_reconstruction() — this
+    // plugin deliberately never touches the canonical manifest (see this
+    // method's own doc comment in analysis_manager.hpp for why).
+    enqueue_or_launch(sessionPath, "analysis/run_sync_repair.py", args, {});
+}
+
 void AnalysisManager::enqueue_or_launch(const QString& sessionPath, const QString& scriptRelPath,
                                         const QStringList& args, const QProcessEnvironment& env) {
     const Job job{sessionPath, scriptRelPath, args, env};

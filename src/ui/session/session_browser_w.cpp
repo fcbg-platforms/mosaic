@@ -155,6 +155,9 @@ class SessionRow : public QWidget {
         if (m_info.hasGaze2d) {
             drawBadge("GAZE 2D", QColor("#2a2a0a"), QColor("#dddd44"));
         }
+        if (m_info.hasSyncRepair) {
+            drawBadge("SYNCED", QColor("#0a241c"), QColor("#2ecc9a"));
+        }
         if (!m_info.annotations.isEmpty()) {
             drawBadge(QString("%1 notes").arg(m_info.annotations.size()), QColor("#1a100a"),
                       QColor("#cc8844"));

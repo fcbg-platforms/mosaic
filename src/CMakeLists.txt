@@ -42,6 +42,8 @@ qt_add_executable(mosaic MACOSX_BUNDLE
     analysis/rppg_result.cpp
     analysis/gaze2d_result.hpp
     analysis/gaze2d_result.cpp
+    analysis/sync_repair_result.hpp
+    analysis/sync_repair_result.cpp
     analysis/nearest_by_key.hpp
 
     # ── Foundation ────────────────────────────────────────────────────────

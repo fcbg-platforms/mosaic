@@ -59,6 +59,7 @@
 #include "analysis/realtime_metrics.hpp"
 #include "analysis/rppg_result.hpp"
 #include "analysis/skeleton3d_result.hpp"
+#include "analysis/sync_repair_result.hpp"
 #include "analysis/transcript_result.hpp"
 #include "analysis/trigger_frame_map.hpp"
 #include "audio/audio_envelope.hpp"
@@ -765,6 +766,7 @@ struct AnalysisTabW::Impl {
     QSpinBox* rppgSmoothingSpin             = nullptr; // rppg
     QDoubleSpinBox* gaze2dMinConfidenceSpin = nullptr; // gaze2d
     QSpinBox* gaze2dSkipSpin                = nullptr; // gaze2d
+    QDoubleSpinBox* syncRepairMasterFpsSpin = nullptr; // sync_repair — 0.0 = "Auto"
 
     QPushButton* runBtn = nullptr;
     QLabel* statusLbl   = nullptr;
@@ -892,6 +894,17 @@ struct AnalysisTabW::Impl {
     QLabel* gaze2dStatsLbl       = nullptr; // gaze2d only
     QPushButton* exportGaze2dBtn = nullptr; // gaze2d only
 
+    // Frame Sync Repair view controls — mirrors triggerSyncRowW's shape
+    // (a per-camera table, not the usual chart+overlay — this plugin's
+    // natural output is a per-camera summary, not a time series).
+    // syncRepairTable lives in resultsSplitter (not this row) for the same
+    // stretch-factor reason triggerSyncTable does; syncRepairRowW just
+    // holds the stats label + export button below it.
+    QWidget* syncRepairRowW          = nullptr; // sync_repair only
+    QTableWidget* syncRepairTable    = nullptr; // sync_repair only
+    QLabel* syncRepairStatsLbl       = nullptr; // sync_repair only
+    QPushButton* exportSyncRepairBtn = nullptr; // sync_repair only
+
     // Kinematics view controls — reshape how the already-loaded
     // currentResult is displayed, not what gets launched (unlike runBox's
     // model/skip controls), so they live in their own row. Pose only —
@@ -923,6 +936,7 @@ struct AnalysisTabW::Impl {
     TriggerFrameMap currentTriggerFrameMap; // trigger_sync only
     RppgResult currentRppgResult;           // rppg only
     Gaze2dResult currentGaze2dResult;       // gaze2d only
+    SyncRepairResult currentSyncRepair;     // sync_repair only
 
     // AnalysisManager is a single shared instance (also used by
     // SessionBrowserW's "Run Pose" button and PerformanceMonitorW's
@@ -973,6 +987,7 @@ struct AnalysisTabW::Impl {
         currentTriggerFrameMap  = TriggerFrameMap();
         currentRppgResult       = RppgResult();
         currentGaze2dResult     = Gaze2dResult();
+        currentSyncRepair       = SyncRepairResult();
     }
 };
 
@@ -1140,6 +1155,7 @@ void AnalysisTabW::build_ui() {
     d->pluginCombo->addItem("EEG/Trigger ↔ Frame Sync", "trigger_sync");
     d->pluginCombo->addItem("Remote Heart Rate (rPPG, experimental)", "rppg");
     d->pluginCombo->addItem("2D Gaze (calibration-free)", "gaze2d");
+    d->pluginCombo->addItem("Frame Sync Repair (equalize frame counts)", "sync_repair");
     controlsRow->addWidget(new QLabel("Plugin:"));
     controlsRow->addWidget(d->pluginCombo);
     connect(d->pluginCombo, &QComboBox::currentIndexChanged, this, &AnalysisTabW::select_plugin);
@@ -1530,6 +1546,33 @@ void AnalysisTabW::build_ui() {
     d->gaze2dSkipSpin->setPrefix("skip ");
     gaze2dCtlLay->addWidget(d->gaze2dSkipSpin);
     d->controlsStack->addWidget(gaze2dPage);
+
+    // ── Frame Sync Repair controls page ─────────────────────────────────
+    auto* syncRepairPage   = new QWidget;
+    auto* syncRepairCtlLay = new QHBoxLayout(syncRepairPage);
+    syncRepairCtlLay->setContentsMargins(0, 0, 0, 0);
+
+    d->syncRepairMasterFpsSpin = new QDoubleSpinBox;
+    d->syncRepairMasterFpsSpin->setRange(0.0, 240.0);
+    d->syncRepairMasterFpsSpin->setSingleStep(1.0);
+    d->syncRepairMasterFpsSpin->setValue(0.0);
+    d->syncRepairMasterFpsSpin->setSpecialValueText("Auto");
+    d->syncRepairMasterFpsSpin->setSuffix(" fps");
+    d->syncRepairMasterFpsSpin->setToolTip(
+        "Uniform output frame rate for every camera's repaired video. Auto "
+        "(0) picks the fastest camera's own achieved fps in this session — "
+        "never upsamples beyond what a real camera actually captured.");
+    syncRepairCtlLay->addWidget(d->syncRepairMasterFpsSpin);
+
+    auto* syncRepairHint = new QLabel(
+        "Produces per-camera copies with equalized frame counts, aligned to "
+        "a shared tick grid, filling small gaps by duplicating the nearest "
+        "frame. Written to a sibling \"synced/\" folder — originals are "
+        "never modified.");
+    syncRepairHint->setWordWrap(true);
+    syncRepairHint->setProperty("role", "muted");
+    syncRepairCtlLay->addWidget(syncRepairHint, 1);
+    d->controlsStack->addWidget(syncRepairPage);
 
     controlsRow->addWidget(d->controlsStack, 1);
 
@@ -2038,6 +2081,26 @@ void AnalysisTabW::build_ui() {
     d->gaze2dRowW->setVisible(false); // shown only for the gaze2d plugin
     rightLay->addWidget(d->gaze2dRowW);
 
+    // ── Frame Sync Repair view controls: stats readout + CSV export.
+    //    sync_repair only. syncRepairTable itself lives in resultsSplitter
+    //    below (own-container row here just holds the stats/export line,
+    //    mirroring triggerSyncRowW's identical split).
+    d->syncRepairRowW      = new QWidget;
+    auto* syncRepairRowLay = new QHBoxLayout(d->syncRepairRowW);
+    syncRepairRowLay->setContentsMargins(0, 0, 0, 0);
+
+    d->syncRepairStatsLbl = new QLabel;
+    d->syncRepairStatsLbl->setStyleSheet("color:#7070a0; font-size:11px;");
+    syncRepairRowLay->addWidget(d->syncRepairStatsLbl, 1);
+
+    d->exportSyncRepairBtn = new QPushButton("Export CSV");
+    connect(d->exportSyncRepairBtn, &QPushButton::clicked, this,
+            &AnalysisTabW::export_sync_repair_csv);
+    syncRepairRowLay->addWidget(d->exportSyncRepairBtn);
+
+    d->syncRepairRowW->setVisible(false); // shown only for the sync_repair plugin
+    rightLay->addWidget(d->syncRepairRowW);
+
     d->resultsSplitter     = new QSplitter(Qt::Horizontal);
     auto*& resultsSplitter = d->resultsSplitter;
     d->player = new PoseOverlayPlayerW;    // reused for audio-only playback in diarize mode too —
@@ -2108,12 +2171,23 @@ void AnalysisTabW::build_ui() {
     });
     resultsSplitter->addWidget(d->triggerSyncTable);
 
+    d->syncRepairTable = new QTableWidget(0, 5); // Camera | Source | Output | Duplicated | Status
+    d->syncRepairTable->setHorizontalHeaderLabels(
+        {"Camera", "Source frames", "Output frames", "Duplicated", "Status"});
+    d->syncRepairTable->horizontalHeader()->setStretchLastSection(true);
+    d->syncRepairTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    d->syncRepairTable->setSelectionBehavior(QAbstractItemView::SelectRows);
+    d->syncRepairTable->setSelectionMode(QAbstractItemView::SingleSelection);
+    d->syncRepairTable->setVisible(false); // shown only for the sync_repair plugin
+    resultsSplitter->addWidget(d->syncRepairTable);
+
     resultsSplitter->setStretchFactor(0, 1);
     resultsSplitter->setStretchFactor(1, 1);
     resultsSplitter->setStretchFactor(2, 1);
     resultsSplitter->setStretchFactor(3, 1);
     resultsSplitter->setStretchFactor(4, 1);
     resultsSplitter->setStretchFactor(5, 1);
+    resultsSplitter->setStretchFactor(6, 1);
     rightLay->addWidget(resultsSplitter, 1);
 
     d->chart->set_seek_callback([this](int64_t ms) { d->player->seek(ms); });
@@ -2236,6 +2310,7 @@ void AnalysisTabW::select_plugin(int index) {
     const bool isTriggerSync = is_trigger_sync_plugin();
     const bool isRppg        = is_rppg_plugin();
     const bool isGaze2d      = is_gaze2d_plugin();
+    const bool isSyncRepair  = is_sync_repair_plugin();
     // A depth model selected within the Pose plugin produces a colorized
     // video, not keypoints — the keypoint/chart controls below need to stay
     // hidden for it, same as they are for every non-pose plugin.
@@ -2283,7 +2358,9 @@ void AnalysisTabW::select_plugin(int index) {
     set_visible_animated(d->triggerSyncTable, isTriggerSync);
     set_visible_animated(d->rppgRowW, isRppg);
     set_visible_animated(d->gaze2dRowW, isGaze2d);
-    set_visible_animated(d->openFolderBtn, isFaceMask || is_pose_depth_selected());
+    set_visible_animated(d->syncRepairRowW, isSyncRepair);
+    set_visible_animated(d->syncRepairTable, isSyncRepair);
+    set_visible_animated(d->openFolderBtn, isFaceMask || is_pose_depth_selected() || isSyncRepair);
     set_visible_animated(d->sourceRowW, !isDiarize);
     set_visible_animated(d->micRowW, isDiarize);
     set_visible_animated(d->transcriptTable, isDiarize);
@@ -2399,6 +2476,14 @@ QString AnalysisTabW::gaze2d_json_path_for(const QString& videoRelPath) const {
     return "gaze2d/" + QFileInfo(videoRelPath).completeBaseName() + ".gaze2d.json";
 }
 
+QString AnalysisTabW::synced_video_path_for(const QString& videoRelPath) const {
+    // Own subfolder, same filename — mirrors anonymized_video_path_for()'s
+    // exact convention (no model/backend namespacing, unlike Pose/rPPG —
+    // there's only one algorithm here), see analysis/run_sync_repair.py's
+    // matching "synced/" output_dir.
+    return "synced/" + QFileInfo(videoRelPath).fileName();
+}
+
 bool AnalysisTabW::is_pose_plugin() const {
     return d->pluginCombo->currentData().toString() == "pose";
 }
@@ -2433,6 +2518,10 @@ bool AnalysisTabW::is_rppg_plugin() const {
 
 bool AnalysisTabW::is_gaze2d_plugin() const {
     return d->pluginCombo->currentData().toString() == "gaze2d";
+}
+
+bool AnalysisTabW::is_sync_repair_plugin() const {
+    return d->pluginCombo->currentData().toString() == "sync_repair";
 }
 
 bool AnalysisTabW::is_pose_depth_selected() const {
@@ -2584,6 +2673,47 @@ void AnalysisTabW::reload_current_camera_result() {
 
         if (!d->currentTriggerFrameMap.is_valid()) {
             d->statusLbl->setText("No trigger/frame sync yet for this session — click Run.");
+            d->statusLbl->setStyleSheet("color:#6060a0; font-size:15px; font-weight:600;");
+        }
+        return;
+    }
+
+    if (is_sync_repair_plugin()) {
+        // Session-level result (every camera is aligned against one shared
+        // tick grid), so it loads regardless of whether a camera is
+        // selected — only the player's plain-video playback (no overlay —
+        // nothing to draw) needs cameraCombo's current selection, mirroring
+        // trigger_sync's identical plain-playback pattern above.
+        if (!info) {
+            d->player->set_video(QString());
+            d->player->set_pose_result(d->currentResult);
+            update_sync_repair_view();
+            return;
+        }
+
+        const QString summaryAbs = info->path + "/synced/sync_repair.json";
+        d->currentSyncRepair =
+            QFileInfo::exists(summaryAbs) ? SyncRepairResult::load(summaryAbs) : SyncRepairResult();
+
+        if (d->cameraCombo->currentIndex() >= 0) {
+            const QString videoRel  = d->cameraCombo->currentData().toString();
+            const QString syncedAbs = info->path + "/" + synced_video_path_for(videoRel);
+            const bool hasOutput    = QFileInfo::exists(syncedAbs);
+            // Falls back to the original video (not blank) when this
+            // camera hasn't been repaired yet or was skipped — lets the
+            // user still see/scrub the source footage for reference.
+            d->player->set_video(hasOutput ? syncedAbs : info->path + "/" + videoRel);
+            d->openFolderBtn->setEnabled(hasOutput);
+        } else {
+            d->player->set_video(QString());
+            d->openFolderBtn->setEnabled(false);
+        }
+        d->player->set_pose_result(d->currentResult); // no overlay for this plugin
+
+        update_sync_repair_view();
+
+        if (!d->currentSyncRepair.is_valid()) {
+            d->statusLbl->setText("No sync repair yet for this session — click Run.");
             d->statusLbl->setStyleSheet("color:#6060a0; font-size:15px; font-weight:600;");
         }
         return;
@@ -3891,6 +4021,68 @@ void AnalysisTabW::export_gaze2d_csv() {
     });
 }
 
+void AnalysisTabW::update_sync_repair_view() {
+    const auto& r = d->currentSyncRepair;
+
+    d->syncRepairTable->setRowCount(r.cameras().size());
+    for (int i = 0; i < r.cameras().size(); ++i) {
+        const auto& c = r.cameras()[i];
+
+        auto set_cell = [this, i](int col, const QString& text) {
+            auto* item = new QTableWidgetItem(text);
+            item->setFlags(item->flags() & ~Qt::ItemIsEditable);
+            d->syncRepairTable->setItem(i, col, item);
+        };
+
+        set_cell(0, QString("Camera %1").arg(c.index));
+        set_cell(1, c.skipped ? "—" : QString::number(c.sourceFramesCaptured));
+        set_cell(2, c.skipped ? "—" : QString::number(c.outputFrameCount));
+        set_cell(3, c.skipped ? "—" : QString::number(c.duplicatedFrameCount));
+        const QString status =
+            c.skipped ? "Skipped: " + c.skipReason : (c.note.isEmpty() ? "OK" : c.note);
+        set_cell(4, status);
+    }
+
+    if (!r.is_valid()) {
+        d->syncRepairStatsLbl->clear();
+        return;
+    }
+
+    QString stats = QString("%1 tick(s) @ %2 fps — %3 duplicated frame(s) total")
+                        .arg(r.total_ticks())
+                        .arg(r.master_fps(), 0, 'f', 1)
+                        .arg(r.total_duplicated_frames());
+    if (r.skipped_camera_count() > 0) {
+        stats += QString(", %1 camera(s) skipped").arg(r.skipped_camera_count());
+    }
+    d->syncRepairStatsLbl->setText(stats);
+}
+
+void AnalysisTabW::export_sync_repair_csv() {
+    const auto* info = d->current_session();
+    if (!info || !d->currentSyncRepair.is_valid()) {
+        return;
+    }
+
+    const QString suggested = info->path + "/sync_repair_summary.csv";
+
+    export_csv(this, "Export Frame Sync Repair Summary", suggested, [&](QTextStream& ts) {
+        ts << "camera,source_frames,output_frames,duplicated_frames,skipped,skip_reason,note\n";
+        for (const auto& c : d->currentSyncRepair.cameras()) {
+            // Minimal CSV escaping — both fields are free text that may
+            // contain commas or quotes (same convention as
+            // export_transcript_csv()).
+            QString skipReason = c.skipReason;
+            QString note       = c.note;
+            skipReason.replace('"', "\"\"");
+            note.replace('"', "\"\"");
+            ts << c.index << "," << c.sourceFramesCaptured << "," << c.outputFrameCount << ","
+               << c.duplicatedFrameCount << "," << (c.skipped ? "true" : "false") << ",\""
+               << skipReason << "\",\"" << note << "\"\n";
+        }
+    });
+}
+
 void AnalysisTabW::run_analysis() {
     if (d->currentSessionPath.isEmpty()) {
         return;
@@ -3992,6 +4184,8 @@ void AnalysisTabW::run_analysis() {
     } else if (plugin == "gaze2d") {
         d->analysisMgr->run_gaze2d_analysis(
             d->currentSessionPath, d->gaze2dMinConfidenceSpin->value(), d->gaze2dSkipSpin->value());
+    } else if (plugin == "sync_repair") {
+        d->analysisMgr->run_sync_repair(d->currentSessionPath, d->syncRepairMasterFpsSpin->value());
     } else {
         // Defensive: pluginCombo only ever offers the ids handled above, but
         // a silent fallthrough here would otherwise launch face-masking with
@@ -4006,7 +4200,12 @@ void AnalysisTabW::open_output_folder() {
     if (!info) {
         return;
     }
-    const QString folder = is_pose_depth_selected() ? "depth" : "anonymized";
+    QString folder = "anonymized";
+    if (is_pose_depth_selected()) {
+        folder = "depth";
+    } else if (is_sync_repair_plugin()) {
+        folder = "synced";
+    }
     QDesktopServices::openUrl(QUrl::fromLocalFile(info->path + "/" + folder));
 }
 

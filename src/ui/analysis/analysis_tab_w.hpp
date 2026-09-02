@@ -53,7 +53,17 @@ namespace mosaic {
 // analysis/gaze2d/estimator.py's module docstring), needing NO camera
 // intrinsic or room/extrinsic calibration at all (unlike Multi-Camera Gaze
 // Fusion), shown as a per-frame dx/dy/magnitude chart plus a per-camera
-// bbox+direction-arrow video overlay and a stats readout. AnalysisManager
+// bbox+direction-arrow video overlay and a stats readout; and Frame Sync
+// Repair — equalizes every camera's frame count in a session by aligning
+// all cameras to a shared master tick grid (analysis/sync_repair/
+// alignment.py, a deliberate reimplementation of SyncManifest's own
+// nearest-neighbor tick-assignment algorithm — never touches the session's
+// canonical sync_manifest.json, see AnalysisManager::run_sync_repair()'s
+// doc comment) and duplicating the nearest-available frame to fill small
+// per-camera gaps (GVSP packet loss/trigger misses), writing corrected
+// copies into a sibling "synced/" folder — originals are never modified —
+// shown as a per-camera source/output/duplicated/status table plus plain
+// playback of the repaired video. AnalysisManager
 // (analysis/analysis_manager.hpp) runs each ML-backed plugin's script through the same shared
 // subprocess queue. For Pose, the metrics plot can show raw Position (x/y) or, entirely computed
 // client-side from the already-loaded result (no extra Python run needed — see
@@ -103,6 +113,8 @@ class AnalysisTabW : public QWidget {
     void export_rppg_csv();
     void update_gaze2d_view();
     void export_gaze2d_csv();
+    void update_sync_repair_view();
+    void export_sync_repair_csv();
     [[nodiscard]] bool is_pose_plugin() const;
     [[nodiscard]] bool is_diarize_plugin() const;
     [[nodiscard]] bool is_expression_plugin() const;
@@ -112,6 +124,7 @@ class AnalysisTabW : public QWidget {
     [[nodiscard]] bool is_trigger_sync_plugin() const;
     [[nodiscard]] bool is_rppg_plugin() const;
     [[nodiscard]] bool is_gaze2d_plugin() const;
+    [[nodiscard]] bool is_sync_repair_plugin() const;
     [[nodiscard]] bool is_pose_depth_selected() const;
     [[nodiscard]] QString slug_for_model(const QString& modelId) const;
     [[nodiscard]] QString pose_json_path_for(const QString& videoRelPath) const;
@@ -121,6 +134,7 @@ class AnalysisTabW : public QWidget {
     [[nodiscard]] QString expression_json_path_for(const QString& videoRelPath) const;
     [[nodiscard]] QString rppg_json_path_for(const QString& videoRelPath) const;
     [[nodiscard]] QString gaze2d_json_path_for(const QString& videoRelPath) const;
+    [[nodiscard]] QString synced_video_path_for(const QString& videoRelPath) const;
 
     struct Impl;
     std::unique_ptr<Impl> d;
