@@ -20,6 +20,7 @@ add_executable(mosaic_tests
     test_trigger_persistence.cpp
     test_camera_persistence.cpp
     test_param_mapping.cpp
+    test_fps_readout.cpp
     test_gige_action_command.cpp
     test_pose_analysis_result.cpp
     test_pose_kinematics.cpp
@@ -44,6 +45,7 @@ add_executable(mosaic_tests
     "${CMAKE_SOURCE_DIR}/src/session/session_health.cpp"
     "${CMAKE_SOURCE_DIR}/src/core/recording_access_control.cpp"
     "${CMAKE_SOURCE_DIR}/src/ui/audio/speaker_palette.cpp"
+    "${CMAKE_SOURCE_DIR}/src/video/fps_readout.cpp"
     "${CMAKE_SOURCE_DIR}/src/video/gige_action_command.cpp"
     "${CMAKE_SOURCE_DIR}/src/calibration/rms_quality.cpp"
     "${CMAKE_SOURCE_DIR}/src/audio/audio_envelope.cpp"

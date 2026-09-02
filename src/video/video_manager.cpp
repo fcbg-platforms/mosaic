@@ -326,6 +326,10 @@ int VideoManager::open(const VideoSettings& settings) {
                 &VideoManager::calibration_frame_ready, Qt::QueuedConnection);
         connect(unit.grabber.get(), &VideoGrabber::action_command_capability, this,
                 &VideoManager::action_command_capability, Qt::QueuedConnection);
+        // Queued is mandatory here, not just conventional: unlike the
+        // capability signal above, this one is emitted from the grab thread.
+        connect(unit.grabber.get(), &VideoGrabber::achievable_fps_changed, this,
+                &VideoManager::achievable_fps_changed, Qt::QueuedConnection);
 
         connect(
             unit.grabber.get(), &VideoGrabber::frame_dropped, this,
@@ -377,6 +381,12 @@ void VideoManager::close() {
     for (auto& unit : d->units) {
         if (unit.grabber) {
             unit.grabber->close();
+            // Retract this camera's measured rate: a closed camera has no
+            // achievable rate, and leaving the last reading on screen would
+            // present a measurement from a session that has ended as if it
+            // still applied. The UI falls back to its awaiting-measurement /
+            // exposure-ceiling state (see compute_fps_readout()).
+            emit achievable_fps_changed(unit.configIndex, -1.0);
         }
     }
     // Flush any queued MetaCallEvents (preview_frame, closed) that were posted

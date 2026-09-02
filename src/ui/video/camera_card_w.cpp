@@ -15,6 +15,8 @@
 #include <QToolButton>
 #include <QVBoxLayout>
 
+#include "video/fps_readout.hpp"
+
 namespace mosaic {
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -300,10 +302,14 @@ void CameraCardW::build_image_tab(QWidget* tab) {
     connect(fpsCk, &QCheckBox::toggled, this, [this, fpsSpin](bool v) {
         m_params.specifyFps = v;
         fpsSpin->setEnabled(v);
+        // The Exposure tab's achievable-rate readout compares against this
+        // target, so it has to re-evaluate when the target itself moves.
+        refresh_achievable_fps_label();
         emit params_changed();
     });
     connect(fpsSpin, qOverload<double>(&QDoubleSpinBox::valueChanged), this, [this](double v) {
         m_params.fps = v;
+        refresh_achievable_fps_label();
         emit params_changed();
     });
 }
@@ -327,6 +333,21 @@ void CameraCardW::build_exposure_tab(QWidget* tab) {
     auto* timeSpin = make_dspin(10.0, 1'000'000.0, m_params.exposureTimeUs, 100.0, 1);
     form->addRow("Exposure time:", with_unit(timeSpin, "µs"));
 
+    // Exposure caps frame rate — you cannot expose for 40 ms and still run at
+    // 30 fps — which is why this readout belongs beside the exposure controls
+    // rather than beside the frame-rate control on the Image tab. It reports
+    // the camera's *own* ResultingFrameRate wherever possible instead of a
+    // 1/exposure calculation, because exposure is only one of three limits
+    // (sensor readout and GigE bandwidth are the others, and on this rig
+    // bandwidth is the binding one on at least one camera). See
+    // compute_fps_readout().
+    m_achievableFpsLbl = new QLabel;
+    m_achievableFpsLbl->setWordWrap(true);
+    m_achievableFpsLbl->setTextFormat(Qt::RichText);
+    m_achievableFpsLbl->setProperty("role", "muted");
+    form->addRow("Achievable rate:", m_achievableFpsLbl);
+    refresh_achievable_fps_label();
+
     add_separator(form);
     add_section(form, "Auto range");
 
@@ -346,10 +367,14 @@ void CameraCardW::build_exposure_tab(QWidget* tab) {
             [this, update_enabled](const QString& v) {
                 m_params.exposureAuto = v;
                 update_enabled(v);
+                // Switching between manual and auto exposure changes what can
+                // honestly be said about the rate when no measurement exists.
+                refresh_achievable_fps_label();
                 emit params_changed();
             });
     connect(timeSpin, qOverload<double>(&QDoubleSpinBox::valueChanged), this, [this](double v) {
         m_params.exposureTimeUs = v;
+        refresh_achievable_fps_label();
         emit params_changed();
     });
     connect(lowerSpin, qOverload<double>(&QDoubleSpinBox::valueChanged), this, [this](double v) {
@@ -626,6 +651,80 @@ void CameraCardW::set_connected(bool connected) {
     if (m_statusDot)
         m_statusDot->setStyleSheet(connected ? "background: #44cc88; border-radius: 5px;"
                                              : "background: #333355; border-radius: 5px;");
+}
+
+void CameraCardW::set_achievable_fps(double fps) {
+    m_achievableFps = fps;
+    refresh_achievable_fps_label();
+}
+
+void CameraCardW::refresh_achievable_fps_label() {
+    if (!m_achievableFpsLbl) {
+        return;
+    }
+
+    const FpsReadout readout =
+        compute_fps_readout(m_achievableFps, m_params.specifyFps, m_params.fps,
+                            m_params.exposureAuto == "Off", m_params.exposureTimeUs);
+
+    // Text and tooltip are chosen together, per kind: the whole point of this
+    // readout is to never present a computed bound as if it were a
+    // measurement, and a tooltip that says "the camera's own reported rate"
+    // over a 1/exposure figure would do exactly that.
+    QString text;
+    QString tip;
+    switch (readout.kind) {
+        case FpsReadoutKind::AwaitingMeasurement:
+            // Deliberately no number: under auto exposure the camera picks its
+            // own exposure time when it opens, so there is nothing truthful to
+            // compute from the settings alone.
+            text = "not measured yet";
+            tip =
+                "This camera reports its own achievable rate once it has been running for a "
+                "few seconds. Nothing can be said before then: under automatic exposure the "
+                "camera chooses its own exposure time when it opens, so the exposure setting "
+                "above doesn't say what it will actually use. (A camera whose firmware "
+                "doesn't expose a ResultingFrameRate node will stay on this message.)";
+            break;
+        case FpsReadoutKind::ExposureCeiling:
+            text = QString("at most %1 fps at this exposure").arg(readout.fps, 0, 'f', 1);
+            tip =
+                "An upper bound derived from the exposure time alone — a sensor cannot "
+                "produce frames faster than it exposes them. The real rate is usually lower, "
+                "since sensor readout and GigE bandwidth also apply; it is replaced by the "
+                "camera's own measurement a few seconds after the camera opens.";
+            break;
+        case FpsReadoutKind::Measured:
+            text = QString("%1 fps").arg(readout.fps, 0, 'f', 1);
+            tip =
+                "The camera's own reported ResultingFrameRate, which accounts for exposure "
+                "time, sensor readout and GigE bandwidth together. Refreshes every couple of "
+                "seconds and after every settings change.";
+            break;
+    }
+
+    if (readout.belowConfigured) {
+        // Amber rather than red: the camera still records, it just can't hit
+        // the rate that was asked for. Same rich-text idiom PerformanceMonitorW
+        // already uses for its own out-of-range values.
+        text = QString("<font color='#ddaa44'>%1 — below the configured %2 fps</font>")
+                   .arg(text)
+                   .arg(m_params.fps, 0, 'f', 1);
+        // Appended rather than replacing `tip`, so the caveat about where the
+        // number came from survives alongside the advice.
+        tip += QString(
+                   "\n\nThis is below the %1 fps configured on the Image tab. Lower the "
+                   "exposure time or the configured frame rate to match — otherwise frames "
+                   "will be dropped during recording.")
+                   .arg(m_params.fps, 0, 'f', 1);
+    }
+    m_achievableFpsLbl->setToolTip(tip);
+
+    // The role property is set once at construction and never toggled: a
+    // dynamic property change needs an explicit unpolish/polish to restyle,
+    // and the amber case already overrides the muted colour via its own
+    // <font> tag anyway.
+    m_achievableFpsLbl->setText(text);
 }
 
 void CameraCardW::set_action_command_capability(std::optional<bool> supported) {

@@ -33,6 +33,12 @@ class VideoSettingsW : public QWidget {
     // convention as camera_params_changed's index). No-op if out of range.
     void set_action_command_capability(int cameraIndex, bool supported);
 
+    // Passthrough to the matching card's CameraCardW::set_achievable_fps() —
+    // same config-index convention as above. `fps` <= 0 means "no trustworthy
+    // measurement", which the card renders as its awaiting-measurement or
+    // exposure-ceiling state rather than as a number. No-op if out of range.
+    void set_achievable_fps(int cameraIndex, double fps);
+
    signals:
     void settings_changed();
     // Fired only when cameras are added or removed (not on per-camera param changes).

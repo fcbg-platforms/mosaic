@@ -185,6 +185,20 @@ class VideoGrabber : public QThread {
     // supported: yes/no" readout without inspecting logs.
     void action_command_capability(int cameraIndex, bool supported);
 
+    // Emitted whenever this camera's measured ResultingFrameRate changes
+    // meaningfully (see k_fps_change_epsilon) — at open(), after a live
+    // parameter apply, and from the ~2s periodic self-refresh, so the camera
+    // settings UI can show a real achievable rate beside the exposure
+    // controls rather than a client-side guess. `fps` is always a
+    // warm-up-validated reading; a camera that has no trustworthy reading
+    // yet simply never emits, and the UI shows its awaiting-measurement
+    // state (see compute_fps_readout()).
+    //
+    // NOTE: emitted from the grab thread (run_pylon_loop()), unlike
+    // action_command_capability() above which only ever fires from open() on
+    // the main thread — so the VideoManager hop must be a QueuedConnection.
+    void achievable_fps_changed(int cameraIndex, double fps);
+
    protected:
     void run() override;
 

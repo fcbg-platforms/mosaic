@@ -247,6 +247,14 @@ class VideoManager : public QObject {
     /// hwTriggerSource == "Action1").
     void action_command_capability(int cameraIndex, bool supported);
 
+    /// Passthrough of VideoGrabber::achievable_fps_changed() — the camera's
+    /// own measured ResultingFrameRate, for the achievable-rate readout beside
+    /// the exposure controls. `cameraIndex` is a *config* index (a position in
+    /// settings.cameras), like every other signal here and unlike
+    /// camera_stats()'s unit index. A closing camera reports -1.0 so a stale
+    /// reading can't outlive the session that measured it.
+    void achievable_fps_changed(int cameraIndex, double fps);
+
    private slots:
     void on_encoder_stopped(int cameraIndex, int64_t frames);
 

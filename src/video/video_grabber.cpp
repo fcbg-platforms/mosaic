@@ -9,6 +9,7 @@
 
 #include "utils/logger.hpp"
 #include "utils/timestamp.hpp"
+#include "video/fps_readout.hpp"
 #include "video/gige_action_command.hpp"
 #include "video/param_mapping.hpp"
 
@@ -90,11 +91,27 @@ struct VideoGrabber::Impl {
     // run_pylon_loop() — QThread::start() establishes the happens-before edge.
     int64_t tickFreqHz = 0;
 
-    // The camera's real ResultingFrameRate as measured at open() time — same
-    // happens-before argument as tickFreqHz above (written once, main
-    // thread, before the grab thread starts). -1.0 if it couldn't be read
-    // (stub builds, or the node genuinely unavailable). See achievable_fps().
-    double resultingFps = -1.0;
+    // The camera's real ResultingFrameRate. Atomic, unlike most of Impl:
+    // refresh_achievable_fps() writes it from open() on the main thread *and*
+    // from the grab thread (both the post-live-apply branch and the ~2s
+    // periodic self-refresh in run_pylon_loop()), while achievable_fps() is
+    // read from the main thread (camera_stats(), and the per-camera
+    // achievable-rate readout in CameraCardW) *and* from the
+    // ActionCommandTicker thread, which re-reads it periodically to
+    // self-correct its firing period. -1.0 if never measured (stub builds, or
+    // the node genuinely unavailable). See achievable_fps().
+    std::atomic<double> resultingFps{-1.0};
+
+    // The value most recently announced via achievable_fps_changed(). The
+    // change-detection threshold must be measured against what the UI is
+    // actually showing, not against the previous reading: resultingFps is
+    // rewritten on every ~2s refresh whether or not a signal was sent, so
+    // comparing against it lets a rate that drifts by less than
+    // k_fps_change_epsilon per refresh wander arbitrarily far from the
+    // displayed figure without ever emitting — leaving the card reporting a
+    // long-dead number, and never raising its "below the configured rate"
+    // warning even while refresh_achievable_fps()'s own log warning fires.
+    std::atomic<double> lastEmittedFps{-1.0};
 
     // When this camera's grab thread most recently reached Pylon's
     // StartGrabbing() — nullopt if it has never actually started grabbing
@@ -805,13 +822,28 @@ void VideoGrabber::refresh_achievable_fps() {
         // configured_fps() in that case.
         return;
     }
-    d->resultingFps = rfps; // see achievable_fps()
+    d->resultingFps.store(rfps); // see achievable_fps()
+
+    // Only announce a genuine change: this runs every ~2s per camera, and a
+    // stable camera's reading jitters in the third decimal place, which would
+    // otherwise repaint every card's readout twice a second for no reason.
+    // Compared against the last *emitted* value rather than the last stored
+    // one, so the displayed figure can never be more than one epsilon stale —
+    // see Impl::lastEmittedFps.
+    const double lastEmitted = d->lastEmittedFps.load();
+    if (lastEmitted <= 0.0 || std::abs(rfps - lastEmitted) >= k_fps_change_epsilon) {
+        d->lastEmittedFps.store(rfps);
+        emit achievable_fps_changed(d->cameraIndex, rfps);
+    }
 
     // Same mismatch check as open()'s own diagnostic block — surfaced again
     // here so a live parameter change (typically exposure time) that makes
     // the configured fps newly unachievable is flagged right away, not only
     // discovered indirectly via dropped frames during a later recording.
-    if (d->params.specifyFps && rfps > 0.0 && rfps < d->params.fps * 0.9) {
+    // k_fps_shortfall_factor is shared with compute_fps_readout(), so this
+    // warning and the camera card's own amber "can't sustain" readout can
+    // never disagree about what counts as a shortfall.
+    if (d->params.specifyFps && rfps > 0.0 && rfps < d->params.fps * k_fps_shortfall_factor) {
         log_warning(QString("[Camera %1] Requested %2 fps but the camera can only sustain "
                             "~%3 fps at the current exposure/ROI/bandwidth settings — "
                             "lower the exposure time or the configured frame rate to match.")
@@ -925,6 +957,7 @@ void VideoGrabber::run() {
 
 #if defined(MOSAIC_HAVE_CAMERAS)
 void VideoGrabber::run_pylon_loop() {
+    bool grabFailed = false;
     try {
         // Always output BGR8packed so Qt can display any camera pixel format.
         d->converter.OutputPixelFormat  = Pylon::PixelType_BGR8packed;
@@ -1101,6 +1134,7 @@ void VideoGrabber::run_pylon_loop() {
 
     } catch (const Pylon::GenericException& e) {
         emit grab_error(d->cameraIndex, QString::fromLocal8Bit(e.GetDescription()));
+        grabFailed = true;
     }
     // Broadened beyond Pylon::GenericException: an uncaught exception of any
     // other type escaping this function escapes QThread::run() itself, which
@@ -1110,8 +1144,28 @@ void VideoGrabber::run_pylon_loop() {
     catch (const std::exception& e) {
         emit grab_error(d->cameraIndex,
                         QString("Unexpected exception: %1").arg(QString::fromUtf8(e.what())));
+        grabFailed = true;
     } catch (...) {
         emit grab_error(d->cameraIndex, "Unknown non-standard exception in grab loop.");
+        grabFailed = true;
+    }
+
+    if (grabFailed) {
+        // This camera has stopped acquiring mid-session (a pulled cable is the
+        // realistic case), so nothing will ever refresh its rate again.
+        // VideoManager::close()'s retraction only covers an orderly shutdown,
+        // which this isn't — without this the card would go on presenting the
+        // last good reading as a live figure indefinitely.
+        //
+        // Deliberately retracts only what is *displayed*: resultingFps itself
+        // is left alone, because ActionCommandTicker re-reads achievable_fps()
+        // to pick the group's shared firing period and falling back to
+        // configured_fps() there caused >80% trigger loss across the whole
+        // group in real room-11 testing. A dead camera's last known ceiling is
+        // still a better input to that calculation than an optimistic
+        // configured value.
+        d->lastEmittedFps.store(-1.0);
+        emit achievable_fps_changed(d->cameraIndex, -1.0);
     }
 }
 #else
