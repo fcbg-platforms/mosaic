@@ -32,7 +32,10 @@ bool TriggerRecorder::start(const QString& path) {
 
     // Write CSV header
     QTextStream out(&d->file);
-    out << "elapsed_ms,elapsed_ns,wall_clock,source,label,value\n";
+    // `code` is APPENDED, not inserted before `value`: a user script reading
+    // this file positionally (field 5 was `value`) keeps working, and only
+    // gains a new trailing column it can ignore.
+    out << "elapsed_ms,elapsed_ns,wall_clock,source,label,value,code\n";
     return true;
 }
 
@@ -52,7 +55,7 @@ void TriggerRecorder::record_event(const TriggerEvent& ev) {
     out << QString::number(elapsedMs, 'f', 3) << "," << ev.timestampNs << "," << wallClock << ","
         << ev.source << ","
         << "\"" << QString(ev.label).replace('"', "\"\"") << "\","
-        << QString::number(ev.value, 'f', 6) << "\n";
+        << QString::number(ev.value, 'f', 6) << "," << ev.code << "\n";
     out.flush();
 }
 

@@ -17,6 +17,7 @@ add_executable(mosaic_tests
     test_sync_manifest.cpp
     test_trigger_frame_map.cpp
     test_trigger_recorder.cpp
+    test_trigger_persistence.cpp
     test_camera_persistence.cpp
     test_param_mapping.cpp
     test_gige_action_command.cpp

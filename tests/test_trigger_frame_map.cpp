@@ -33,6 +33,20 @@ void write_trigger_csv(const QString& path, const QStringList& rows) {
     }
 }
 
+// trigger.csv including the `code` column. Deliberately kept separate from
+// write_trigger_csv() above, which stays on the pre-code schema so every
+// existing test doubles as backward-compatibility coverage for a session
+// recorded before codes existed.
+void write_trigger_csv_with_codes(const QString& path, const QStringList& rows) {
+    QFile f(path);
+    ASSERT_TRUE(f.open(QIODevice::WriteOnly | QIODevice::Text));
+    QTextStream ts(&f);
+    ts << "elapsed_ms,elapsed_ns,wall_clock,source,label,value,code\n";
+    for (const auto& row : rows) {
+        ts << row << '\n';
+    }
+}
+
 // Old-format trigger.csv (no elapsed_ns column) — pre-fix schema.
 void write_old_format_trigger_csv(const QString& path) {
     QFile f(path);
@@ -198,9 +212,51 @@ TEST(TriggerFrameMap, ExportCsvColumnCount) {
     ASSERT_TRUE(f.open(QIODevice::ReadOnly | QIODevice::Text));
     QTextStream ts(&f);
     const QString header = ts.readLine();
-    // 7 fixed columns (trigger_row,elapsed_ns,elapsed_ms,wall_clock,source,label,value)
+    // 8 fixed columns
+    // (trigger_row,elapsed_ns,elapsed_ms,wall_clock,source,label,code,value)
     // + 2 columns per camera (frame_id, delta_ms).
-    EXPECT_EQ(header.split(',').size(), 7 + 2 * m.camera_count());
+    EXPECT_EQ(header.split(',').size(), 8 + 2 * m.camera_count());
+}
+
+TEST(TriggerFrameMap, ParsesTriggerCodeAndRoundTripsItThroughJson) {
+    QTemporaryDir dir;
+    ASSERT_TRUE(dir.isValid());
+    ASSERT_TRUE(QDir().mkpath(dir.path() + "/video"));
+    write_timestamps_csv(dir.path() + "/video/timestamps_cam0.csv", {{0, 0}});
+    write_trigger_csv_with_codes(dir.path() + "/trigger.csv",
+                                 {
+                                     R"(0.0,0,14:00:00.000,keyboard,"Trial onset",0.000000,7)",
+                                 });
+
+    const auto m = TriggerFrameMap::generate(dir.path());
+    ASSERT_TRUE(m.is_valid());
+    ASSERT_EQ(m.trigger_count(), 1);
+    EXPECT_EQ(m.row(0).code, 7);
+
+    ASSERT_TRUE(m.save(dir.path()));
+    const auto loaded = TriggerFrameMap::load(dir.path());
+    ASSERT_TRUE(loaded.is_valid());
+    ASSERT_EQ(loaded.trigger_count(), 1);
+    EXPECT_EQ(loaded.row(0).code, 7);
+}
+
+// A session recorded before codes existed must still parse, with the code
+// reading 0 rather than the load failing or inventing a value.
+TEST(TriggerFrameMap, TriggerCsvWithoutCodeColumnStillParsesWithCodeZero) {
+    QTemporaryDir dir;
+    ASSERT_TRUE(dir.isValid());
+    ASSERT_TRUE(QDir().mkpath(dir.path() + "/video"));
+    write_timestamps_csv(dir.path() + "/video/timestamps_cam0.csv", {{0, 0}});
+    write_trigger_csv(dir.path() + "/trigger.csv",
+                      {
+                          R"(0.0,0,14:00:00.000,keyboard,"Event A",0.000000)",
+                      });
+
+    const auto m = TriggerFrameMap::generate(dir.path());
+    ASSERT_TRUE(m.is_valid());
+    ASSERT_EQ(m.trigger_count(), 1);
+    EXPECT_EQ(m.row(0).code, 0);
+    EXPECT_EQ(m.row(0).label, "Event A");
 }
 
 TEST(TriggerFrameMap, DefaultConstructedIsInvalid) {

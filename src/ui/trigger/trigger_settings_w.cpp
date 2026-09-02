@@ -13,13 +13,24 @@
 #include <QLabel>
 #include <QPushButton>
 #include <QScrollArea>
+#include <QSet>
 #include <QTextEdit>
 #include <QVector>
+#include <algorithm>
 
 #include "trigger/keyboard_trigger.hpp"
+#include "utils/logger.hpp"
 #include "utils/timestamp.hpp"
 
 namespace mosaic {
+
+// Must match the reserve() in the constructor: cards hold references into
+// m_settings.keyboardTriggers, so the vector must never reallocate.
+static constexpr size_t k_max_keyboard_triggers = 32;
+
+// Ceiling of a standard 8-bit external trigger channel (and KeyboardCardW's
+// own spinbox range).
+static constexpr int k_max_trigger_code = 255;
 
 struct TriggerSettingsW::Impl {
     // Master toggle
@@ -75,7 +86,7 @@ TriggerSettingsW::TriggerSettingsW(TriggerSettings& settings, TriggerManager* ma
     outerLay->addWidget(scroll);
 
     // Pre-reserve so references stay valid
-    m_settings.keyboardTriggers.reserve(32);
+    m_settings.keyboardTriggers.reserve(k_max_keyboard_triggers);
     m_settings.serialTriggers.reserve(16);
     m_settings.parallelPorts.reserve(8);
 
@@ -143,9 +154,47 @@ void TriggerSettingsW::build_keyboard_section(QVBoxLayout* parent) {
 
     auto* addBtn = new QPushButton("+ Add trigger");
     addBtn->setFixedHeight(26);
-    connect(addBtn, &QPushButton::clicked, this, [this] { add_keyboard_trigger({}); });
+    connect(addBtn, &QPushButton::clicked, this, [this] {
+        if (m_settings.keyboardTriggers.size() >= k_max_keyboard_triggers) {
+            // The cards hold references into m_settings.keyboardTriggers, whose
+            // capacity is reserved exactly once — growing past it would
+            // reallocate and dangle every existing card. Refuse loudly rather
+            // than corrupt.
+            log_error(QString("[TriggerSettingsW] Cannot add another keyboard trigger — the "
+                              "maximum of %1 is already configured.")
+                          .arg(k_max_keyboard_triggers));
+            return;
+        }
+        // Lowest unused code, not max+1: max+1 overflows past the 255 ceiling
+        // of a standard 8-bit external trigger channel once any trigger sits
+        // near it, and never reuses a gap left by a deleted trigger.
+        KeyTriggerConfig cfg;
+        QSet<int> used;
+        for (const auto& k : m_settings.keyboardTriggers) {
+            used.insert(k.code);
+        }
+        cfg.code = k_max_trigger_code; // fallback if every code is taken
+        for (int candidate = 1; candidate <= k_max_trigger_code; ++candidate) {
+            if (!used.contains(candidate)) {
+                cfg.code = candidate;
+                break;
+            }
+        }
+        add_keyboard_trigger(std::move(cfg));
+    });
     headerRow->addWidget(addBtn);
     parent->addLayout(headerRow);
+
+    // The multi-trigger capability isn't discoverable from the UI alone —
+    // this is a real report ("looks like we can only give one trigger").
+    auto* hint = new QLabel(
+        "Add one trigger per event you want to mark during a recording — each gets its own key "
+        "and its own numeric code. Every press is logged to the session's trigger.csv with its "
+        "name and code, so an external recording (e.g. an EEG trigger channel) can be aligned "
+        "against it.");
+    hint->setWordWrap(true);
+    hint->setStyleSheet("color: #6a6a90; font-size: 11px;");
+    parent->addWidget(hint);
 
     auto* cardsWidget = new QWidget;
     d->keyboardLayout = new QVBoxLayout(cardsWidget);
@@ -186,15 +235,25 @@ void TriggerSettingsW::add_keyboard_trigger(KeyTriggerConfig cfg) {
 void TriggerSettingsW::remove_keyboard_trigger(int index) {
     if (index < 0 || index >= d->keyCards.size()) return;
 
-    auto* card = d->keyCards[index];
-    d->keyboardLayout->removeWidget(card);
-    card->deleteLater();
-    d->keyCards.remove(index);
     m_settings.keyboardTriggers.erase(m_settings.keyboardTriggers.begin() + index);
+
+    // Every card holds a KeyTriggerConfig& into m_settings.keyboardTriggers,
+    // and erase() shifts every later element down one slot — so a surviving
+    // card's reference would now point at a DIFFERENT trigger (or, for the
+    // last card, one past the end). Renumbering with set_index() alone does
+    // not repair that. Rebuild the cards so every reference is re-bound to
+    // the element it actually names.
+    for (auto* card : d->keyCards) {
+        d->keyboardLayout->removeWidget(card);
+        card->deleteLater();
+    }
+    d->keyCards.clear();
 
     reload_manager();
 
-    for (int i = index; i < d->keyCards.size(); ++i) d->keyCards[i]->set_index(i);
+    for (int i = 0; i < static_cast<int>(m_settings.keyboardTriggers.size()); ++i) {
+        make_keyboard_card(i);
+    }
 
     emit settings_changed();
 }

@@ -82,7 +82,10 @@ void RecordManager::write_session_meta() const {
     // Trigger sources
     QJsonArray keys, ports;
     for (const auto& k : d->settings.trigger.keyboardTriggers) {
-        keys.append(QJsonObject{{"name", k.name}, {"key_seq", k.keySeq}});
+        // `code` makes the session self-describing: trigger.csv logs numeric
+        // codes, and an analyst reading it later shouldn't need access to the
+        // recording machine's settings.json to learn what each one meant.
+        keys.append(QJsonObject{{"name", k.name}, {"key_seq", k.keySeq}, {"code", k.code}});
     }
     for (const auto& p : d->settings.trigger.parallelPorts) {
         ports.append(QJsonObject{{"port_address", p.portAddress}});

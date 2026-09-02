@@ -207,6 +207,13 @@ struct KeyTriggerConfig {
     bool enabled         = true;
     TriggerAction action = TriggerAction::Log;
 
+    // Numeric marker written to trigger.csv's `code` column when this trigger
+    // fires — the value to line Mosaic's markers up against an external
+    // system's own trigger channel (an EEG amplifier's, typically), where a
+    // free-text name is useless. Distinct from `value`, which is a double
+    // carrying a sample/level for analog-ish sources.
+    int code = 1;
+
     [[nodiscard]] QJsonObject to_json() const;
     [[nodiscard]] static std::optional<KeyTriggerConfig> from_json(const QJsonObject&);
 };
