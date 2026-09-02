@@ -238,6 +238,12 @@ struct VideoManager::Impl {
     // — see VideoManager::action_ticks_fired()'s doc comment. -1 = Action1
     // triggering was never used in this VideoManager's lifetime.
     int64_t lastActionTicksFired = -1;
+
+    // Post-recording snapshots — see VideoManager::last_recording_snapshot()'s
+    // doc comment for why a live read is unusable from a recording_stopped
+    // handler.
+    std::vector<VideoManager::RecordingCameraSnapshot> lastRecordingSnapshot;
+    int64_t lastRecordingActionTicks = -1;
 };
 
 VideoManager::VideoManager(QObject* parent) : QObject(parent), d(std::make_unique<Impl>()) {}
@@ -493,15 +499,61 @@ void VideoManager::stop() {
             unit.encoder->stop_encoding();
         }
     }
-    // Wait for all threads to exit.
+    // Wait for all threads to exit. A timed-out wait matters for the snapshot
+    // below: an encoder still draining reports fewer framesEncoded than were
+    // grabbed, which would otherwise be read as ground truth.
     for (auto& unit : d->units) {
-        if (unit.grabber) {
-            unit.grabber->wait(5000);
+        if (unit.grabber && !unit.grabber->wait(5000)) {
+            log_warning(QString("[VideoManager] Camera %1 grabber did not exit within 5s — its "
+                                "health-report counters may be incomplete.")
+                            .arg(unit.configIndex));
         }
-        if (unit.encoder) {
-            unit.encoder->wait(10000);
+        if (unit.encoder && !unit.encoder->wait(10000)) {
+            log_warning(QString("[VideoManager] Camera %1 encoder did not finish draining within "
+                                "10s — framesEncoded may under-report.")
+                            .arg(unit.configIndex));
         }
     }
+
+    // Latch every camera's final counters before anything can reset them.
+    // stop_grabbing() leaves them intact, but the preview restart that follows
+    // recording_stopped calls start_grabbing(), which zeroes frameCounter/
+    // dropCounter — and that restart is wired up in Application::initialize()
+    // before MainWindow exists, so it runs first. Without this snapshot every
+    // post-recording consumer reads zeros. Taken after the threads have joined
+    // so the encoders' drain is included in framesEncoded.
+    d->lastRecordingSnapshot.clear();
+    d->lastRecordingSnapshot.reserve(d->units.size());
+    for (const auto& unit : d->units) {
+        if (!unit.grabber) {
+            continue;
+        }
+        RecordingCameraSnapshot snap;
+        snap.configIndex        = unit.configIndex;
+        snap.framesGrabbed      = unit.grabber->frames_grabbed();
+        snap.framesDropped      = unit.grabber->frames_dropped();
+        snap.incompleteFrames   = unit.grabber->incomplete_frames_total();
+        snap.configuredFps      = unit.grabber->configured_fps();
+        snap.achievableFps      = unit.grabber->achievable_fps();
+        snap.actionCommandReady = unit.grabber->action_command_ready();
+        snap.framesEncoded      = unit.encoder ? unit.encoder->frames_encoded() : 0;
+        d->lastRecordingSnapshot.push_back(snap);
+    }
+    // stop_action_ticker() above already latched the ticker's own count into
+    // lastActionTicksFired; copy it aside before the preview restart resets it.
+    d->lastRecordingActionTicks = d->lastActionTicksFired;
+}
+
+const std::vector<VideoManager::RecordingCameraSnapshot>& VideoManager::last_recording_snapshot()
+    const {
+    return d->lastRecordingSnapshot;
+}
+
+int64_t VideoManager::last_recording_action_ticks() const { return d->lastRecordingActionTicks; }
+
+void VideoManager::clear_recording_snapshot() {
+    d->lastRecordingSnapshot.clear();
+    d->lastRecordingActionTicks = -1;
 }
 
 void VideoManager::apply_live_params(int configIndex) {

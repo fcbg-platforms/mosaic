@@ -39,6 +39,44 @@ QString opt_pct(const std::optional<double>& v) {
     return v.has_value() ? QString("%1%").arg(*v, 0, 'f', 1) : QStringLiteral("n/a");
 }
 
+// A camera that never opened has no counters at all — showing "0" would read
+// as "recorded cleanly, captured nothing", which is a different and much less
+// alarming statement than the truth.
+QLabel* absent_label() {
+    auto* lbl = new QLabel("not opened");
+    lbl->setStyleSheet("color: #6a4a4a; font-size: 12px; font-family: monospace;");
+    return lbl;
+}
+
+QString quality_text(RmsQuality q) {
+    switch (q) {
+        case RmsQuality::Excellent:
+            return "Excellent";
+        case RmsQuality::Good:
+            return "Good";
+        case RmsQuality::Acceptable:
+            return "Acceptable";
+        case RmsQuality::Poor:
+            return "Poor";
+    }
+    return "Poor";
+}
+
+// Colour of the CAMERA cell's own text, standing in for the removed STATUS
+// column so a bad row is still identifiable at a glance when several cameras
+// are bad (the headline only ever names the worst one). Reuses style.hpp's
+// existing warning/danger colours.
+QString name_color_for(RmsQuality q) {
+    switch (q) {
+        case RmsQuality::Poor:
+            return "#cc4444";
+        case RmsQuality::Acceptable:
+            return "#ddaa44";
+        default:
+            return "#c8c8e0";
+    }
+}
+
 QString fps_pair(double configured, double achievable) {
     if (achievable < 0.0) {
         return QString("%1 (measuring…)").arg(configured, 0, 'f', 1);
@@ -87,9 +125,12 @@ SessionHealthDialog::SessionHealthDialog(const SessionHealthReport& report, QWid
 
     const auto headerStyle =
         "color: #44446a; font-size: 9px; font-weight: bold; letter-spacing: 1px;";
-    const QStringList headers = {"CAMERA",       "GRABBED",    "ENCODED",
-                                 "DROPPED",      "INCOMPLETE", "FPS (ACHV/CFG)",
-                                 "MISSED TRIG.", "SYNC",       "STATUS"};
+    // No per-camera STATUS column — the overall-quality pill in the header row
+    // carries the verdict, and each row's own camera name is tinted by its
+    // quality (see name_color_for()) so a bad camera is still identifiable
+    // without spending a whole column on it.
+    const QStringList headers = {"CAMERA",     "GRABBED",        "ENCODED",      "DROPPED",
+                                 "INCOMPLETE", "FPS (ACHV/CFG)", "MISSED TRIG.", "SYNC"};
     for (int col = 0; col < headers.size(); ++col) {
         auto* lbl = new QLabel(headers[col]);
         lbl->setStyleSheet(headerStyle);
@@ -101,9 +142,40 @@ SessionHealthDialog::SessionHealthDialog(const SessionHealthReport& report, QWid
     for (const auto& entry : report.cameras) {
         const auto& raw = entry.raw;
         int col         = 0;
-        grid->addWidget(
-            value_label(raw.name.isEmpty() ? QString("Camera %1").arg(raw.index) : raw.name), row,
-            col++);
+
+        // 1-based, matching build_session_health_report()'s own fallback and
+        // CameraCardW's headers. Colour alone would be a poor carrier for the
+        // verdict (Excellent and Good share a colour, and a screenshot or a
+        // colour-blind reader loses it entirely), so a below-Good row also
+        // says so in text.
+        QString nameText = raw.name.isEmpty() ? QString("Camera %1").arg(raw.index + 1) : raw.name;
+        if (entry.quality == RmsQuality::Acceptable || entry.quality == RmsQuality::Poor) {
+            nameText += QString("  · %1").arg(quality_text(entry.quality));
+        }
+        auto* nameLbl = value_label(nameText);
+        nameLbl->setStyleSheet(QString("color: %1; font-size: 12px; font-family: monospace;")
+                                   .arg(name_color_for(entry.quality)));
+        // The artifacts are 0-based (Camera 1 -> video_0.mp4) — but a camera
+        // that never opened wrote none of them, so don't name files that
+        // aren't there.
+        nameLbl->setToolTip(
+            raw.participated
+                ? QString("%1 — files are named video_%2.mp4 / timestamps_cam%2.csv")
+                      .arg(quality_text(entry.quality))
+                      .arg(raw.index)
+                : QString("%1 — this camera never opened, so it wrote no files for this session.")
+                      .arg(quality_text(entry.quality)));
+        grid->addWidget(nameLbl, row, col++);
+
+        if (!raw.participated) {
+            // Every remaining column is meaningless for a camera that never
+            // opened — span them with one honest statement instead of seven
+            // zeros.
+            grid->addWidget(absent_label(), row, col, 1, headers.size() - 1);
+            ++row;
+            continue;
+        }
+
         grid->addWidget(value_label(QString::number(raw.framesGrabbed)), row, col++);
         grid->addWidget(value_label(QString::number(raw.framesEncoded)), row, col++);
         grid->addWidget(value_label(QString::number(raw.framesDropped)), row, col++);
@@ -111,13 +183,6 @@ SessionHealthDialog::SessionHealthDialog(const SessionHealthReport& report, QWid
         grid->addWidget(value_label(fps_pair(raw.configuredFps, raw.achievableFps)), row, col++);
         grid->addWidget(value_label(opt_int(entry.missedTriggerFrames)), row, col++);
         grid->addWidget(value_label(opt_pct(raw.syncCoveragePct)), row, col++);
-        auto* pill = new QLabel(entry.quality == RmsQuality::Excellent    ? "Excellent"
-                                : entry.quality == RmsQuality::Good       ? "Good"
-                                : entry.quality == RmsQuality::Acceptable ? "Acceptable"
-                                                                          : "Poor");
-        pill->setStyleSheet(badge_stylesheet(entry.quality));
-        pill->setAlignment(Qt::AlignCenter);
-        grid->addWidget(pill, row, col++);
         ++row;
     }
 

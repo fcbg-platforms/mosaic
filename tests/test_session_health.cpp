@@ -29,6 +29,36 @@ TEST(CameraHealthQualityFor, ExcellentForACleanCameraWithNoSyncOrTriggerData) {
     EXPECT_EQ(camera_health_quality_for(raw, std::nullopt), RmsQuality::Excellent);
 }
 
+TEST(CameraHealthQualityFor, PoorWhenCameraNeverParticipated) {
+    // Configured but never opened — duplicate serial, failed open(), or a dead
+    // cable/NIC link. Every counter stays at its default, so before this rule
+    // existed such a camera fell through every check and graded Excellent,
+    // outranking cameras that actually recorded successfully.
+    CameraHealthInput raw;
+    raw.index        = 5;
+    raw.name         = "Camera 6 (24893039)";
+    raw.participated = false;
+    EXPECT_EQ(camera_health_quality_for(raw, std::nullopt), RmsQuality::Poor);
+}
+
+TEST(CameraHealthQualityFor, PoorWhenNoFramesWereGrabbedAtAll) {
+    // A camera that failed to open, or whose link was down for the whole
+    // session, has no drops, no incomplete frames, no sync data, and an
+    // unmeasured achievableFps — so before this check existed it fell through
+    // every other rule and graded Excellent, which is exactly backwards.
+    CameraHealthInput raw;
+    raw.index         = 5;
+    raw.name          = "Camera 5";
+    raw.framesGrabbed = 0;
+    raw.framesEncoded = 0;
+    raw.configuredFps = 25.0;
+    EXPECT_EQ(camera_health_quality_for(raw, std::nullopt), RmsQuality::Poor);
+
+    // Still Poor even when sync/trigger data happens to look fine.
+    raw.syncCoveragePct = 100.0;
+    EXPECT_EQ(camera_health_quality_for(raw, 0), RmsQuality::Poor);
+}
+
 TEST(CameraHealthQualityFor, PoorWheneverThereIsAnyFrameDrop) {
     auto raw          = clean_camera();
     raw.framesDropped = 1;
@@ -154,4 +184,38 @@ TEST(BuildSessionHealthReport, HeadlineNamesTheCleanCameraCountWhenAllAreClean) 
 
     const auto report = build_session_health_report("path", "name", 1000, cams);
     EXPECT_EQ(report.headline, "2/2 cameras clean");
+}
+
+TEST(BuildSessionHealthReport, ANonParticipatingCameraDominatesTheOverallVerdict) {
+    // The whole point of reporting a never-opened camera at all: two healthy
+    // cameras must not let a dead one pass unnoticed.
+    QVector<CameraHealthInput> cams;
+    cams.push_back(clean_camera(0));
+    cams.push_back(clean_camera(1));
+    CameraHealthInput dead;
+    dead.index        = 5;
+    dead.name         = "Camera 6 (24893039)";
+    dead.participated = false;
+    cams.push_back(dead);
+
+    const auto report = build_session_health_report("path", "name", 1000, cams);
+    EXPECT_EQ(report.overallQuality, RmsQuality::Poor);
+    EXPECT_EQ(report.cameras.size(), 3);
+    EXPECT_EQ(report.cameras[2].quality, RmsQuality::Poor);
+    EXPECT_TRUE(report.headline.contains("Camera 6 (24893039)"));
+    EXPECT_TRUE(report.headline.contains("Poor"));
+}
+
+TEST(BuildSessionHealthReport, HeadlineFallbackNameIsOneBasedLikeTheProducerLabel) {
+    // A caller that leaves `name` empty must not produce "Camera 0" for the
+    // same camera the producer would call "Camera 1".
+    QVector<CameraHealthInput> cams;
+    CameraHealthInput bad;
+    bad.index         = 0;
+    bad.framesGrabbed = 1000;
+    bad.framesDropped = 3;
+    cams.push_back(bad);
+
+    const auto report = build_session_health_report("path", "name", 1000, cams);
+    EXPECT_TRUE(report.headline.startsWith("Camera 1:"));
 }

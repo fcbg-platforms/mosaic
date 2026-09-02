@@ -19,6 +19,7 @@
 #include <QTabWidget>
 #include <QTimer>
 #include <QVBoxLayout>
+#include <algorithm>
 #include <array>
 #include <memory>
 
@@ -600,6 +601,15 @@ void MainWindow::build_status_bar() {
                     if (d->videoSettingsW) {
                         d->videoSettingsW->set_discover_enabled(false);
                     }
+                    // A session can end without VideoManager::stop() ever
+                    // running (video disabled, or no camera open), which would
+                    // otherwise leave the previous recording's snapshot in
+                    // place for this session's health report to present as its
+                    // own. Clearing here makes "stale" impossible rather than
+                    // unlikely.
+                    if (d->videoMgr) {
+                        d->videoMgr->clear_recording_snapshot();
+                    }
                 });
         connect(d->recordMgr, &RecordManager::recording_stopped, this,
                 [this](const QString& /*path*/, int /*durationMs*/) {
@@ -633,43 +643,105 @@ void MainWindow::show_session_health(const QString& sessionPath, int durationMs)
         sync.save(sessionPath);
     }
 
-    QVector<CameraHealthInput> inputs;
-    const int n = static_cast<int>(d->settings.video.cameras.size());
-    for (int i = 0; i < n; ++i) {
-        const auto stats = d->videoMgr->camera_stats(i);
-        CameraHealthInput in;
-        in.index            = i;
-        in.name             = d->settings.video.cameras[static_cast<size_t>(i)].friendlyName;
-        in.framesGrabbed    = stats.framesGrabbed;
-        in.framesEncoded    = stats.framesEncoded;
-        in.framesDropped    = stats.framesDropped;
-        in.incompleteFrames = stats.incompleteFrames;
-        in.configuredFps    = stats.configuredFps;
-        in.achievableFps    = stats.achievableFps;
+    // Names a camera by its configured slot and serial rather than
+    // friendlyName: Discover overwrites friendlyName with cam.modelName
+    // (video_settings_w.cpp), which is identical across same-model units, so
+    // every row would read the same. 1-based to match CameraCardW's own
+    // headers; the artifacts it maps to are 0-based (Camera 1 -> video_0.mp4),
+    // which the dialog spells out.
+    const auto& configured  = d->settings.video.cameras;
+    const auto camera_label = [&configured](int configIndex) {
+        QString label = QString("Camera %1").arg(configIndex + 1);
+        if (configIndex >= 0 && configIndex < static_cast<int>(configured.size())) {
+            const QString& serial = configured[static_cast<size_t>(configIndex)].serialNumber;
+            if (!serial.isEmpty()) {
+                label += QString(" (%1)").arg(serial);
+            }
+        }
+        return label;
+    };
+    // Known limitation, pre-existing and deliberately not fixed here:
+    // SyncManifest::generate() scans timestamps_cam0.csv, cam1.csv, … and
+    // BREAKS at the first missing file, then numbers its entries by position
+    // in that contiguous run — so CameraSync::index is only equal to a config
+    // index while no earlier camera is missing. If camera 1 fails to open,
+    // camera 2's real timestamps are never read and its SYNC column reads
+    // "n/a" despite valid data on disk. On this rig the camera that fails is
+    // the last one, so the common case is unaffected. Fixing it means changing
+    // SyncManifest's scan and index semantics, which SessionPlayerW and the
+    // saved sync_manifest.json also depend on — its own PR, not this one.
+    const auto fill_sync = [&](CameraHealthInput& in, int configIndex) {
+        if (!haveSync) {
+            return;
+        }
+        for (int c = 0; c < sync.camera_count(); ++c) {
+            const auto& camSync = sync.camera_info(c);
+            if (camSync.index == configIndex) {
+                in.syncCoveragePct = camSync.coveragePct;
+                in.syncMeanDeltaMs = camSync.meanDeltaMs;
+                in.syncMaxDeltaMs  = camSync.maxDeltaMs;
+                break;
+            }
+        }
+    };
 
-        // action_ticks_fired() is one shared, group-wide count — only
-        // meaningful for a camera that was actually part of the Action1
-        // target group (a session can mix Action1-armed and free-running
-        // cameras), so it must not be applied uniformly to every camera.
-        const int64_t ticks = d->videoMgr->action_ticks_fired();
-        if (ticks >= 0 && d->videoMgr->camera_action_command_ready(i)) {
+    // Driven by the recording snapshot, NOT by a live camera_stats() read and
+    // NOT indexed by config position: the live counters are already zeroed by
+    // the preview restart that runs ahead of this handler, and camera_stats()
+    // indexes the compacted unit list, so a config index would silently
+    // attribute one camera's numbers to another as soon as any earlier camera
+    // fails to open. See VideoManager::last_recording_snapshot().
+    QVector<CameraHealthInput> inputs;
+    QSet<int> seen;
+    const int64_t ticks = d->videoMgr->last_recording_action_ticks();
+    for (const auto& snap : d->videoMgr->last_recording_snapshot()) {
+        CameraHealthInput in;
+        in.index            = snap.configIndex;
+        in.name             = camera_label(snap.configIndex);
+        in.participated     = true;
+        in.framesGrabbed    = snap.framesGrabbed;
+        in.framesEncoded    = snap.framesEncoded;
+        in.framesDropped    = snap.framesDropped;
+        in.incompleteFrames = snap.incompleteFrames;
+        in.configuredFps    = snap.configuredFps;
+        in.achievableFps    = snap.achievableFps;
+
+        // One shared, group-wide count — only meaningful for a camera that was
+        // actually in the Action1 target group, since a session can mix
+        // Action1-armed and free-running cameras.
+        if (ticks >= 0 && snap.actionCommandReady) {
             in.actionTicksFired = ticks;
         }
 
-        if (haveSync) {
-            for (int c = 0; c < sync.camera_count(); ++c) {
-                const auto& camSync = sync.camera_info(c);
-                if (camSync.index == i) {
-                    in.syncCoveragePct = camSync.coveragePct;
-                    in.syncMeanDeltaMs = camSync.meanDeltaMs;
-                    in.syncMaxDeltaMs  = camSync.maxDeltaMs;
-                    break;
-                }
-            }
-        }
-
+        fill_sync(in, snap.configIndex);
+        seen.insert(snap.configIndex);
         inputs.push_back(in);
     }
+
+    // Configured but never opened (duplicate serial, failed open(), dead
+    // link). Reported explicitly rather than omitted — a silently missing
+    // camera is exactly the failure most worth noticing.
+    //
+    // Skipped entirely for an audio-only session: with video deliberately
+    // disabled, every configured camera would otherwise be reported as
+    // "not opened" and graded Poor, turning a perfectly successful
+    // audio-only recording into a wall of red.
+    if (d->settings.record.enableVideo) {
+        for (int i = 0; i < static_cast<int>(configured.size()); ++i) {
+            if (seen.contains(i)) {
+                continue;
+            }
+            CameraHealthInput in;
+            in.index        = i;
+            in.name         = camera_label(i);
+            in.participated = false;
+            inputs.push_back(in);
+        }
+    }
+
+    std::sort(
+        inputs.begin(), inputs.end(),
+        [](const CameraHealthInput& a, const CameraHealthInput& b) { return a.index < b.index; });
 
     const QString name = QFileInfo(sessionPath).fileName();
     const auto report  = build_session_health_report(sessionPath, name, durationMs, inputs);
