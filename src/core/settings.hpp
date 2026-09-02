@@ -290,6 +290,28 @@ struct RecordSettings {
     bool enableAudio   = true;
     bool enableTrigger = true;
 
+    // Seconds to count down after the operator clicks Record, before
+    // RecordManager::start() is actually called. 0 = start immediately.
+    // Clamped to [0, kMaxStartDelaySec] where it is used
+    // (MonitorBridge::startRecording()). The delay happens strictly *before*
+    // start(), which is what establishes both time origins — the wall-clock
+    // RecordManager::Impl::startMs and the monotonic
+    // "session_start_elapsed_ns" written into session_meta.json — as well as
+    // the session folder's own timestamp. A countdown is therefore invisible
+    // downstream: t=0, timestamps_camN.csv and trigger.csv are identical to a
+    // recording started with no delay at all.
+    int startDelaySec = 3;
+
+    // Hide the live camera grid in the QML monitor while a recording (or its
+    // countdown) is running, so the preview doesn't distract the subject. A
+    // compact per-camera liveness strip replaces it, so the operator can still
+    // see that every camera is delivering frames.
+    bool hidePreviewsWhileRecording = true;
+
+    // Upper bound for startDelaySec, shared by the settings UI's spinbox and
+    // MonitorBridge's clamp so the two can't disagree.
+    static constexpr int kMaxStartDelaySec = 10;
+
     [[nodiscard]] QJsonObject to_json() const;
     [[nodiscard]] static std::optional<RecordSettings> from_json(const QJsonObject&);
 };

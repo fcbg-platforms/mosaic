@@ -15,6 +15,22 @@ Rectangle {
     readonly property int    frameGen:    typeof backend !== "undefined" ? backend.frameGen     : 0
     // Per-camera generation counters — only the relevant slot reloads its image.
     readonly property var    frameGens:   typeof backend !== "undefined" ? backend.frameGens    : []
+    // Seconds left before recording starts; 0 when no countdown is pending.
+    readonly property int    countdown:   typeof backend !== "undefined" ? backend.countdownSeconds : 0
+    // True from the Record click until recording is actually live (or the
+    // attempt is cancelled/fails) — spans the gap after the countdown hits 0
+    // while RecordManager::start() runs. See MonitorBridge's own doc comment.
+    readonly property bool   startPending: typeof backend !== "undefined" ? backend.startPending : false
+    // RecordSettings::hidePreviewsWhileRecording, mirrored by MonitorBridge.
+    readonly property bool   hidePreviews: typeof backend !== "undefined" ? backend.hidePreviews : false
+
+    // Previews go dark from the moment Record is clicked, not only once
+    // recording is live — the countdown exists precisely because both subject
+    // and experimenter are looking at this screen at that moment, so it should
+    // already be calm when t=0 arrives. Gated on startPending rather than
+    // countdown so the previews can't flash back on during start() itself.
+    readonly property bool previewsHidden: (recording || startPending) && hidePreviews
+
     // Column count for the camera grid — chosen to give the most square layout.
     readonly property int gridCols: {
         const n = Math.max(1, root.cameraCount)
@@ -68,6 +84,7 @@ Rectangle {
             id: cameraGrid
             Layout.fillWidth:  true
             Layout.fillHeight: true
+            visible:     !root.previewsHidden
             columns:     root.gridCols
             rowSpacing:  6
             columnSpacing: 6
@@ -80,12 +97,27 @@ Rectangle {
                     Layout.fillHeight: true
                     cameraIndex: index
                     hasCamera:   index < root.cameraCount
+                    // Hiding the grid alone would still let the source binding
+                    // re-evaluate on every frameGen tick and hit
+                    // VideoFeedProvider::requestImage; this makes "hidden"
+                    // actually mean idle on the QML side.
+                    previewActive: !root.previewsHidden
                     // Each slot tracks only its own camera's generation counter,
                     // so unrelated camera updates don't trigger a reload here.
                     frameGen:    (root.frameGens && index < root.frameGens.length)
                                  ? root.frameGens[index] : 0
                 }
             }
+        }
+
+        // ── Previews-hidden placeholder ────────────────────────────────────
+        // Takes the grid's place so the column doesn't jump. Keeps the one
+        // piece of feedback the operator actually loses by hiding the video:
+        // whether each camera is still delivering frames.
+        PreviewHiddenStrip {
+            Layout.fillWidth:  true
+            Layout.fillHeight: true
+            visible: root.previewsHidden
         }
 
         // ── Session path strip (recording only) ────────────────────────────
@@ -103,14 +135,100 @@ Rectangle {
             Layout.fillWidth: true
             recording:  root.recording
             elapsedMs:  root.elapsedMs
+            countdown:  root.countdown
 
             onStartRequested: {
                 if (typeof backend !== "undefined")
                     backend.startRecording()
             }
+            // Also the cancel path: MonitorBridge::stopRecording() cancels a
+            // pending countdown instead of stopping a recording.
             onStopRequested: {
                 if (typeof backend !== "undefined")
                     backend.stopRecording()
+            }
+        }
+    }
+
+    // ── Start countdown overlay ────────────────────────────────────────────
+    // A sibling of the ColumnLayout rather than a child, so it paints over
+    // everything without taking part in — or disturbing — the layout.
+    Rectangle {
+        anchors.fill: parent
+        z: 100
+        visible: root.countdown > 0
+        color: "#d00a0a18"
+
+        Column {
+            anchors.centerIn: parent
+            spacing: 10
+
+            Label {
+                anchors.horizontalCenter: parent.horizontalCenter
+                text: "RECORDING STARTS IN"
+                color: "#ddaa44"
+                font { pixelSize: 12; bold: true; letterSpacing: 3 }
+            }
+
+            Label {
+                id: countdownNumber
+                anchors.horizontalCenter: parent.horizontalCenter
+                text:  root.countdown
+                color: "#ffcc55"
+                font { pixelSize: 128; bold: true; family: "Courier New, Courier, monospace" }
+
+                // One pulse per tick, so the number visibly "lands" rather
+                // than silently swapping. Restarting an already-running
+                // animation is safe and is what makes each tick read.
+                onTextChanged: if (root.countdown > 0) tickPulse.restart()
+
+                SequentialAnimation {
+                    id: tickPulse
+                    NumberAnimation {
+                        target: countdownNumber; property: "scale"
+                        from: 1.25; to: 1.0; duration: 320
+                        easing.type: Easing.OutCubic
+                    }
+                }
+            }
+
+            // The cancel affordance lives *in* the overlay rather than being
+            // a pointer to the record button below: this overlay covers the
+            // whole view, so the bar's own "✕ Cancel" is dimmed to near
+            // invisibility while it's up. Telling the operator to click
+            // something they can't see would be worse than useless at the one
+            // moment they're trying to abort.
+            Rectangle {
+                anchors.horizontalCenter: parent.horizontalCenter
+                width: 130; height: 32; radius: 5
+                color: cancelArea.containsMouse ? "#3a2c10" : "#221a0c"
+                border.color: "#ddaa44"
+                border.width: 1
+
+                Label {
+                    anchors.centerIn: parent
+                    text: "✕  Cancel"
+                    color: "#ffcc66"
+                    font { pixelSize: 12; bold: true }
+                }
+
+                MouseArea {
+                    id: cancelArea
+                    anchors.fill: parent
+                    hoverEnabled: true
+                    cursorShape:  Qt.PointingHandCursor
+                    onClicked: {
+                        if (typeof backend !== "undefined")
+                            backend.stopRecording()
+                    }
+                }
+            }
+
+            Label {
+                anchors.horizontalCenter: parent.horizontalCenter
+                text: "or press Ctrl+."
+                color: "#77779a"
+                font { pixelSize: 11 }
             }
         }
     }
@@ -122,6 +240,10 @@ Rectangle {
         property int  cameraIndex:   0
         property bool hasCamera:     false
         property int  frameGen:      0
+        // False while previews are hidden during a recording/countdown, which
+        // clears the Image source so this slot stops requesting frames from
+        // VideoFeedProvider rather than merely rendering them invisibly.
+        property bool previewActive: true
 
         // True once the first frame has arrived for this slot.
         property bool hasFrame: false
@@ -157,7 +279,7 @@ Rectangle {
             // Synchronous load eliminates the blank-flash that causes flickering.
             // The provider (VideoFeedProvider::requestImage) is a fast read-lock+copy.
             asynchronous: false
-            source: slotRoot.hasCamera
+            source: (slotRoot.hasCamera && slotRoot.previewActive)
                 ? ("image://videofeed/" + slotRoot.cameraIndex + "?v=" + slotRoot.frameGen)
                 : ""
 
@@ -251,20 +373,157 @@ Rectangle {
         }
     }
 
+    // ── Previews-hidden strip ──────────────────────────────────────────────
+
+    // Shown in the camera grid's place while previews are hidden. Deliberately
+    // reports only what can be stated honestly with the data QML already has:
+    // "camera N's frame counter is still advancing". Real capture fps is not
+    // shown — frameGens counts *throttled preview* frames, so deriving fps
+    // here would produce a plausible-looking wrong number; the Perf tab
+    // remains the place for the true per-camera rate.
+    component PreviewHiddenStrip : Item {
+        id: stripRoot
+
+        // One entry per camera: true while its frame counter advanced during
+        // the last tick. Rebuilt wholesale by the timer below.
+        property var liveFlags: []
+        property var lastGens:  []
+
+        Timer {
+            interval: 1000
+            repeat:   true
+            running:  stripRoot.visible
+            // Prime the baseline on show, and seed every camera as live for
+            // the first tick. Optimistic on purpose: the previews were
+            // rendering a moment ago, so "delivering" is the honest prior —
+            // whereas defaulting to dead would flash every camera red for a
+            // full second at exactly the moment the operator loses the video
+            // and is watching this strip hardest. One stale-but-recently-true
+            // second beats a false alarm.
+            onRunningChanged: if (running) {
+                stripRoot.lastGens = (root.frameGens || []).slice()
+                let seed = []
+                for (let i = 0; i < root.cameraCount; ++i) seed.push(true)
+                stripRoot.liveFlags = seed
+            }
+            onTriggered: {
+                const now   = (root.frameGens || []).slice()
+                const prev  = stripRoot.lastGens || []
+                let flags = []
+                for (let i = 0; i < root.cameraCount; ++i) {
+                    const a = i < now.length  ? now[i]  : 0
+                    const b = i < prev.length ? prev[i] : 0
+                    flags.push(a > b)
+                }
+                stripRoot.liveFlags = flags
+                stripRoot.lastGens  = now
+            }
+        }
+
+        Column {
+            anchors.centerIn: parent
+            width: parent.width
+            spacing: 14
+
+            Label {
+                anchors.horizontalCenter: parent.horizontalCenter
+                text: "Previews hidden — cameras are still capturing"
+                color: "#55557a"
+                font { pixelSize: 12; bold: true; letterSpacing: 1 }
+            }
+
+            Flow {
+                anchors.horizontalCenter: parent.horizontalCenter
+                width: Math.min(parent.width, 720)
+                spacing: 8
+
+                Repeater {
+                    model: Math.max(0, root.cameraCount)
+
+                    delegate: Rectangle {
+                        readonly property bool live:
+                            (stripRoot.liveFlags && index < stripRoot.liveFlags.length)
+                            ? stripRoot.liveFlags[index] : false
+
+                        width: chipRow.implicitWidth + 20
+                        height: 26
+                        radius: 13
+                        color: "#131326"
+                        border.color: live ? "#2a4a38" : "#33223a"
+                        border.width: 1
+
+                        Row {
+                            id: chipRow
+                            anchors.centerIn: parent
+                            spacing: 7
+
+                            Rectangle {
+                                anchors.verticalCenter: parent.verticalCenter
+                                width: 7; height: 7; radius: 4
+                                color: live ? "#33cc66" : "#aa4444"
+
+                                // The pulse drives its own property rather than
+                                // `opacity` directly: an `Animation on opacity`
+                                // replaces the binding, so stopping mid-cycle
+                                // would strand a newly-dead dot at whatever
+                                // faded value it happened to reach — rendering
+                                // the alarm state *weaker* than the healthy one.
+                                // No initialiser: an `Animation on <prop>` is a
+                                // value source, and combining it with one is a
+                                // duplicate-property-binding. The opacity
+                                // binding below supplies the not-live value
+                                // anyway, so pulseT's resting value is moot.
+                                property real pulseT
+                                opacity: live ? pulseT : 1.0
+
+                                SequentialAnimation on pulseT {
+                                    running: live
+                                    loops:   Animation.Infinite
+                                    NumberAnimation { to: 0.4; duration: 700; easing.type: Easing.InOutSine }
+                                    NumberAnimation { to: 1.0; duration: 700; easing.type: Easing.InOutSine }
+                                }
+                            }
+
+                            Label {
+                                anchors.verticalCenter: parent.verticalCenter
+                                text:  "Cam " + (index + 1)
+                                color: live ? "#88aaff" : "#886677"
+                                font { pixelSize: 11; bold: true }
+                            }
+                        }
+                    }
+                }
+            }
+
+            Label {
+                anchors.horizontalCenter: parent.horizontalCenter
+                visible: root.cameraCount === 0
+                text: "No cameras configured"
+                color: "#33334a"
+                font { pixelSize: 11 }
+            }
+        }
+    }
+
     // ── Recording bar ──────────────────────────────────────────────────────
 
     component RecordingBar : Rectangle {
         id: bar
         property bool recording: false
         property int  elapsedMs: 0
+        // Seconds left before recording starts; 0 when idle. Mutually
+        // exclusive with `recording` — the bridge clears it before start().
+        property int  countdown: 0
+
+        readonly property bool pending: countdown > 0
 
         signal startRequested()
         signal stopRequested()
 
         height:       52
         radius:       7
-        color:        recording ? "#180a0a" : "#09091a"
-        border.color: recording ? "#772222" : "#1e1e40"
+        color:        recording ? "#180a0a" : (pending ? "#1a1408" : "#09091a")
+        border.color: recording ? "#772222" : (pending ? "#7a5c22" : "#1e1e40")
         border.width: 1
 
         // Park the Stop button's pulse when recording ends, so it can't be
@@ -289,8 +548,8 @@ Rectangle {
             }
 
             Label {
-                text:  recording ? "REC" : "STANDBY"
-                color: recording ? "#ff6666" : "#33334a"
+                text:  recording ? "REC" : (bar.pending ? "STARTING" : "STANDBY")
+                color: recording ? "#ff6666" : (bar.pending ? "#ddaa44" : "#33334a")
                 font { pixelSize: 10; bold: true; letterSpacing: 2 }
             }
 
@@ -326,22 +585,30 @@ Rectangle {
                     NumberAnimation { from: 0.0; to: 1.0; duration: 900; easing.type: Easing.InOutSine }
                     NumberAnimation { from: 1.0; to: 0.0; duration: 900; easing.type: Easing.InOutSine }
                 }
+                // Three states, deliberately distinct: red while recording
+                // (pulsing), amber while a start countdown is pending, green
+                // when idle. The pulse stays parked during the countdown —
+                // `recording` is still false then — so "armed" never gets
+                // mistaken for "already recording".
                 color: recording
                     ? (recArea.containsMouse
                         ? "#3a1010"
                         : Qt.rgba(0.14 + 0.20 * pulse, 0.03, 0.03, 1.0))
-                    : (recArea.containsMouse ? "#0f2a18" : "#0b1e12")
+                    : bar.pending
+                        ? (recArea.containsMouse ? "#3a2c10" : "#2a2010")
+                        : (recArea.containsMouse ? "#0f2a18" : "#0b1e12")
                 border.color: recording
                     ? Qt.rgba(0.73, 0.13 + 0.22 * pulse, 0.13 + 0.22 * pulse, 1.0)
-                    : "#22bb55"
+                    : (bar.pending ? "#ddaa44" : "#22bb55")
                 border.width: recording ? 2 : 1
 
                 Label {
                     anchors.centerIn: parent
-                    text:  recording ? "■  Stop" : "●  Record"
+                    text:  recording ? "■  Stop"
+                                     : (bar.pending ? "✕  Cancel " + bar.countdown : "●  Record")
                     color: recording
                         ? Qt.rgba(1.0, 0.40 + 0.25 * recBtn.pulse, 0.40 + 0.25 * recBtn.pulse, 1.0)
-                        : "#33ee77"
+                        : (bar.pending ? "#ffcc66" : "#33ee77")
                     font { pixelSize: 11; bold: true }
                 }
 
@@ -350,7 +617,10 @@ Rectangle {
                     anchors.fill: parent
                     hoverEnabled: true
                     cursorShape:  Qt.PointingHandCursor
-                    onClicked:    recording ? bar.stopRequested() : bar.startRequested()
+                    // stopRequested() doubles as "cancel the pending start" —
+                    // see MonitorBridge::stopRecording().
+                    onClicked:    (recording || bar.pending) ? bar.stopRequested()
+                                                             : bar.startRequested()
                 }
             }
         }

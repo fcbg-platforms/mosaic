@@ -7,8 +7,9 @@
 
 namespace mosaic {
 
-// Record settings panel: output directory, channel toggles, file naming,
-// and a live preview of the filenames that will be generated.
+// Record settings panel: output directory, channel toggles, how a recording
+// starts (countdown delay, preview hiding), file naming, and a live preview
+// of the filenames that will be generated.
 
 class RecordSettingsW : public QWidget {
     Q_OBJECT
@@ -30,6 +31,7 @@ class RecordSettingsW : public QWidget {
    private:
     void build_directory_section(QVBoxLayout* parent);
     void build_channels_section(QVBoxLayout* parent);
+    void build_start_section(QVBoxLayout* parent);
     void build_naming_section(QVBoxLayout* parent);
     void build_preview_section(QVBoxLayout* parent);
     void refresh_preview();
