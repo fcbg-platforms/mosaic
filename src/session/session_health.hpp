@@ -10,12 +10,23 @@ namespace mosaic {
 // One camera's already-gathered raw numbers for a just-finished recording —
 // plain data, with no dependency on VideoManager/VideoGrabber, so
 // build_session_health_report() is directly unit-testable with hand-built
-// fixtures. The caller (MainWindow) fills this in from VideoManager::
-// camera_stats() plus VideoManager::action_ticks_fired() and a SyncManifest
-// lookup, before calling build_session_health_report().
+// fixtures. The caller (MainWindow::show_session_health()) fills this in from
+// VideoManager::last_recording_snapshot() plus last_recording_action_ticks()
+// and a SyncManifest lookup — deliberately the post-recording snapshots, not
+// the live camera_stats()/action_ticks_fired() reads, which the preview
+// restart following recording_stopped has already zeroed by then.
 struct CameraHealthInput {
     int index = 0;
     QString name;
+
+    // False for a camera that was configured but never actually opened for
+    // this recording — a duplicate/ambiguous serial, a failed open(), or a
+    // dead cable/NIC link (a real, recurring failure mode on this rig). Such a
+    // camera has no counters at all, so every numeric field below stays at its
+    // default and must NOT be read as "captured nothing, cleanly" — hence the
+    // explicit flag rather than inferring absence from a zero counter.
+    bool participated = true;
+
     int64_t framesGrabbed    = 0;
     int64_t framesEncoded    = 0;
     int64_t framesDropped    = 0; // ring-buffer overflow
@@ -54,6 +65,12 @@ struct SessionHealthReport {
 };
 
 // Buckets one camera's health from its raw counters:
+//   - Poor if the camera never opened for this recording (!participated), and
+//     Poor if it opened but captured zero frames. Both are checked first: such
+//     a camera has no drop/incomplete/sync data to be "bad" in, and its
+//     achievableFps stays at the "not measured" sentinel, so it would
+//     otherwise fall through every check below and grade Excellent — the exact
+//     inversion that made a disconnected camera outrank a healthy one.
 //   - Poor if there's any ring-buffer drop or GVSP packet loss at all (both
 //     mean lost data, not a fuzzy tradeoff), sync coverage is badly low
 //     (<80%), or the missed-trigger gap exceeds the same threshold (5)

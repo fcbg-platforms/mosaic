@@ -168,6 +168,53 @@ class VideoManager : public QObject {
     /// Action1-armed and free-running cameras).
     [[nodiscard]] bool camera_action_command_ready(int index) const;
 
+    /// @brief One camera's final counters for the recording that just ended.
+    ///
+    /// Deliberately a *snapshot*, not a live read: every live counter above is
+    /// zeroed again by VideoGrabber::start_grabbing() the moment preview
+    /// resumes, and Application::initialize() connects its own preview-restart
+    /// handler to RecordManager::recording_stopped *before* MainWindow exists,
+    /// so it always runs first. Anything reading camera_stats() from a
+    /// recording_stopped handler therefore sees zeros for every camera. Use
+    /// last_recording_snapshot() instead for post-recording reporting.
+    struct RecordingCameraSnapshot {
+        /// Position in settings.cameras this unit was opened from — NOT its
+        /// position in the internal (compacted) unit list. See
+        /// CameraUnit::configIndex.
+        int configIndex          = 0;
+        int64_t framesGrabbed    = 0;
+        int64_t framesEncoded    = 0;
+        int64_t framesDropped    = 0;
+        int64_t incompleteFrames = 0;
+        double configuredFps     = 0.0;
+        double achievableFps     = -1.0; ///< -1 = not measured
+        bool actionCommandReady  = false;
+    };
+
+    /// @returns One entry per camera that was actually open for the recording
+    /// that just ended, captured at the end of stop(). Cameras that were
+    /// configured but never opened (duplicate serial, failed open(), dead
+    /// link) have no entry at all — callers wanting to report them must
+    /// reconcile against settings.cameras via each entry's configIndex.
+    /// Empty until the first stop().
+    [[nodiscard]] const std::vector<RecordingCameraSnapshot>& last_recording_snapshot() const;
+
+    /// @returns action_ticks_fired() as captured at the end of the recording
+    /// that just ended, for the same reason last_recording_snapshot() exists:
+    /// the live value is reset to -1 by the preview restart that follows
+    /// recording_stopped. -1 if that recording didn't use Action1 triggering.
+    [[nodiscard]] int64_t last_recording_action_ticks() const;
+
+    /// @brief Discards the previous recording's snapshot.
+    ///
+    /// Must be called when a recording *starts*, not only relied on being
+    /// overwritten when one stops: stop() early-returns unless this manager is
+    /// actually recording, and a session can end without it ever having
+    /// started (video disabled for the session, or start() bailing because no
+    /// camera is open). Without this, such a session's health report would
+    /// present the *previous* recording's counters as its own.
+    void clear_recording_snapshot();
+
    signals:
     /// Emitted on the main thread when a camera device is successfully opened.
     void camera_opened(int cameraIndex, int width, int height, double fps);

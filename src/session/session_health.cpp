@@ -6,6 +6,19 @@ namespace mosaic {
 
 RmsQuality camera_health_quality_for(const CameraHealthInput& raw,
                                      std::optional<int64_t> missedTriggerFrames) {
+    // Checked FIRST, both of them: a camera that never opened, or opened and
+    // captured nothing, has no drop/incomplete/sync data to be "bad" in, and
+    // its achievableFps stays at the "not measured" sentinel (-1) — so every
+    // other check below would silently grade it Excellent. That inversion is
+    // exactly what made a disconnected camera outrank healthy ones. Kept as
+    // two separate conditions because the dialog renders them differently
+    // ("not opened" vs. real zeros).
+    if (!raw.participated) {
+        return RmsQuality::Poor;
+    }
+    if (raw.framesGrabbed <= 0) {
+        return RmsQuality::Poor;
+    }
     if (raw.framesDropped > 0 || raw.incompleteFrames > 0) {
         return RmsQuality::Poor;
     }
@@ -105,8 +118,11 @@ SessionHealthReport build_session_health_report(const QString& sessionPath,
     if (worstRank == 0) {
         report.headline = QString("%1/%2 cameras clean").arg(cleanCount).arg(report.cameras.size());
     } else {
+        // 1-based to match the producer's own label and CameraCardW's headers.
+        // (The on-disk artifacts are 0-based — video_0.mp4 is Camera 1 — which
+        // the dialog's tooltip spells out.)
         const QString name = worstEntry->raw.name.isEmpty()
-                                 ? QString("Camera %1").arg(worstEntry->raw.index)
+                                 ? QString("Camera %1").arg(worstEntry->raw.index + 1)
                                  : worstEntry->raw.name;
         report.headline    = QString("%1: %2").arg(name, quality_label(worstEntry->quality));
     }
