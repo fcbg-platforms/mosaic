@@ -333,6 +333,13 @@ void MainWindow::build_central_widget() {
         // CameraCardW::set_action_command_capability().
         connect(d->videoMgr, &VideoManager::action_command_capability, videoSettingsW,
                 &VideoSettingsW::set_action_command_capability);
+
+        // Live per-camera achievable-frame-rate readout beside the exposure
+        // controls — the camera's own ResultingFrameRate, which accounts for
+        // exposure, sensor readout and GigE bandwidth together, rather than a
+        // client-side 1/exposure guess. See compute_fps_readout().
+        connect(d->videoMgr, &VideoManager::achievable_fps_changed, videoSettingsW,
+                &VideoSettingsW::set_achievable_fps);
     }
 
     // When the camera list changes, fully reload the hardware.

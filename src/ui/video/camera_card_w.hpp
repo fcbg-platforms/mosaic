@@ -37,6 +37,13 @@ class CameraCardW : public QWidget {
     // VideoGrabber::action_command_capability()).
     void set_action_command_capability(std::optional<bool> supported);
 
+    // Updates the achievable-frame-rate readout beside the exposure controls.
+    // `fps` <= 0 means the camera has no trustworthy measurement right now
+    // (closed, or still inside its warm-up window) — the readout then falls
+    // back to the exposure-imposed ceiling if exposure is manual, or says the
+    // rate is measured once the camera runs. See compute_fps_readout().
+    void set_achievable_fps(double fps);
+
    signals:
     void params_changed();
 
@@ -65,6 +72,16 @@ class CameraCardW : public QWidget {
     QLabel* m_nameLabel{nullptr};           // kept so set_index() can update it
     QLineEdit* m_serialEdit{nullptr};       // kept so refresh() can update it
     QLabel* m_actionCapabilityLbl{nullptr}; // kept so set_action_command_capability() can update it
+    QLabel* m_achievableFpsLbl{nullptr};    // kept so set_achievable_fps() can update it
+    // Last measured rate from VideoGrabber::achievable_fps(), <= 0 when there
+    // is none. Retained so the readout can be recomputed when an exposure or
+    // frame-rate control changes without waiting for the camera's next
+    // measurement (see refresh_achievable_fps_label()).
+    double m_achievableFps{-1.0};
+
+    // Re-renders m_achievableFpsLbl from m_achievableFps and the current
+    // exposure/frame-rate settings.
+    void refresh_achievable_fps_label();
 };
 
 } // namespace mosaic

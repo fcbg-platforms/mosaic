@@ -85,6 +85,13 @@ void VideoSettingsW::set_action_command_capability(int cameraIndex, bool support
     d->cards[cameraIndex]->set_action_command_capability(supported);
 }
 
+void VideoSettingsW::set_achievable_fps(int cameraIndex, double fps) {
+    if (cameraIndex < 0 || cameraIndex >= d->cards.size()) {
+        return;
+    }
+    d->cards[cameraIndex]->set_achievable_fps(fps);
+}
+
 // ── Encoding section ───────────────────────────────────────────────────────
 
 void VideoSettingsW::build_encoding_section(QVBoxLayout* parent) {
