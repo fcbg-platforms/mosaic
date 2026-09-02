@@ -245,6 +245,33 @@ class AnalysisManager : public QObject {
     /// @param frameSkip      Process every Nth frame (1 = every frame).
     void run_gaze2d_analysis(const QString& sessionPath, double minConfidence, int frameSkip);
 
+    /// @brief Produces per-camera "repaired" copies with EQUALIZED frame
+    /// counts, aligned to a shared master tick grid, filling small
+    /// per-camera frame-count mismatches (GVSP packet loss / trigger
+    /// misses) by duplicating the nearest-available frame. Writes
+    /// "synced/video_N.mp4" (+ a per-camera "synced/video_N.repair_map.csv"
+    /// audit trail marking which output frames are duplicates) and one
+    /// "synced/sync_repair.json" summary — originals are never modified.
+    ///
+    /// Deliberately does NOT touch/depend on the session's canonical
+    /// sync_manifest.json (used by SessionPlayerW at its own fixed 25fps
+    /// default) — this plugin's own masterFps can legitimately differ, and
+    /// overwriting the canonical manifest with a different rate would
+    /// silently change SessionPlayerW's frame-step sizing. analysis/
+    /// run_sync_repair.py therefore reimplements the same nearest-neighbor
+    /// tick-grid algorithm independently (see analysis/sync_repair/
+    /// alignment.py's module doc, and the cross-reference comment near
+    /// SyncManifest::generate()'s own tick-assignment loop).
+    ///
+    /// Always runs when called directly, exactly like analyze_session(). If
+    /// a previous analysis is still running, this queues the new job.
+    ///
+    /// @param sessionPath  Absolute path to the recorded session directory.
+    /// @param masterFps    Uniform output tick rate, or <= 0.0 for auto (the
+    ///                     fastest achieved fps among this session's
+    ///                     cameras — never upsamples beyond real capture).
+    void run_sync_repair(const QString& sessionPath, double masterFps);
+
     /// @brief Stop the currently running analysis process immediately.
     void stop();
 

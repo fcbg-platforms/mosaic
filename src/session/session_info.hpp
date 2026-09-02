@@ -84,6 +84,7 @@ struct SessionInfo {
     bool hasSkeleton3D     = false;
     bool hasRppg           = false;
     bool hasGaze2d         = false;
+    bool hasSyncRepair     = false;
     QStringList videoFiles;
     QStringList audioFiles;
     QStringList analysisFiles;
@@ -125,6 +126,13 @@ struct SessionInfo {
         // "pose/video_0.pose.json") so callers can join them onto `path`
         // directly without needing to know which subfolder a given file
         // lives in.
+        //
+        // anonymized/ (Face Masking output) and synced/ (Frame Sync Repair
+        // output) are deliberately NOT among these locations — see the
+        // comment at this function's own classify() call sites below for
+        // why (they hold full copy videos, not analysis sidecars, and
+        // scanning them here would corrupt videoFiles's 1:1 camera-index
+        // mapping).
         const auto classify = [&info](const QDir& scanDir, const QString& prefix) {
             if (!scanDir.exists()) {
                 return;
@@ -182,6 +190,25 @@ struct SessionInfo {
         classify(QDir(dir + "/expression"), "expression/");
         classify(QDir(dir + "/rppg"), "rppg/");
         classify(QDir(dir + "/gaze2d"), "gaze2d/");
+        // synced/ (Frame Sync Repair output) and anonymized/ (Face Masking
+        // output) are deliberately NEVER scanned via classify() — both
+        // contain full COPY videos (video_N.mp4), and classify()'s
+        // mp4/mkv/avi branch above adds any match to info.videoFiles
+        // regardless of `prefix`, which would corrupt cameraCombo's 1:1
+        // camera-index mapping used by every Analysis-tab plugin (see
+        // AnalysisTabW::rebuild_session_list()). hasSyncRepair is set via a
+        // narrow, standalone existence check below instead.
+        //
+        // The summary JSON is written even when every camera failed or was
+        // skipped, so its presence alone would light the SYNCED badge for a
+        // session that has no repaired video at all. run_sync_repair.py
+        // deletes a failed camera's output, so "at least one synced/
+        // video_*.mp4 survives" is the cheap, accurate test for "something
+        // was actually repaired" — no JSON parsing needed on this hot
+        // session-listing path.
+        info.hasSyncRepair =
+            QFileInfo::exists(dir + "/synced/sync_repair.json") &&
+            !QDir(dir + "/synced").entryList({"video_*.mp4"}, QDir::Files).isEmpty();
 
         // Approximate duration: video file mtime vs session start
         if (info.startUtc.isValid()) {
