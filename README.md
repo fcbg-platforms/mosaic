@@ -155,7 +155,12 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) — every PR needs a test, and CI must pa
 
 ## License
 
-[MIT](LICENSE)
+[BSD 3-Clause](LICENSE)
+
+Third-party models and libraries carry their own licenses, which are not
+affected by this one — notably py-feat's `Detectorv2` weights, which are
+research-only/non-commercial (MOSAIC uses `Detectorv1`, whose default models
+carry no such restriction). See each analysis plugin's module docstring.
 
 ---
 
