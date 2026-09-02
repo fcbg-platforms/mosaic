@@ -404,6 +404,8 @@ QJsonObject RecordSettings::to_json() const {
         {"enable_video", enableVideo},
         {"enable_audio", enableAudio},
         {"enable_trigger", enableTrigger},
+        {"start_delay_sec", startDelaySec},
+        {"hide_previews_while_recording", hidePreviewsWhileRecording},
     };
 }
 
@@ -423,6 +425,11 @@ std::optional<RecordSettings> RecordSettings::from_json(const QJsonObject& o) {
     if (o.contains("enable_video")) s.enableVideo = o["enable_video"].toBool(s.enableVideo);
     if (o.contains("enable_audio")) s.enableAudio = o["enable_audio"].toBool(s.enableAudio);
     if (o.contains("enable_trigger")) s.enableTrigger = o["enable_trigger"].toBool(s.enableTrigger);
+    if (o.contains("start_delay_sec"))
+        s.startDelaySec = o["start_delay_sec"].toInt(s.startDelaySec);
+    if (o.contains("hide_previews_while_recording"))
+        s.hidePreviewsWhileRecording =
+            o["hide_previews_while_recording"].toBool(s.hidePreviewsWhileRecording);
     return s;
 }
 

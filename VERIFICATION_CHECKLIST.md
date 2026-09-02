@@ -36,6 +36,16 @@ live only in a PR description or a plan file where it'll be forgotten.
 - [ ] `trigger_frame_map.json`/CSV export (EEG/Trigger↔Frame Sync plugin) resolves to the frame
       that visually matches the real-world event that fired the trigger — scrub the reported frame
       and confirm by eye.
+- [ ] Start countdown: clicking Record shows a 3-2-1 overlay and capture begins on 0; the session
+      folder's name-timestamp matches when the countdown *ended*, not when it was clicked (this is
+      the check that the delay really is invisible to every recorded timeline); clicking again
+      mid-countdown cancels it and leaves no session folder behind; **Ctrl+R / Ctrl+.** behave
+      identically to the button; setting the delay to 0 restores instant start exactly.
+- [ ] Hidden previews: the camera grid disappears the moment the countdown starts and the liveness
+      strip shows one chip per camera; unplugging one camera darkens only that chip; every preview
+      returns on Stop (one blank frame on re-show is expected — the Image source is cleared while
+      hidden); toggling "Hide camera previews while recording" *during* a recording takes effect
+      immediately.
 
 ## Calibration
 

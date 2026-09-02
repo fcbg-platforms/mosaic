@@ -152,6 +152,10 @@ MainWindow::MainWindow(AppSettings& settings, const QString& username, TriggerMa
 
 MainWindow::~MainWindow() = default;
 
+void MainWindow::cancel_pending_recording_start() {
+    if (d->bridge) d->bridge->cancel_countdown();
+}
+
 // ── Menu bar ───────────────────────────────────────────────────────────────
 
 void MainWindow::build_menu_bar() {
@@ -279,7 +283,8 @@ void MainWindow::build_central_widget() {
     d->settingsTabs->addTab(new AudioSettingsW(d->settings.audio, d->audioMgr), "Audio");
     d->settingsTabs->addTab(new TriggerSettingsW(d->settings.trigger, d->triggerMgr), "Triggers");
     d->settingsTabs->addTab(new TriggerEventPanelW(d->triggerMgr), "Events");
-    d->settingsTabs->addTab(new RecordSettingsW(d->settings.record, d->isAdmin), "Record");
+    auto* recordSettingsW = new RecordSettingsW(d->settings.record, d->isAdmin);
+    d->settingsTabs->addTab(recordSettingsW, "Record");
     d->settingsTabs->addTab(new PerformanceMonitorW(d->videoMgr, d->audioMgr, d->analysisMgr),
                             "Perf");
     d->settingsTabs->addTab(new CalibrationW(d->settings.video, d->settings.room, d->videoMgr),
@@ -296,7 +301,14 @@ void MainWindow::build_central_widget() {
     d->monitorView->setResizeMode(QQuickWidget::SizeRootObjectToView);
     d->monitorView->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
 
-    d->bridge = new MonitorBridge(d->recordMgr, d->settings.video, this);
+    d->bridge = new MonitorBridge(d->recordMgr, d->settings.video, d->settings.record, this);
+
+    // The record settings the monitor mirrors (start countdown, hide-previews)
+    // must reach the live QML view the moment they're edited, not only after
+    // the next app start — settings themselves are persisted separately, by
+    // Application::shutdown().
+    connect(recordSettingsW, &RecordSettingsW::settings_changed, d->bridge,
+            &MonitorBridge::refresh_record_settings);
 
     // Register the camera-frame image provider before loading QML.
     auto* feedProvider = new VideoFeedProvider; // owned by QML engine

@@ -41,6 +41,14 @@ class MainWindow : public QMainWindow {
                         const QStringList& otherUserDirectories = {}, QWidget* parent = nullptr);
     ~MainWindow() override;
 
+    // Aborts a pending pre-recording countdown, if one is running; a no-op
+    // otherwise. Exists so Application's StopRecording *trigger* handler can
+    // cancel a countdown: that handler only sees RecordManager, whose
+    // is_recording() is still false during the countdown, so without this a
+    // stop trigger fired in that window would be silently dropped and the
+    // recording would start anyway a second or two later.
+    void cancel_pending_recording_start();
+
    signals:
     // Emitted when the user chooses File → Switch profile.
     void switch_profile_requested();

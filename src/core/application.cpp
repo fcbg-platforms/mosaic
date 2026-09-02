@@ -399,6 +399,14 @@ void Application::initialize(const QString& username, bool isAdmin) {
                         [[maybe_unused]] const bool started = d->recordManager->start();
                     }
                 } else if (action == TriggerAction::StopRecording) {
+                    // Also aborts a pending pre-recording countdown, during
+                    // which is_recording() is still false — otherwise a stop
+                    // trigger fired inside that window would be silently
+                    // dropped and the recording would start anyway a second
+                    // or two later.
+                    if (d->mainWindow) {
+                        d->mainWindow->cancel_pending_recording_start();
+                    }
                     if (d->recordManager->is_recording()) {
                         d->recordManager->stop();
                     }

@@ -11,6 +11,7 @@
 #include <QLineEdit>
 #include <QPushButton>
 #include <QScrollArea>
+#include <QSpinBox>
 #include <QTextEdit>
 #include <QToolButton>
 #include <QVBoxLayout>
@@ -27,6 +28,10 @@ struct RecordSettingsW::Impl {
     QCheckBox* videoChk   = nullptr;
     QCheckBox* audioChk   = nullptr;
     QCheckBox* triggerChk = nullptr;
+
+    // Starting a recording
+    QSpinBox* delaySpin        = nullptr;
+    QCheckBox* hidePreviewsChk = nullptr;
 
     // Naming
     QLineEdit* videoBase   = nullptr;
@@ -57,6 +62,7 @@ RecordSettingsW::RecordSettingsW(RecordSettings& settings, bool isAdmin, QWidget
 
     build_directory_section(contentLay);
     build_channels_section(contentLay);
+    build_start_section(contentLay);
     build_naming_section(contentLay);
     build_preview_section(contentLay);
     contentLay->addStretch();
@@ -167,6 +173,59 @@ void RecordSettingsW::build_channels_section(QVBoxLayout* parent) {
     connect(d->triggerChk, &QCheckBox::toggled, this, [this](bool v) {
         m_settings.enableTrigger = v;
         refresh_preview();
+        emit settings_changed();
+    });
+
+    parent->addWidget(box);
+}
+
+// ── Starting a recording ───────────────────────────────────────────────────
+
+void RecordSettingsW::build_start_section(QVBoxLayout* parent) {
+    auto* box = new QGroupBox("Starting a Recording");
+    auto* lay = new QVBoxLayout(box);
+    lay->setSpacing(6);
+
+    auto* delayRow   = new QHBoxLayout;
+    auto* delayLabel = new QLabel("Countdown:");
+    delayLabel->setFixedWidth(110);
+    delayLabel->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+
+    d->delaySpin = new QSpinBox;
+    d->delaySpin->setRange(0, RecordSettings::kMaxStartDelaySec);
+    d->delaySpin->setSuffix(" s");
+    d->delaySpin->setSpecialValueText("Off (start immediately)");
+    d->delaySpin->setValue(m_settings.startDelaySec);
+    // setValue() clamps to the range but doesn't write back, so a hand-edited
+    // settings.json holding an out-of-range value would leave the spinbox and
+    // the stored setting disagreeing. Take the clamped value as authoritative.
+    m_settings.startDelaySec = d->delaySpin->value();
+    d->delaySpin->setToolTip(
+        "Seconds to count down on the monitor after clicking Record, before capture "
+        "actually begins — so the subject and experimenter aren't still looking at the "
+        "screen at t=0. The delay happens entirely before recording starts, so session "
+        "timestamps are unaffected. Click Record again during the countdown to cancel.");
+
+    delayRow->addWidget(delayLabel);
+    delayRow->addWidget(d->delaySpin);
+    delayRow->addStretch();
+    lay->addLayout(delayRow);
+
+    d->hidePreviewsChk = new QCheckBox("Hide camera previews while recording");
+    d->hidePreviewsChk->setChecked(m_settings.hidePreviewsWhileRecording);
+    d->hidePreviewsChk->setToolTip(
+        "Blanks the live camera grid in the monitor from the moment the countdown starts "
+        "until recording stops, so the video doesn't distract the subject. A compact "
+        "per-camera liveness strip replaces it; per-camera frame rates stay available in "
+        "the Perf tab.");
+    lay->addWidget(d->hidePreviewsChk);
+
+    connect(d->delaySpin, &QSpinBox::valueChanged, this, [this](int v) {
+        m_settings.startDelaySec = v;
+        emit settings_changed();
+    });
+    connect(d->hidePreviewsChk, &QCheckBox::toggled, this, [this](bool v) {
+        m_settings.hidePreviewsWhileRecording = v;
         emit settings_changed();
     });
 
