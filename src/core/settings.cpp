@@ -316,6 +316,7 @@ QJsonObject KeyTriggerConfig::to_json() const {
     return {{"name", name},
             {"key_seq", keySeq},
             {"enabled", enabled},
+            {"code", code},
             {"action", trigger_action_label(action)}};
 }
 
@@ -324,6 +325,7 @@ std::optional<KeyTriggerConfig> KeyTriggerConfig::from_json(const QJsonObject& o
     if (o.contains("name")) c.name = o["name"].toString(c.name);
     if (o.contains("key_seq")) c.keySeq = o["key_seq"].toString(c.keySeq);
     if (o.contains("enabled")) c.enabled = o["enabled"].toBool(c.enabled);
+    if (o.contains("code")) c.code = o["code"].toInt(c.code);
     if (o.contains("action")) c.action = trigger_action_from_label(o["action"].toString());
     return c;
 }
@@ -356,7 +358,17 @@ std::optional<TriggerSettings> TriggerSettings::from_json(const QJsonObject& o) 
     }
     if (o.contains("keyboard_triggers")) {
         for (const auto& v : o["keyboard_triggers"].toArray()) {
-            if (auto c = KeyTriggerConfig::from_json(v.toObject())) {
+            const QJsonObject obj = v.toObject();
+            if (auto c = KeyTriggerConfig::from_json(obj)) {
+                // A profile configured before codes existed has no "code" key
+                // on any entry, so every trigger would otherwise load with the
+                // struct default and write an indistinguishable column of 1s
+                // to trigger.csv — the exact failure the add-button's
+                // next-free-code prefill exists to prevent. Assign sequential
+                // codes on that upgrade path instead.
+                if (!obj.contains("code")) {
+                    c->code = static_cast<int>(s.keyboardTriggers.size()) + 1;
+                }
                 s.keyboardTriggers.push_back(std::move(*c));
             }
         }

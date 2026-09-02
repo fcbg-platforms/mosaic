@@ -66,6 +66,7 @@ QVector<TriggerFrameMap::RawTrigger> TriggerFrameMap::read_trigger_csv(const QSt
     const int idxSource      = header.indexOf("source");
     const int idxLabel       = header.indexOf("label");
     const int idxValue       = header.indexOf("value");
+    const int idxCode        = header.indexOf("code");
     if (idxElapsedNs < 0) {
         return out;
     } // old-format file, predates this column
@@ -94,6 +95,9 @@ QVector<TriggerFrameMap::RawTrigger> TriggerFrameMap::read_trigger_csv(const QSt
         }
         if (idxLabel >= 0 && idxLabel < fields.size()) {
             t.label = fields[idxLabel];
+        }
+        if (idxCode >= 0 && idxCode < fields.size()) {
+            t.code = fields[idxCode].toInt();
         }
         if (idxValue >= 0 && idxValue < fields.size()) {
             t.value = fields[idxValue].toDouble();
@@ -184,6 +188,7 @@ TriggerFrameMap TriggerFrameMap::generate(const QString& sessionPath) {
         row.wallClock = rt.wallClock;
         row.source    = rt.source;
         row.label     = rt.label;
+        row.code      = rt.code;
         row.value     = rt.value;
 
         for (int c = 0; c < m.cameras_.size(); ++c) {
@@ -251,6 +256,7 @@ bool TriggerFrameMap::save(const QString& sessionPath) const {
             {"wall_clock", row.wallClock},
             {"source", row.source},
             {"label", row.label},
+            {"code", row.code},
             {"value", row.value},
             {"frames", frames},
         });
@@ -302,6 +308,7 @@ TriggerFrameMap TriggerFrameMap::load(const QString& sessionPath) {
         row.wallClock = o["wall_clock"].toString();
         row.source    = o["source"].toString();
         row.label     = o["label"].toString();
+        row.code      = o["code"].toInt();
         row.value     = o["value"].toDouble();
 
         for (const auto& fv : o["frames"].toArray()) {
@@ -329,7 +336,7 @@ bool TriggerFrameMap::export_csv(const QString& csvPath) const {
     }
     QTextStream out(&f);
 
-    out << "trigger_row,elapsed_ns,elapsed_ms,wall_clock,source,label,value";
+    out << "trigger_row,elapsed_ns,elapsed_ms,wall_clock,source,label,value,code";
     for (const auto& c : cameras_) {
         out << QString(",cam%1_frame_id,cam%1_delta_ms").arg(c.index);
     }
@@ -339,7 +346,7 @@ bool TriggerFrameMap::export_csv(const QString& csvPath) const {
         out << row.rowIndex << "," << row.elapsedNs << "," << QString::number(row.elapsedMs, 'f', 3)
             << "," << row.wallClock << "," << row.source << ","
             << "\"" << QString(row.label).replace('"', "\"\"") << "\","
-            << QString::number(row.value, 'f', 6);
+            << QString::number(row.value, 'f', 6) << "," << row.code;
         for (const auto& hit : row.frames) {
             out << "," << hit.frameId << "," << QString::number(hit.deltaMs, 'f', 3);
         }

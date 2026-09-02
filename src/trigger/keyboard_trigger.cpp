@@ -88,6 +88,7 @@ bool KeyboardTrigger::eventFilter(QObject* /*obj*/, QEvent* event) {
     ev.timestampNs = nowNs;
     ev.source      = "keyboard";
     ev.label       = m_config.name;
+    ev.code        = m_config.code;
     ev.value       = 0.0;
     emit triggered(ev);
 

@@ -2084,9 +2084,9 @@ void AnalysisTabW::build_ui() {
     d->skeleton3dRoomView->setVisible(false);
     resultsSplitter->addWidget(d->skeleton3dRoomView);
 
-    d->triggerSyncTable = new QTableWidget(0, 6); // 6 fixed cols; camera cols added dynamically
+    d->triggerSyncTable = new QTableWidget(0, 7); // 7 fixed cols; camera cols added dynamically
     d->triggerSyncTable->setHorizontalHeaderLabels(
-        {"Row", "Elapsed (ms)", "Wall clock", "Source", "Label", "Value"});
+        {"Row", "Elapsed (ms)", "Wall clock", "Source", "Label", "Code", "Value"});
     d->triggerSyncTable->horizontalHeader()->setStretchLastSection(true);
     d->triggerSyncTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
     d->triggerSyncTable->setSelectionBehavior(QAbstractItemView::SelectRows);
@@ -3628,8 +3628,8 @@ void AnalysisTabW::update_trigger_sync_view() {
     const auto& m   = d->currentTriggerFrameMap;
     const int nCams = m.camera_count();
 
-    d->triggerSyncTable->setColumnCount(6 + 2 * nCams);
-    QStringList headers = {"Row", "Elapsed (ms)", "Wall clock", "Source", "Label", "Value"};
+    d->triggerSyncTable->setColumnCount(7 + 2 * nCams);
+    QStringList headers = {"Row", "Elapsed (ms)", "Wall clock", "Source", "Label", "Code", "Value"};
     for (int c = 0; c < nCams; ++c) {
         headers << QString("Cam%1 Frame").arg(c) << QString("Cam%1 Δms").arg(c);
     }
@@ -3651,11 +3651,12 @@ void AnalysisTabW::update_trigger_sync_view() {
         set_cell(2, row.wallClock);
         set_cell(3, row.source);
         set_cell(4, row.label);
-        set_cell(5, QString::number(row.value, 'f', 3));
+        set_cell(5, QString::number(row.code));
+        set_cell(6, QString::number(row.value, 'f', 3));
 
         for (int c = 0; c < row.frames.size(); ++c) {
             const auto& hit = row.frames[c];
-            set_cell(6 + 2 * c, hit.frameId >= 0 ? QString::number(hit.frameId) : QString("—"));
+            set_cell(7 + 2 * c, hit.frameId >= 0 ? QString::number(hit.frameId) : QString("—"));
 
             // Flag large timing errors visibly rather than presenting an
             // extrapolated clamp (a trigger before the first frame or after
@@ -3667,7 +3668,7 @@ void AnalysisTabW::update_trigger_sync_view() {
             if (hit.frameId >= 0 && std::abs(hit.deltaMs) > 100.0) {
                 deltaItem->setForeground(QColor("#cc4444"));
             }
-            d->triggerSyncTable->setItem(i, 7 + 2 * c, deltaItem);
+            d->triggerSyncTable->setItem(i, 8 + 2 * c, deltaItem);
         }
     }
 

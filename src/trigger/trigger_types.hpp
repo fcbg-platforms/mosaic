@@ -50,9 +50,9 @@ enum class TriggerAction : uint8_t {
 /// @c elapsed_ms is recording-relative (zeroed at TriggerRecorder::start())
 /// and is display-only, NOT safe to compare against timestamps_camN.csv:
 /// @code
-/// elapsed_ms,elapsed_ns,wall_clock,source,label,value
-/// 1523.004,1523004112000,14:32:06.645,keyboard,Event A,0
-/// 4910.331,4910331889000,14:32:09.032,parallel_port,D3_RISE,1
+/// elapsed_ms,elapsed_ns,wall_clock,source,label,value,code
+/// 1523.004,1523004112000,14:32:06.645,keyboard,Trial onset,0.000000,2
+/// 4910.331,4910331889000,14:32:09.032,parallel_port,D3_RISE,1.000000,0
 /// @endcode
 struct TriggerEvent {
     /// Monotonic nanosecond timestamp from elapsed_ns() at the moment the
@@ -68,6 +68,18 @@ struct TriggerEvent {
     /// - Keyboard: the user-configured binding name, e.g. @c "Event A".
     /// - Parallel: bit and edge, e.g. @c "D3_RISE" or @c "D3_FALL".
     QString label;
+
+    /// Numeric marker identifying *which* event this is, for lining Mosaic's
+    /// markers up against an external system's own trigger channel (an EEG
+    /// amplifier's, typically) where @c label's free text is useless.
+    /// - Keyboard: the trigger's user-configured KeyTriggerConfig::code.
+    /// - Serial / parallel: @c 0 — not yet wired through (a parallel-port bit
+    ///   number is effectively a code already, so this is a natural
+    ///   follow-up, not a design limit).
+    ///
+    /// Distinct from @c value, which carries a level/sample rather than an
+    /// identity.
+    int code = 0;
 
     /// Optional numeric payload.
     /// - Keyboard / parallel rising edge: @c 1.0.

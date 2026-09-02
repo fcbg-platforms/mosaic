@@ -54,6 +54,32 @@ std::vector<mosaic::MicrophoneParameters> default_microphone() {
     return {mosaic::MicrophoneParameters{}};
 }
 
+// Three example keyboard triggers for a brand-new profile, each already bound
+// to a key and carrying a distinct numeric code. Names/keys/codes are a
+// starting point to edit, not a prescription — the point is that the
+// multi-trigger capability is visible at all (TriggerSettings::keyboardTriggers
+// is otherwise an empty vector, so a fresh profile shows nothing).
+std::vector<mosaic::KeyTriggerConfig> default_keyboard_triggers() {
+    std::vector<mosaic::KeyTriggerConfig> t;
+    const struct {
+        const char* name;
+        const char* key;
+        int code;
+    } seeds[] = {
+        {"Experiment start", "F9", 1},
+        {"Trial onset", "F11", 2},
+        {"Note", "F12", 3},
+    };
+    for (const auto& s : seeds) {
+        mosaic::KeyTriggerConfig c;
+        c.name   = s.name;
+        c.keySeq = s.key;
+        c.code   = s.code;
+        t.push_back(std::move(c));
+    }
+    return t;
+}
+
 // Resolves every OTHER known profile's own configured record.directory
 // (reading each one's real settings.json, not assuming the default
 // convention holds if that profile customized it) — reused verbatim
@@ -283,6 +309,17 @@ void Application::initialize(const QString& username, bool isAdmin) {
         // RecordManager::start() skips the whole audio block when the
         // microphone list is empty) until a mic is added by hand.
         d->settings.audio.microphones = default_microphone();
+        // Seed a few example keyboard triggers. TriggerSettings::
+        // keyboardTriggers otherwise defaults to an empty vector, so a new
+        // profile has nothing at all and the multi-trigger capability isn't
+        // discoverable — a real report ("looks like we can only give one
+        // trigger"). Bound rather than left unbound on purpose: an unbound
+        // trigger renders an amber "no key bound — won't fire" warning, and
+        // three of those on a fresh profile reads as breakage rather than as
+        // an invitation. F9/F11/F12 avoids F1 (conventionally Help) and F10
+        // (activates the Windows menu bar — eventFilter deliberately doesn't
+        // consume the key, so both would happen).
+        d->settings.trigger.keyboardTriggers = default_keyboard_triggers();
         // Per-user recording directory (item 27) — every profile's
         // recordings live in their own subfolder from the start, not the
         // shared legacy default.

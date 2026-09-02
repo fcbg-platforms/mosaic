@@ -8,6 +8,7 @@
 #include <QLineEdit>
 #include <QPropertyAnimation>
 #include <QPushButton>
+#include <QSpinBox>
 #include <QToolButton>
 #include <QVBoxLayout>
 
@@ -132,6 +133,24 @@ void KeyboardCardW::build_body() {
     keyEdit->setMaximumSequenceLength(1); // single key only
     form->addRow("Key binding:", keyEdit);
 
+    // Numeric marker written to trigger.csv's `code` column — what an
+    // external system (an EEG amplifier, typically) matches on, since it
+    // never sees this trigger's free-text name.
+    auto* codeSpin = new QSpinBox;
+    codeSpin->setRange(0, 255);
+    codeSpin->setValue(m_config.code);
+    // setValue() clamps to the range but does not write back, and the
+    // valueChanged connect below is made afterwards — so an out-of-range code
+    // (a hand-edited settings.json, say) would leave the spinbox showing 255
+    // while the header summary and the recorded CSV still said 300. Take the
+    // clamped value as authoritative so the UI and the data can't disagree.
+    m_config.code = codeSpin->value();
+    codeSpin->setToolTip(
+        "Numeric marker written to trigger.csv's `code` column for every press "
+        "of this trigger. Give each trigger a different code so an external "
+        "recording (e.g. an EEG trigger channel) can tell them apart.");
+    form->addRow("Code:", codeSpin);
+
     // Enabled checkbox
     auto* enabledCk = new QCheckBox("Active");
     enabledCk->setChecked(m_config.enabled);
@@ -161,6 +180,11 @@ void KeyboardCardW::build_body() {
         update_header_summary();
         emit config_changed();
     });
+    connect(codeSpin, &QSpinBox::valueChanged, this, [this](int v) {
+        m_config.code = v;
+        update_header_summary();
+        emit config_changed();
+    });
     connect(enabledCk, &QCheckBox::toggled, this, [this](bool v) {
         m_config.enabled = v;
         update_header_summary();
@@ -180,9 +204,9 @@ void KeyboardCardW::update_header_summary() {
     // whether it's actually a problem right now.
     const bool brokenNow = m_config.enabled && m_config.keySeq.isEmpty();
     const QString key    = m_config.keySeq.isEmpty() ? "unbound" : m_config.keySeq;
-    m_summaryLabel->setText(brokenNow
-                                ? QString("— %1  ⚠ no key bound — won't fire").arg(m_config.name)
-                                : QString("— %1  [%2]").arg(m_config.name, key));
+    m_summaryLabel->setText(
+        brokenNow ? QString("— %1  ⚠ no key bound — won't fire").arg(m_config.name)
+                  : QString("— %1  [%2]  code %3").arg(m_config.name, key).arg(m_config.code));
     m_summaryLabel->setStyleSheet(
         brokenNow ? "color: #ddaa44; font-size: 11px; font-weight: bold; background: transparent;"
                   : "color: #446644; font-size: 11px; background: transparent;");

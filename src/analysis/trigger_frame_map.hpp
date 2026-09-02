@@ -22,6 +22,10 @@ struct TriggerFrameRow {
     QString wallClock;
     QString source;
     QString label;
+    // Numeric marker from trigger.csv's `code` column (see
+    // TriggerEvent::code) — 0 for a file predating that column, and for
+    // sources that don't set one.
+    int code     = 0;
     double value = 0.0;
     QVector<TriggerFrameHit> frames; // one entry per camera, index == cameraIndex
 };
@@ -98,6 +102,7 @@ class TriggerFrameMap {
         int64_t elapsedNs = 0;
         double elapsedMs  = 0.0;
         QString wallClock, source, label;
+        int code     = 0;
         double value = 0.0;
     };
     // Quote-aware line split — trigger.csv's label field is "..."-quoted
