@@ -267,6 +267,11 @@ Rectangle {
         border.color: recording ? "#772222" : "#1e1e40"
         border.width: 1
 
+        // Park the Stop button's pulse when recording ends, so it can't be
+        // left frozen at a half-lit value. The colour bindings guard on
+        // `recording` anyway; this just keeps the stored value honest.
+        onRecordingChanged: if (!recording) recBtn.pulse = 0.0
+
         RowLayout {
             anchors { fill: parent; margins: 10 }
             spacing: 12
@@ -307,16 +312,36 @@ Rectangle {
             Rectangle {
                 id: recBtn
                 width: 100; height: 30; radius: 5
+
+                // 0 -> 1 -> 0 while recording, driving the pulse below. Held
+                // at 0 otherwise so the button can't be left frozen mid-pulse
+                // when recording stops. Deliberately slower (900ms each way)
+                // and shallower than the REC dot's own blink beside it — this
+                // is a large element the operator sees constantly, so a fast
+                // strobe would read as a fault rather than as "recording".
+                property real pulse
+                SequentialAnimation on pulse {
+                    running: recording
+                    loops:   Animation.Infinite
+                    NumberAnimation { from: 0.0; to: 1.0; duration: 900; easing.type: Easing.InOutSine }
+                    NumberAnimation { from: 1.0; to: 0.0; duration: 900; easing.type: Easing.InOutSine }
+                }
                 color: recording
-                    ? (recArea.containsMouse ? "#3a1010" : "#240808")
+                    ? (recArea.containsMouse
+                        ? "#3a1010"
+                        : Qt.rgba(0.14 + 0.20 * pulse, 0.03, 0.03, 1.0))
                     : (recArea.containsMouse ? "#0f2a18" : "#0b1e12")
-                border.color: recording ? "#bb2222" : "#22bb55"
-                border.width: 1
+                border.color: recording
+                    ? Qt.rgba(0.73, 0.13 + 0.22 * pulse, 0.13 + 0.22 * pulse, 1.0)
+                    : "#22bb55"
+                border.width: recording ? 2 : 1
 
                 Label {
                     anchors.centerIn: parent
                     text:  recording ? "■  Stop" : "●  Record"
-                    color: recording ? "#ff6666" : "#33ee77"
+                    color: recording
+                        ? Qt.rgba(1.0, 0.40 + 0.25 * recBtn.pulse, 0.40 + 0.25 * recBtn.pulse, 1.0)
+                        : "#33ee77"
                     font { pixelSize: 11; bold: true }
                 }
 
