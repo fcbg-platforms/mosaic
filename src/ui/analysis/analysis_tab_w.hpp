@@ -6,6 +6,7 @@
 
 #include "analysis/analysis_manager.hpp"
 #include "core/settings.hpp"
+#include "ui/analysis/plugin_rail_w.hpp"
 
 namespace mosaic {
 
@@ -86,7 +87,7 @@ class AnalysisTabW : public QWidget {
     void rebuild_session_list();
     void select_session(const QString& path);
     void select_camera(int index);
-    void select_plugin(int index);
+    void select_plugin(const QString& pluginId);
     void on_pose_model_changed();
     void run_analysis();
     void reload_current_camera_result();
@@ -135,6 +136,16 @@ class AnalysisTabW : public QWidget {
     [[nodiscard]] QString rppg_json_path_for(const QString& videoRelPath) const;
     [[nodiscard]] QString gaze2d_json_path_for(const QString& videoRelPath) const;
     [[nodiscard]] QString synced_video_path_for(const QString& videoRelPath) const;
+
+    /// Whether `pluginId`'s output already exists for the selected session,
+    /// for the picker's run-state dots. Derived from the same *_path_for()
+    /// helpers the result loader uses, so it answers for the currently
+    /// selected model/backend rather than "some variant, once".
+    [[nodiscard]] PluginRunState run_state_for(const QString& pluginId) const;
+    /// Recomputes every dot. Cheap (a handful of stat() calls per camera) and
+    /// deliberately not called from select_plugin() — run states don't depend
+    /// on which plugin is selected.
+    void refresh_plugin_run_states();
 
     struct Impl;
     std::unique_ptr<Impl> d;

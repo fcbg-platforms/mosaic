@@ -49,6 +49,7 @@
 #include <functional>
 #include <limits>
 
+#include "analysis/analysis_plugins.hpp"
 #include "analysis/dyadic_kinematics.hpp"
 #include "analysis/expression_result.hpp"
 #include "analysis/gaze2d_result.hpp"
@@ -65,12 +66,14 @@
 #include "audio/audio_envelope.hpp"
 #include "session/session_info.hpp"
 #include "ui/analysis/gaze_room_view_w.hpp"
+#include "ui/analysis/plugin_rail_w.hpp"
 #include "ui/analysis/pose_overlay_player_w.hpp"
 #include "ui/analysis/skeleton3d_room_view_w.hpp"
 #include "ui/analysis/subject_colors.hpp"
 #include "ui/anim_utils.hpp"
 #include "ui/audio/audio_waveform_w.hpp"
 #include "ui/calibration/badge_style.hpp"
+#include "utils/logger.hpp"
 
 namespace mosaic {
 
@@ -731,8 +734,21 @@ struct AnalysisTabW::Impl {
     AnalysisManager* analysisMgr;
     QStringList extraDirectories; // item 27 — admin-only aggregate view
 
-    QListWidget* sessionList = nullptr;
-    QComboBox* pluginCombo   = nullptr;
+    QListWidget* sessionList        = nullptr;
+    AnalysisPluginRailW* pluginRail = nullptr;
+    // Held so select_plugin() can retitle it with the selected plugin's
+    // name, keeping that name beside the button that launches it.
+    QGroupBox* runBox = nullptr;
+    // Plugin id -> controlsStack page. Pages register themselves against their
+    // id rather than being appended positionally, so the picker's order and
+    // the stack's order can never drift apart into showing one plugin's
+    // controls under another's name.
+    QHash<QString, int> pluginPageIndex;
+    // The selected plugin, and the single source of truth every is_*_plugin()
+    // predicate reads. Seeded from the registry rather than left empty: an
+    // empty id resolves to no page, so select_plugin() would bail at startup
+    // and skip the whole initial visibility pass (see the constructor).
+    QString currentPlugin = analysis_plugins().front().id;
 
     // Plugin-specific run controls, swapped via controlsStack on plugin change.
     QStackedWidget* controlsStack            = nullptr;
@@ -997,18 +1013,22 @@ AnalysisTabW::AnalysisTabW(AppSettings& settings, AnalysisManager* analysisMgr,
                            const QStringList& extraDirectories, QWidget* parent)
     : QWidget(parent), d(std::make_unique<Impl>(settings, analysisMgr, extraDirectories)) {
     build_ui();
-    // pluginCombo's first addItem() (build_ui(), "Pose (YOLOv8)") fires its
-    // own currentIndexChanged(0) synchronously, before the connect() to
-    // select_plugin() a few lines later even runs — so select_plugin() was
-    // never actually invoked for the startup-default plugin. Every
-    // plugin-specific control that relies solely on select_plugin() to
-    // hide it (blendshapeCombo, trackCombo, expressionRowW, gazeFusionRowW,
-    // pose3dRowW — everything except micRowW, which has an explicit
-    // construction-time setVisible(false)) was left at its default
-    // QWidget-visible state: Blendshape/Track combos and 3 unrelated
-    // "Export CSV" buttons all showing at once alongside the real Pose
-    // controls. Call it explicitly now that every widget it touches exists.
-    select_plugin(d->pluginCombo->currentIndex());
+    // Explicitly reshape for the startup-default plugin. Nothing else will:
+    // the picker is populated during build_ui() and selecting its first entry
+    // is not a user action, so no selection signal reaches select_plugin() for
+    // it. Without this call every plugin-specific control that relies solely
+    // on select_plugin() to hide it (Blendshape/Track combos, the various
+    // per-plugin rows and their Export CSV buttons) would stay at its default
+    // QWidget-visible state, all showing at once alongside the real Pose
+    // controls.
+    //
+    // Note this pass can only *show* widgets, not hide them: the tab isn't on
+    // screen yet, so set_visible_animated()'s isVisible() short-circuit makes
+    // every hide a no-op. It lands correctly only because the widgets that
+    // should be visible for the default plugin are the ones already visible at
+    // construction, which is why Impl::currentPlugin is seeded from the
+    // registry's first entry and that entry is Pose.
+    select_plugin(d->currentPlugin);
     rebuild_session_list();
 
     connect(analysisMgr, &AnalysisManager::analysis_started, this, [this](const QString& path) {
@@ -1096,14 +1116,22 @@ AnalysisTabW::AnalysisTabW(AppSettings& settings, AnalysisManager* analysisMgr,
                 // since starting this job — otherwise "Done."/"Failed" would land
                 // on the now-different plugin's view. rebuild_session_list() still
                 // runs regardless, so switching back later picks up the result.
-                if (d->pluginCombo->currentData().toString() == d->jobPlugin) {
+                if (d->currentPlugin == d->jobPlugin) {
                     d->statusLbl->setText(success ? "Done." : "Failed — see log.");
                     d->statusLbl->setStyleSheet(
                         success ? "color:#44cc66; font-size:15px; font-weight:600;"
                                 : "color:#cc4444; font-size:15px; font-weight:600;");
                 }
-                if (success && path == d->currentSessionPath) {
-                    rebuild_session_list();
+                if (path == d->currentSessionPath) {
+                    if (success) {
+                        rebuild_session_list();
+                    }
+                    // Also on failure, and that is the point: a run that dies
+                    // partway can still have written output for some cameras,
+                    // but rebuild_session_list() — whose re-selection is what
+                    // otherwise refreshes these dots, via select_session() —
+                    // only runs on success.
+                    refresh_plugin_run_states();
                 }
             });
 }
@@ -1141,26 +1169,25 @@ void AnalysisTabW::build_ui() {
     auto* rightLay   = new QVBoxLayout(rightPanel);
     rightLay->setContentsMargins(0, 0, 0, 0);
 
-    auto* runBox = new QGroupBox("Run analysis");
-    auto* runLay = new QVBoxLayout(runBox);
+    d->runBox    = new QGroupBox("Run analysis");
+    auto* runLay = new QVBoxLayout(d->runBox);
 
+    // The plugin picker itself lives in the rail (built below as the
+    // splitter's middle column); this row now holds only the selected
+    // plugin's own run parameters, which belong beside the Run button rather
+    // than in the picker.
     auto* controlsRow = new QHBoxLayout;
-    d->pluginCombo    = new QComboBox;
-    d->pluginCombo->addItem("Pose (YOLOv8)", "pose");
-    d->pluginCombo->addItem("Face Masking (anonymize)", "face_mask");
-    d->pluginCombo->addItem("Speaker Diarization", "diarize");
-    d->pluginCombo->addItem("Facial Expression", "expression");
-    d->pluginCombo->addItem("Multi-Camera Gaze Fusion", "gaze_fusion");
-    d->pluginCombo->addItem("3D Pose Reconstruction", "pose3d");
-    d->pluginCombo->addItem("EEG/Trigger ↔ Frame Sync", "trigger_sync");
-    d->pluginCombo->addItem("Remote Heart Rate (rPPG, experimental)", "rppg");
-    d->pluginCombo->addItem("2D Gaze (calibration-free)", "gaze2d");
-    d->pluginCombo->addItem("Frame Sync Repair (equalize frame counts)", "sync_repair");
-    controlsRow->addWidget(new QLabel("Plugin:"));
-    controlsRow->addWidget(d->pluginCombo);
-    connect(d->pluginCombo, &QComboBox::currentIndexChanged, this, &AnalysisTabW::select_plugin);
 
     d->controlsStack = new QStackedWidget;
+
+    // Registers a controls page against its plugin id. The two asserts are the
+    // point: a page for an id the registry doesn't know, or two pages claiming
+    // one id, are both programming errors that used to be invisible.
+    auto add_plugin_page = [this](const QString& id, QWidget* page) {
+        Q_ASSERT(analysis_plugin_index_of(id) >= 0);
+        Q_ASSERT(!d->pluginPageIndex.contains(id));
+        d->pluginPageIndex.insert(id, d->controlsStack->addWidget(page));
+    };
 
     // ── Pose controls page ──────────────────────────────────────────────
     auto* posePage     = new QWidget;
@@ -1213,7 +1240,7 @@ void AnalysisTabW::build_ui() {
     d->depthModeHintLbl->setVisible(false); // shown only when a depth model is selected
     poseOuterLay->addWidget(d->depthModeHintLbl);
 
-    d->controlsStack->addWidget(posePage);
+    add_plugin_page("pose", posePage);
 
     // ── Face-mask controls page ─────────────────────────────────────────
     auto* faceMaskPage = new QWidget;
@@ -1249,7 +1276,7 @@ void AnalysisTabW::build_ui() {
         "Keep at 1 unless you accept the risk of fast head motion going unmasked on the "
         "skipped frames in between.");
     faceMaskLay->addWidget(d->faceSkipSpin);
-    d->controlsStack->addWidget(faceMaskPage);
+    add_plugin_page("face_mask", faceMaskPage);
 
     // ── Diarization controls page ───────────────────────────────────────
     auto* diarizePage = new QWidget;
@@ -1317,7 +1344,7 @@ void AnalysisTabW::build_ui() {
         "network/model-download requirement.");
     diarizeLay->addWidget(d->skipDiarizationCheck);
 
-    d->controlsStack->addWidget(diarizePage);
+    add_plugin_page("diarize", diarizePage);
 
     // ── Facial Expression controls page ─────────────────────────────────
     auto* expressionPage = new QWidget;
@@ -1367,7 +1394,7 @@ void AnalysisTabW::build_ui() {
     d->exprSkipSpin->setValue(1);
     d->exprSkipSpin->setPrefix("skip ");
     expressionLay->addWidget(d->exprSkipSpin);
-    d->controlsStack->addWidget(expressionPage);
+    add_plugin_page("expression", expressionPage);
 
     // ── Multi-Camera Gaze Fusion controls page ──────────────────────────
     // No plane-editing controls here — the plane is defined once, at Room
@@ -1399,7 +1426,7 @@ void AnalysisTabW::build_ui() {
     d->gazeSkipSpin->setValue(1);
     d->gazeSkipSpin->setPrefix("skip ");
     gazeFusionCtlLay->addWidget(d->gazeSkipSpin);
-    d->controlsStack->addWidget(gazeFusionPage);
+    add_plugin_page("gaze_fusion", gazeFusionPage);
 
     // ── 3D Pose Reconstruction controls page ────────────────────────────
     // Reads the Pose plugin's already-computed .pose.json sidecars (see
@@ -1444,7 +1471,7 @@ void AnalysisTabW::build_ui() {
         "optional smoothed display only — 1 = off. The raw triangulated positions are "
         "always kept too; see the \"Show smoothed\" checkbox in the results view.");
     pose3dCtlLay->addWidget(d->pose3dSmoothingWindowSpin);
-    d->controlsStack->addWidget(pose3dPage);
+    add_plugin_page("pose3d", pose3dPage);
 
     // ── EEG/Trigger ↔ Frame Sync controls page ──────────────────────────
     // No model/backend/skip controls — this plugin has nothing to tune, it's
@@ -1460,7 +1487,7 @@ void AnalysisTabW::build_ui() {
     triggerSyncHint->setWordWrap(true);
     triggerSyncHint->setProperty("role", "muted");
     triggerSyncCtlLay->addWidget(triggerSyncHint, 1);
-    d->controlsStack->addWidget(triggerSyncPage);
+    add_plugin_page("trigger_sync", triggerSyncPage);
 
     // ── Remote Heart Rate (rPPG) controls page ──────────────────────────
     // No frame-skip control, unlike every sibling plugin above — a real
@@ -1489,8 +1516,12 @@ void AnalysisTabW::build_ui() {
         "Raw green-channel signal, no motion/illumination compensation at all — "
         "fastest, but the most sensitive to any movement. Kept for comparison/debugging.",
         Qt::ToolTipRole);
-    connect(d->rppgBackendCombo, &QComboBox::currentIndexChanged, this,
-            &AnalysisTabW::reload_current_camera_result);
+    connect(d->rppgBackendCombo, &QComboBox::currentIndexChanged, this, [this] {
+        // rPPG output is namespaced by backend, so switching backends changes
+        // both which saved result is shown and what the run-state dot means.
+        reload_current_camera_result();
+        refresh_plugin_run_states();
+    });
     rppgCtlLay->addWidget(d->rppgBackendCombo);
 
     d->rppgWindowSecSpin = new QDoubleSpinBox;
@@ -1520,7 +1551,7 @@ void AnalysisTabW::build_ui() {
         "smoothed_bpm series. 1 = no smoothing (default) — raw bpm is always kept "
         "too, regardless of this setting.");
     rppgCtlLay->addWidget(d->rppgSmoothingSpin);
-    d->controlsStack->addWidget(rppgPage);
+    add_plugin_page("rppg", rppgPage);
 
     // ── 2D Gaze (calibration-free) controls page ────────────────────────
     // No backend choice (unlike rPPG's 3 algorithms) — there's only one
@@ -1545,7 +1576,7 @@ void AnalysisTabW::build_ui() {
     d->gaze2dSkipSpin->setValue(1);
     d->gaze2dSkipSpin->setPrefix("skip ");
     gaze2dCtlLay->addWidget(d->gaze2dSkipSpin);
-    d->controlsStack->addWidget(gaze2dPage);
+    add_plugin_page("gaze2d", gaze2dPage);
 
     // ── Frame Sync Repair controls page ─────────────────────────────────
     auto* syncRepairPage   = new QWidget;
@@ -1572,7 +1603,27 @@ void AnalysisTabW::build_ui() {
     syncRepairHint->setWordWrap(true);
     syncRepairHint->setProperty("role", "muted");
     syncRepairCtlLay->addWidget(syncRepairHint, 1);
-    d->controlsStack->addWidget(syncRepairPage);
+    add_plugin_page("sync_repair", syncRepairPage);
+
+    // Q_ASSERT above compiles out in Release, so restate the invariant in a
+    // form that survives: a registry entry with no page would silently vanish
+    // from the picker rather than failing.
+    for (const auto& plugin : analysis_plugins()) {
+        if (!d->pluginPageIndex.contains(plugin.id)) {
+            log_warning("[AnalysisTabW] No controls page registered for plugin id '" + plugin.id +
+                        "' — it will not be selectable.");
+        }
+    }
+    // The other half of the same invariant. A duplicate id would have silently
+    // overwritten the first page's index above, orphaning one page and showing
+    // one plugin's controls under another's name — the exact failure this
+    // id-keyed registration exists to replace.
+    if (d->pluginPageIndex.size() != d->controlsStack->count()) {
+        log_warning(QString("[AnalysisTabW] %1 controls pages but %2 distinct plugin ids — a "
+                            "page was registered twice and one is now unreachable.")
+                        .arg(d->controlsStack->count())
+                        .arg(d->pluginPageIndex.size()));
+    }
 
     controlsRow->addWidget(d->controlsStack, 1);
 
@@ -1646,7 +1697,7 @@ void AnalysisTabW::build_ui() {
         " font-size:13px; border:1px solid #1e3a28; border-radius:6px; padding:8px; }");
     runLay->addWidget(d->logView);
 
-    rightLay->addWidget(runBox);
+    rightLay->addWidget(d->runBox);
 
     // ── Results: camera/keypoint pickers + player + chart ──────────────
     // sourceRowW/micRowW are mutually exclusive containers (see
@@ -2206,8 +2257,27 @@ void AnalysisTabW::build_ui() {
     });
 
     splitter->addWidget(rightPanel);
+
+    // Built here rather than alongside the other controls because it is
+    // populated from pluginPageIndex, which is only complete once every
+    // add_plugin_page() call above has run — so a registry entry with no
+    // controls page can never appear as a row the tab cannot display.
+    d->pluginRail = new AnalysisPluginRailW(QStringList(d->pluginPageIndex.keys()));
+    d->pluginRail->set_current(d->currentPlugin);
+    connect(d->pluginRail, &AnalysisPluginRailW::plugin_selected, this,
+            &AnalysisTabW::select_plugin);
+    splitter->insertWidget(1, d->pluginRail); // Sessions | Analysis | results
+
+    // Indices shifted by that insert: 1 is now the rail, and the right panel —
+    // which carries the player, chart and results tables — is 2. The surplus
+    // width belongs to that one.
     splitter->setStretchFactor(0, 0);
-    splitter->setStretchFactor(1, 1);
+    splitter->setStretchFactor(1, 0);
+    splitter->setStretchFactor(2, 1);
+    // setStretchFactor only divides *surplus* width; the initial split still
+    // comes from each pane's sizeHint, which with three columns is materially
+    // worse than it was with two.
+    splitter->setSizes({240, 230, 900});
 }
 
 // ── Session list ─────────────────────────────────────────────────────────
@@ -2289,6 +2359,7 @@ void AnalysisTabW::select_session(const QString& path) {
     d->statusLbl->setStyleSheet("color:#6060a0; font-size:15px; font-weight:600;");
 
     select_camera(d->cameraCombo->currentIndex());
+    refresh_plugin_run_states();
 }
 
 void AnalysisTabW::select_camera(int index) {
@@ -2296,10 +2367,16 @@ void AnalysisTabW::select_camera(int index) {
     reload_current_camera_result();
 }
 
-void AnalysisTabW::select_plugin(int index) {
-    if (index < 0) {
-        return;
+void AnalysisTabW::select_plugin(const QString& pluginId) {
+    const int page = d->pluginPageIndex.value(pluginId, -1);
+    if (page < 0) {
+        return; // unknown id, or a registry entry with no controls page
     }
+
+    // Must land before the predicates below: every is_*_plugin() now reads
+    // this member, so assigning it later would reshape the UI for the
+    // *previous* plugin and leave the tab one click behind.
+    d->currentPlugin = pluginId;
 
     const bool isPose        = is_pose_plugin();
     const bool isDiarize     = is_diarize_plugin();
@@ -2382,7 +2459,11 @@ void AnalysisTabW::select_plugin(int index) {
     // until the new page is actually current (right as the fade-in phase
     // starts), matching LoginDialog::show_register_mode()'s existing
     // pattern of deferring a focus() call behind its own crossfade.
-    anim::crossfade_stacked_widget(d->controlsStack, index, 130,
+    if (const auto* desc = analysis_plugin_for(pluginId)) {
+        d->runBox->setTitle("Run analysis — " + desc->label);
+    }
+
+    anim::crossfade_stacked_widget(d->controlsStack, page, 130,
                                    [this] { reload_current_camera_result(); });
 }
 
@@ -2399,11 +2480,115 @@ void AnalysisTabW::on_pose_model_changed() {
     if (!is_pose_plugin()) {
         return;
     }
-    select_plugin(d->pluginCombo->currentIndex());
+    // Pose output is namespaced by model, so the dot means something different
+    // now even though nothing was run.
+    refresh_plugin_run_states();
+    select_plugin(d->currentPlugin);
     reload_current_camera_result();
 }
 
 // ── Analysis lifecycle ───────────────────────────────────────────────────
+
+PluginRunState AnalysisTabW::run_state_for(const QString& pluginId) const {
+    const auto* info = d->current_session();
+    if (info == nullptr) {
+        return PluginRunState::Unknown;
+    }
+    const QString root = info->path + "/";
+
+    // Counts how many of `inputs` already have their output. Most plugins run
+    // once per camera, so "3 of 5 cameras" is a real and common state that a
+    // plain yes/no could not express.
+    auto per_input = [&](const QStringList& inputs,
+                         const std::function<QString(const QString&)>& outputFor) {
+        if (inputs.isEmpty()) {
+            // Nothing to process is not the same as nothing done: a video-only
+            // session would otherwise show Diarize as "not yet run", and an
+            // audio-only one would say that of every per-camera plugin.
+            // Unknown draws no dot at all, which is the honest answer.
+            return PluginRunState::Unknown;
+        }
+        int found = 0;
+        for (const QString& in : inputs) {
+            if (QFileInfo::exists(root + outputFor(in))) {
+                ++found;
+            }
+        }
+        return found == 0               ? PluginRunState::None
+               : found == inputs.size() ? PluginRunState::Complete
+                                        : PluginRunState::Partial;
+    };
+    auto session_level = [&](const QString& relPath) {
+        return QFileInfo::exists(root + relPath) ? PluginRunState::Complete : PluginRunState::None;
+    };
+
+    if (pluginId == "pose") {
+        // A depth model writes a colorized depth video under depth/ and no
+        // .pose.json at all, so probing the keypoint path would report a
+        // fully-completed depth run as "not yet run" — inviting exactly the
+        // redundant multi-minute re-run this indicator exists to prevent.
+        if (is_pose_depth_selected()) {
+            return per_input(info->videoFiles,
+                             [this](const QString& v) { return depth_video_path_for(v); });
+        }
+        const PluginRunState state =
+            per_input(info->videoFiles, [this](const QString& v) { return pose_json_path_for(v); });
+        // Pose namespaces its output by model, so "nothing for the selected
+        // model" and "never run at all" are different answers. Report the
+        // former as Partial rather than None — otherwise the dot invites a
+        // re-run that would silently duplicate work already done.
+        return state == PluginRunState::None && info->hasPoseAnalysis ? PluginRunState::Partial
+                                                                      : state;
+    }
+    if (pluginId == "rppg") {
+        const PluginRunState state =
+            per_input(info->videoFiles, [this](const QString& v) { return rppg_json_path_for(v); });
+        return state == PluginRunState::None && info->hasRppg ? PluginRunState::Partial : state;
+    }
+    if (pluginId == "expression") {
+        return per_input(info->videoFiles,
+                         [this](const QString& v) { return expression_json_path_for(v); });
+    }
+    if (pluginId == "gaze2d") {
+        return per_input(info->videoFiles,
+                         [this](const QString& v) { return gaze2d_json_path_for(v); });
+    }
+    if (pluginId == "face_mask") {
+        return per_input(info->videoFiles,
+                         [this](const QString& v) { return anonymized_video_path_for(v); });
+    }
+    if (pluginId == "sync_repair") {
+        return per_input(info->videoFiles,
+                         [this](const QString& v) { return synced_video_path_for(v); });
+    }
+    if (pluginId == "diarize") {
+        return per_input(info->audioFiles,
+                         [this](const QString& a) { return transcript_json_path_for(a); });
+    }
+    if (pluginId == "gaze_fusion") {
+        return session_level("gaze_fusion.json");
+    }
+    if (pluginId == "pose3d") {
+        return session_level("skeleton3d.json");
+    }
+    if (pluginId == "trigger_sync") {
+        // Written by TriggerFrameMap::save() — this plugin computes in-process
+        // rather than via AnalysisManager, but it does persist a result.
+        return session_level("trigger_frame_map.json");
+    }
+    return PluginRunState::Unknown;
+}
+
+void AnalysisTabW::refresh_plugin_run_states() {
+    if (d->pluginRail == nullptr) {
+        return;
+    }
+    QHash<QString, PluginRunState> states;
+    for (const auto& plugin : analysis_plugins()) {
+        states.insert(plugin.id, run_state_for(plugin.id));
+    }
+    d->pluginRail->set_run_states(states);
+}
 
 QString AnalysisTabW::slug_for_model(const QString& modelId) const {
     // Strips just the trailing ".pt" (e.g. "yolov8n-pose.pt" -> "yolov8n-pose",
@@ -2484,45 +2669,25 @@ QString AnalysisTabW::synced_video_path_for(const QString& videoRelPath) const {
     return "synced/" + QFileInfo(videoRelPath).fileName();
 }
 
-bool AnalysisTabW::is_pose_plugin() const {
-    return d->pluginCombo->currentData().toString() == "pose";
-}
+bool AnalysisTabW::is_pose_plugin() const { return d->currentPlugin == "pose"; }
 
-bool AnalysisTabW::is_diarize_plugin() const {
-    return d->pluginCombo->currentData().toString() == "diarize";
-}
+bool AnalysisTabW::is_diarize_plugin() const { return d->currentPlugin == "diarize"; }
 
-bool AnalysisTabW::is_expression_plugin() const {
-    return d->pluginCombo->currentData().toString() == "expression";
-}
+bool AnalysisTabW::is_expression_plugin() const { return d->currentPlugin == "expression"; }
 
-bool AnalysisTabW::is_face_mask_plugin() const {
-    return d->pluginCombo->currentData().toString() == "face_mask";
-}
+bool AnalysisTabW::is_face_mask_plugin() const { return d->currentPlugin == "face_mask"; }
 
-bool AnalysisTabW::is_gaze_fusion_plugin() const {
-    return d->pluginCombo->currentData().toString() == "gaze_fusion";
-}
+bool AnalysisTabW::is_gaze_fusion_plugin() const { return d->currentPlugin == "gaze_fusion"; }
 
-bool AnalysisTabW::is_pose3d_plugin() const {
-    return d->pluginCombo->currentData().toString() == "pose3d";
-}
+bool AnalysisTabW::is_pose3d_plugin() const { return d->currentPlugin == "pose3d"; }
 
-bool AnalysisTabW::is_trigger_sync_plugin() const {
-    return d->pluginCombo->currentData().toString() == "trigger_sync";
-}
+bool AnalysisTabW::is_trigger_sync_plugin() const { return d->currentPlugin == "trigger_sync"; }
 
-bool AnalysisTabW::is_rppg_plugin() const {
-    return d->pluginCombo->currentData().toString() == "rppg";
-}
+bool AnalysisTabW::is_rppg_plugin() const { return d->currentPlugin == "rppg"; }
 
-bool AnalysisTabW::is_gaze2d_plugin() const {
-    return d->pluginCombo->currentData().toString() == "gaze2d";
-}
+bool AnalysisTabW::is_gaze2d_plugin() const { return d->currentPlugin == "gaze2d"; }
 
-bool AnalysisTabW::is_sync_repair_plugin() const {
-    return d->pluginCombo->currentData().toString() == "sync_repair";
-}
+bool AnalysisTabW::is_sync_repair_plugin() const { return d->currentPlugin == "sync_repair"; }
 
 bool AnalysisTabW::is_pose_depth_selected() const {
     return is_pose_plugin() && is_depth_model(d->modelCombo->currentData().toString());
@@ -4089,7 +4254,7 @@ void AnalysisTabW::run_analysis() {
         return;
     }
 
-    const QString plugin = d->pluginCombo->currentData().toString();
+    const QString plugin = d->currentPlugin;
 
     if (plugin == "trigger_sync") {
         // Computed synchronously in C++ — no AnalysisManager subprocess job,
@@ -4103,6 +4268,10 @@ void AnalysisTabW::run_analysis() {
         d->currentTriggerFrameMap = TriggerFrameMap::generate(d->currentSessionPath);
         if (d->currentTriggerFrameMap.is_valid()) {
             d->currentTriggerFrameMap.save(d->currentSessionPath);
+            // This plugin computes in-process and returns without ever going
+            // through AnalysisManager, so no analysis_finished signal will
+            // refresh the dots for it.
+            refresh_plugin_run_states();
             d->statusLbl->setText(QString("Done — %1 trigger(s) resolved across %2 camera(s).")
                                       .arg(d->currentTriggerFrameMap.trigger_count())
                                       .arg(d->currentTriggerFrameMap.camera_count()));
