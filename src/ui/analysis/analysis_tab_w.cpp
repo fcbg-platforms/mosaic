@@ -756,6 +756,7 @@ struct AnalysisTabW::Impl {
     QSpinBox* skipSpin                       = nullptr; // pose
     QLabel* depthModeHintLbl                 = nullptr; // pose, shown only for depth models
     QComboBox* backendCombo                  = nullptr; // face_mask
+    QComboBox* regionCombo                   = nullptr; // face_mask
     QComboBox* styleCombo                    = nullptr; // face_mask
     QSpinBox* faceSkipSpin                   = nullptr; // face_mask
     QComboBox* whisperModelCombo             = nullptr; // diarize
@@ -1247,6 +1248,20 @@ void AnalysisTabW::build_ui() {
     auto* faceMaskLay  = new QHBoxLayout(faceMaskPage);
     faceMaskLay->setContentsMargins(0, 0, 0, 0);
 
+    d->regionCombo = new QComboBox;
+    d->regionCombo->addItem("Face", "face");
+    d->regionCombo->setItemData(0, "Blurs detected face boxes only.", Qt::ToolTipRole);
+    d->regionCombo->addItem("Whole body", "body");
+    d->regionCombo->setItemData(
+        1,
+        "Blurs each person's whole silhouette — body, clothing and posture, not just the "
+        "face. Masks the union of person segmentation and the face detector, so someone "
+        "the segmenter misses still has their face covered. Slower, and it will also blur "
+        "people in mirrors or on screens.",
+        Qt::ToolTipRole);
+    faceMaskLay->addWidget(new QLabel("Region:"));
+    faceMaskLay->addWidget(d->regionCombo);
+
     d->backendCombo = new QComboBox;
     d->backendCombo->addItem("MediaPipe", "mediapipe");
     d->backendCombo->setItemData(
@@ -1276,6 +1291,30 @@ void AnalysisTabW::build_ui() {
         "Keep at 1 unless you accept the risk of fast head motion going unmasked on the "
         "skipped frames in between.");
     faceMaskLay->addWidget(d->faceSkipSpin);
+
+    // Both combos change the output filename (see anonymized_video_path_for),
+    // so switching either must re-check which saved result exists — otherwise
+    // the player keeps showing "Showing anonymized output" over a file
+    // produced by a different configuration. Same reason rppgBackendCombo
+    // carries this connect.
+    auto refresh_face_mask_view = [this] {
+        reload_current_camera_result();
+        refresh_plugin_run_states();
+    };
+    connect(d->backendCombo, &QComboBox::currentIndexChanged, this, refresh_face_mask_view);
+    connect(d->regionCombo, &QComboBox::currentIndexChanged, this, [this, refresh_face_mask_view] {
+        // Whole-body reuses a silhouette across skipped frames, which
+        // misaligns as the subject moves — where a 25%-padded face box
+        // absorbs it. The runner clamps this itself; disabling the
+        // control says so rather than silently ignoring the value.
+        const bool isBody = d->regionCombo->currentData().toString() == "body";
+        d->faceSkipSpin->setEnabled(!isBody);
+        if (isBody) {
+            d->faceSkipSpin->setValue(1);
+        }
+        refresh_face_mask_view();
+    });
+
     add_plugin_page("face_mask", faceMaskPage);
 
     // ── Diarization controls page ───────────────────────────────────────
@@ -2616,7 +2655,19 @@ QString AnalysisTabW::pose_json_path_for(const QString& videoRelPath) const {
 }
 
 QString AnalysisTabW::anonymized_video_path_for(const QString& videoRelPath) const {
-    return "anonymized/" + QFileInfo(videoRelPath).fileName();
+    // Namespaced by region and backend, with the same forward-only caveat as
+    // pose_json_path_for() above: sessions anonymized before this change keep
+    // their un-suffixed file and won't be found here until re-run.
+    //
+    // Both axes change *which pixels are covered*, so two runs differing in
+    // either must never overwrite each other — a user holding a face-masked
+    // file believing it is body-masked is the failure this prevents. Style is
+    // deliberately excluded: blur vs solid box changes appearance, not
+    // coverage, and the difference is obvious on sight.
+    const QFileInfo info(videoRelPath);
+    return "anonymized/" + info.completeBaseName() + "." +
+           d->regionCombo->currentData().toString() + "." +
+           d->backendCombo->currentData().toString() + "." + info.suffix();
 }
 
 QString AnalysisTabW::depth_video_path_for(const QString& videoRelPath) const {
@@ -4332,7 +4383,8 @@ void AnalysisTabW::run_analysis() {
     } else if (plugin == "face_mask") {
         d->analysisMgr->run_face_mask(
             d->currentSessionPath, d->backendCombo->currentData().toString(),
-            d->styleCombo->currentData().toString(), d->faceSkipSpin->value());
+            d->regionCombo->currentData().toString(), d->styleCombo->currentData().toString(),
+            d->faceSkipSpin->value());
     } else if (plugin == "expression") {
         d->analysisMgr->run_expression_analysis(
             d->currentSessionPath, d->expressionBackendCombo->currentData().toString(),

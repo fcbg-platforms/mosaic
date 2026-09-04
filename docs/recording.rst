@@ -77,7 +77,7 @@ Session folder layout:
 Media is split into ``audio/`` and ``video/`` subfolders so a session directory listing isn't
 dominated by per-camera files; ``pose/``, ``depth/``, ``expression/``, and ``rppg/`` each hold
 their own plugin's per-camera output, kept out of ``video/`` rather than sitting alongside the
-source ``.mp4`` files; ``anonymized/`` holds Face Masking's output videos; everything session-level
+source ``.mp4`` files; ``anonymized/`` holds Face Masking's output videos, named by region and backend (``video_0.body.mediapipe.mp4``) so runs covering different things don't overwrite each other; everything session-level
 (metadata, trigger log, sync manifest, cross-camera fusion results, annotations) stays at the
 session root. Recordings are also split **per profile** — see :doc:`profiles`'s recording-access-
 control section for how a non-admin profile's sessions stay isolated from every other profile's.

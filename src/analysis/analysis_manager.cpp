@@ -92,10 +92,15 @@ void AnalysisManager::analyze_session(const QString& sessionPath) {
 }
 
 void AnalysisManager::run_face_mask(const QString& sessionPath, const QString& backend,
-                                    const QString& style, int frameSkip) {
-    const QStringList args = {
-        "--session", sessionPath, "--backend", backend,
-        "--style",   style,       "--skip",    QString::number(qMax(1, frameSkip)),
+                                    const QString& region, const QString& style, int frameSkip) {
+    // Whole-body masks a silhouette rather than a padded box, so a detection
+    // reused across skipped frames misaligns as the subject moves and leaves
+    // part of them exposed. run_face_mask.py clamps this itself; sending the
+    // safe value keeps the three layers from disagreeing about what ran.
+    const int effectiveSkip = region == "body" ? 1 : qMax(1, frameSkip);
+    const QStringList args  = {
+        "--session", sessionPath, "--backend", backend,  "--region",
+        region,      "--style",   style,       "--skip", QString::number(effectiveSkip),
     };
     enqueue_or_launch(sessionPath, "analysis/run_face_mask.py", args, {});
 }

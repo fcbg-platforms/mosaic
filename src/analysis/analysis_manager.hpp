@@ -91,23 +91,28 @@ class AnalysisManager : public QObject {
     /// @param sessionPath  Absolute path to the recorded session directory.
     void analyze_session(const QString& sessionPath);
 
-    /// @brief Anonymize (blur/box) faces in all .mp4 files in @p sessionPath,
-    /// writing output into a sibling "anonymized/" folder — originals are
-    /// never modified.
+    /// @brief Anonymize (blur/box) faces or whole people in all .mp4 files in
+    /// @p sessionPath, writing output into a sibling "anonymized/" folder —
+    /// originals are never modified.
     ///
     /// Always runs when called directly, exactly like analyze_session(). If a
     /// previous analysis is still running, this queues the new job.
     ///
     /// @param sessionPath  Absolute path to the recorded session directory.
     /// @param backend      "mediapipe" (default), "yolov8", or "opencv".
+    /// @param region       "face" (default) or "body". Whole-body masks the
+    ///                     union of person segmentation and the face boxes, so
+    ///                     someone the segmenter misses still has their face
+    ///                     covered.
     /// @param style        "blur" (default) or "box".
     /// @param frameSkip    Run the detector every Nth frame, reusing the last
-    ///                     detected boxes on skipped frames. Defaults to 1
-    ///                     (every frame) at the call site — raising this
-    ///                     risks a skipped frame's fast head motion going
-    ///                     unmasked.
-    void run_face_mask(const QString& sessionPath, const QString& backend, const QString& style,
-                       int frameSkip);
+    ///                     detected boxes on skipped frames. Ignored (forced
+    ///                     to 1) for "body" — a reused silhouette misaligns as
+    ///                     the subject moves, where a padded box does not.
+    ///                     Raising it for "face" risks a skipped frame's fast
+    ///                     head motion going unmasked.
+    void run_face_mask(const QString& sessionPath, const QString& backend, const QString& region,
+                       const QString& style, int frameSkip);
 
     /// @brief Transcribe (and, when possible, diarize) all .wav files in
     /// @p sessionPath, writing a "<name>.transcript.json" sidecar next to

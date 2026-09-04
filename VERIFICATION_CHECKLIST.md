@@ -62,6 +62,15 @@ live only in a PR description or a plan file where it'll be forgotten.
       multi-camera session (last confirmed working 2026-07-28 for all 3, re-check periodically
       since 2 of the 3 already broke once from upstream changes — a retired OpenCV API, a moved
       GitHub release tag).
+- [ ] Whole-body anonymization — the highest-stakes item in this file, since a miss is a real
+      privacy leak rather than a wrong number. Run Face Masking with Region = Whole body on a
+      two-person recording and step through the output frame by frame looking for: un-blurred
+      halos at silhouette edges (hair, fingers, shoulders); a limb lost where it crosses a
+      similarly-coloured background; a seated or partly-occluded person dropped entirely. Check
+      the run log's "frame(s) where segmentation found nobody but the face detector did" counter
+      — a non-zero value is the face-box union doing its job, but it should be explicable. Also
+      confirm Face and Whole body outputs coexist as separate files rather than overwriting, and
+      that switching Region in the UI shows that variant's own saved output.
 - [ ] Facial Expression — all 3 backends (heuristic, FER+, py-feat) confirmed working end-to-end,
       including py-feat's FFmpeg/torchcodec dependency chain on a fresh machine.
 - [ ] Speaker Diarization — a full run with a real HF token against a session with actual

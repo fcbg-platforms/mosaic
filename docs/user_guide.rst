@@ -192,21 +192,35 @@ sitting alongside **Live**. The workflow is always the same shape:
    .. tab-item:: Face Masking
 
       **What it does**: produces an anonymized copy of every camera's video
-      (faces blurred or boxed) in a sibling ``anonymized/`` folder — the
-      originals in ``video/`` are never touched.
+      (faces or whole people blurred or boxed) in a sibling ``anonymized/``
+      folder — the originals in ``video/`` are never touched.
 
-      **Controls**: a detection backend (**MediaPipe** — default, best
-      recall; **YOLOv8-face** — community checkpoint; **OpenCV DNN** — no
-      extra ML framework, weaker on extreme angles), a style (**Blur** or
-      **Solid box**), and a frame-skip spinbox (kept low — skipped frames
-      reuse the last detected box rather than going unmasked, so raising it
-      trades fidelity for speed, not privacy).
+      **Controls**: a **Region** (**Face** — default, blurs detected face
+      boxes; **Whole body** — blurs each person's whole silhouette, removing
+      clothing and posture cues too), a detection backend (**MediaPipe** —
+      default, best recall; **YOLOv8-face** — community checkpoint;
+      **OpenCV DNN** — no extra ML framework, weaker on extreme angles), a
+      style (**Blur** or **Solid box**), and a frame-skip spinbox (kept low
+      — skipped frames reuse the last detected box rather than going
+      unmasked, so raising it trades fidelity for speed, not privacy).
+
+      **Whole body** masks the union of person segmentation and the face
+      detector, so someone the segmenter misses still has their face
+      covered. It is slower, it disables frame-skip (a reused silhouette
+      misaligns as people move, where a padded face box does not), and it
+      will also blur people appearing in mirrors or on screens in shot.
+
+      Output files are named by region and backend
+      (``video_0.body.mediapipe.mp4``), so runs with different coverage no
+      longer overwrite each other — switching either control shows that
+      variant's saved output.
 
       **Reading the output**: the selected camera's anonymized video plays
       directly in the results panel (no overlay/chart — the mask is already
       baked into the video). An **Open output folder** button jumps straight
-      to the ``anonymized/`` folder. See :doc:`math/face_masking` for the
-      padding/blur-kernel formulas.
+      to the ``anonymized/`` folder. Note the anonymized copy has no audio
+      track. See :doc:`math/face_masking` for the padding, dilation and
+      blur-kernel formulas.
 
    .. tab-item:: Speaker Diarization
 
