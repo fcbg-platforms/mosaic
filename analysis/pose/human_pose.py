@@ -28,6 +28,71 @@ except ImportError:
     _YOLO = None  # type: ignore[assignment]
 
 
+# Tracker name passed to ultralytics and recorded in the .pose.json header.
+# BoT-SORT over ByteTrack because it adds camera-motion compensation and
+# optional ReID on top of the same association core, and ships with
+# ultralytics either way — no new dependency.
+TRACKER_NAME = "botsort"
+TRACKER_CONFIG = "botsort.yaml"
+
+# Confidence floor handed to the tracker, as opposed to the one applied to
+# what actually gets written. Matches botsort.yaml's track_low_thresh.
+TRACK_INPUT_CONF = 0.1
+
+
+def resolve_subject_ids(track_ids: list[int | None] | None, detection_count: int) -> list[int]:
+    """Map one frame's ultralytics track ids onto MOSAIC subject ids.
+
+    Parameters
+    ----------
+    track_ids : list of (int or None), or None
+        ``res.boxes.id`` converted to plain ints, or ``None`` when the tracker
+        produced nothing for this frame (it has no confirmed tracks yet).
+    detection_count : int
+        How many detections this frame actually has. The returned list is
+        always exactly this long.
+
+    Returns
+    -------
+    list of int
+        A tracker id (always >= 1) is used as-is — it means "the same physical
+        person" across frames, which is the entire point. Anything else falls
+        back to ``-(i + 1)``: negative marks "not tracked in this frame", and
+        it stays distinct per detection so two untracked people never collapse
+        onto one id. Collapsing them would be worse than the bug this replaces,
+        because the C++ side looks subjects up *by* id.
+
+        Length mismatches are resolved per index rather than by zipping: a
+        silent shift would attach one person's keypoints to another person's
+        id, which is exactly the failure mode being eliminated.
+    """
+    if detection_count <= 0:
+        return []
+    ids = track_ids or []
+    out: list[int] = []
+    for i in range(detection_count):
+        tid = ids[i] if i < len(ids) else None
+        out.append(int(tid) if tid is not None and int(tid) > 0 else -(i + 1))
+    return out
+
+
+def _reset_model_trackers(model) -> bool:
+    """Reset every tracker attached to a YOLO model's predictor.
+
+    Returns ``False`` when there is nothing to reset — no ``track()`` call has
+    happened yet, so no predictor/trackers exist. Split out from
+    :meth:`HumanPoseEstimator.reset_tracker` so it can be unit-tested against a
+    stub model, without ultralytics installed.
+    """
+    predictor = getattr(model, "predictor", None)
+    trackers = getattr(predictor, "trackers", None) if predictor is not None else None
+    if not trackers:
+        return False
+    for tracker in trackers:
+        tracker.reset()
+    return True
+
+
 class HumanPoseEstimator:
     """Wraps YOLOv8-pose for single-frame inference.
 
@@ -73,6 +138,28 @@ class HumanPoseEstimator:
 
     # ── Public API ────────────────────────────────────────────────────────────
 
+    def reset_tracker(self) -> None:
+        """Drop all cross-frame tracking state, starting a fresh identity space.
+
+        MUST be called at every video boundary. :meth:`infer` passes
+        ``persist=True``, and ultralytics' own "switched videos" auto-reset
+        never fires for us — it is short-circuited by ``persist=True``, and in
+        any case keys off the source path, which is constant for the in-memory
+        ndarray frames we pass. Without this, ``run_pose.py``'s session mode
+        (one estimator threaded through every camera's video) would hand
+        camera N's live tracks to camera N+1's opening frames and silently glue
+        two different people onto one subject id.
+
+        Resetting also restarts ids at 1 per video, which is what makes the
+        "ids are per-video and never comparable across cameras" contract in the
+        exported CSV true rather than aspirational.
+        """
+        if not _reset_model_trackers(self._model):
+            # Nothing attached yet (no track() call so far), or a build that
+            # doesn't expose .trackers. Dropping the predictor forces
+            # ultralytics to rebuild it — and its trackers — on the next call.
+            self._model.predictor = None
+
     def infer(
         self,
         frame: np.ndarray,
@@ -101,11 +188,36 @@ class HumanPoseEstimator:
             unchanged and reporting this call's own ``inference_ms``.
         """
         t0 = time.perf_counter()
-        results = self._model(
+        # track(), not a plain detection call: subject_id must mean "the same
+        # physical person" across frames. persist=True keeps tracker state
+        # between calls, which is why reset_tracker() has to run at every video
+        # boundary (see its docstring).
+        #
+        # inference_ms now includes the tracker update, not just the network.
+        results = self._model.track(
             frame,
-            conf=self._conf,
+            # Deliberately below self._conf. BoT-SORT's second association
+            # stage — the one that keeps a track alive through a weak or
+            # partly-occluded frame — can only work with detections the
+            # detector was allowed to emit, and botsort.yaml's
+            # track_low_thresh is 0.1. Passing our own 0.40 here would starve
+            # it completely (ultralytics defaults conf to 0.1 for exactly this
+            # reason, but only when the caller doesn't pass one).
+            #
+            # Which detections get *written* is unchanged — self._conf is
+            # re-applied per detection below, and new_track_thresh still stops
+            # weak detections from spawning their own tracks. What does change
+            # is that NMS (iou=self._iou) now also runs across the 0.1-0.40
+            # band, so a weak duplicate box of an already-tracked person can
+            # survive it, take that person's track, and push the strong box
+            # onto a fresh id — a spurious identity split in exactly the
+            # crowded frames this is meant to help. Not asserted away: it is
+            # on the room-11 verification list to check against real footage.
+            conf=min(self._conf, TRACK_INPUT_CONF),
             iou=self._iou,
             device=self._device,
+            persist=True,
+            tracker=TRACKER_CONFIG,
             verbose=False,
         )
         inference_ms = (time.perf_counter() - t0) * 1000.0
@@ -118,6 +230,13 @@ class HumanPoseEstimator:
             kpts_conf = res.keypoints.conf  # may be None
             boxes = res.boxes
 
+            # track() pins batch=1, so `results` holds exactly one `res` and
+            # the -(i+1) fallbacks below cannot collide across iterations.
+            raw_ids: list[int] | None = None
+            if boxes is not None and boxes.id is not None:
+                raw_ids = [int(v) for v in boxes.id.int().cpu().tolist()]
+            subject_ids = resolve_subject_ids(raw_ids, len(kpts_xy))
+
             for i, kxy in enumerate(kpts_xy):
                 vis: list[float]
                 if kpts_conf is not None:
@@ -126,6 +245,10 @@ class HumanPoseEstimator:
                     vis = [1.0] * kxy.shape[0]
 
                 det_conf = float(boxes.conf[i].cpu()) if boxes is not None else 1.0
+                # Re-apply the caller's real confidence floor, since the
+                # tracker was deliberately fed a lower one above.
+                if det_conf < self._conf:
+                    continue
                 bbox = (0.0, 0.0, 0.0, 0.0)
                 if boxes is not None:
                     b = boxes.xyxy[i].cpu().numpy()
@@ -133,7 +256,7 @@ class HumanPoseEstimator:
 
                 subjects.append(
                     SubjectPose(
-                        subject_id=i,
+                        subject_id=subject_ids[i],
                         confidence=det_conf,
                         keypoints=[(float(pt[0]), float(pt[1])) for pt in kxy],
                         visibilities=vis,

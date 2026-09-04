@@ -52,11 +52,14 @@ class SkeletonOverlayW : public QWidget {
         update();
     }
 
-    void set_frame(const PoseFrame* frame, QVector<QPair<int, int>> skeletonEdges) {
-        frame_         = frame;
-        skeletonEdges_ = std::move(skeletonEdges);
-        exprFrame_     = nullptr; // mutually exclusive with expression/gaze/skeleton3d/rppg/
-                                  // gaze2d mode
+    void set_frame(const PoseFrame* frame, QVector<QPair<int, int>> skeletonEdges,
+                   QVector<SubjectChoice> subjects, bool trackedIdentity) {
+        frame_           = frame;
+        skeletonEdges_   = std::move(skeletonEdges);
+        subjects_        = std::move(subjects);
+        trackedIdentity_ = trackedIdentity;
+        exprFrame_       = nullptr; // mutually exclusive with expression/gaze/skeleton3d/rppg/
+                                    // gaze2d mode
         gazeFrame_       = nullptr;
         skeleton3dFrame_ = nullptr;
         rppgFrame_       = nullptr;
@@ -231,9 +234,17 @@ class SkeletonOverlayW : public QWidget {
         // found in this frame, not just the charted subset.
         for (int i = 0; i < frame_->subjects.size(); ++i) {
             const auto& subject = frame_->subjects[i];
-            const QColor color  = subject_color(i);
+            // Colour and label follow the person, not their slot in this
+            // frame's array — that is the entire point of the change, and it
+            // is what makes the fix watchable: the tag stays glued to someone
+            // as they cross in front of another person.
+            const SubjectChoice* choice = choice_for(subject.subjectId);
+            // No entry means an untracked detection: real, but with no
+            // cross-frame identity, so it gets a neutral colour and a dashed
+            // outline rather than borrowing a tracked person's colour.
+            const QColor color = choice != nullptr ? subject_color(*choice) : kUntrackedColor;
 
-            painter.setPen(QPen(color, 2));
+            painter.setPen(QPen(color, 2, choice != nullptr ? Qt::SolidLine : Qt::DashLine));
             for (const auto& [a, b] : skeletonEdges_) {
                 if (a < 0 || b < 0 || a >= subject.keypoints.size() ||
                     b >= subject.keypoints.size()) {
@@ -247,16 +258,46 @@ class SkeletonOverlayW : public QWidget {
 
             painter.setPen(Qt::NoPen);
             painter.setBrush(color);
+            int firstValid = -1;
             for (int k = 0; k < subject.keypoints.size(); ++k) {
                 if (!is_keypoint_visible(subject, k)) {
                     continue;
                 }
                 painter.drawEllipse(to_widget(subject.keypoints[k]), 3, 3);
+                if (firstValid < 0) {
+                    firstValid = k;
+                }
+            }
+
+            // Same tag idiom paint_skeleton3d() already uses for track ids.
+            // Only ever drawn when the label is a real identity claim: a
+            // pre-tracking result has no tracker, and an untracked detection
+            // has no entry, so neither gets a number stamped on it.
+            if (firstValid >= 0 && trackedIdentity_ && choice != nullptr && subjects_.size() > 1) {
+                painter.setPen(color);
+                painter.drawText(to_widget(subject.keypoints[firstValid]) + QPointF(6, -6),
+                                 subject_label(*choice));
             }
         }
     }
 
    private:
+    // Neutral grey for a detection with no cross-frame identity — deliberately
+    // outside kSubjectColors so it can never be mistaken for a tracked person.
+    static inline const QColor kUntrackedColor{"#8891a8"};
+
+    // The whole-result entry for a subject id, so colour and label stay
+    // consistent with the chips. nullptr for an untracked detection, which
+    // PoseAnalysisResult::subject_ids() deliberately omits.
+    [[nodiscard]] const SubjectChoice* choice_for(int subjectId) const {
+        for (const SubjectChoice& choice : subjects_) {
+            if (choice.id.value == subjectId) {
+                return &choice;
+            }
+        }
+        return nullptr;
+    }
+
     // Draws a bbox + "<expression> (<score>%)" label per detected face.
     // Split out from paintEvent() purely to keep that function readable —
     // not reused elsewhere.
@@ -470,6 +511,16 @@ class SkeletonOverlayW : public QWidget {
     QSize nativeSize_;
     const PoseFrame* frame_ = nullptr;
     QVector<QPair<int, int>> skeletonEdges_;
+    // Whole-result subject list, so a person's colour and label here match
+    // the chips and the chart exactly. Per-result, not per-frame — deriving
+    // them from this frame alone would put us right back on detection order.
+    QVector<SubjectChoice> subjects_;
+    // Whether this result's ids actually mean "the same person across
+    // frames". A pre-tracking .pose.json has dense ids 0..N-1 that all look
+    // tracked, so without this flag the overlay would stamp authoritative
+    // "Subject N" tags on exactly the detection-order data this feature
+    // exists to stop over-claiming.
+    bool trackedIdentity_                   = false;
     const ExpressionFrame* exprFrame_       = nullptr;
     const GazeFusionFrame* gazeFrame_       = nullptr;
     int gazeCameraIndex_                    = -1;
@@ -495,6 +546,10 @@ struct PoseOverlayPlayerW::Impl {
     QLabel* timeLbl      = nullptr;
 
     PoseAnalysisResult poseResult;
+    // Derived once from poseResult, not per frame: the overlay's colours and
+    // labels are a property of the whole result, so recomputing them per
+    // repaint would be pure waste.
+    QVector<SubjectChoice> poseSubjects;
     ExpressionResult expressionResult;
     GazeFusionResult gazeResult;
     int gazeCameraIndex = -1;
@@ -716,7 +771,8 @@ PoseOverlayPlayerW::PoseOverlayPlayerW(QWidget* parent)
             const PoseFrame* frame = d->poseResult.is_valid()
                                          ? d->poseResult.nearest_frame(d->frame_estimate(pos))
                                          : nullptr;
-            d->overlay->set_frame(frame, d->poseResult.skeleton_edges());
+            d->overlay->set_frame(frame, d->poseResult.skeleton_edges(), d->poseSubjects,
+                                  d->poseResult.has_tracked_identity());
         }
 
         emit position_changed(pos);
@@ -764,11 +820,13 @@ void PoseOverlayPlayerW::set_pose_result(const PoseAnalysisResult& result) {
     d->rppgResult       = RppgResult();
     d->gaze2dResult     = Gaze2dResult();
     d->poseResult       = result;
+    d->poseSubjects     = subject_choices(d->poseResult);
     const PoseFrame* frame =
         d->poseResult.is_valid()
             ? d->poseResult.nearest_frame(d->frame_estimate(d->player->position()))
             : nullptr;
-    d->overlay->set_frame(frame, d->poseResult.skeleton_edges());
+    d->overlay->set_frame(frame, d->poseResult.skeleton_edges(), d->poseSubjects,
+                          d->poseResult.has_tracked_identity());
 }
 
 void PoseOverlayPlayerW::set_expression_result(const ExpressionResult& result) {

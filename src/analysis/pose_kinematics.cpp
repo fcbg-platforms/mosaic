@@ -23,20 +23,23 @@ struct RawSample {
 // for picking one; a long gap yields a low-but-real average rather than a
 // fabricated spike or a divide-by-assumed-frame-rate error).
 QVector<RawSample> collect_valid_samples(const PoseAnalysisResult& result, int keypointIndex,
-                                         int subjectIndex) {
+                                         SubjectId subjectId) {
     QVector<RawSample> raw;
     for (const auto& frame : result.frames()) {
-        if (subjectIndex < 0 || subjectIndex >= frame.subjects.size()) {
+        // "This person wasn't detected in this frame" is now a real, explicit
+        // case rather than an array-bounds accident, and it lands in exactly
+        // the same skip-don't-interpolate path as an invisible keypoint.
+        const PoseSubject* subject = find_subject(frame, subjectId);
+        if (subject == nullptr) {
             continue;
         }
-        const auto& subject = frame.subjects[subjectIndex];
-        if (keypointIndex < 0 || keypointIndex >= subject.keypoints.size()) {
+        if (keypointIndex < 0 || keypointIndex >= subject->keypoints.size()) {
             continue;
         }
-        if (!is_keypoint_visible(subject, keypointIndex)) {
+        if (!is_keypoint_visible(*subject, keypointIndex)) {
             continue;
         }
-        raw.append({frame.timestampNs, subject.keypoints[keypointIndex]});
+        raw.append({frame.timestampNs, subject->keypoints[keypointIndex]});
     }
     return raw;
 }
@@ -83,13 +86,13 @@ QVector<QPointF> smooth_positions(const QVector<RawSample>& raw, int smoothingWi
 } // namespace
 
 KinematicsSeries compute_kinematics(const PoseAnalysisResult& result, int keypointIndex,
-                                    int subjectIndex, int smoothingWindow) {
+                                    SubjectId subject, int smoothingWindow) {
     KinematicsSeries out;
     if (!result.is_valid()) {
         return out;
     }
 
-    const QVector<RawSample> raw = collect_valid_samples(result, keypointIndex, subjectIndex);
+    const QVector<RawSample> raw = collect_valid_samples(result, keypointIndex, subject);
     if (raw.isEmpty()) {
         return out;
     }
