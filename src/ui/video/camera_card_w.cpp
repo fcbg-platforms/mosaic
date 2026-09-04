@@ -703,6 +703,44 @@ void CameraCardW::refresh_achievable_fps_label() {
             break;
     }
 
+    // Name the binding constraint. Without this the readout sits at a fixed
+    // number while the user works the exposure control they were told drives
+    // it — the rate is pinned by their own frame-rate setting, and exposure
+    // changes genuinely do nothing until they cross the crossover below.
+    // Mutually exclusive with the belowConfigured branch by construction
+    // (>= 99% of configured vs < 90% of it), so the two can't both fire.
+    if (readout.limitedBy == FpsLimit::ConfiguredRate) {
+        text += QString(" — capped by the %1 fps setting").arg(m_params.fps, 0, 'f', 1);
+        tip += QString(
+                   "\n\nCurrently capped by the %1 fps frame-rate setting on the Image "
+                   "tab, not by exposure.")
+                   .arg(m_params.fps, 0, 'f', 1);
+        // Only quote the current exposure under manual exposure: on
+        // "Once"/"Continuous" the camera chooses its own value at open, so the
+        // number in the spinbox above is not what it is actually using, and
+        // reasoning aloud from it would be exactly the kind of confidently
+        // wrong statement compute_fps_readout() exists to prevent.
+        //
+        // Gated on real headroom, not merely on being under the crossover: at
+        // 60 ms against a 67 ms crossover the sensor could manage barely 11%
+        // more, and "considerably faster" would contradict the very next
+        // sentence. Half the crossover is the point past which that stops
+        // being worth saying — and the crossover sentence below already tells
+        // the user how close they are.
+        if (m_params.exposureAuto == "Off" && m_params.exposureTimeUs > 0.0 &&
+            m_params.exposureTimeUs < readout.exposureCrossoverUs / 2.0) {
+            tip += QString(
+                       " At the current %1 ms exposure the sensor could run considerably "
+                       "faster.")
+                       .arg(m_params.exposureTimeUs / 1000.0, 0, 'f', 1);
+        }
+        // "roughly" is load-bearing: ResultingFrameRate also charges sensor
+        // readout time, so the real crossover sits a little below 1/fps.
+        tip += QString(" Exposure only begins to reduce this above roughly %1 ms (1/%2 s).")
+                   .arg(readout.exposureCrossoverUs / 1000.0, 0, 'f', 0)
+                   .arg(m_params.fps, 0, 'f', 1);
+    }
+
     if (readout.belowConfigured) {
         // Amber rather than red: the camera still records, it just can't hit
         // the rate that was asked for. Same rich-text idiom PerformanceMonitorW
