@@ -4,10 +4,68 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QSet>
+#include <algorithm>
 
 #include "analysis/nearest_by_key.hpp"
 
 namespace mosaic {
+
+namespace {
+
+/// The distinct subject ids that may be followed *across* frames, ascending.
+///
+/// Negative ids are deliberately excluded. run_pose.py assigns them as
+/// -(detection index + 1) for detections its tracker never claimed, which
+/// makes them frame-local: the "-1" in one frame and the "-1" in the next are
+/// two unrelated people. Aggregating them would splice those people into one
+/// trajectory and manufacture exactly the fabricated speed spikes this whole
+/// identity change exists to remove — so anything that reasons over time
+/// (chips, chart, kinematics, the CSV export) must not see them. They are
+/// still drawn on the video overlay, where each frame stands alone and no
+/// cross-frame claim is made.
+///
+/// Ordering is by id rather than by prominence (frame count, say). A
+/// pre-tracking file's ids are dense array positions with near-identical frame
+/// counts, so a prominence order would shuffle those chips into an
+/// arbitrary-but-different arrangement; id order reproduces the old layout
+/// exactly, and is stable across re-analysis of the same footage.
+QVector<SubjectId> collect_subject_ids(const QVector<PoseFrame>& frames) {
+    QSet<int> seen;
+    for (const auto& frame : frames) {
+        for (const auto& subject : frame.subjects) {
+            if (subject.subjectId >= 0) {
+                seen.insert(subject.subjectId);
+            }
+        }
+    }
+
+    QVector<int> ids(seen.cbegin(), seen.cend());
+    std::sort(ids.begin(), ids.end());
+
+    QVector<SubjectId> out;
+    out.reserve(ids.size());
+    for (const int id : ids) {
+        out << SubjectId(id);
+    }
+    return out;
+}
+
+/// Whether any frame holds a detection the tracker never claimed. Surfaced so
+/// the UI can say those detections exist rather than silently omitting them
+/// from the chips and the export.
+bool any_untracked(const QVector<PoseFrame>& frames) {
+    for (const auto& frame : frames) {
+        for (const auto& subject : frame.subjects) {
+            if (subject.subjectId < 0) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+} // namespace
 
 PoseAnalysisResult PoseAnalysisResult::load(const QString& jsonPath) {
     PoseAnalysisResult result;
@@ -23,7 +81,8 @@ PoseAnalysisResult PoseAnalysisResult::load(const QString& jsonPath) {
     }
 
     result.sourceVideo_ = root["source_video"].toString();
-    result.model_       = root["model"].toString(); // absent -> "" (older files)
+    result.model_       = root["model"].toString();   // absent -> "" (older files)
+    result.tracker_     = root["tracker"].toString(); // absent -> "" (pre-tracking files)
 
     for (const auto& kp : root["keypoint_names"].toArray()) {
         result.keypointNames_ << kp.toString();
@@ -48,7 +107,16 @@ PoseAnalysisResult PoseAnalysisResult::load(const QString& jsonPath) {
             const QJsonObject subjObj = subjVal.toObject();
 
             PoseSubject subject;
-            subject.subjectId  = subjObj["subject_id"].toInt();
+            // An absent "subject_id" falls back to this subject's position in
+            // the frame's array — exactly the convention run_pose.py used
+            // before tracking existed. Deliberately NOT QJsonValue::toInt()'s
+            // own 0 default: that collapses every subject in the frame onto id
+            // 0, and an identity-keyed lookup would then quietly return
+            // whichever person happened to be listed first, rather than
+            // failing. Only reachable for hand-edited or truncated files.
+            const QJsonValue idVal = subjObj.value("subject_id");
+            subject.subjectId =
+                idVal.isDouble() ? idVal.toInt() : static_cast<int>(frame.subjects.size());
             subject.confidence = subjObj["confidence"].toDouble();
 
             const QJsonArray kps = subjObj["keypoints"].toArray();
@@ -74,7 +142,9 @@ PoseAnalysisResult PoseAnalysisResult::load(const QString& jsonPath) {
         result.frames_ << frame;
     }
 
-    result.valid_ = true;
+    result.subjectIds_             = collect_subject_ids(result.frames_);
+    result.hasUntrackedDetections_ = any_untracked(result.frames_);
+    result.valid_                  = true;
     return result;
 }
 

@@ -208,3 +208,155 @@ TEST(PoseAnalysisResult, ModelParsesFromTopLevelField) {
     ASSERT_TRUE(result.is_valid());
     EXPECT_EQ(result.model(), "yolov8n-pose.pt");
 }
+
+// ── Subject identity ───────────────────────────────────────────────────────
+
+namespace {
+
+// Writes a .pose.json with an arbitrary top-level body, for the identity
+// tests below — each needs its own subject-id shape, so the shared fixtures
+// above don't fit.
+QString write_json(const QString& dirPath, const QString& json) {
+    const QString path = dirPath + "/video_0.pose.json";
+    QFile f(path);
+    EXPECT_TRUE(f.open(QIODevice::WriteOnly | QIODevice::Text));
+    f.write(json.toUtf8());
+    return path;
+}
+
+// One frame carrying `subjects` verbatim, so a test can shape ids freely.
+QString frame_with(int frameIndex, const QString& subjects) {
+    return QString(R"({"frame_index": %1, "timestamp_ns": %2, "camera_index": 0,
+        "inference_ms": 1.0, "backend": "test", "subjects": [%3]})")
+        .arg(frameIndex)
+        .arg(static_cast<qint64>(frameIndex) * 1000000000LL)
+        .arg(subjects);
+}
+
+QString subject_with_id(const QString& idField) {
+    return QString(R"({%1 "confidence": 0.9, "bbox_xyxy": [0,0,1,1],
+        "keypoints": [[1.0, 2.0]], "visibilities": [0.9]})")
+        .arg(idField);
+}
+
+QString doc_with(const QString& frames, const QString& extraTopLevel = QString()) {
+    return QString(R"({"source_video": "video_0.mp4", %1
+        "keypoint_names": ["nose"], "skeleton_edges": [], "frames": [%2]})")
+        .arg(extraTopLevel, frames);
+}
+
+} // namespace
+
+TEST(PoseAnalysisResultSubjects, LegacyDenseIdsReproduceTheOldChipOrder) {
+    QTemporaryDir dir;
+    ASSERT_TRUE(dir.isValid());
+    const QString frames = frame_with(
+        0, subject_with_id(R"("subject_id": 0,)") + "," + subject_with_id(R"("subject_id": 1,)"));
+    const auto result = PoseAnalysisResult::load(write_json(dir.path(), doc_with(frames)));
+    ASSERT_TRUE(result.is_valid());
+
+    ASSERT_EQ(result.subject_ids().size(), 2);
+    EXPECT_EQ(result.subject_ids()[0].value, 0);
+    EXPECT_EQ(result.subject_ids()[1].value, 1);
+}
+
+TEST(PoseAnalysisResultSubjects, IdsAreDedupedAndSortedAcrossFrames) {
+    QTemporaryDir dir;
+    ASSERT_TRUE(dir.isValid());
+    // Deliberately out of order and repeated, the way a tracker's ids appear
+    // as people enter and leave.
+    const QString frames = frame_with(0, subject_with_id(R"("subject_id": 2,)")) + "," +
+                           frame_with(1, subject_with_id(R"("subject_id": 1,)") + "," +
+                                             subject_with_id(R"("subject_id": 2,)")) +
+                           "," + frame_with(2, subject_with_id(R"("subject_id": 1,)"));
+    const auto result = PoseAnalysisResult::load(write_json(dir.path(), doc_with(frames)));
+    ASSERT_TRUE(result.is_valid());
+
+    ASSERT_EQ(result.subject_ids().size(), 2);
+    EXPECT_EQ(result.subject_ids()[0].value, 1);
+    EXPECT_EQ(result.subject_ids()[1].value, 2);
+}
+
+// Untracked ids are assigned per frame by run_pose.py (-(i+1)), so the "-1" in
+// one frame is a different person from the "-1" in the next. Aggregating them
+// would splice unrelated people into a single trajectory — the exact bug that
+// identity keying exists to remove — so they must never reach the chips, the
+// chart or the export. They stay visible on the video overlay, where each
+// frame stands alone and no cross-frame claim is made.
+TEST(PoseAnalysisResultSubjects, UntrackedIdsAreExcludedFromCrossFrameAggregation) {
+    QTemporaryDir dir;
+    ASSERT_TRUE(dir.isValid());
+    const QString frames = frame_with(0, subject_with_id(R"("subject_id": -2,)") + "," +
+                                             subject_with_id(R"("subject_id": 1,)") + "," +
+                                             subject_with_id(R"("subject_id": -1,)"));
+    const auto result    = PoseAnalysisResult::load(write_json(dir.path(), doc_with(frames)));
+    ASSERT_TRUE(result.is_valid());
+
+    ASSERT_EQ(result.subject_ids().size(), 1);
+    EXPECT_EQ(result.subject_ids()[0].value, 1);
+    EXPECT_TRUE(result.has_untracked_detections());
+    // Still parsed and present in the frame — the overlay draws them.
+    EXPECT_EQ(result.frames()[0].subjects.size(), 3);
+}
+
+TEST(PoseAnalysisResultSubjects, NoUntrackedFlagWhenEveryDetectionIsTracked) {
+    QTemporaryDir dir;
+    ASSERT_TRUE(dir.isValid());
+    const auto result = PoseAnalysisResult::load(write_fixture(dir.path()));
+    ASSERT_TRUE(result.is_valid());
+    EXPECT_FALSE(result.has_untracked_detections());
+}
+
+// The silent-wrong-person guard. QJsonValue::toInt() returns 0 for a missing
+// key, which under identity keying would collapse every subject in the frame
+// onto id 0 — and a lookup would then quietly return whichever person was
+// listed first, rather than failing.
+TEST(PoseAnalysisResultSubjects, AbsentSubjectIdFallsBackToArrayPositionNotZero) {
+    QTemporaryDir dir;
+    ASSERT_TRUE(dir.isValid());
+    const QString frames =
+        frame_with(0, subject_with_id("") + "," + subject_with_id("") + "," + subject_with_id(""));
+    const auto result = PoseAnalysisResult::load(write_json(dir.path(), doc_with(frames)));
+    ASSERT_TRUE(result.is_valid());
+
+    ASSERT_EQ(result.frames().size(), 1);
+    const auto& subjects = result.frames()[0].subjects;
+    ASSERT_EQ(subjects.size(), 3);
+    EXPECT_EQ(subjects[0].subjectId, 0);
+    EXPECT_EQ(subjects[1].subjectId, 1);
+    EXPECT_EQ(subjects[2].subjectId, 2);
+    EXPECT_EQ(result.subject_ids().size(), 3);
+}
+
+TEST(PoseAnalysisResultSubjects, TrackerIsEmptyForPreTrackingFiles) {
+    QTemporaryDir dir;
+    ASSERT_TRUE(dir.isValid());
+    const auto result = PoseAnalysisResult::load(write_fixture(dir.path()));
+    ASSERT_TRUE(result.is_valid());
+    EXPECT_TRUE(result.tracker().isEmpty());
+    EXPECT_FALSE(result.has_tracked_identity());
+}
+
+TEST(PoseAnalysisResultSubjects, TrackerParsesFromTopLevelField) {
+    QTemporaryDir dir;
+    ASSERT_TRUE(dir.isValid());
+    const QString frames = frame_with(0, subject_with_id(R"("subject_id": 1,)"));
+    const auto result    = PoseAnalysisResult::load(
+        write_json(dir.path(), doc_with(frames, R"("tracker": "botsort",)")));
+    ASSERT_TRUE(result.is_valid());
+    EXPECT_EQ(result.tracker(), "botsort");
+    EXPECT_TRUE(result.has_tracked_identity());
+}
+
+TEST(PoseAnalysisResultSubjects, FindSubjectReturnsNullWhenThatPersonIsAbsent) {
+    QTemporaryDir dir;
+    ASSERT_TRUE(dir.isValid());
+    const QString frames = frame_with(0, subject_with_id(R"("subject_id": 7,)"));
+    const auto result    = PoseAnalysisResult::load(write_json(dir.path(), doc_with(frames)));
+    ASSERT_TRUE(result.is_valid());
+    ASSERT_EQ(result.frames().size(), 1);
+
+    EXPECT_NE(mosaic::find_subject(result.frames()[0], mosaic::SubjectId(7)), nullptr);
+    // Not "index 0 of a one-subject frame" — genuinely absent.
+    EXPECT_EQ(mosaic::find_subject(result.frames()[0], mosaic::SubjectId(0)), nullptr);
+}

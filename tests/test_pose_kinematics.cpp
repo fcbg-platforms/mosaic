@@ -9,6 +9,7 @@
 using mosaic::compute_kinematics;
 using mosaic::KinematicsSeries;
 using mosaic::PoseAnalysisResult;
+using mosaic::SubjectId;
 
 namespace {
 
@@ -65,7 +66,8 @@ TEST(PoseKinematics, ConstantVelocityGivesConstantSpeed) {
                                          });
     ASSERT_TRUE(result.is_valid());
 
-    const KinematicsSeries series = compute_kinematics(result, 0, 0, /*smoothingWindow=*/1);
+    const KinematicsSeries series =
+        compute_kinematics(result, 0, SubjectId{0}, /*smoothingWindow=*/1);
 
     ASSERT_EQ(series.samples.size(), 4);
     EXPECT_TRUE(std::isnan(series.samples[0].speedPxPerS));
@@ -102,7 +104,8 @@ TEST(PoseKinematics, AverageSpeedIsTimeWeightedNotSampleAveraged) {
                          });
     ASSERT_TRUE(result.is_valid());
 
-    const KinematicsSeries series = compute_kinematics(result, 0, 0, /*smoothingWindow=*/1);
+    const KinematicsSeries series =
+        compute_kinematics(result, 0, SubjectId{0}, /*smoothingWindow=*/1);
 
     EXPECT_DOUBLE_EQ(series.stats.totalDistancePx, 103.0);
     EXPECT_NEAR(series.stats.avgSpeedPxPerS, 103.0 / 13.0, 1e-9);
@@ -123,7 +126,8 @@ TEST(PoseKinematics, LowVisibilityFrameExcludedAndGapUsesRealElapsedTime) {
                          });
     ASSERT_TRUE(result.is_valid());
 
-    const KinematicsSeries series = compute_kinematics(result, 0, 0, /*smoothingWindow=*/1);
+    const KinematicsSeries series =
+        compute_kinematics(result, 0, SubjectId{0}, /*smoothingWindow=*/1);
 
     ASSERT_EQ(series.samples.size(), 2); // low-visibility frame dropped
     EXPECT_TRUE(std::isnan(series.samples[0].speedPxPerS));
@@ -141,7 +145,7 @@ TEST(PoseKinematics, FrameWithNoSubjectIsExcludedLikeLowVisibility) {
              });
     ASSERT_TRUE(result.is_valid());
 
-    const KinematicsSeries series = compute_kinematics(result, 0, 0, 1);
+    const KinematicsSeries series = compute_kinematics(result, 0, SubjectId{0}, 1);
 
     ASSERT_EQ(series.samples.size(), 2);
     EXPECT_DOUBLE_EQ(series.samples[1].speedPxPerS, 10.0); // 20px / 2s
@@ -160,7 +164,8 @@ TEST(PoseKinematics, SmoothingAppliesCenteredMovingAverage) {
                                          });
     ASSERT_TRUE(result.is_valid());
 
-    const KinematicsSeries series = compute_kinematics(result, 0, 0, /*smoothingWindow=*/3);
+    const KinematicsSeries series =
+        compute_kinematics(result, 0, SubjectId{0}, /*smoothingWindow=*/3);
 
     ASSERT_EQ(series.samples.size(), 5);
     // Centered window=3 (halfWidth=1): index 0 averages [0,1] -> (0+10)/2=5
@@ -173,7 +178,7 @@ TEST(PoseKinematics, SmoothingAppliesCenteredMovingAverage) {
 
 TEST(PoseKinematics, EmptyResultReturnsEmptySeriesNotCrashing) {
     const PoseAnalysisResult result; // default-constructed, is_valid() == false
-    const KinematicsSeries series = compute_kinematics(result, 0, 0, 1);
+    const KinematicsSeries series = compute_kinematics(result, 0, SubjectId{0}, 1);
 
     EXPECT_TRUE(series.samples.isEmpty());
     EXPECT_DOUBLE_EQ(series.stats.totalDistancePx, 0.0);
@@ -189,7 +194,7 @@ TEST(PoseKinematics, SingleValidSampleHasNoDerivativesButNoCrash) {
                                          });
     ASSERT_TRUE(result.is_valid());
 
-    const KinematicsSeries series = compute_kinematics(result, 0, 0, 1);
+    const KinematicsSeries series = compute_kinematics(result, 0, SubjectId{0}, 1);
 
     ASSERT_EQ(series.samples.size(), 1);
     EXPECT_TRUE(std::isnan(series.samples[0].speedPxPerS));
@@ -208,7 +213,7 @@ TEST(PoseKinematics, AllInvisibleFramesYieldEmptySamples) {
                                          });
     ASSERT_TRUE(result.is_valid());
 
-    const KinematicsSeries series = compute_kinematics(result, 0, 0, 1);
+    const KinematicsSeries series = compute_kinematics(result, 0, SubjectId{0}, 1);
     EXPECT_TRUE(series.samples.isEmpty());
 }
 
@@ -221,8 +226,8 @@ TEST(PoseKinematics, OutOfRangeSubjectOrKeypointIndexYieldsEmptySamples) {
                                          });
     ASSERT_TRUE(result.is_valid());
 
-    EXPECT_TRUE(compute_kinematics(result, /*keypointIndex=*/5, 0, 1).samples.isEmpty());
-    EXPECT_TRUE(compute_kinematics(result, 0, /*subjectIndex=*/3, 1).samples.isEmpty());
+    EXPECT_TRUE(compute_kinematics(result, /*keypointIndex=*/5, SubjectId{0}, 1).samples.isEmpty());
+    EXPECT_TRUE(compute_kinematics(result, 0, /*absent id=*/SubjectId{3}, 1).samples.isEmpty());
 }
 
 TEST(PoseKinematics, ExactlyTwoValidSamplesGivesOneSpeedAndNoAcceleration) {
@@ -234,7 +239,7 @@ TEST(PoseKinematics, ExactlyTwoValidSamplesGivesOneSpeedAndNoAcceleration) {
                                          });
     ASSERT_TRUE(result.is_valid());
 
-    const KinematicsSeries series = compute_kinematics(result, 0, 0, 1);
+    const KinematicsSeries series = compute_kinematics(result, 0, SubjectId{0}, 1);
 
     ASSERT_EQ(series.samples.size(), 2);
     EXPECT_TRUE(std::isnan(series.samples[0].speedPxPerS));
@@ -243,4 +248,107 @@ TEST(PoseKinematics, ExactlyTwoValidSamplesGivesOneSpeedAndNoAcceleration) {
     EXPECT_TRUE(std::isnan(series.samples[1].accelPxPerS2));
     EXPECT_DOUBLE_EQ(series.stats.avgSpeedPxPerS, 5.0);
     EXPECT_DOUBLE_EQ(series.stats.maxSpeedPxPerS, 5.0);
+}
+
+// ── Identity keying ────────────────────────────────────────────────────────
+
+namespace {
+
+// Two people in one frame, listed in an explicit order, so a test can make
+// detection order change between frames while identity stays put.
+QString two_subject_frame(int frameIndex, int64_t timestampNs, int firstId, double firstX,
+                          int secondId, double secondX) {
+    return QString(R"({"frame_index": %1, "timestamp_ns": %2, "camera_index": 0,
+        "inference_ms": 1.0, "backend": "test", "subjects": [
+          {"subject_id": %3, "confidence": 0.9, "bbox_xyxy": [0,0,1,1],
+           "keypoints": [[%4, 0.0]], "visibilities": [0.9]},
+          {"subject_id": %5, "confidence": 0.9, "bbox_xyxy": [0,0,1,1],
+           "keypoints": [[%6, 0.0]], "visibilities": [0.9]}]})")
+        .arg(frameIndex)
+        .arg(timestampNs)
+        .arg(firstId)
+        .arg(firstX)
+        .arg(secondId)
+        .arg(secondX);
+}
+
+} // namespace
+
+// The regression this whole feature exists for. Person 1 walks slowly near
+// x=0; person 2 stands far away at x=1000. Between frames 1 and 2 they swap
+// positions in the detections array — exactly what happens when YOLO's
+// detection order changes.
+//
+// Keying by array position would read x = 0, 10, 1000, 1030: a ~990 px jump
+// in one second, a fabricated spike that is pure identity swap. Keying by
+// subject_id reads person 1's real 0, 10, 20, 30.
+TEST(PoseKinematics, IdentityKeyingSurvivesADetectionOrderSwap) {
+    QTemporaryDir dir;
+    ASSERT_TRUE(dir.isValid());
+    const auto result =
+        load_frames(dir, {
+                             two_subject_frame(0, 0 * kOneSecondNs, 1, 0.0, 2, 1000.0),
+                             two_subject_frame(1, 1 * kOneSecondNs, 1, 10.0, 2, 1010.0),
+                             // Swap: person 2 is now listed first.
+                             two_subject_frame(2, 2 * kOneSecondNs, 2, 1020.0, 1, 20.0),
+                             two_subject_frame(3, 3 * kOneSecondNs, 2, 1030.0, 1, 30.0),
+                         });
+    ASSERT_TRUE(result.is_valid());
+
+    const KinematicsSeries series = compute_kinematics(result, 0, SubjectId{1}, 1);
+
+    ASSERT_EQ(series.samples.size(), 4);
+    EXPECT_DOUBLE_EQ(series.samples[0].position.x(), 0.0);
+    EXPECT_DOUBLE_EQ(series.samples[1].position.x(), 10.0);
+    EXPECT_DOUBLE_EQ(series.samples[2].position.x(), 20.0);
+    EXPECT_DOUBLE_EQ(series.samples[3].position.x(), 30.0);
+
+    // A steady 10 px/s. The old positional lookup could not have produced
+    // this: its max would have been ~990 px/s.
+    EXPECT_DOUBLE_EQ(series.stats.maxSpeedPxPerS, 10.0);
+    EXPECT_DOUBLE_EQ(series.stats.totalDistancePx, 30.0);
+}
+
+TEST(PoseKinematics, TheOtherPersonInTheSameFileIsTrackedIndependently) {
+    QTemporaryDir dir;
+    ASSERT_TRUE(dir.isValid());
+    const auto result =
+        load_frames(dir, {
+                             two_subject_frame(0, 0 * kOneSecondNs, 1, 0.0, 2, 1000.0),
+                             two_subject_frame(1, 1 * kOneSecondNs, 2, 1010.0, 1, 10.0),
+                         });
+    ASSERT_TRUE(result.is_valid());
+
+    const KinematicsSeries series = compute_kinematics(result, 0, SubjectId{2}, 1);
+
+    ASSERT_EQ(series.samples.size(), 2);
+    EXPECT_DOUBLE_EQ(series.samples[0].position.x(), 1000.0);
+    EXPECT_DOUBLE_EQ(series.samples[1].position.x(), 1010.0);
+    EXPECT_DOUBLE_EQ(series.stats.maxSpeedPxPerS, 10.0);
+}
+
+// A person absent from a frame that still contains other subjects — a case
+// positional lookup could not express at all, since it would silently return
+// whoever occupied that index instead.
+TEST(PoseKinematics, AFrameWithoutThisPersonIsSkippedNotBorrowedFromANeighbour) {
+    QTemporaryDir dir;
+    ASSERT_TRUE(dir.isValid());
+    const auto result =
+        load_frames(dir, {
+                             two_subject_frame(0, 0 * kOneSecondNs, 1, 0.0, 2, 1000.0),
+                             // Person 1 is not detected here; person 2 alone remains, and
+                             // now occupies index 0.
+                             frame_json(1, 1 * kOneSecondNs, true, 1010.0, 0.0, 0.9)
+                                 .replace(R"("subject_id": 0)", R"("subject_id": 2)"),
+                             two_subject_frame(2, 2 * kOneSecondNs, 1, 20.0, 2, 1020.0),
+                         });
+    ASSERT_TRUE(result.is_valid());
+
+    const KinematicsSeries series = compute_kinematics(result, 0, SubjectId{1}, 1);
+
+    ASSERT_EQ(series.samples.size(), 2); // the middle frame is skipped, not borrowed
+    EXPECT_DOUBLE_EQ(series.samples[0].position.x(), 0.0);
+    EXPECT_DOUBLE_EQ(series.samples[1].position.x(), 20.0);
+    // 20 px over the real 2 s gap, not over a nominal 1 s.
+    EXPECT_DOUBLE_EQ(series.samples[1].speedPxPerS, 10.0);
 }

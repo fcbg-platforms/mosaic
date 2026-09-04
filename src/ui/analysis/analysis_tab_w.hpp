@@ -6,6 +6,7 @@
 
 #include "analysis/analysis_manager.hpp"
 #include "core/settings.hpp"
+#include "ui/analysis/subject_colors.hpp"
 
 namespace mosaic {
 
@@ -92,8 +93,8 @@ class AnalysisTabW : public QWidget {
     void reload_current_camera_result();
     void update_kinematics_chart();
     void export_kinematics_csv();
-    void rebuild_subject_chips(int subjectCount);
-    [[nodiscard]] QVector<int> checked_subject_indices() const;
+    void rebuild_subject_chips(const QVector<SubjectChoice>& subjects);
+    [[nodiscard]] QVector<SubjectChoice> checked_subjects() const;
     void open_output_folder();
     void update_transcript_table();
     void export_transcript_csv();
