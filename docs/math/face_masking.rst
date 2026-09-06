@@ -56,6 +56,42 @@ instead, so a detected face is never left completely unmasked purely
 because ``cv2.GaussianBlur`` rejected an oversized kernel for a thin,
 edge-clipped box.
 
+Whole-body masking
+-----------------------
+
+Region "Whole body" masks each person's silhouette rather than their face
+box, removing body, clothing and posture cues as well. The masked region is
+the **union** of two sources: instance segmentation of the ``person`` class,
+and the same face-detector boxes the face mode uses. The union is deliberate
+— a person the segmenter loses still has their face covered by the detector,
+and vice versa.
+
+A segmentation mask hugs the silhouette, so it is dilated before use, the
+whole-body analogue of the box padding above. The radius is a fraction of
+**frame** height rather than of the person's own size:
+
+.. math::
+
+   r = \max\!\big(4,\; \operatorname{round}(0.015 \cdot H)\big)
+
+The dominant boundary error is the segmentation prototype's quantization,
+about :math:`4H/\mathrm{imgsz}` pixels (~11 px at 1080p), and that is
+constant in frame pixels however large the person is. A rule proportional to
+the person would give a distant, 100-pixel-tall subject roughly 1.5 px of
+slack against an 11 px error — backwards, since distant people are exactly
+where segmentation is least reliable.
+
+The blur kernel is likewise scaled to the frame, not the region:
+
+.. math::
+
+   k = \max\!\big(3,\; \lfloor \min(W, H) / 20 \rfloor \;\vert\; 1\big)
+
+55 px at 1080p. Scaling to the region would be meaningless here: a standing
+person's mask is only as wide as an ankle at its narrowest, so the
+face-mode rule would collapse to almost no blur. What must be defeated is
+recognisability at the output resolution, which is a property of the frame.
+
 Practical recommendations
 ------------------------------
 
@@ -87,6 +123,12 @@ Practical recommendations
       you've confirmed the subject's motion is slow enough for a higher
       value to still cover every frame adequately.
 
+      **Whole-body forces it to 1** and disables the control. A padded face
+      box has tens of pixels of slack to absorb a stale detection; a
+      silhouette has only its dilation, so a reused mask misaligns as the
+      subject moves and exposes a crescent of them — silently, and looking
+      entirely plausible.
+
    .. grid-item-card:: 🫥  Blur vs. solid box
 
       Blur is visually softer and preserves general context (hair,
@@ -94,3 +136,8 @@ Practical recommendations
       irreversible guarantee against any residual leakage through a
       partially-transparent or thin blur kernel — prefer solid box when
       the anonymization requirement is strict, not just visual.
+
+      Note that whole-body with a solid fill is **not** "no body shape
+      recoverable": it fills the silhouette, so height, build and gait
+      remain readable from the shape itself. If that is part of the threat
+      model, neither style delivers it.
