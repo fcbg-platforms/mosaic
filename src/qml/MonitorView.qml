@@ -24,6 +24,22 @@ Rectangle {
     // RecordSettings::hidePreviewsWhileRecording, mirrored by MonitorBridge.
     readonly property bool   hidePreviews: typeof backend !== "undefined" ? backend.hidePreviews : false
 
+    // ── Session identity ───────────────────────────────────────────────────
+    // Who and what the next recording is of. All optional — left blank, the
+    // session keeps the timestamp-only folder name, so an operator is never
+    // blocked from pressing Record.
+    readonly property string subjectLabel:    typeof backend !== "undefined" ? backend.subjectLabel    : ""
+    readonly property string sessionLabel:    typeof backend !== "undefined" ? backend.sessionLabel    : ""
+    readonly property string taskLabel:       typeof backend !== "undefined" ? backend.taskLabel       : ""
+    readonly property string sessionNotes:    typeof backend !== "undefined" ? backend.notes           : ""
+    readonly property string folderPreview:   typeof backend !== "undefined" ? backend.folderPreview   : ""
+    readonly property string identityWarning: typeof backend !== "undefined" ? backend.identityWarning : ""
+
+    // Identity is fixed the moment the folder is created, so the fields lock
+    // as soon as Record is pressed. Declared here rather than as a
+    // Q_PROPERTY because it derives from two separate NOTIFY signals.
+    readonly property bool identityEditable: !recording && !startPending
+
     // Previews go dark from the moment Record is clicked, not only once
     // recording is live — the countdown exists precisely because both subject
     // and experimenter are looking at this screen at that moment, so it should
@@ -128,6 +144,22 @@ Rectangle {
             color:    "#335533"
             font { pixelSize: 10; family: "Courier New, Courier, monospace" }
             elide:    Text.ElideMiddle
+        }
+
+        // ── Session identity ───────────────────────────────────────────────
+        // Directly above the Record button, because these change per
+        // recording: burying per-session values in a settings pane means
+        // they stop being filled in.
+        SessionIdentityBar {
+            Layout.fillWidth: true
+            visible: root.identityEditable
+        }
+
+        // ── Operator notes ─────────────────────────────────────────────────
+        // Deliberately *not* hidden while recording: the note worth having is
+        // usually the one written once something has actually happened.
+        SessionNotesBox {
+            Layout.fillWidth: true
         }
 
         // ── Recording controls ─────────────────────────────────────────────
@@ -506,6 +538,182 @@ Rectangle {
     }
 
     // ── Recording bar ──────────────────────────────────────────────────────
+
+    // ── Session identity bar ───────────────────────────────────────────────
+    //
+    // The first text inputs in this view — everything else here is a
+    // hand-drawn Rectangle — so the styling is explicit rather than inherited
+    // from the Controls theme, which would look nothing like the rest.
+    component SessionIdentityBar : Rectangle {
+        color: "#0d0d20"
+        border { color: "#1e1e40"; width: 1 }
+        radius: 5
+        implicitHeight: idCol.implicitHeight + 16
+
+        ColumnLayout {
+            id: idCol
+            anchors.fill: parent
+            anchors.margins: 8
+            spacing: 6
+
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 8
+
+                IdentityField {
+                    id: subjField
+                    placeholder: "subject"
+                    value: root.subjectLabel
+                    Layout.preferredWidth: 110
+                    onEdited: (t) => { if (typeof backend !== "undefined") backend.subjectLabel = t }
+                }
+                IdentityField {
+                    placeholder: "session"
+                    value: root.sessionLabel
+                    Layout.preferredWidth: 90
+                    onEdited: (t) => { if (typeof backend !== "undefined") backend.sessionLabel = t }
+                }
+                IdentityField {
+                    placeholder: "task"
+                    value: root.taskLabel
+                    Layout.fillWidth: true
+                    onEdited: (t) => { if (typeof backend !== "undefined") backend.taskLabel = t }
+                }
+
+                // Clearing between participants should be one click, not three
+                // select-alls.
+                Rectangle {
+                    Layout.preferredWidth: 54
+                    Layout.preferredHeight: 26
+                    radius: 4
+                    color: clearArea.containsMouse ? "#26264a" : "#16162e"
+                    border { color: "#2a2a52"; width: 1 }
+                    Label {
+                        anchors.centerIn: parent
+                        text: "Clear"
+                        color: "#8888aa"
+                        font.pixelSize: 11
+                    }
+                    MouseArea {
+                        id: clearArea
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: if (typeof backend !== "undefined") backend.clearIdentity()
+                    }
+                }
+            }
+
+            // What will actually be created. The whole point is that the
+            // operator never has to guess how their typing becomes a folder —
+            // including the run number, which is otherwise only revealed by
+            // the duplicate prompt.
+            Label {
+                Layout.fillWidth: true
+                text: "▸  " + root.folderPreview
+                color: "#5a5a80"
+                font { pixelSize: 10; family: "Courier New, Courier, monospace" }
+                elide: Text.ElideMiddle
+            }
+
+            // Only appears when the typed text and the resulting label differ,
+            // or the name is too long to be safe.
+            Label {
+                Layout.fillWidth: true
+                visible: root.identityWarning !== ""
+                text: "⚠  " + root.identityWarning
+                color: "#ddaa44"
+                font.pixelSize: 10
+                wrapMode: Text.WordWrap
+            }
+        }
+    }
+
+    // A dark-themed single-line field. `value` is the C++ side's text;
+    // `edited` carries user input back. Kept one-way-in/one-way-out rather
+    // than a two-way binding so a re-published value can't fight the cursor.
+    component IdentityField : Rectangle {
+        id: fieldRoot
+        property string placeholder: ""
+        property string value: ""
+        signal edited(string text)
+
+        implicitHeight: 26
+        color: "#09091a"
+        border { color: input.activeFocus ? "#4a4a90" : "#1e1e40"; width: 1 }
+        radius: 4
+
+        // Typing into a TextField breaks the declarative binding on `text`,
+        // so after the first keystroke the field would stop following the C++
+        // side — and Clear would visibly do nothing. Re-assign explicitly
+        // instead, guarded so it can't fight the cursor mid-edit.
+        onValueChanged: if (input.text !== value) input.text = value
+
+        TextField {
+            id: input
+            anchors.fill: parent
+            anchors.leftMargin: 6
+            anchors.rightMargin: 6
+            verticalAlignment: TextInput.AlignVCenter
+            text: fieldRoot.value
+            placeholderText: fieldRoot.placeholder
+            color: "#c8c8e0"
+            placeholderTextColor: "#3a3a55"
+            font.pixelSize: 12
+            selectByMouse: true
+            background: null
+            // onTextEdited, not onTextChanged: the latter also fires when the
+            // binding above rewrites the text, which would loop.
+            onTextEdited: fieldRoot.edited(text)
+        }
+    }
+
+    // ── Operator notes ─────────────────────────────────────────────────────
+    component SessionNotesBox : Rectangle {
+        implicitHeight: 48
+        color: "#09091a"
+        border { color: notesInput.activeFocus ? "#4a4a90" : "#1e1e40"; width: 1 }
+        radius: 4
+
+        ScrollView {
+            anchors.fill: parent
+            anchors.margins: 5
+            clip: true
+
+            // Same binding-break problem as IdentityField above.
+            Connections {
+                target: root
+                function onSessionNotesChanged() {
+                    if (notesInput.text !== root.sessionNotes)
+                        notesInput.text = root.sessionNotes
+                }
+            }
+
+            TextArea {
+                id: notesInput
+                text: root.sessionNotes
+                // Deliberately does not promise post-hoc editing: this box
+                // clears when a recording ends, because from that moment it
+                // belongs to the next session. Editing the finished one
+                // happens in the Session Health dialog or the Session Browser.
+                placeholderText: root.recording
+                    ? "Note what's happening — saved with this recording"
+                    : "Notes for the next recording (optional)"
+                color: "#c8c8e0"
+                placeholderTextColor: "#3a3a55"
+                font.pixelSize: 12
+                selectByMouse: true
+                wrapMode: TextArea.Wrap
+                background: null
+                onTextChanged: {
+                    // TextArea has no onTextEdited, so guard the binding
+                    // write-back explicitly instead.
+                    if (typeof backend !== "undefined" && text !== backend.notes)
+                        backend.notes = text
+                }
+            }
+        }
+    }
 
     component RecordingBar : Rectangle {
         id: bar

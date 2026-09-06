@@ -125,3 +125,50 @@ live only in a PR description or a plan file where it'll be forgotten.
 - [ ] Export/Import Configuration (admin panel): confirm the new "token failed to decrypt on this
       machine" warning actually fires when importing a config exported from a different Windows
       account/machine, and stays silent for a same-account import.
+
+## BIDS-style session naming
+
+The regression risk of the whole feature is the session *ordering* change, so
+do that one even if you skip the rest.
+
+- [ ] **Backward compatibility.** With Subject/Session/Task all blank, record a
+      session and confirm the folder name is exactly the old
+      `yyyy-MM-dd_hh-mm-ss` form and `session_meta.json` has no `bids` key.
+- [ ] **Ordering (the one that can regress).** Open the Session Browser and the
+      Analysis tab with a mix of old timestamp folders and new BIDS folders and
+      confirm the list really is newest-first — not grouped by subject. Repeat
+      as an admin with extra directories configured, which previously showed
+      one sorted block per directory.
+- [ ] Fill in Subject/Session/Task, confirm the preview line under the fields
+      matches the folder actually created, and that `session_meta.json` carries
+      `bids: {sub, ses, task, run}`.
+- [ ] Type a hyphen or accent into a label (`P-01`, `Müller`) and confirm the
+      warning line explains the coercion and the preview shows `P01` / `Muller`.
+- [ ] **Duplicate prompt.** Record the same subject/session/task twice.
+      The second start must prompt *before* the countdown, offer `run-02`, and
+      the created folder must actually use `run-02`. Check Cancel and
+      "Change details…" both leave no folder behind.
+- [ ] Delete `run-02` of three and record again — the new session must be
+      `run-04`, never a reused `run-02`.
+- [ ] **Overwrite guard.** Set Record settings → uncheck "add timestamp", leave
+      the identity blank, and record twice. The second must land in `session_2`
+      with a logged warning, not overwrite the first. (Before this change it
+      silently overwrote.)
+- [ ] Start a recording from a keyboard trigger and confirm it inherits the
+      identity typed in the monitor (no dialog, correct run number).
+- [ ] **Notes.** Type a note before recording; edit it *during* the recording;
+      confirm `notes.txt` holds the edited text ~5s later. On Stop, edit it
+      again in the Session Health dialog and confirm closing via the window's X
+      still saves. Then search for a word from the note in the Session Browser.
+- [ ] Confirm a long BIDS name elides (middle) in the Analysis session picker
+      rather than being clipped, and that its tooltip shows the full name.
+- [ ] **Note must not leak between sessions.** Record A with a note, stop,
+      then record B without touching the box: B's `notes.txt` must not contain
+      A's note (the monitor box clears on stop).
+- [ ] Leave the Session Health dialog open, edit the same session's notes in
+      the Session Browser and save, then close the health dialog with its X —
+      the browser's note must survive.
+- [ ] Type a word that appears **only** in a session's notes into the Session
+      Browser search box and confirm that session is found (not everything
+      hidden).
+

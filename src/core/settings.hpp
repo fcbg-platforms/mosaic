@@ -6,6 +6,7 @@
 #include <optional>
 #include <vector>
 
+#include "session/session_name.hpp"
 #include "trigger/trigger_types.hpp"
 
 namespace mosaic {
@@ -311,6 +312,17 @@ struct RecordSettings {
     // Upper bound for startDelaySec, shared by the settings UI's spinbox and
     // MonitorBridge's clamp so the two can't disagree.
     static constexpr int kMaxStartDelaySec = 10;
+
+    // Subject/session/task from the last recording, used only to prefill the
+    // monitor's identity fields next time. Recording the same participant
+    // through several tasks is the normal case, so retyping the subject every
+    // run would be pure friction — and a field left blank because it was
+    // tedious is exactly how a session ends up unattributable.
+    //
+    // The run index is never persisted (it is derived from what is on disk)
+    // and neither are notes, which describe one recording and must not leak
+    // into the next.
+    SessionIdentity lastIdentity;
 
     [[nodiscard]] QJsonObject to_json() const;
     [[nodiscard]] static std::optional<RecordSettings> from_json(const QJsonObject&);

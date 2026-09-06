@@ -20,6 +20,7 @@
 #include <QLineEdit>
 #include <QMouseEvent>
 #include <QPainter>
+#include <QPlainTextEdit>
 #include <QProcess>
 #include <QPushButton>
 #include <QScrollArea>
@@ -228,11 +229,12 @@ struct SessionBrowserW::Impl {
     QLabel* analysisStatus    = nullptr;
 
     // Annotation section
-    QTableWidget* annotTable = nullptr;
-    QTimeEdit* annotTime     = nullptr;
-    QComboBox* annotCat      = nullptr;
-    QLineEdit* annotNote     = nullptr;
-    QPushButton* addAnnotBtn = nullptr;
+    QTableWidget* annotTable     = nullptr;
+    QTimeEdit* annotTime         = nullptr;
+    QComboBox* annotCat          = nullptr;
+    QLineEdit* annotNote         = nullptr;
+    QPlainTextEdit* sessionNotes = nullptr;
+    QPushButton* addAnnotBtn     = nullptr;
 
     // Running analysis process
     QProcess* proc = nullptr;
@@ -601,6 +603,22 @@ void SessionBrowserW::build_right_panel() {
         "QTableWidget::item:selected { background: #1a1a44; }");
     detailBox->addWidget(d->annotTable);
 
+    // Session-level notes, distinct from the annotations above: an annotation
+    // is pinned to a moment inside the recording, this describes the whole
+    // session. Same file the monitor and the Session Health dialog write, so a
+    // note started before recording can be finished here days later.
+    auto* notesLbl = new QLabel("Session notes");
+    notesLbl->setStyleSheet("color: #6666aa; font-size: 11px; padding-top: 6px;");
+    detailBox->addWidget(notesLbl);
+
+    d->sessionNotes = new QPlainTextEdit;
+    d->sessionNotes->setPlaceholderText("Free-text notes about this session…");
+    d->sessionNotes->setFixedHeight(64);
+    d->sessionNotes->setStyleSheet(
+        "QPlainTextEdit { background: #0a0a1e; color: #c8c8e0;"
+        "  border: 1px solid #1a1a3a; border-radius: 4px; padding: 4px; }");
+    detailBox->addWidget(d->sessionNotes);
+
     // Add-annotation form
     auto* addRow = new QHBoxLayout;
     addRow->setSpacing(6);
@@ -639,7 +657,7 @@ void SessionBrowserW::build_right_panel() {
     auto* actionRow = new QHBoxLayout;
     actionRow->setContentsMargins(0, 10, 0, 0);
 
-    auto* saveBtn   = new QPushButton("💾  Save annotations");
+    auto* saveBtn   = new QPushButton("💾  Save notes & annotations");
     auto* exportBtn = new QPushButton("📄  Export CSV");
     connect(saveBtn, &QPushButton::clicked, this, &SessionBrowserW::save_annotations);
     connect(exportBtn, &QPushButton::clicked, this, &SessionBrowserW::export_annot_csv);
@@ -669,6 +687,10 @@ void SessionBrowserW::rebuild_session_list() {
     for (const QString& extraDir : d->extraDirectories) {
         d->sessions += SessionInfo::list_all(extraDir);
     }
+    // Each list_all() is sorted, but concatenating sorted lists is not — so
+    // without this an admin with extra directories configured saw one ordered
+    // block per directory rather than one ordered list.
+    SessionInfo::sort_newest_first(d->sessions);
 
     // Remove old rows
     for (auto* row : d->rows) {
@@ -690,7 +712,10 @@ void SessionBrowserW::rebuild_session_list() {
     for (int i = 0; i < d->sessions.size(); ++i) {
         const auto& info = d->sessions[i];
         if (!filter.isEmpty()) {
-            const QString hay = (info.name + info.recordedBy).toLower();
+            // Entities live in the folder name, so "P01" and "rest" match for
+            // free. Notes are included too: free-text search across an archive is
+            // the main reason to write them down at all.
+            const QString hay = (info.name + info.recordedBy + info.notes).toLower();
             if (!hay.contains(filter)) {
                 continue;
             }
@@ -728,7 +753,20 @@ void SessionBrowserW::rebuild_session_list() {
 void SessionBrowserW::apply_filter(const QString& text) {
     const QString lower = text.trimmed().toLower();
     for (auto* row : d->rows) {
-        const bool show = lower.isEmpty() || row->session_path().toLower().contains(lower);
+        bool show = lower.isEmpty();
+        if (!show) {
+            // Match the same haystack rebuild_session_list() uses, not just
+            // the path: the folder name carries the BIDS entities (so "P01"
+            // and "rest" find sessions) and the notes make free-text search
+            // across an archive work. Filtering on the path alone meant
+            // typing a word that appears only in a note hid every row.
+            show = row->session_path().toLower().contains(lower);
+            for (const auto& info : d->sessions) {
+                if (info.path != row->session_path()) continue;
+                show = show || (info.name + info.recordedBy + info.notes).toLower().contains(lower);
+                break;
+            }
+        }
         row->setVisible(show);
     }
 }
@@ -753,8 +791,14 @@ void SessionBrowserW::select_session(const QString& path) {
         row->set_selected(row->session_path() == path);
     }
 
-    // Reload annotations from disk in case they changed
+    // Reload annotations *and* notes from disk in case they changed. The
+    // cached copy is only as fresh as the last rebuild_session_list(), while
+    // notes.txt is also written by the monitor's debounced flush and the
+    // Session Health dialog — and save_annotations() below writes the notes
+    // box back, so a stale cache would revert a newer note, or delete the
+    // file when the stale value was empty.
     d->sessions[idx].load_annotations();
+    d->sessions[idx].load_notes();
     populate_detail();
     d->rightStack->setCurrentIndex(1);
 }
@@ -763,6 +807,10 @@ void SessionBrowserW::populate_detail() {
     auto* info = d->current();
     if (!info) {
         return;
+    }
+
+    if (d->sessionNotes) {
+        d->sessionNotes->setPlainText(info->notes);
     }
 
     // Title
@@ -924,6 +972,13 @@ void SessionBrowserW::delete_annotation(int row) {
 
 void SessionBrowserW::save_annotations() {
     if (auto* info = d->current()) {
+        // Notes ride along with the same button rather than getting one of
+        // their own — two Save buttons in one panel is how half a change gets
+        // lost.
+        if (d->sessionNotes) {
+            info->notes = d->sessionNotes->toPlainText();
+            info->save_notes();
+        }
         // Sync any in-table edits back to the model before saving
         for (int row = 0; row < d->annotTable->rowCount(); ++row) {
             if (row >= info->annotations.size()) {

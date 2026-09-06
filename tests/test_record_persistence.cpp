@@ -72,3 +72,41 @@ TEST(RecordPersistence, StartKeysRoundTripThroughToJson) {
     EXPECT_EQ(parsed->videoBasename, s.videoBasename);
     EXPECT_EQ(parsed->addTimestamp, s.addTimestamp);
 }
+
+// ── Session identity ───────────────────────────────────────────────────────
+
+// Same upgrade path as above: a settings.json predating the identity fields
+// must load with an empty identity, which is what keeps such an install on the
+// legacy timestamp-only folder naming until someone types something.
+TEST(RecordPersistence, LegacySettingsWithoutIdentityLoadEmpty) {
+    const auto loaded = RecordSettings::from_json(legacy_record_settings());
+    ASSERT_TRUE(loaded.has_value());
+    EXPECT_FALSE(loaded->lastIdentity.has_entities());
+    EXPECT_EQ(loaded->lastIdentity.run, 0);
+}
+
+TEST(RecordPersistence, IdentityRoundTripsThroughToJson) {
+    RecordSettings s;
+    s.lastIdentity.subject = "P01";
+    s.lastIdentity.session = "pre";
+    s.lastIdentity.task    = "rest";
+
+    const auto parsed = RecordSettings::from_json(s.to_json());
+    ASSERT_TRUE(parsed.has_value());
+    EXPECT_EQ(parsed->lastIdentity.subject, "P01");
+    EXPECT_EQ(parsed->lastIdentity.session, "pre");
+    EXPECT_EQ(parsed->lastIdentity.task, "rest");
+}
+
+// settings.json is a plain file a user can edit, and these values go on to
+// form a directory name — so the load path, not just the UI, has to sanitize.
+TEST(RecordPersistence, HandEditedIdentityIsSanitizedOnLoad) {
+    QJsonObject o      = legacy_record_settings();
+    o["last_identity"] = QJsonObject{{"sub", "../../etc"}, {"ses", "p re"}, {"task", "re-st"}};
+
+    const auto loaded = RecordSettings::from_json(o);
+    ASSERT_TRUE(loaded.has_value());
+    EXPECT_EQ(loaded->lastIdentity.subject, "etc");
+    EXPECT_EQ(loaded->lastIdentity.session, "pre");
+    EXPECT_EQ(loaded->lastIdentity.task, "rest");
+}

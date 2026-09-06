@@ -41,6 +41,30 @@ class MonitorBridge : public QObject {
     // to the setting without reaching into AppSettings itself.
     Q_PROPERTY(bool hidePreviews READ hidePreviews NOTIFY hidePreviewsChanged)
 
+    // ── Session identity ───────────────────────────────────────────────────
+    //
+    // Who and what the next recording is of. All optional: left empty, the
+    // session keeps the timestamp-only folder name this app has always used.
+    //
+    // These hold the operator's text *verbatim*, not the sanitized label.
+    // Sanitizing on every keystroke would delete characters from under the
+    // cursor as they typed (a hyphen, a space), which is hostile; instead the
+    // raw text stays put, folderPreview shows what will actually be created,
+    // and identityWarning says so in words when the two differ.
+    Q_PROPERTY(QString subjectLabel READ subjectLabel WRITE setSubjectLabel NOTIFY identityChanged)
+    Q_PROPERTY(QString sessionLabel READ sessionLabel WRITE setSessionLabel NOTIFY identityChanged)
+    Q_PROPERTY(QString taskLabel READ taskLabel WRITE setTaskLabel NOTIFY identityChanged)
+    // Free-text operator note, saved beside the recording as notes.txt.
+    // Editable while recording too — the note worth having is usually the one
+    // written once something has actually happened.
+    Q_PROPERTY(QString notes READ notes WRITE setNotes NOTIFY notesChanged)
+    // The folder name that would be created if Record were clicked right now,
+    // run index included. The point is that the operator never has to guess.
+    Q_PROPERTY(QString folderPreview READ folderPreview NOTIFY identityChanged)
+    // One line, empty when there is nothing to say: what got dropped from a
+    // label, or that the name is too long for the recordings directory.
+    Q_PROPERTY(QString identityWarning READ identityWarning NOTIFY identityChanged)
+
    public:
     explicit MonitorBridge(RecordManager* recordMgr, const VideoSettings& videoSettings,
                            const RecordSettings& recordSettings, QObject* parent = nullptr);
@@ -55,6 +79,17 @@ class MonitorBridge : public QObject {
     [[nodiscard]] int countdownSeconds() const;
     [[nodiscard]] bool startPending() const;
     [[nodiscard]] bool hidePreviews() const;
+    [[nodiscard]] QString subjectLabel() const;
+    [[nodiscard]] QString sessionLabel() const;
+    [[nodiscard]] QString taskLabel() const;
+    [[nodiscard]] QString notes() const;
+    [[nodiscard]] QString folderPreview() const;
+    [[nodiscard]] QString identityWarning() const;
+
+    void setSubjectLabel(const QString& v);
+    void setSessionLabel(const QString& v);
+    void setTaskLabel(const QString& v);
+    void setNotes(const QString& v);
 
     // Called by VideoSettingsW when cameras are added/removed
     void set_camera_count(int count);
@@ -88,6 +123,15 @@ class MonitorBridge : public QObject {
     // recording. One control, one meaning: "make it stop".
     Q_INVOKABLE void stopRecording();
 
+    // Answers to the duplicate-name question MainWindow asks on our behalf
+    // (see runCollisionDetected). Exactly one of these must be called for
+    // every signal emitted, or Record stays deaf.
+    Q_INVOKABLE void confirmRunAndStart(int run);
+    Q_INVOKABLE void cancelPendingStart();
+
+    // Clears subject/session/task/notes.
+    Q_INVOKABLE void clearIdentity();
+
     // Connected to VideoManager::frame_preview (already on main thread via queued)
     void on_frame_preview(int cameraIndex, QImage frame);
 
@@ -101,12 +145,44 @@ class MonitorBridge : public QObject {
     void countdownSecondsChanged();
     void startPendingChanged();
     void hidePreviewsChanged();
+    void identityChanged();
+    void notesChanged();
+
+    // This subject/session/task already has recordings. Emitted *instead of*
+    // arming the countdown, so the operator is asked before anything happens
+    // rather than after a 3-2-1. MainWindow shows the dialog: a QML popup
+    // cannot be used here because the project targets Qt 6.4, where a Popup is
+    // clipped to its QQuickWidget — a window the user can drag arbitrarily
+    // small — and a question governing where data lands must not be croppable.
+    void runCollisionDetected(QString entityPrefix, int existingCount, int suggestedRun);
 
    private:
     // Clears the countdown (notifying QML first, so a failed start can never
     // strand the UI mid-countdown) and then asks RecordManager to start.
     void begin_recording_now();
     void set_start_pending(bool pending);
+
+    // The tail of startRecording(): hand the identity to RecordManager and
+    // arm the countdown. Split out so the collision answer can rejoin the
+    // normal path rather than duplicating it.
+    void arm_countdown(const SessionIdentity& id);
+
+    // Current field text as an identity. Labels are still raw here; every
+    // consumer in session_name.hpp sanitizes what it is given.
+    [[nodiscard]] SessionIdentity current_identity() const;
+
+    // Hands the current field contents to RecordManager. Called on every
+    // edit, not just at Record time — see the implementation.
+    void publish_identity();
+
+    // Recomputes the cached preview + warning with a single scan of the
+    // recordings directory. Previously folderPreview() and identityWarning()
+    // each scanned it, and the latter called the former, so every keystroke
+    // cost two or three synchronous directory listings on the thread also
+    // driving the camera previews.
+    void recompute_identity_preview();
+
+    void flush_notes_to_disk() const;
 
     RecordManager* m_rm;
     const VideoSettings& m_videoSettings;
@@ -123,6 +199,25 @@ class MonitorBridge : public QObject {
     int m_countdownSeconds{0};         // 0 = no countdown pending
     bool m_startPending{false};        // click -> recording actually running
     bool m_hidePreviews{true};         // cached mirror of the record setting
+
+    QString m_subjectLabel;
+    QString m_sessionLabel;
+    QString m_taskLabel;
+    QString m_notes;
+    // True from emitting runCollisionDetected until the answer arrives.
+    // Without it a second Record click would stack a second dialog behind the
+    // first — QMessageBox::exec() spins the event loop, so clicks keep being
+    // delivered while it is open.
+    bool m_awaitingCollisionAnswer{false};
+    SessionIdentity m_collisionIdentity;
+    // Debounces notes typed *during* a recording; see flush_notes_to_disk().
+    QTimer* m_notesFlushTimer{nullptr};
+    // Cached by recompute_identity_preview(); m_resolvedIdentity carries the
+    // run index so the pre-flight length check measures the name that will
+    // actually be created, not one that is missing "_run-NN".
+    SessionIdentity m_resolvedIdentity;
+    QString m_folderPreview;
+    QString m_identityWarning;
 };
 
 } // namespace mosaic

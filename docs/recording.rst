@@ -30,8 +30,29 @@ Programmatically:
 What happens during ``start()``
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-1. **Session folder** is created:
-   ``<record.directory>/<timestamp>/`` (e.g. ``recordings/2026-06-04_14-32-05/``).
+1. **Session folder** is created. If the operator has filled in any of
+   Subject / Session / Task in the monitor, the folder is named with BIDS
+   entities followed by a timestamp — e.g.
+   ``recordings/sub-P01_ses-pre_task-rest_run-01_20260906T143012/``. If all
+   three are left blank the name is the timestamp alone, exactly as before
+   (``recordings/2026-06-04_14-32-05/``).
+
+   The name is BIDS-*inspired*, not BIDS-valid: entities appear in canonical
+   BIDS order (``sub``, ``ses``, ``task``, ``run``) with alphanumeric-only
+   labels, but the trailing timestamp is not a BIDS entity. That is a
+   deliberate trade — it guarantees uniqueness and keeps folders sorting
+   chronologically in a file manager. Machine-readable identity is written
+   into ``session_meta.json`` under ``bids``, so no tool ever needs to parse
+   a directory name.
+
+   ``run-NN`` counts repeats of the same subject/session/task and is
+   **one past the highest run already present**, never one past the count —
+   deleting ``run-02`` will not cause its number to be reissued. Starting a
+   recording that would repeat an existing combination prompts first.
+
+   The folder is created with ``mkdir``, not ``mkpath``, so an existing
+   directory is never silently recorded into; a clash falls back to
+   ``<name>_2`` with a logged warning.
 2. **``session_meta.json``** is written immediately (see :ref:`session metadata`).
 3. **Trigger CSV** is opened: ``trigger.csv``.
 4. **Audio recorders** are started: one ``WAV`` file per configured microphone, under
@@ -46,8 +67,9 @@ Session folder layout:
 
    recordings/
    └── <username>/                        # per-profile — see :doc:`profiles`
-       └── 2026-06-04_14-32-05/
+       └── sub-P01_ses-pre_task-rest_run-01_20260906T143012/
            ├── session_meta.json
+           ├── notes.txt                          # operator's free-text note, if any
            ├── trigger.csv
            ├── trigger_frame_map.json         # written by the EEG/Trigger↔Frame Sync plugin, if run
            ├── sync_manifest.json             # written after recording stops
@@ -109,6 +131,9 @@ succeeds later.  Fields:
      "session_start_utc":        "2026-06-04T14:32:05.123Z",
      "session_start_elapsed_ns": 12345678,
      "session_folder":           "/home/user/recordings/2026-06-04_14-32-05",
+     "bids": {
+       "sub": "P01", "ses": "pre", "task": "rest", "run": 1
+     },
      "cameras": [
        {
          "index": 0,
