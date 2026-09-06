@@ -44,11 +44,15 @@ add_executable(mosaic_tests
     test_analysis_manager.cpp
     test_session_health.cpp
     test_session_name.cpp
+    test_time_axis.cpp
+    test_spectrogram_colormap.cpp
+    test_voice_result.cpp
     test_analysis_plugins.cpp
     "${CMAKE_SOURCE_DIR}/src/session/session_health.cpp"
     "${CMAKE_SOURCE_DIR}/src/session/session_name.cpp"
     "${CMAKE_SOURCE_DIR}/src/core/recording_access_control.cpp"
     "${CMAKE_SOURCE_DIR}/src/ui/audio/speaker_palette.cpp"
+    "${CMAKE_SOURCE_DIR}/src/ui/audio/spectrogram_colormap.cpp"
     "${CMAKE_SOURCE_DIR}/src/video/fps_readout.cpp"
     "${CMAKE_SOURCE_DIR}/src/video/gige_action_command.cpp"
     "${CMAKE_SOURCE_DIR}/src/calibration/rms_quality.cpp"
@@ -66,6 +70,7 @@ add_executable(mosaic_tests
     "${CMAKE_SOURCE_DIR}/src/analysis/pose_kinematics.cpp"
     "${CMAKE_SOURCE_DIR}/src/analysis/dyadic_kinematics.cpp"
     "${CMAKE_SOURCE_DIR}/src/analysis/transcript_result.cpp"
+    "${CMAKE_SOURCE_DIR}/src/analysis/voice_result.cpp"
     "${CMAKE_SOURCE_DIR}/src/analysis/expression_result.cpp"
     "${CMAKE_SOURCE_DIR}/src/analysis/realtime_metrics.cpp"
     "${CMAKE_SOURCE_DIR}/src/analysis/analysis_manager.cpp"

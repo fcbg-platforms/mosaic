@@ -29,6 +29,8 @@ qt_add_executable(mosaic MACOSX_BUNDLE
     analysis/dyadic_kinematics.cpp
     analysis/transcript_result.hpp
     analysis/transcript_result.cpp
+    analysis/voice_result.hpp
+    analysis/voice_result.cpp
     analysis/expression_result.hpp
     analysis/expression_result.cpp
     analysis/sync_manifest.hpp
@@ -102,6 +104,11 @@ qt_add_executable(mosaic MACOSX_BUNDLE
     ui/audio/audio_waveform_w.cpp
     ui/audio/speaker_palette.hpp
     ui/audio/speaker_palette.cpp
+    ui/audio/time_axis.hpp
+    ui/audio/spectrogram_colormap.hpp
+    ui/audio/spectrogram_colormap.cpp
+    ui/audio/voice_spectrogram_w.hpp
+    ui/audio/voice_spectrogram_w.cpp
     ui/audio/microphone_card_w.hpp
     ui/audio/microphone_card_w.cpp
 

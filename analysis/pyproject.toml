@@ -28,6 +28,15 @@ dependencies = [
     "pyannote.audio>=3.1",
     "onnxruntime>=1.17",
     "py-feat>=2.1.0",
+    # Praat bindings, for the spectrogram / pitch / intensity pass behind the
+    # Speaker Diarization plugin's acoustic view. 0.4.7 is the first release
+    # with a cp312 Windows wheel; earlier ones stop at cp311 and would fall
+    # back to building Praat's C sources from scratch.
+    "praat-parselmouth>=0.4.7",
+    # Writing the spectrogram as an 8-bit greyscale PNG. Already present
+    # transitively via matplotlib; declared because this code imports it
+    # directly and should not depend on another package's dependency.
+    "pillow>=10.0",
 ]
 
 [dependency-groups]

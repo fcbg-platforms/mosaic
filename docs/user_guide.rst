@@ -285,6 +285,23 @@ sitting alongside **Live**. The workflow is always the same shape:
          reach an unlabelled result. Tick "Transcript only" to transcribe
          without speakers deliberately.
 
+      **Acoustics**: the **▶ Acoustics** button beside the mic picker runs a
+      separate, fast pass (praat-parselmouth) that draws a spectrogram beneath
+      the waveform, with the pitch track (cyan, logarithmic) and intensity
+      contour (amber) over it and the same speaker colours marking each turn.
+      It needs no Hugging Face token and does not re-transcribe, so a session
+      that was never diarized can still be examined acoustically — and getting
+      a spectrogram never costs another Whisper run. Results are cached beside
+      the audio as ``<mic>.voice.json`` and ``<mic>.voice.png``, so re-opening
+      the session is instant. **Pitch** and **Level** toggle the two overlays.
+
+      The spectrogram shares the waveform's time axis exactly, so the playhead
+      and every speaker turn line up between the two strips; clicking either
+      seeks playback. It shows 0-5 kHz by default, which is Praat's own default
+      view and keeps a low voice's harmonics from moiréing at this height.
+      A gap in the pitch line is not missing data — it means the frame was
+      unvoiced, and the line is deliberately broken rather than drawn across it.
+
       **If the Speaker column is blank**, a banner above the waveform says
       why — no token, terms not accepted, the model failing to load, or the
       model running and finding no speaker turns — together with what to do

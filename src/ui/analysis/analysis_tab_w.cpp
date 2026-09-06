@@ -64,6 +64,7 @@
 #include "analysis/sync_repair_result.hpp"
 #include "analysis/transcript_result.hpp"
 #include "analysis/trigger_frame_map.hpp"
+#include "analysis/voice_result.hpp"
 #include "audio/audio_envelope.hpp"
 #include "session/session_info.hpp"
 #include "ui/analysis/gaze_room_view_w.hpp"
@@ -73,6 +74,7 @@
 #include "ui/analysis/subject_colors.hpp"
 #include "ui/anim_utils.hpp"
 #include "ui/audio/audio_waveform_w.hpp"
+#include "ui/audio/voice_spectrogram_w.hpp"
 #include "ui/calibration/badge_style.hpp"
 #include "utils/logger.hpp"
 
@@ -842,19 +844,24 @@ struct AnalysisTabW::Impl {
     MetricsChartW* chart       = nullptr; // pose + expression
     QPushButton* openFolderBtn = nullptr; // face_mask only
 
-    QWidget* micRowW                 = nullptr; // diarize only
-    QComboBox* micCombo              = nullptr; // diarize only
-    QLabel* transcriptStatsLbl       = nullptr; // diarize only
-    QPushButton* exportTranscriptBtn = nullptr; // diarize only
-    QTableWidget* transcriptTable    = nullptr; // diarize only
-    AudioWaveformW* diarizeWaveform  = nullptr; // diarize only — whole-clip static waveform,
-                                                // playhead-synced to d->player, same visual
-                                                // style as the Audio settings tab's live view
-    QLabel* diarizeBannerLbl = nullptr;         // diarize only — says why speaker labels
-                                                // are missing, and what to do about it
-    QWidget* speakerLegendRowW = nullptr;       // diarize only — color-swatch legend for the
-                                                // waveform's speaker bands, rebuilt by
-                                                // rebuild_speaker_legend()
+    QWidget* micRowW                      = nullptr; // diarize only
+    QComboBox* micCombo                   = nullptr; // diarize only
+    QLabel* transcriptStatsLbl            = nullptr; // diarize only
+    QPushButton* exportTranscriptBtn      = nullptr; // diarize only
+    QPushButton* runVoiceBtn              = nullptr; // diarize only — acoustic pass
+    QCheckBox* showPitchCheck             = nullptr; // diarize only
+    QCheckBox* showIntensityCheck         = nullptr; // diarize only
+    VoiceSpectrogramW* diarizeSpectrogram = nullptr; // diarize only
+    VoiceResult currentVoice;                        // diarize only
+    QTableWidget* transcriptTable   = nullptr;       // diarize only
+    AudioWaveformW* diarizeWaveform = nullptr;       // diarize only — whole-clip static waveform,
+                                                     // playhead-synced to d->player, same visual
+                                                     // style as the Audio settings tab's live view
+    QLabel* diarizeBannerLbl = nullptr;              // diarize only — says why speaker labels
+                                                     // are missing, and what to do about it
+    QWidget* speakerLegendRowW = nullptr;            // diarize only — color-swatch legend for the
+                                                     // waveform's speaker bands, rebuilt by
+                                                     // rebuild_speaker_legend()
 
     // Expression view controls — mirrors kinematicsRowW's own-container
     // pattern so select_plugin() can hide the whole row with one call.
@@ -1034,6 +1041,7 @@ struct AnalysisTabW::Impl {
         currentRppgResult       = RppgResult();
         currentGaze2dResult     = Gaze2dResult();
         currentSyncRepair       = SyncRepairResult();
+        currentVoice            = VoiceResult();
     }
 };
 
@@ -1064,6 +1072,7 @@ AnalysisTabW::AnalysisTabW(AppSettings& settings, AnalysisManager* analysisMgr,
     connect(analysisMgr, &AnalysisManager::analysis_started, this, [this](const QString& path) {
         d->jobIsMine = (path == d->currentSessionPath);
         d->runBtn->setEnabled(false); // AnalysisManager only runs one job at a time either way
+        d->runVoiceBtn->setEnabled(false);
         if (!d->jobIsMine) {
             return;
         }
@@ -1133,10 +1142,12 @@ AnalysisTabW::AnalysisTabW(AppSettings& settings, AnalysisManager* analysisMgr,
         d->statusLbl->setText("Error: " + msg);
         d->statusLbl->setStyleSheet("color:#cc4444; font-size:15px; font-weight:600;");
         d->runBtn->setEnabled(true);
+        d->runVoiceBtn->setEnabled(true);
     });
     connect(analysisMgr, &AnalysisManager::analysis_finished, this,
             [this](const QString& path, bool success) {
                 d->runBtn->setEnabled(true);
+                d->runVoiceBtn->setEnabled(true);
                 d->progressBar->setVisible(false);
                 d->cameraProgressBar->setVisible(false);
                 if (!d->jobIsMine) {
@@ -1804,6 +1815,29 @@ void AnalysisTabW::build_ui() {
     d->transcriptStatsLbl->setStyleSheet("color:#8888b8; font-size:13px; font-weight:600;");
     micRow->addWidget(d->transcriptStatsLbl, 1);
 
+    // Into micRow rather than a row of its own: that container is already
+    // diarize-only and already toggled by select_plugin(), so this needs no
+    // new visibility plumbing.
+    d->runVoiceBtn = new QPushButton("▶  Acoustics");
+    d->runVoiceBtn->setToolTip(
+        "Computes a spectrogram, pitch track and intensity contour for every mic in this "
+        "session (praat-parselmouth). Separate from the main Run button — it does not "
+        "re-transcribe or re-diarize, and needs no Hugging Face token.");
+    connect(d->runVoiceBtn, &QPushButton::clicked, this, &AnalysisTabW::run_voice_analysis);
+    micRow->addWidget(d->runVoiceBtn);
+
+    d->showPitchCheck = new QCheckBox("Pitch");
+    d->showPitchCheck->setChecked(true);
+    connect(d->showPitchCheck, &QCheckBox::toggled, this,
+            [this](bool on) { d->diarizeSpectrogram->set_show_pitch(on); });
+    micRow->addWidget(d->showPitchCheck);
+
+    d->showIntensityCheck = new QCheckBox("Level");
+    d->showIntensityCheck->setChecked(true);
+    connect(d->showIntensityCheck, &QCheckBox::toggled, this,
+            [this](bool on) { d->diarizeSpectrogram->set_show_intensity(on); });
+    micRow->addWidget(d->showIntensityCheck);
+
     d->exportTranscriptBtn = new QPushButton("Export CSV");
     d->exportTranscriptBtn->setToolTip("Exports timestamp/speaker/text for every segment as CSV.");
     connect(d->exportTranscriptBtn, &QPushButton::clicked, this,
@@ -1839,6 +1873,16 @@ void AnalysisTabW::build_ui() {
     d->diarizeWaveform->setVisible(false);     // shown only for the diarize plugin
     rightLay->addWidget(d->diarizeWaveform);
     d->diarizeWaveform->set_seek_callback([this](qint64 ms) { d->player->seek(ms); });
+
+    // Immediately below the waveform, sharing its time axis. Both are direct
+    // children of rightLay with the same margins, so their widths match, and
+    // both map time through mosaic::time_to_x() with the same duration — see
+    // ui/audio/time_axis.hpp for why that is done with a shared function.
+    d->diarizeSpectrogram = new VoiceSpectrogramW;
+    d->diarizeSpectrogram->setMinimumHeight(180);
+    d->diarizeSpectrogram->setVisible(false); // shown only for the diarize plugin
+    rightLay->addWidget(d->diarizeSpectrogram);
+    d->diarizeSpectrogram->set_seek_callback([this](qint64 ms) { d->player->seek(ms); });
 
     // Speaker-legend row: one color swatch + label per speaker found in the
     // current session's transcript, rebuilt by rebuild_speaker_legend()
@@ -2311,6 +2355,7 @@ void AnalysisTabW::build_ui() {
         }
         if (is_diarize_plugin()) {
             d->diarizeWaveform->set_playhead_ms(ms);
+            d->diarizeSpectrogram->set_playhead_ms(ms); // same timeline, same mapping
         }
     });
 
@@ -2508,6 +2553,7 @@ void AnalysisTabW::select_plugin(const QString& pluginId) {
     set_visible_animated(d->micRowW, isDiarize);
     set_visible_animated(d->transcriptTable, isDiarize);
     set_visible_animated(d->diarizeWaveform, isDiarize);
+    set_visible_animated(d->diarizeSpectrogram, isDiarize);
     // Not set_visible_animated(): this banner's visibility depends on the
     // loaded result's content as well as on the plugin, and
     // refresh_diarize_banner() owns that decision. Here we only make sure it
@@ -2705,6 +2751,10 @@ QString AnalysisTabW::depth_video_path_for(const QString& videoRelPath) const {
 
 QString AnalysisTabW::transcript_json_path_for(const QString& audioRelPath) const {
     return sidecar_path_for(audioRelPath, ".transcript.json");
+}
+
+QString AnalysisTabW::voice_json_path_for(const QString& audioRelPath) const {
+    return sidecar_path_for(audioRelPath, ".voice.json");
 }
 
 QString AnalysisTabW::expression_json_path_for(const QString& videoRelPath) const {
@@ -2967,6 +3017,8 @@ void AnalysisTabW::reload_current_camera_result() {
             // and bands clear but the transcript table and the banner keep
             // describing the session that was selected before this one.
             d->currentTranscript = TranscriptResult();
+            d->currentVoice      = VoiceResult();
+            d->diarizeSpectrogram->clear();
             rebuild_speaker_legend();
             refresh_diarize_banner();
             update_transcript_table();
@@ -2998,6 +3050,43 @@ void AnalysisTabW::reload_current_camera_result() {
             bands.push_back({seg.startMs, seg.endMs, seg.speaker});
         }
         d->diarizeWaveform->set_speaker_bands(bands);
+
+        // Acoustic sidecars, if the pass has been run for this mic. Loaded
+        // after set_speaker_bands() because the band colours below come from
+        // the mapping that call builds — taking them from the waveform rather
+        // than assigning a second palette is what guarantees the two strips
+        // agree about which speaker is which colour.
+        const QString voiceAbs = info->path + "/" + voice_json_path_for(audioRel);
+        d->currentVoice = QFileInfo::exists(voiceAbs) ? VoiceResult::load(voiceAbs) : VoiceResult();
+
+        d->diarizeSpectrogram->clear();
+        if (d->currentVoice.is_valid()) {
+            const auto& sp = d->currentVoice.spectrogram();
+            // wav.durationMs, not sp.t1Ms: both strips take their axis from the
+            // same load_wav_envelope() result, so they stay aligned even when
+            // Praat's idea of the clip length differs by a few milliseconds.
+            d->diarizeSpectrogram->set_duration_ms(wav.durationMs);
+            if (sp.has_image()) {
+                d->diarizeSpectrogram->set_spectrogram(sp.imagePath, sp.f0Hz, sp.f1Hz, sp.t0Ms,
+                                                       sp.t1Ms);
+            }
+            const auto& pt = d->currentVoice.pitch();
+            d->diarizeSpectrogram->set_pitch_track(pt.t0Ms, pt.dtMs, pt.values,
+                                                   d->currentVoice.pitch_floor_hz(),
+                                                   d->currentVoice.pitch_ceiling_hz());
+            const auto& it = d->currentVoice.intensity();
+            d->diarizeSpectrogram->set_intensity_track(it.t0Ms, it.dtMs, it.values);
+        }
+
+        QVector<VoiceSpectrogramW::SpeakerBand> voiceBands;
+        voiceBands.reserve(d->currentTranscript.segments().size());
+        for (const auto& seg : d->currentTranscript.segments()) {
+            voiceBands.push_back({seg.startMs, seg.endMs,
+                                  seg.speaker.isEmpty()
+                                      ? QColor()
+                                      : d->diarizeWaveform->speaker_color(seg.speaker)});
+        }
+        d->diarizeSpectrogram->set_speaker_bands(voiceBands);
         rebuild_speaker_legend();
         refresh_diarize_banner();
         update_transcript_table();
@@ -4443,6 +4532,31 @@ void AnalysisTabW::export_sync_repair_csv() {
                << skipReason << "\",\"" << note << "\"\n";
         }
     });
+}
+
+void AnalysisTabW::run_voice_analysis() {
+    if (d->currentSessionPath.isEmpty()) {
+        d->statusLbl->setText("Select a session first.");
+        d->statusLbl->setStyleSheet("color:#cc4444; font-size:15px; font-weight:600;");
+        return;
+    }
+    // Explicit rather than relying on the queue: without this, clicking
+    // Acoustics during a transcription silently enqueues, and the finish
+    // handler re-enables the button before the queued job's start handler
+    // disables it again — so the operator can stack several without feedback.
+    if (d->analysisMgr->is_running()) {
+        d->statusLbl->setText("A job is already running — wait for it to finish.");
+        d->statusLbl->setStyleSheet("color:#cc4444; font-size:15px; font-weight:600;");
+        return;
+    }
+
+    // "diarize" so analysis_finished()'s plugin guard passes and the result
+    // reloads on the page the operator is actually looking at. This is a second
+    // entry point into that plugin's results, not a plugin of its own.
+    d->jobPlugin = "diarize";
+    d->analysisMgr->run_voice_analysis(d->currentSessionPath, /*maxFrequencyHz=*/8000.0,
+                                       /*pitchFloorHz=*/60.0, /*pitchCeilingHz=*/600.0,
+                                       /*autoPitchRange=*/true);
 }
 
 void AnalysisTabW::run_analysis() {

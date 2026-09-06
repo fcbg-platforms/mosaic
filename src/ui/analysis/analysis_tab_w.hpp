@@ -91,6 +91,12 @@ class AnalysisTabW : public QWidget {
     void select_plugin(const QString& pluginId);
     void on_pose_model_changed();
     void run_analysis();
+
+    /// Launches the acoustic pass (spectrogram / pitch / intensity) for the
+    /// selected session. A second entry point into the Diarization plugin's
+    /// results rather than a plugin of its own — deliberately separate from
+    /// run_analysis() so a spectrogram never costs a re-transcription.
+    void run_voice_analysis();
     void reload_current_camera_result();
     void update_kinematics_chart();
     void export_kinematics_csv();
@@ -140,6 +146,10 @@ class AnalysisTabW : public QWidget {
     [[nodiscard]] QString depth_video_path_for(const QString& videoRelPath) const;
     [[nodiscard]] QString anonymized_video_path_for(const QString& videoRelPath) const;
     [[nodiscard]] QString transcript_json_path_for(const QString& audioRelPath) const;
+    /// Session-relative path of a mic's acoustic sidecar. The PNG's path is
+    /// deliberately *not* derived here — it comes from the JSON's own "image"
+    /// field, so the two can never drift apart.
+    [[nodiscard]] QString voice_json_path_for(const QString& audioRelPath) const;
     [[nodiscard]] QString expression_json_path_for(const QString& videoRelPath) const;
     [[nodiscard]] QString rppg_json_path_for(const QString& videoRelPath) const;
     [[nodiscard]] QString gaze2d_json_path_for(const QString& videoRelPath) const;
