@@ -360,3 +360,76 @@ def assign_speakers(
             }
         )
     return result
+
+
+# ── Why diarization did or didn't happen ──────────────────────────────────────
+
+
+#: Every value ``resolve_diarization_status`` can return. Mirrored by
+#: ``mosaic::DiarizationStatus`` in ``src/analysis/transcript_result.hpp``; the
+#: two must be kept in step, and the C++ side maps anything it doesn't
+#: recognise to ``Unknown`` rather than guessing.
+DIARIZATION_STATUSES = (
+    "ok",
+    "skipped_by_user",
+    "no_token",
+    "load_failed",
+    "run_failed",
+    "no_turns",
+    "no_overlap",
+)
+
+
+def resolve_diarization_status(
+    *,
+    load_status: str,
+    load_detail: str,
+    run_error: str | None,
+    turn_count: int,
+    labeled_segment_count: int,
+) -> tuple[str, str]:
+    """Decides *why* a transcript did or didn't get speaker labels.
+
+    Pure: takes already-gathered facts, touches nothing. Exists because the
+    reason was previously only ever printed to stdout while the consequence —
+    a transcript with no speakers — was written to disk. Once the run log
+    scrolled away there was no way to tell "no Hugging Face token" apart from
+    "the model refused to load" apart from "it ran and found one speaker", and
+    all three render identically in the UI: a blank Speaker column and a
+    waveform with no shading.
+
+    Parameters
+    ----------
+    load_status, load_detail :
+        Outcome of loading the pipeline, from ``_load_models``. ``load_status``
+        is ``"ok"`` when a pipeline was obtained.
+    run_error :
+        Exception text if diarizing *this file* raised, else ``None``.
+    turn_count :
+        Speaker turns pyannote returned for this file.
+    labeled_segment_count :
+        Transcript segments that ended up with a speaker attached.
+
+    Returns
+    -------
+    tuple of (status, detail)
+        ``status`` is one of :data:`DIARIZATION_STATUSES`; ``detail`` is a
+        short human-readable sentence, or ``""`` when there is nothing to add.
+    """
+    if load_status != "ok":
+        return load_status, load_detail
+    if run_error:
+        return "run_failed", run_error
+    if turn_count == 0:
+        return "no_turns", "The diarization model found no speaker turns in this audio."
+    if labeled_segment_count == 0:
+        # Its own status, not a flavour of no_turns: the model *did* hear
+        # people, so "no speaker turns were found" would be a flat
+        # contradiction of the detail line printed beside it, and the remedy is
+        # different — this points at a timing/alignment problem, not at a mic
+        # that captured nothing.
+        return (
+            "no_overlap",
+            f"Found {turn_count} speaker turn(s), but none overlapped a transcribed segment.",
+        )
+    return "ok", ""

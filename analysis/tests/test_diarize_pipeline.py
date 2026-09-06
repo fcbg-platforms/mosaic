@@ -14,7 +14,13 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from diarize.pipeline import assign_speakers, resolve_device
+import pytest
+from diarize.pipeline import (
+    DIARIZATION_STATUSES,
+    assign_speakers,
+    resolve_device,
+    resolve_diarization_status,
+)
 
 
 def test_assign_speakers_segment_fully_inside_one_turn():
@@ -79,3 +85,102 @@ def test_resolve_device_auto_detects_cuda_available():
 def test_resolve_device_auto_falls_back_to_cpu():
     with patch("torch.cuda.is_available", return_value=False):
         assert resolve_device(None) == "cpu"
+
+
+# ── resolve_diarization_status ────────────────────────────────────────────────
+#
+# The point of these: before this function existed, "no Hugging Face token",
+# "the gated model refused to load" and "it ran and found nobody" all produced
+# byte-identical output — a transcript with every speaker null — and the reason
+# was printed to a log that had scrolled away by the time anyone looked.
+
+
+def test_status_ok_when_everything_worked():
+    status, detail = resolve_diarization_status(
+        load_status="ok", load_detail="", run_error=None, turn_count=3, labeled_segment_count=7
+    )
+    assert status == "ok"
+    assert detail == ""
+
+
+def test_load_failure_reason_survives_verbatim():
+    # The message matters: a 401 here means the token exists but its owner
+    # never accepted the gated model's terms, which is the single most likely
+    # reason a correct-looking token still yields no speakers.
+    status, detail = resolve_diarization_status(
+        load_status="load_failed",
+        load_detail="401 Client Error: Gated repo",
+        run_error=None,
+        turn_count=0,
+        labeled_segment_count=0,
+    )
+    assert status == "load_failed"
+    assert "401" in detail
+
+
+@pytest.mark.parametrize("load_status", ["skipped_by_user", "no_token", "load_failed"])
+def test_load_status_takes_precedence_over_everything_downstream(load_status):
+    # No pipeline means no turns, so the downstream counts are trivially zero.
+    # They must not be allowed to relabel the real cause as "no_turns".
+    status, _ = resolve_diarization_status(
+        load_status=load_status,
+        load_detail="because",
+        run_error=None,
+        turn_count=0,
+        labeled_segment_count=0,
+    )
+    assert status == load_status
+
+
+def test_run_error_beats_empty_turns():
+    status, detail = resolve_diarization_status(
+        load_status="ok",
+        load_detail="",
+        run_error="CUDA out of memory",
+        turn_count=0,
+        labeled_segment_count=0,
+    )
+    assert status == "run_failed"
+    assert "CUDA" in detail
+
+
+def test_no_turns_when_model_heard_nobody():
+    status, detail = resolve_diarization_status(
+        load_status="ok", load_detail="", run_error=None, turn_count=0, labeled_segment_count=0
+    )
+    assert status == "no_turns"
+    assert detail
+
+
+def test_turns_that_match_nothing_get_their_own_status():
+    # Must not collapse into no_turns: the UI states "found no speaker turns"
+    # for that one, which would directly contradict this detail line, and the
+    # advice ("check the mic captured speech") would be wrong — it did.
+    status, detail = resolve_diarization_status(
+        load_status="ok", load_detail="", run_error=None, turn_count=4, labeled_segment_count=0
+    )
+    assert status == "no_overlap"
+    assert "4 speaker turn(s)" in detail
+
+
+def test_every_returned_status_is_declared():
+    # DIARIZATION_STATUSES is mirrored by the C++ enum; a value returned here
+    # but missing from the tuple would silently become Unknown in the UI.
+    cases = [
+        ("ok", "", None, 1, 1),
+        ("skipped_by_user", "x", None, 0, 0),
+        ("no_token", "x", None, 0, 0),
+        ("load_failed", "x", None, 0, 0),
+        ("ok", "", "boom", 0, 0),
+        ("ok", "", None, 0, 0),
+        ("ok", "", None, 2, 0),
+    ]
+    for load_status, load_detail, run_error, turns, labeled in cases:
+        status, _ = resolve_diarization_status(
+            load_status=load_status,
+            load_detail=load_detail,
+            run_error=run_error,
+            turn_count=turns,
+            labeled_segment_count=labeled,
+        )
+        assert status in DIARIZATION_STATUSES

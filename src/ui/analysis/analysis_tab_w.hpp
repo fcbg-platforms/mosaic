@@ -101,6 +101,13 @@ class AnalysisTabW : public QWidget {
     void export_transcript_csv();
     void highlight_active_transcript_row(int64_t ms);
     void rebuild_speaker_legend();
+
+    /// Shows or hides the banner explaining why a transcript has no speaker
+    /// labels. Driven by TranscriptResult::diarization_status(), which
+    /// run_diarize.py now persists — the reason used to exist only in that
+    /// run's stdout, so by the time anyone looked at the blank Speaker column
+    /// there was nothing left to explain it.
+    void refresh_diarize_banner();
     void update_expression_view();
     void export_expression_csv();
     void update_gaze_view();
