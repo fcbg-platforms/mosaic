@@ -70,6 +70,18 @@ live only in a PR description or a plan file where it'll be forgotten.
 - [ ] Multi-Camera Gaze Fusion — real room-11 hardware run: capture a session with someone looking
       at known points on the target surface, confirm the fused 3D ray/target point looks
       physically sensible.
+- [ ] Pose subject identity (BoT-SORT) — record two people who walk past each other so they cross
+      and swap detection order. Confirm each skeleton's "Subject N" tag stays glued to the same
+      person through the crossing, that the kinematics chart shows no speed spike at the swap, and
+      that each stats line's time span covers the whole appearance. Also confirm a person entering
+      mid-recording appears (their very first analysed frame is dropped by design — ultralytics
+      only emits a track once it has been confirmed on a second frame), and that re-running Pose on
+      the same session renumbers subjects rather than reusing the old ids.
+- [ ] Pose tracker confidence floor — the tracker is deliberately fed detections down to conf 0.1
+      while only conf >= the UI's threshold get written, so NMS now runs over a wider band. On real
+      crowded/partly-occluded footage, confirm this did not introduce spurious identity splits (one
+      person suddenly becoming two Subjects while clearly visible). If it did, the fix is to raise
+      TRACK_INPUT_CONF in analysis/pose/human_pose.py toward the UI threshold.
 - [ ] 3D Pose Reconstruction — real multi-person, multi-camera footage (not synthetic data): are
       tracks correctly separated per person, not merged/duplicated; does the interactive room view
       orbit/zoom smoothly.

@@ -207,16 +207,28 @@ WavEnvelopeResult load_wav_envelope(const QString& wavPath, int numColumns) {
     return result;
 }
 
-// Detected subject count for a Pose result: the widest "subjects" array
-// seen in any single frame. Not a claim of tracked identity across frames
-// (see AnalysisTabW::rebuild_subject_chips()'s own doc comment) — just
-// "how many chips to offer".
-int max_subjects_in(const PoseAnalysisResult& result) {
-    int maxSubjects = 0;
-    for (const auto& frame : result.frames()) {
-        maxSubjects = std::max(maxSubjects, static_cast<int>(frame.subjects.size()));
+// Chip tooltip, forked on what the file can actually promise. A pre-tracking
+// .pose.json keeps the original warning verbatim — its ids really are just
+// detection order — and an untracked subject inside a tracked file keeps it
+// too. The caveat isn't deleted by this feature, only narrowed to the data
+// that still earns it.
+// Most chips the subject picker will build. Six is the palette size
+// (subject_colors.hpp), so beyond that colours already repeat; twice that
+// still fits a normal window while keeping a fragmented recording's track
+// list from unbounding the row.
+constexpr int kMaxSubjectChips = 12;
+
+QString subject_chip_tooltip(SubjectChoice choice, bool fileHasTrackedIdentity) {
+    if (!fileHasTrackedIdentity) {
+        return "Subject identity is not tracked across frames — this is per-frame "
+               "detection order, not a tracked individual.";
     }
-    return maxSubjects;
+    return QString(
+               "Tracked identity (track id %1): the same physical person across frames. "
+               "Someone who leaves the frame for long enough may return as a new "
+               "subject, and ids are never comparable between cameras or between "
+               "re-runs of the analysis.")
+        .arg(choice.id.value);
 }
 
 } // namespace
@@ -365,7 +377,7 @@ class MetricsChartW : public QChartView {
     void set_title(const QString& text) { chart()->setTitle(text); }
 
     // Position mode, one or more subjects: 2 lines per subject (solid = X,
-    // dashed = Y), each pair tinted by subject_color(subjectIndex) so a
+    // dashed = Y), each pair tinted by subject_color(choice) so a
     // subject's trace here matches its skeleton's color in the video
     // overlay (SkeletonOverlayW's pose branch). Replaces the old single-
     // subject set_data() — subjectIndices.size()==1 (today's default,
@@ -373,7 +385,7 @@ class MetricsChartW : public QChartView {
     // just with subject-aware legend labels instead of plain "X position"/
     // "Y position".
     void set_multi_subject_position(const PoseAnalysisResult& result, int keypointIndex,
-                                    const QVector<int>& subjectIndices) {
+                                    const QVector<SubjectChoice>& subjects) {
         clear_all_series();
         clear_subject_series();
         axisY_->setTitleText("Position (px)");
@@ -388,7 +400,7 @@ class MetricsChartW : public QChartView {
         set_series_marker_visible(ySeries_, false);
 
         if (!result.is_valid() || result.frames().isEmpty() || keypointIndex < 0 ||
-            subjectIndices.isEmpty()) {
+            subjects.isEmpty()) {
             apply_ranges(false, 0.0, 0.0, 0.0);
             return;
         }
@@ -398,25 +410,26 @@ class MetricsChartW : public QChartView {
         double maxY      = std::numeric_limits<double>::lowest();
         double maxT      = 0.0;
 
-        for (int subjectIndex : subjectIndices) {
-            auto* xs = new QLineSeries();
-            xs->setName(QString("Subject %1 · X").arg(subjectIndex + 1));
-            xs->setPen(QPen(subject_color(subjectIndex), 2, Qt::SolidLine));
+        for (const SubjectChoice choice : subjects) {
+            const QString label = subject_label(choice);
+            auto* xs            = new QLineSeries();
+            xs->setName(label + " · X");
+            xs->setPen(QPen(subject_color(choice), 2, Qt::SolidLine));
             auto* ys = new QLineSeries();
-            ys->setName(QString("Subject %1 · Y").arg(subjectIndex + 1));
-            ys->setPen(QPen(subject_color(subjectIndex), 2, Qt::DashLine));
+            ys->setName(label + " · Y");
+            ys->setPen(QPen(subject_color(choice), 2, Qt::DashLine));
 
             for (const auto& frame : result.frames()) {
-                if (subjectIndex >= frame.subjects.size()) {
+                const PoseSubject* subject = find_subject(frame, choice.id);
+                if (subject == nullptr) {
                     continue;
                 }
-                const auto& subject = frame.subjects[subjectIndex];
-                if (keypointIndex >= subject.keypoints.size()) {
+                if (keypointIndex >= subject->keypoints.size()) {
                     continue;
                 }
 
                 const double tSec = (frame.timestampNs - t0) / 1e9;
-                const auto& kp    = subject.keypoints[keypointIndex];
+                const auto& kp    = subject->keypoints[keypointIndex];
                 xs->append(tSec, kp.x());
                 ys->append(tSec, kp.y());
 
@@ -432,12 +445,12 @@ class MetricsChartW : public QChartView {
     }
 
     // Speed/Acceleration mode, one or more subjects: 1 line per subject,
-    // tinted by subject_color(subjectIndex). perSubject: (subjectIndex,
+    // tinted by subject_color(choice). perSubject: (SubjectChoice,
     // points) pairs, points already in (ms-since-start, value) form
     // (caller pre-filters NaN, exactly as the old single-subject code
     // already did). Same minDurationMs floor behavior as
     // set_single_series() — see that method's own doc comment.
-    void set_multi_subject_series(const QVector<QPair<int, QVector<QPointF>>>& perSubject,
+    void set_multi_subject_series(const QVector<QPair<SubjectChoice, QVector<QPointF>>>& perSubject,
                                   const QString& yAxisLabel, double minDurationMs = 0.0) {
         clear_all_series();
         clear_subject_series();
@@ -455,10 +468,10 @@ class MetricsChartW : public QChartView {
         double maxY = std::numeric_limits<double>::lowest();
         double maxT = std::max(0.0, minDurationMs) / 1000.0;
 
-        for (const auto& [subjectIndex, points] : perSubject) {
+        for (const auto& [choice, points] : perSubject) {
             auto* s = new QLineSeries();
-            s->setName(QString("Subject %1").arg(subjectIndex + 1));
-            s->setPen(QPen(subject_color(subjectIndex), 2));
+            s->setName(subject_label(choice));
+            s->setPen(QPen(subject_color(choice), 2));
             for (const auto& p : points) {
                 const double tSec = p.x() / 1000.0;
                 s->append(tSec, p.y());
@@ -939,6 +952,11 @@ struct AnalysisTabW::Impl {
     // rebuild_subject_chips() whenever a new session/camera loads.
     QWidget* subjectPickerRowW = nullptr;
     QVector<QToolButton*> subjectChips;
+    // Parallel to subjectChips: which person each chip selects. Held rather
+    // than recomputed because a stale entry now means "a different person",
+    // not merely "a different array slot" — so it is refreshed only in
+    // rebuild_subject_chips(), alongside the chips themselves.
+    QVector<SubjectChoice> currentSubjects;
 
     QList<SessionInfo> sessions;
     QString currentSessionPath;
@@ -1222,7 +1240,10 @@ void AnalysisTabW::build_ui() {
         "Skipped frames get no data at all (not interpolated) — the video "
         "overlay and chart fall back to the nearest analyzed frame for "
         "them. Higher values analyze long recordings faster at the cost "
-        "of temporal resolution. Keep at 1 for the most complete result.");
+        "of temporal resolution, and also weaken subject identity: the "
+        "tracker only sees the frames that are analyzed, so people move N× "
+        "further between its updates. Keep at 1 for the most complete "
+        "result.");
     poseLay->addWidget(d->skipSpin);
 
     // Depth models are a completely separate output shape (a colorized
@@ -1856,10 +1877,14 @@ void AnalysisTabW::build_ui() {
     d->kinematicsStatsLbl = new QLabel;
     d->kinematicsStatsLbl->setStyleSheet("color:#7070a0; font-size:11px;");
     d->kinematicsStatsLbl->setToolTip(
-        "Subject identity is not tracked across frames — each Subject number "
-        "above is per-frame detection order, not a tracked individual (safe "
-        "to treat as one continuous subject only within a single, unbroken "
-        "detection run).");
+        "Each Subject above is one tracked person, followed across frames — "
+        "so a swap in detection order no longer corrupts these numbers. Two "
+        "limits remain: someone who leaves the frame for long enough can come "
+        "back as a new Subject (which is why each line shows the time span it "
+        "covers), and ids are never comparable between cameras or between "
+        "re-runs. A Subject marked \"untracked\" is raw detection order and "
+        "carries the old caveat in full — as does any result analysed before "
+        "tracking existed.");
     kinematicsRow->addWidget(d->kinematicsStatsLbl, 1);
 
     d->exportKinematicsBtn = new QPushButton("Export CSV");
@@ -2937,7 +2962,7 @@ void AnalysisTabW::reload_current_camera_result() {
     if (!info || d->cameraCombo->currentIndex() < 0) {
         d->player->set_video(QString()); // stop/clear any previously-loaded video
         d->player->set_pose_result(d->currentResult);
-        rebuild_subject_chips(0); // no session selected — no chips to show
+        rebuild_subject_chips({}); // no session selected — no chips to show
         d->keypointCombo->clear();
         d->blendshapeCombo->clear();
         // Explicit calls rather than relying on QComboBox::clear() above
@@ -2966,7 +2991,7 @@ void AnalysisTabW::reload_current_camera_result() {
             const bool hasOutput   = QFileInfo::exists(depthAbs);
             d->player->set_video(hasOutput ? depthAbs : videoAbs);
             d->player->set_pose_result(PoseAnalysisResult()); // no overlay in depth mode
-            rebuild_subject_chips(0);                         // depth mode has no per-subject chart
+            rebuild_subject_chips({});                        // depth mode has no per-subject chart
             d->openFolderBtn->setEnabled(hasOutput);
 
             if (hasOutput) {
@@ -2993,7 +3018,7 @@ void AnalysisTabW::reload_current_camera_result() {
         }
         d->keypointCombo->blockSignals(false);
 
-        rebuild_subject_chips(max_subjects_in(d->currentResult));
+        rebuild_subject_chips(subject_choices(d->currentResult));
         update_kinematics_chart();
 
         // Only overwrite statusLbl for the "nothing to show yet" cases — a
@@ -3143,13 +3168,17 @@ void AnalysisTabW::reload_current_camera_result() {
 
 // ── Kinematics view ──────────────────────────────────────────────────────
 
-// Rebuilds the subject-chip row for a newly-loaded Pose result. subjectCount
+// Rebuilds the subject-chip row for a newly-loaded Pose result. A list of
 // <= 1 leaves the row empty and hidden — nothing to pick between, matching
 // this file's established "don't show a control with nothing to control"
-// convention (e.g. trackFieldW for a single-track pose3d session). Chip 0
-// defaults checked, matching the single-subject view every session showed
-// before this feature existed.
-void AnalysisTabW::rebuild_subject_chips(int subjectCount) {
+// convention (e.g. trackFieldW for a single-track pose3d session). The first
+// chip defaults checked, matching the single-subject view every session
+// showed before this feature existed.
+//
+// Chips carry SubjectChoice, not array positions: each one now names a
+// person, so it stays attached to that person even as detection order
+// changes between frames.
+void AnalysisTabW::rebuild_subject_chips(const QVector<SubjectChoice>& subjects) {
     auto* layout      = d->subjectPickerRowW->layout();
     QLayoutItem* item = nullptr;
     while ((item = layout->takeAt(0)) != nullptr) {
@@ -3159,23 +3188,35 @@ void AnalysisTabW::rebuild_subject_chips(int subjectCount) {
         delete item;
     }
     d->subjectChips.clear();
+    d->currentSubjects = subjects;
 
-    if (subjectCount <= 1) {
+    if (subjects.size() <= 1) {
         d->subjectPickerRowW->setVisible(false);
         return;
     }
 
+    const bool tracked = d->currentResult.has_tracked_identity();
+
+    // Cap the row. subject_ids() is every distinct track over the WHOLE
+    // recording, not the number of people on screen at once — BoT-SORT starts
+    // a new track after any occlusion longer than its buffer, so a long
+    // multi-person session can accumulate far more ids than the 2-5 the old
+    // "widest subjects array" count ever produced. subjectPickerRowW is a
+    // plain QHBoxLayout with no scroll area, so an uncapped row would grow
+    // without bound and drag the whole Analysis tab's minimum width with it.
+    // Nothing is lost: the CSV export covers every subject regardless.
+    const int shown = std::min<int>(subjects.size(), kMaxSubjectChips);
+
     layout->addWidget(new QLabel("Subjects:"));
-    for (int i = 0; i < subjectCount; ++i) {
-        auto* chip = new QToolButton;
-        chip->setText(QString("Subject %1").arg(i + 1));
+    for (int i = 0; i < shown; ++i) {
+        const SubjectChoice choice = subjects[i];
+        auto* chip                 = new QToolButton;
+        chip->setText(subject_label(choice));
         chip->setCheckable(true);
         chip->setChecked(i == 0);
         chip->setCursor(Qt::PointingHandCursor);
-        chip->setToolTip(
-            "Subject identity is not tracked across frames — this is per-frame "
-            "detection order, not a tracked individual.");
-        const QString hex = subject_color(i).name();
+        chip->setToolTip(subject_chip_tooltip(choice, tracked));
+        const QString hex = subject_color(choice).name();
         chip->setStyleSheet(
             QString("QToolButton { border: 2px solid %1; border-radius: 4px; padding: 3px 8px;"
                     "  color: %1; background: transparent; }"
@@ -3185,28 +3226,63 @@ void AnalysisTabW::rebuild_subject_chips(int subjectCount) {
         layout->addWidget(chip);
         d->subjectChips.push_back(chip);
     }
+
+    if (subjects.size() > shown) {
+        auto* more = new QLabel(QString("+%1 more").arg(subjects.size() - shown));
+        more->setToolTip(
+            QString("This result has %1 tracked subjects; the first %2 are offered here. "
+                    "A long recording accumulates a new subject every time someone is "
+                    "occluded for long enough to end their track. Every subject is still "
+                    "written to the kinematics CSV export.")
+                .arg(subjects.size())
+                .arg(shown));
+        more->setStyleSheet("color: #8891a8; font-style: italic;");
+        layout->addWidget(more);
+    }
+
+    // Say so rather than silently omitting them. These are real detections the
+    // tracker never claimed; they have no cross-frame identity, so no
+    // trajectory can honestly be drawn for them — but they ARE visible on the
+    // video overlay, in grey, and a user who counts skeletons there and chips
+    // here deserves to know why the numbers differ.
+    if (d->currentResult.has_untracked_detections()) {
+        auto* note = new QLabel("+ untracked");
+        note->setToolTip(
+            "Some detections were never claimed by the tracker, so they have no identity "
+            "across frames and cannot be charted or exported. They are still drawn on the "
+            "video overlay, in grey with a dashed outline.");
+        note->setStyleSheet("color: #8891a8; font-style: italic;");
+        layout->addWidget(note);
+    }
     static_cast<QHBoxLayout*>(layout)->addStretch();
     d->subjectPickerRowW->setVisible(is_pose_plugin());
 }
 
-QVector<int> AnalysisTabW::checked_subject_indices() const {
-    QVector<int> out;
-    for (int i = 0; i < d->subjectChips.size(); ++i) {
+QVector<SubjectChoice> AnalysisTabW::checked_subjects() const {
+    QVector<SubjectChoice> out;
+    for (int i = 0; i < d->subjectChips.size() && i < d->currentSubjects.size(); ++i) {
         if (d->subjectChips[i]->isChecked()) {
-            out.push_back(i);
+            out.push_back(d->currentSubjects[i]);
         }
     }
-    if (out.isEmpty()) {
-        out.push_back(0);
-    } // defensive fallback — chart is never silently empty
+    // Defensive fallback — the chart is never silently empty. This path is
+    // load-bearing, not merely defensive: a result with <= 1 subject builds no
+    // chips at all (above), so it is the *only* reason single-subject sessions
+    // plot anything. It must resolve to the first real subject rather than a
+    // hardcoded id — id 0 exists only in pre-tracking files, so hardcoding it
+    // would leave every tracked single-subject session with a permanently
+    // empty chart and no error.
+    if (out.isEmpty() && !d->currentSubjects.isEmpty()) {
+        out.push_back(d->currentSubjects.first());
+    }
     return out;
 }
 
 void AnalysisTabW::update_kinematics_chart() {
-    const int keypointIndex     = d->keypointCombo->currentIndex();
-    const QString metric        = d->metricCombo->currentData().toString();
-    const QString keypointName  = keypointIndex >= 0 ? d->keypointCombo->currentText() : QString();
-    const QVector<int> subjects = checked_subject_indices();
+    const int keypointIndex    = d->keypointCombo->currentIndex();
+    const QString metric       = d->metricCombo->currentData().toString();
+    const QString keypointName = keypointIndex >= 0 ? d->keypointCombo->currentText() : QString();
+    const QVector<SubjectChoice> subjects = checked_subjects();
 
     if (metric == "position" || keypointIndex < 0) {
         d->chart->set_multi_subject_position(d->currentResult, keypointIndex, subjects);
@@ -3224,10 +3300,10 @@ void AnalysisTabW::update_kinematics_chart() {
     const QString unit       = isSpeed ? (isMm ? "mm/s" : "px/s") : (isMm ? "mm/s²" : "px/s²");
     const int64_t t0         = d->first_timestamp_ns();
 
-    QVector<QPair<int, QVector<QPointF>>> perSubject;
+    QVector<QPair<SubjectChoice, QVector<QPointF>>> perSubject;
     QStringList statLines;
-    for (int subjectIndex : subjects) {
-        const auto series = compute_kinematics(d->currentResult, keypointIndex, subjectIndex,
+    for (const SubjectChoice choice : subjects) {
+        const auto series = compute_kinematics(d->currentResult, keypointIndex, choice.id,
                                                d->smoothingSpin->value());
         QVector<QPointF> points;
         points.reserve(series.samples.size());
@@ -3239,13 +3315,22 @@ void AnalysisTabW::update_kinematics_chart() {
             const double tMs = (sample.timestampNs - t0) / 1e6;
             points.append(QPointF(tMs, value * scale));
         }
-        perSubject.push_back({subjectIndex, points});
+        perSubject.push_back({choice, points});
 
         if (std::isnan(series.stats.avgSpeedPxPerS)) {
-            statLines << QString("Subject %1: not enough data").arg(subjectIndex + 1);
+            statLines << QString("%1: not enough data").arg(subject_label(choice));
         } else {
-            statLines << QString("Subject %1 — dist %2  avg %3 %4  max %5 %4")
-                             .arg(subjectIndex + 1)
+            // The covered span is not decoration. A tracked person can
+            // fragment into several ids across long occlusions, and without it
+            // a 12-second fragment's stats read exactly like a whole
+            // recording's — same shape, same units, silently a hundredth of
+            // the data.
+            const double startS = (series.samples.first().timestampNs - t0) / 1e9;
+            const double endS   = (series.samples.last().timestampNs - t0) / 1e9;
+            statLines << QString("%1 — %2–%3 s  dist %4  avg %5 %6  max %7 %6")
+                             .arg(subject_label(choice))
+                             .arg(startS, 0, 'f', 1)
+                             .arg(endS, 0, 'f', 1)
                              .arg(series.stats.totalDistancePx * scale, 0, 'f', 1)
                              .arg(series.stats.avgSpeedPxPerS * scale, 0, 'f', 1)
                              .arg(isMm ? "mm/s" : "px/s")
@@ -3279,8 +3364,7 @@ void AnalysisTabW::export_kinematics_csv() {
     // Always raw pixel units, regardless of the display-layer mm/px scale —
     // unambiguous for anyone reading the file without knowing what scale
     // was selected in the UI at export time.
-    const int smoothingWindow   = d->smoothingSpin->value();
-    const QVector<int> subjects = checked_subject_indices();
+    const int smoothingWindow = d->smoothingSpin->value();
 
     // Load every camera's own result for the currently-selected model
     // (pose_json_path_for() is model-aware) up front — both to skip
@@ -3308,21 +3392,32 @@ void AnalysisTabW::export_kinematics_csv() {
     if (perCamera.isEmpty()) {
         return;
     }
+    // Every camera in a session is analysed by one run_pose.py invocation, so
+    // the first camera's tracker describes them all.
+    const QString trackerId = perCamera.first().result.tracker();
 
     export_csv(this, "Export Kinematics", suggested, [&](QTextStream& ts) {
         // Caveats below matter to anyone reading this file without having
-        // seen the app: subject numbers are per-frame detection order, not
-        // identity tracked frame-to-frame OR across cameras (a stat like
-        // max speed can be corrupted by an identity swap in a multi-subject
-        // session, and "subject 0" in one camera is not necessarily the
-        // same physical person as "subject 0" in another), and x_px/y_px
-        // are post-smoothing, not the raw detector output.
-        ts << "# subject numbers are per-frame detection order, not tracked identity "
-              "across frames or cameras — see the in-app tooltip on the Subject chips\n";
+        // seen the app. track_id is a cross-frame tracker id whenever the
+        // "tracker:" line names one, so a stat like max speed is no longer
+        // corrupted by two people swapping detection order — but it is scoped
+        // to ONE camera's video: each video restarts the tracker, so track_id
+        // 3 here and track_id 3 under another camera are unrelated people.
+        // `subject` is that track's 1-based position within its own camera,
+        // matching the Subject chips in the app. x_px/y_px are post-smoothing,
+        // not the raw detector output.
+        ts << "# track_id is per-camera and per-run: never comparable across cameras, "
+              "or across two analyses of the same footage\n";
         ts << "# model: " << modelId << "\n";
+        ts << "# tracker: "
+           << (trackerId.isEmpty() ? QString("none — this result predates identity tracking, so "
+                                             "track_id is merely per-frame detection order")
+                                   : trackerId)
+           << "\n";
         ts << "# smoothing_window=" << smoothingWindow
            << " (x_px/y_px below are post-smoothing positions)\n";
-        ts << "camera,keypoint,subject,timestamp_ms,x_px,y_px,speed_px_s,accel_px_s2\n";
+        ts << "camera,keypoint,subject,track_id,timestamp_ms,x_px,y_px,speed_px_s,"
+              "accel_px_s2\n";
         for (const auto& cam : perCamera) {
             // Every keypoint the model reports (e.g. all 17 COCO keypoints),
             // not just whichever one happens to be selected in the chart —
@@ -3331,13 +3426,19 @@ void AnalysisTabW::export_kinematics_csv() {
             // camera's) keypointCombo.
             const QStringList& keypointNames = cam.result.keypoint_names();
             for (int keypointIndex = 0; keypointIndex < keypointNames.size(); ++keypointIndex) {
-                for (int subjectIndex : subjects) {
-                    const auto series = compute_kinematics(cam.result, keypointIndex, subjectIndex,
-                                                           smoothingWindow);
+                // Each camera's OWN subjects, not the currently-displayed
+                // camera's chip selection. Identity ids are per-video, so
+                // reusing one camera's ids against another's result would
+                // export zero rows where the id is absent and, worse, a
+                // different person's rows where it happens to exist.
+                for (const SubjectChoice choice : subject_choices(cam.result)) {
+                    const auto series =
+                        compute_kinematics(cam.result, keypointIndex, choice.id, smoothingWindow);
                     for (const auto& sample : series.samples) {
                         ts << cam.label << "," << keypointNames[keypointIndex] << ","
-                           << (subjectIndex + 1) << "," << (sample.timestampNs - t0) / 1e6 << ","
-                           << sample.position.x() << "," << sample.position.y() << ","
+                           << choice.ordinal << "," << choice.id.value << ","
+                           << (sample.timestampNs - t0) / 1e6 << "," << sample.position.x() << ","
+                           << sample.position.y() << ","
                            << (std::isnan(sample.speedPxPerS) ? QString()
                                                               : QString::number(sample.speedPxPerS))
                            << ","

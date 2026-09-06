@@ -32,7 +32,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 from pose.depth_estimator import DepthEstimator
-from pose.human_pose import HumanPoseEstimator
+from pose.human_pose import TRACKER_NAME, HumanPoseEstimator
 from pose.keypoints import COCO_KEYPOINTS, COCO_SKELETON, PoseResult
 
 # ── CLI ───────────────────────────────────────────────────────────────────────
@@ -158,6 +158,16 @@ def process_video(
         print(f"[run_pose] Cannot open {video_path}", file=sys.stderr)
         return
 
+    # One video = one identity space. The estimator carries tracker state
+    # across calls (persist=True), and process_session() threads a single
+    # estimator through every camera in the session, so without this reset
+    # camera N's live tracks would be matched against camera N+1's opening
+    # frames. Placed here rather than in process_session()'s loop because
+    # process_video() *is* the boundary — that also covers --video mode and
+    # makes it impossible for a future caller to forget. run_pipe()
+    # deliberately does not reset: it is one continuous stream.
+    estimator.reset_tracker()
+
     fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
     total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     print(f"[run_pose] Processing {video_path.name}  ({total} frames @ {fps:.1f} fps)", flush=True)
@@ -169,6 +179,18 @@ def process_video(
     # visible log, so there's no "avoid spamming the log" reason to keep the
     # interval coarse.
     progress_interval = max(1, total // 200)
+
+    if skip > 1:
+        # Worth saying out loud now that identity is tracked: the tracker only
+        # sees the frames we actually run inference on, so people move `skip`x
+        # further between its updates, and its lost-track buffer (counted in
+        # updates, not video frames) stays open `skip`x longer in real time.
+        print(
+            f"[run_pose] --skip {skip}: subject identity will be less reliable "
+            f"(the tracker sees only every {skip}th frame)",
+            file=sys.stderr,
+            flush=True,
+        )
 
     # Load matching timestamp CSV if present (writes absolute timestamps per
     # frame). Built directly from camera_index rather than substituting
@@ -257,6 +279,12 @@ def _write_results(
                 {
                     "source_video": video_path.name,
                     "model": model_name,
+                    # Names the cross-frame tracker behind subject_id. Absent
+                    # in files written before tracking existed, whose
+                    # subject_id is merely per-frame detection order — the C++
+                    # reader keys its "identity is/isn't tracked" wording off
+                    # exactly this rather than inferring it from the ids.
+                    "tracker": TRACKER_NAME,
                     "keypoint_names": COCO_KEYPOINTS,
                     "skeleton_edges": COCO_SKELETON,
                     "frames": results,

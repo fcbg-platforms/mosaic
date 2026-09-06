@@ -52,8 +52,12 @@ struct KinematicsSeries {
 /// @see docs/math/pose_kinematics.rst for the full derivation, including
 ///      why avgSpeedPxPerS is time-weighted rather than a naive mean of
 ///      per-interval speeds.
+/// @param subject Which person to measure, by SubjectId — not by position in
+///     each frame's subjects array. The distinction is the whole point: array
+///     position is per-frame detection order, so it can hand you a different
+///     physical person from one frame to the next.
 [[nodiscard]] KinematicsSeries compute_kinematics(const PoseAnalysisResult& result,
-                                                  int keypointIndex, int subjectIndex,
+                                                  int keypointIndex, SubjectId subject,
                                                   int smoothingWindow);
 
 } // namespace mosaic

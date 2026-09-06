@@ -3,7 +3,9 @@
 #include "video/fps_readout.hpp"
 
 using mosaic::compute_fps_readout;
+using mosaic::FpsLimit;
 using mosaic::FpsReadoutKind;
+using mosaic::k_fps_at_cap_tolerance;
 using mosaic::k_fps_shortfall_factor;
 
 namespace {
@@ -97,4 +99,106 @@ TEST(FpsReadout, ZeroAndNegativeMeasurementsAreBothTreatedAsNoMeasurement) {
 TEST(FpsReadout, ANonPositiveExposureTimeYieldsNoCeiling) {
     const auto r = compute_fps_readout(kNoMeasurement, true, 25.0, true, 0.0);
     EXPECT_EQ(r.kind, FpsReadoutKind::AwaitingMeasurement);
+}
+
+// ── Which constraint is binding ────────────────────────────────────────────
+//
+// The readout showing a correct-but-motionless number is the failure these
+// cover: a camera pinned to 15 fps reports 15 fps however the exposure
+// control is moved, and without naming the cap the UI looks broken.
+
+TEST(FpsReadoutLimit, AMeasurementAtTheConfiguredRateIsCappedByIt) {
+    const auto r = compute_fps_readout(25.0, /*specifyFps=*/true, /*configuredFps=*/25.0,
+                                       /*manualExposure=*/true, /*exposureTimeUs=*/10'000.0);
+    EXPECT_EQ(r.limitedBy, FpsLimit::ConfiguredRate);
+    EXPECT_FALSE(r.belowConfigured);
+    // 1e6 / 25 == 40 ms: below that, exposure cannot be what limits the rate.
+    EXPECT_DOUBLE_EQ(r.exposureCrossoverUs, 40'000.0);
+}
+
+// The reading that prompted this change: every acA1920-25gc in room 11 logged
+// resultFPS=14.9999 against a configured 15, so the tolerance has to absorb
+// the camera's own rounding rather than calling this a shortfall.
+TEST(FpsReadoutLimit, TheRealRoom11ReadingCountsAsAtTheCap) {
+    const auto r = compute_fps_readout(14.9999, true, 15.0, true, 10'000.0);
+    EXPECT_EQ(r.kind, FpsReadoutKind::Measured);
+    EXPECT_EQ(r.limitedBy, FpsLimit::ConfiguredRate);
+    EXPECT_NEAR(r.exposureCrossoverUs, 66'666.7, 0.1);
+}
+
+// Pin both sides of the cap tolerance, the same way the shortfall boundary is
+// pinned above.
+TEST(FpsReadoutLimit, CapBoundaryMatchesTheSharedTolerance) {
+    const double configured = 25.0;
+    const double onTheLine  = configured * (1.0 - k_fps_at_cap_tolerance); // 24.75
+
+    EXPECT_EQ(compute_fps_readout(onTheLine, true, configured, false, 0.0).limitedBy,
+              FpsLimit::ConfiguredRate);
+    EXPECT_EQ(compute_fps_readout(onTheLine - 0.01, true, configured, false, 0.0).limitedBy,
+              FpsLimit::Other);
+}
+
+// Between the two thresholds the camera is under its cap but not by enough to
+// warn about — still "something other than the cap is binding".
+TEST(FpsReadoutLimit, AMeasurementUnderTheCapButAboveTheShortfallIsOther) {
+    const auto r = compute_fps_readout(24.0, true, 25.0, false, 0.0); // 96% of configured
+    EXPECT_EQ(r.limitedBy, FpsLimit::Other);
+    EXPECT_FALSE(r.belowConfigured);
+    EXPECT_LT(r.exposureCrossoverUs, 0.0);
+}
+
+// The two classifications are defined so they can never both fire; the label
+// code relies on that to avoid contradicting itself.
+TEST(FpsReadoutLimit, AShortfallIsOtherAndNeverAlsoAtTheCap) {
+    const auto r = compute_fps_readout(15.7, true, 25.0, false, 10'000.0);
+    EXPECT_TRUE(r.belowConfigured);
+    EXPECT_EQ(r.limitedBy, FpsLimit::Other);
+    EXPECT_LT(r.exposureCrossoverUs, 0.0);
+}
+
+// A free-running camera has no cap to be at, however fast it happens to run.
+TEST(FpsReadoutLimit, WithoutASpecifiedRateNothingCanBeClassified) {
+    const auto r = compute_fps_readout(200.0, /*specifyFps=*/false, 25.0, true, 1'000.0);
+    EXPECT_EQ(r.kind, FpsReadoutKind::Measured);
+    EXPECT_EQ(r.limitedBy, FpsLimit::Unknown);
+    EXPECT_LT(r.exposureCrossoverUs, 0.0);
+}
+
+// Neither measurement-free state gets classified: ExposureCeiling's own
+// wording already names exposure as the limit, and AwaitingMeasurement has
+// nothing to reason from at all.
+TEST(FpsReadoutLimit, StatesWithoutAMeasurementAreAlwaysUnknown) {
+    const auto ceiling = compute_fps_readout(-1.0, true, 25.0, true, 40'000.0);
+    EXPECT_EQ(ceiling.kind, FpsReadoutKind::ExposureCeiling);
+    EXPECT_EQ(ceiling.limitedBy, FpsLimit::Unknown);
+
+    const auto awaiting = compute_fps_readout(-1.0, true, 25.0, false, 40'000.0);
+    EXPECT_EQ(awaiting.kind, FpsReadoutKind::AwaitingMeasurement);
+    EXPECT_EQ(awaiting.limitedBy, FpsLimit::Unknown);
+}
+
+// The frame-rate spinbox relabels synchronously on every valueChanged while
+// the last measurement still describes the *previous* target, so dragging
+// 30 fps down to 15 transiently pairs a 30 fps reading with a 15 fps cap.
+// Calling that "capped by the 15 fps setting" would assert a cap the number
+// on screen visibly doubles.
+TEST(FpsReadoutLimit, AMeasurementAboveTheConfiguredRateIsNotCappedByIt) {
+    const auto r = compute_fps_readout(30.0, /*specifyFps=*/true, /*configuredFps=*/15.0,
+                                       /*manualExposure=*/true, /*exposureTimeUs=*/10'000.0);
+    EXPECT_EQ(r.kind, FpsReadoutKind::Measured);
+    EXPECT_EQ(r.limitedBy, FpsLimit::Unknown);
+    EXPECT_FALSE(r.belowConfigured);
+    EXPECT_LT(r.exposureCrossoverUs, 0.0);
+}
+
+// The cap band is two-sided: pin the upper edge the same way the lower one is
+// pinned, so a camera overshooting slightly still reads as "at the cap".
+TEST(FpsReadoutLimit, CapBandUpperEdgeIsAlsoBoundedByTheTolerance) {
+    const double configured = 25.0;
+    const double justOver   = configured * (1.0 + k_fps_at_cap_tolerance); // 25.25
+
+    EXPECT_EQ(compute_fps_readout(justOver, true, configured, false, 0.0).limitedBy,
+              FpsLimit::ConfiguredRate);
+    EXPECT_EQ(compute_fps_readout(justOver + 0.01, true, configured, false, 0.0).limitedBy,
+              FpsLimit::Unknown);
 }

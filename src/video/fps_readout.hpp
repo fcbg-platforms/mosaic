@@ -34,6 +34,13 @@ inline constexpr double k_fps_shortfall_factor = 0.9;
 // re-read would repaint every card's readout continuously to no purpose.
 inline constexpr double k_fps_change_epsilon = 0.05;
 
+// A measurement within this fraction of the configured rate counts as "at the
+// cap": the camera is delivering exactly what was asked for, so the configured
+// rate — not exposure, sensor readout or bandwidth — is what binds. Relative
+// rather than absolute so it holds at 5 fps and at 200 fps alike; the real
+// acA1920-25gc cameras on this rig report 14.9999 against a configured 15.
+inline constexpr double k_fps_at_cap_tolerance = 0.01;
+
 enum class FpsReadoutKind {
     // No trustworthy measurement yet: the camera isn't open, or it opened so
     // recently that its own reading is still inside the warm-up window (see
@@ -50,6 +57,26 @@ enum class FpsReadoutKind {
     Measured,
 };
 
+// Which constraint is actually holding the rate down. Knowing the number
+// alone isn't enough to act on it: a camera pinned to 15 fps reports 15 fps
+// no matter how the exposure control is moved, which reads as a dead widget
+// unless the UI says *why*.
+enum class FpsLimit {
+    // Nothing can be said: no measurement to classify, no configured rate to
+    // compare one against, or a measurement running *faster* than the
+    // configured rate — in which case that rate is demonstrably not capping
+    // anything.
+    Unknown,
+    // The camera is hitting the rate it was pinned to. Exposure is not the
+    // binding constraint, and moving it will change nothing until it crosses
+    // exposureCrossoverUs.
+    ConfiguredRate,
+    // Measurably below the configured rate: exposure, sensor readout time or
+    // link bandwidth is binding instead. Which of the three, only the camera
+    // knows — ResultingFrameRate is a single number.
+    Other,
+};
+
 struct FpsReadout {
     FpsReadoutKind kind = FpsReadoutKind::AwaitingMeasurement;
     // Frames per second for Measured/ExposureCeiling; -1.0 for
@@ -59,6 +86,21 @@ struct FpsReadout {
     // Always false when the user hasn't pinned a frame rate (specifyFps), and
     // always false for AwaitingMeasurement — there is nothing to compare.
     bool belowConfigured = false;
+    // Which constraint is holding `fps` down. Only ever classified for
+    // Measured readouts with a configured rate to compare against;
+    // ExposureCeiling stays Unknown because its own wording already names
+    // exposure as the limit.
+    FpsLimit limitedBy = FpsLimit::Unknown;
+    // The exposure time, in microseconds, above which exposure alone would
+    // push the rate below the configured cap: 1e6 / configuredFps. This is
+    // the answer to "why does moving the exposure control do nothing?" — it
+    // does nothing until it passes this value. Only meaningful when
+    // limitedBy == ConfiguredRate; -1.0 otherwise.
+    //
+    // A slight over-estimate by design: ResultingFrameRate also charges
+    // sensor readout time, so the real crossover sits a little below this.
+    // Callers should present it as approximate.
+    double exposureCrossoverUs = -1.0;
 };
 
 // @param measuredFps    VideoGrabber::achievable_fps() — <= 0 means "no

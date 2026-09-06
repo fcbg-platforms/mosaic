@@ -184,10 +184,18 @@ sitting alongside **Live**. The workflow is always the same shape:
       shows a solid/dashed X/Y pair per subject; Speed/Acceleration shows
       one line per subject), and the video overlay colors each detected
       person's skeleton to match. A single-subject session shows no chip
-      row at all. Subject *numbers* are per-frame detection order, not a
-      tracked identity — "Subject 1" in one frame isn't guaranteed to be
-      the same physical person as "Subject 1" in another frame, so treat
-      multi-subject kinematics as indicative, not identity-verified.
+      row at all. Each **Subject** is one *tracked* person, followed across
+      frames by BoT-SORT, so "Subject 1" stays the same physical person even
+      when the detector reorders its output — the skeleton overlay labels
+      each person so you can watch this directly. Three limits remain:
+      someone who leaves the frame for long enough returns as a *new*
+      Subject (each stats line shows the time span it actually covers, so a
+      fragment is not mistaken for a whole recording); subject ids are
+      per-video, so they are never comparable between cameras or between
+      re-runs; and a chip marked *(untracked)*, drawn with a dashed border,
+      is a detection the tracker never claimed and is still raw per-frame
+      order. Results analysed before tracking existed keep the old
+      detection-order behaviour and say so in their chip tooltips.
 
    .. tab-item:: Face Masking
 
@@ -506,13 +514,17 @@ Tips and troubleshooting
 
    .. grid-item-card:: 🧑‍🤝‍🧑  Subject identity across frames
 
-      No plugin tracks *which* physical subject is which across frames in
-      a multi-subject session — "subject 0"/"track 0" just means "first
-      detection in that frame" (or, for 3D Pose Reconstruction, the
-      nearest-centroid match from the previous tick). Kinematics/
-      expression stats are only fully reliable for single-subject sessions;
-      multi-subject Pose kinematics and 3D Pose Reconstruction track
-      identity best-effort, not guaranteed.
+      **Pose** tracks identity across frames (BoT-SORT), and **3D Pose
+      Reconstruction** does its own nearest-centroid matching per tick — but
+      neither is a guarantee: a long occlusion ends a track, and the person
+      returns under a new id. The two numbering systems are also unrelated,
+      so Pose's "Subject 2" and the room view's "track 2" are not the same
+      label. Ids are per-video and per-run: never comparable between
+      cameras, or between two analyses of the same footage.
+
+      **Facial Expression** and **2D Gaze** still do *not* track identity —
+      their "subject 0" means "first detection in that frame" — so their
+      stats remain fully reliable only for single-subject sessions.
 
    .. grid-item-card:: ❤️  rPPG is experimental — verify before trusting
 

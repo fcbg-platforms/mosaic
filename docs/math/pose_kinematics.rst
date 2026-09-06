@@ -120,9 +120,17 @@ Practical recommendations
       exported CSV's timestamps as a flag to sanity-check the surrounding
       numbers, not just trust them.
 
-   .. grid-item-card:: 🧑‍🤝‍🧑  Single-subject sessions only
+   .. grid-item-card:: 🧑‍🤝‍🧑  Identity is tracked, but not guaranteed
 
-      Kinematics are computed against subject index 0 specifically — a
-      multi-subject session's kinematics are only meaningful if subject 0
-      genuinely refers to the same physical individual for the whole
-      analyzed span, which this plugin cannot verify on its own.
+      Kinematics are computed against a subject *id* — a BoT-SORT track, not
+      a position in each frame's detection list — so two people swapping
+      detection order no longer corrupts a trajectory. A frame in which that
+      person was not detected is skipped exactly like a low-visibility one,
+      using the real elapsed time across the gap.
+
+      What this does not promise: an occlusion longer than the tracker's
+      buffer ends the track, and the same person resumes under a new id, so
+      one physical individual can span several subjects. Each stats line
+      therefore reports the time span it covers — check it before reading a
+      total distance or an average speed as describing a whole recording.
+      Ids restart per video, so they are never comparable across cameras.
