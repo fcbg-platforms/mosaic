@@ -19,6 +19,7 @@ qt_add_executable(mosaic MACOSX_BUNDLE
     analysis/transcript_worker.cpp
     analysis/realtime_metrics.hpp
     analysis/realtime_metrics.cpp
+    analysis/analysis_plugins.hpp
     analysis/pose_models.hpp
     analysis/pose_analysis_result.hpp
     analysis/pose_analysis_result.cpp
@@ -196,6 +197,8 @@ qt_add_executable(mosaic MACOSX_BUNDLE
     ui/analysis/pose_overlay_player_w.cpp
     ui/analysis/analysis_tab_w.hpp
     ui/analysis/analysis_tab_w.cpp
+    ui/analysis/plugin_rail_w.hpp
+    ui/analysis/plugin_rail_w.cpp
     ui/analysis/gaze_room_view_w.hpp
     ui/analysis/gaze_room_view_w.cpp
     ui/analysis/skeleton3d_room_view_w.hpp
