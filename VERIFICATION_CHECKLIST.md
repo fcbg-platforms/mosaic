@@ -206,3 +206,37 @@ unexplained, so the no-token case matters as much as the working one.
       (no `diarization_status` key). It must load, and must not claim
       diarization succeeded.
 
+## Voice acoustics (spectrogram / pitch / intensity)
+
+Everything below the first item is secondary: if the two strips do not share a
+time axis, nothing drawn on them can be trusted.
+
+- [ ] **Alignment, pixel-for-pixel.** Play a session, pause, and confirm the
+      playhead sits at the same x in the waveform and the spectrogram. Repeat
+      at several window widths and with the splitter dragged narrow. Confirm a
+      speaker turn's coloured strip starts and ends at the same x in both.
+- [ ] Click the spectrogram and confirm playback seeks there; same for the
+      waveform.
+- [ ] **Right way up.** Open `<mic>.voice.png` in an image viewer: the loud
+      low-frequency energy must be at the *bottom*. (Programmatically checked
+      during development, but worth eyeballing once on real speech.)
+- [ ] **Pitch breaks on silence.** Confirm the cyan line stops during pauses
+      rather than drawing a straight diagonal across them, and that it follows
+      an audible rise/fall in a voice.
+- [ ] Toggle **Pitch** and **Level** and confirm each overlay disappears.
+- [ ] Re-select the session: the cached sidecars must load instantly, with no
+      recompute and no progress bar.
+- [ ] **Missing image, present JSON.** Delete a `<mic>.voice.png`, keeping the
+      `.voice.json`, and re-open: the pitch and intensity lines and the speaker
+      strips must still draw over a plain background — no crash, no blank panel.
+- [ ] A session with **no** acoustic pass run must show the placeholder
+      ("click ▶ Acoustics"), not an empty black strip.
+- [ ] Click **Acoustics** while a diarization run is in progress: it must
+      refuse with a message, not queue silently.
+- [ ] **A 30-minute recording**: check the run completes in reasonable time,
+      the progress percentage advances, memory stays bounded (the pass is
+      chunked precisely because a whole-file spectrogram is ~1 GB), and there is
+      no visible vertical seam every 30 seconds.
+- [ ] Confirm a multi-mic session produces one sidecar pair per microphone and
+      that switching mics switches the spectrogram.
+

@@ -225,6 +225,21 @@ class AnalysisManager : public QObject {
     void run_rppg_analysis(const QString& sessionPath, const QString& backend, double windowSec,
                            double hopSec, int smoothingWindows);
 
+    /// @brief Compute a spectrogram, pitch track and intensity contour for
+    ///        every WAV in a session's audio/ folder.
+    ///
+    /// Writes "<name>.voice.png" + "<name>.voice.json" sidecars beside each
+    /// source WAV; originals are untouched.
+    ///
+    /// Deliberately separate from run_diarization(): this pass loads no models,
+    /// downloads nothing and needs no Hugging Face token, finishing in seconds
+    /// where a transcription takes minutes. Folding it into the diarization run
+    /// would mean re-running Whisper and pyannote to get a picture of a
+    /// waveform, and would leave sessions that were only ever transcribed with
+    /// no way to get one at all.
+    void run_voice_analysis(const QString& sessionPath, double maxFrequencyHz, double pitchFloorHz,
+                            double pitchCeilingHz, bool autoPitchRange);
+
     /// @brief Estimate a calibration-free, per-camera 2D gaze direction
     /// (normalized [-1,1] iris-offset heuristic — the same math already
     /// running live in the Real-time tab) over the course of a recorded

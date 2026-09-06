@@ -12,6 +12,7 @@
 #include <vector>
 
 #include "ui/audio/speaker_palette.hpp"
+#include "ui/audio/time_axis.hpp"
 
 namespace mosaic {
 
@@ -293,10 +294,7 @@ void AudioWaveformW::paintEvent(QPaintEvent* /*event*/) {
             // of band ordering.
             if (d->staticDurationMs > 0 && !d->bands.empty()) {
                 auto bandX = [&](qint64 ms) {
-                    return std::clamp<qreal>(
-                               static_cast<qreal>(ms) / static_cast<qreal>(d->staticDurationMs),
-                               0.0, 1.0) *
-                           rc.width();
+                    return time_to_x(ms, d->staticDurationMs, rc.width());
                 };
                 for (const auto& band : d->bands) {
                     if (band.speaker.isEmpty()) {
@@ -389,8 +387,7 @@ void AudioWaveformW::paintEvent(QPaintEvent* /*event*/) {
                 tickFont.setPixelSize(9);
                 p.setFont(tickFont);
                 for (qint64 t = step; t < d->staticDurationMs; t += step) {
-                    const qreal x = static_cast<qreal>(t) /
-                                    static_cast<qreal>(d->staticDurationMs) * rc.width();
+                    const qreal x = time_to_x(t, d->staticDurationMs, rc.width());
                     p.setPen(QPen(QColor(0xff, 0xff, 0xff, 26), 1, Qt::DotLine));
                     p.drawLine(QPointF(x, kBandStripHeight),
                                QPointF(x, rc.height() - kBandStripHeight));
@@ -419,10 +416,7 @@ void AudioWaveformW::paintEvent(QPaintEvent* /*event*/) {
             // Playhead: bright vertical line at the current position, in
             // place of live mode's fixed right-edge "now" indicator.
             if (d->staticDurationMs > 0) {
-                const qreal frac = std::clamp<qreal>(
-                    static_cast<qreal>(d->playheadMs) / static_cast<qreal>(d->staticDurationMs),
-                    0.0, 1.0);
-                const qreal x = frac * rc.width();
+                const qreal x = time_to_x(d->playheadMs, d->staticDurationMs, rc.width());
                 p.setPen(QPen(QColor(0xff, 0xdd, 0x55), 2));
                 p.drawLine(QPointF(x, 0), QPointF(x, rc.height()));
             }
@@ -510,9 +504,7 @@ void AudioWaveformW::mousePressEvent(QMouseEvent* event) {
         QWidget::mousePressEvent(event);
         return;
     }
-    const qreal frac = std::clamp<qreal>(
-        static_cast<qreal>(event->pos().x()) / static_cast<qreal>(std::max(1, width())), 0.0, 1.0);
-    d->seekCb(static_cast<qint64>(frac * static_cast<qreal>(d->staticDurationMs)));
+    d->seekCb(x_to_time(event->pos().x(), d->staticDurationMs, width()));
     QWidget::mousePressEvent(event);
 }
 

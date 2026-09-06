@@ -181,6 +181,24 @@ void AnalysisManager::run_pose3d_reconstruction(const QString& sessionPath, int 
     enqueue_or_launch(sessionPath, "analysis/run_pose3d.py", args, {});
 }
 
+void AnalysisManager::run_voice_analysis(const QString& sessionPath, double maxFrequencyHz,
+                                         double pitchFloorHz, double pitchCeilingHz,
+                                         bool autoPitchRange) {
+    QStringList args = {
+        "--session",       sessionPath,
+        "--max-freq",      QString::number(maxFrequencyHz),
+        "--pitch-floor",   QString::number(pitchFloorHz),
+        "--pitch-ceiling", QString::number(pitchCeilingHz),
+    };
+    if (autoPitchRange) {
+        args << "--auto-pitch-range";
+    }
+    // No secrets, so nothing to keep out of argv (unlike run_diarization()'s
+    // token), and no sync_manifest.json dependency — this is per-microphone
+    // analysis with no cross-camera timing involved.
+    enqueue_or_launch(sessionPath, "analysis/run_voice.py", args, {});
+}
+
 void AnalysisManager::run_rppg_analysis(const QString& sessionPath, const QString& backend,
                                         double windowSec, double hopSec, int smoothingWindows) {
     const QStringList args = {
