@@ -182,6 +182,8 @@ qt_add_executable(mosaic MACOSX_BUNDLE
     session/session_info.hpp
     session/session_health.hpp
     session/session_health.cpp
+    session/session_name.hpp
+    session/session_name.cpp
     ui/session/session_browser_w.hpp
     ui/session/session_browser_w.cpp
     ui/session/session_player_w.hpp

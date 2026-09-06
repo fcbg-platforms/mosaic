@@ -5,7 +5,9 @@
 #include <QGridLayout>
 #include <QHBoxLayout>
 #include <QLabel>
+#include <QPlainTextEdit>
 #include <QPushButton>
+#include <QTextDocument>
 #include <QUrl>
 #include <QVBoxLayout>
 
@@ -195,6 +197,35 @@ SessionHealthDialog::SessionHealthDialog(const SessionHealthReport& report, QWid
     lay->addLayout(grid);
     lay->addStretch();
 
+    // ── Session notes ────────────────────────────────────────────────────
+    //
+    // This dialog appears the moment recording stops, which is exactly when
+    // the operator knows what actually happened — a note typed here is the
+    // one most likely to be worth having. Prefilled with anything already
+    // written before or during the recording, and saved on close rather than
+    // behind a button, because a note lost to a forgotten Save is worse than
+    // no note at all.
+    auto* notesLabel = new QLabel("Notes");
+    notesLabel->setStyleSheet("color: #7070a0; font-size: 11px;");
+    lay->addWidget(notesLabel);
+
+    m_notes = new QPlainTextEdit;
+    m_notes->setPlaceholderText("Anything worth recording about this session…");
+    m_notes->setFixedHeight(70);
+    m_notes->setStyleSheet(
+        "QPlainTextEdit { background: #09091a; color: #c8c8e0; "
+        "border: 1px solid #1e1e40; border-radius: 4px; padding: 4px; }");
+    {
+        SessionInfo info;
+        info.path = m_report.sessionPath;
+        info.load_notes();
+        m_notes->setPlainText(info.notes);
+    }
+    // setPlainText() marks the document modified; clear that so an untouched
+    // box stays untouched. See save_notes().
+    m_notes->document()->setModified(false);
+    lay->addWidget(m_notes);
+
     // ── Footer ───────────────────────────────────────────────────────────
     auto* footerRow     = new QHBoxLayout;
     auto* openFolderBtn = new QPushButton("Open session folder");
@@ -204,9 +235,36 @@ SessionHealthDialog::SessionHealthDialog(const SessionHealthReport& report, QWid
     footerRow->addStretch();
 
     auto* closeBtn = new QPushButton("Close");
-    connect(closeBtn, &QPushButton::clicked, this, &QDialog::close);
+    connect(closeBtn, &QPushButton::clicked, this, [this] {
+        save_notes();
+        close();
+    });
     footerRow->addWidget(closeBtn);
     lay->addLayout(footerRow);
+}
+
+void SessionHealthDialog::save_notes() const {
+    if (!m_notes) return;
+    // Only write if the operator actually typed something. This dialog is
+    // non-modal, so it can sit open while the same session's notes are edited
+    // elsewhere (the Session Browser, or a second operator on a shared
+    // directory); saving an untouched snapshot on close would revert that
+    // edit, and save_notes() deletes notes.txt outright when the text is
+    // empty — so an untouched empty box would destroy a note written in the
+    // meantime.
+    if (!m_notes->document()->isModified()) return;
+
+    SessionInfo info;
+    info.path  = m_report.sessionPath;
+    info.notes = m_notes->toPlainText();
+    info.save_notes();
+}
+
+// Also covers the window's X and Esc, not just the Close button — the dialog
+// is non-modal and WA_DeleteOnClose, so an unsaved note would simply vanish.
+void SessionHealthDialog::closeEvent(QCloseEvent* event) {
+    save_notes();
+    QDialog::closeEvent(event);
 }
 
 } // namespace mosaic

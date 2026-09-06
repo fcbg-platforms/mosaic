@@ -1,6 +1,8 @@
 #pragma once
 #include <QDialog>
 
+class QPlainTextEdit;
+
 #include "session/session_health.hpp"
 
 namespace mosaic {
@@ -19,8 +21,17 @@ class SessionHealthDialog : public QDialog {
    public:
     explicit SessionHealthDialog(const SessionHealthReport& report, QWidget* parent = nullptr);
 
+   protected:
+    void closeEvent(QCloseEvent* event) override;
+
    private:
+    // Writes the box's contents to <session>/notes.txt. Called from both the
+    // Close button and closeEvent(), because this dialog is non-modal and
+    // WA_DeleteOnClose — a note lost to the window's X is worse than no note.
+    void save_notes() const;
+
     SessionHealthReport m_report;
+    QPlainTextEdit* m_notes = nullptr;
 };
 
 } // namespace mosaic

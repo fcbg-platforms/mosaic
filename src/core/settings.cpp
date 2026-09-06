@@ -406,6 +406,7 @@ QJsonObject RecordSettings::to_json() const {
         {"enable_trigger", enableTrigger},
         {"start_delay_sec", startDelaySec},
         {"hide_previews_while_recording", hidePreviewsWhileRecording},
+        {"last_identity", lastIdentity.to_json()},
     };
 }
 
@@ -430,6 +431,11 @@ std::optional<RecordSettings> RecordSettings::from_json(const QJsonObject& o) {
     if (o.contains("hide_previews_while_recording"))
         s.hidePreviewsWhileRecording =
             o["hide_previews_while_recording"].toBool(s.hidePreviewsWhileRecording);
+    // from_json re-sanitizes every label, which matters here: settings.json is
+    // a plain file a user can edit, and these values go on to form a directory
+    // name.
+    if (o.contains("last_identity"))
+        s.lastIdentity = SessionIdentity::from_json(o["last_identity"].toObject());
     return s;
 }
 

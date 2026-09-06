@@ -9,6 +9,8 @@
 #include <QFileInfo>
 #include <QLabel>
 #include <QMenuBar>
+#include <QMessageBox>
+#include <QPushButton>
 #include <QQmlContext>
 #include <QQuickWidget>
 #include <QSet>
@@ -309,6 +311,52 @@ void MainWindow::build_central_widget() {
     // Application::shutdown().
     connect(recordSettingsW, &RecordSettingsW::settings_changed, d->bridge,
             &MonitorBridge::refresh_record_settings);
+
+    // Duplicate-name prompt. Owned here rather than in MonitorBridge because
+    // the bridge is a plain QObject with no widget parent — pulling QtWidgets
+    // into it would destroy the separation it exists to maintain — and because
+    // a QML popup is not usable for this: the project targets Qt 6.4, where a
+    // Popup is clipped to its QQuickWidget, and that widget is a leaf of a
+    // splitter the user can drag arbitrarily small.
+    //
+    // Queued, not direct. exec() spins a nested event loop, and a direct
+    // connection would enter it from inside QQuickWidget's delivery of the
+    // record button's own mouse event. Queuing lets startRecording() return to
+    // QML first, then opens the box.
+    connect(
+        d->bridge, &MonitorBridge::runCollisionDetected, this,
+        [this](const QString& prefix, int existingCount, int suggestedRun) {
+            const QString runLabel = QString("run-%1").arg(suggestedRun, 2, 10, QChar('0'));
+
+            QMessageBox box(this);
+            box.setIcon(QMessageBox::Question);
+            box.setWindowTitle("Duplicate session");
+            box.setText(QString("%1 already has %2 recording%3.")
+                            .arg(prefix)
+                            .arg(existingCount)
+                            .arg(existingCount == 1 ? "" : "s"));
+            box.setInformativeText(
+                QString("Record this one as %1?\n\nNothing will be overwritten either way — "
+                        "this only decides how the new session is numbered.")
+                    .arg(runLabel));
+
+            auto* record =
+                box.addButton(QString("Record as %1").arg(runLabel), QMessageBox::AcceptRole);
+            auto* change = box.addButton("Change details…", QMessageBox::ResetRole);
+            box.addButton(QMessageBox::Cancel);
+            box.setDefaultButton(record); // Enter = the common case
+            box.exec();
+
+            if (box.clickedButton() == record) {
+                d->bridge->confirmRunAndStart(suggestedRun);
+                return;
+            }
+            d->bridge->cancelPendingStart();
+            if (box.clickedButton() == change && d->monitorView) {
+                d->monitorView->setFocus(); // back to the fields they need to edit
+            }
+        },
+        Qt::QueuedConnection);
 
     // Register the camera-frame image provider before loading QML.
     auto* feedProvider = new VideoFeedProvider; // owned by QML engine

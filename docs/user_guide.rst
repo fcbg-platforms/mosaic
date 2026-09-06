@@ -19,13 +19,32 @@ Recording a session
 2. On the **Live** tab, confirm each configured camera's preview is live in
    the monitor grid, and adjust per-camera settings (exposure, gain, ROI,
    trigger mode) in the sidebar if needed.
-3. Click **● Record** (or press ``Ctrl+R``). A new timestamped session
-   folder is created immediately and the elapsed-time display starts
-   counting.
-4. Trigger events (keyboard bindings, serial bytes, parallel-port edges —
+3. *(Optional)* Fill in **Subject**, **Session** and **Task** above the
+   Record button. These name the session folder in BIDS style — e.g.
+   ``sub-P01_ses-pre_task-rest_run-01_20260906T143012`` — and the preview
+   line under the fields shows exactly what will be created, run number
+   included. Labels may contain letters and digits only; anything else is
+   dropped, and the warning line says so before you commit.
+
+   All three are optional. Left blank, the folder keeps the plain timestamp
+   name, so you are never blocked from recording. The values carry over to
+   the next session, so running one participant through several tasks means
+   changing one field.
+
+   If the combination already has recordings, MOSAIC asks before starting
+   and offers the next ``run-`` number. Nothing is ever overwritten either
+   way — the prompt only decides how the new session is numbered.
+4. *(Optional)* Type anything worth remembering into the **Notes** box. It
+   stays editable *during* the recording, and again afterwards from the
+   Session Health dialog that appears on Stop — which is usually when you
+   actually know what to write. Notes are saved as a plain ``notes.txt``
+   beside the recording and are searchable from the Session Browser.
+5. Click **● Record** (or press ``Ctrl+R``). After the start countdown the
+   session folder is created and the elapsed-time display starts counting.
+6. Trigger events (keyboard bindings, serial bytes, parallel-port edges —
    e.g. an EEG amplifier's trigger-out cable) are logged automatically to
    that session's ``trigger.csv`` for the whole duration.
-5. Click **■ Stop** (or ``Ctrl+R`` again) to end the session.
+7. Click **■ Stop** (or ``Ctrl+.``) to end the session.
 
 See :doc:`recording` for exactly what gets written (``session_meta.json``,
 per-camera timestamp CSVs, the post-hoc ``sync_manifest.json``) and why
@@ -88,6 +107,10 @@ Using the Session Browser
 
 The Session Browser (accessible from the main window) lists every recorded
 session under the profile's configured recording directory, newest first.
+Ordering is by each session's recorded start time (from ``session_meta.json``),
+not by folder name — so it stays chronological regardless of how sessions are
+named. The search box matches the folder name, the recording profile and the
+session's notes.
 For a selected session you can:
 
 - **Play it back** — all cameras' videos in sync, aligned via the session's

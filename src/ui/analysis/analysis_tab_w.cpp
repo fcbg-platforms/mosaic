@@ -24,6 +24,7 @@
 #include <QLineEdit>
 #include <QLineSeries>
 #include <QListWidget>
+#include <QListWidgetItem>
 #include <QMap>
 #include <QMouseEvent>
 #include <QPainter>
@@ -710,8 +711,17 @@ class SessionListDelegate : public QStyledItemDelegate {
         }
 
         painter->setPen(QColor("#c8c8e0"));
-        painter->drawText(option.rect.adjusted(12, 0, -10, 0), Qt::AlignVCenter | Qt::AlignLeft,
-                          index.data(Qt::DisplayRole).toString());
+        // Elide rather than clip: this pane is 240px by default and a
+        // BIDS-style name ("sub-P01_ses-pre_task-rest_run-02_20260906T143012")
+        // does not fit. ElideMiddle keeps both ends — the subject, which says
+        // whose session this is, and the trailing timestamp, which
+        // distinguishes it from the run above it. Eliding either end away
+        // would leave rows that look identical. The full name is on the
+        // item's tooltip (see rebuild_session_list()).
+        const QRect textRect = option.rect.adjusted(12, 0, -10, 0);
+        painter->drawText(textRect, Qt::AlignVCenter | Qt::AlignLeft,
+                          option.fontMetrics.elidedText(index.data(Qt::DisplayRole).toString(),
+                                                        Qt::ElideMiddle, textRect.width()));
 
         painter->setPen(QColor("#1e1e3a"));
         painter->drawLine(option.rect.bottomLeft(), option.rect.bottomRight());
@@ -2316,14 +2326,22 @@ void AnalysisTabW::rebuild_session_list() {
     for (const QString& extraDir : d->extraDirectories) {
         d->sessions += SessionInfo::list_all(extraDir);
     }
+    // Each list_all() is sorted, but concatenating sorted lists is not — so
+    // without this an admin with extra directories configured saw one ordered
+    // block per directory rather than one ordered list.
+    SessionInfo::sort_newest_first(d->sessions);
 
     d->sessionList->blockSignals(true);
     d->sessionList->clear();
     int selectRow = -1;
     for (int i = 0; i < d->sessions.size(); ++i) {
         const auto& s = d->sessions[i];
-        d->sessionList->addItem(
+        auto* item    = new QListWidgetItem(
             QString("%1  (%2 cam, %3)").arg(s.name).arg(s.cameraCount).arg(s.format_duration()));
+        // The delegate elides to fit the pane, so the untruncated name has to
+        // be reachable somewhere.
+        item->setToolTip(s.name);
+        d->sessionList->addItem(item);
         if (s.path == selected) {
             selectRow = i;
         }

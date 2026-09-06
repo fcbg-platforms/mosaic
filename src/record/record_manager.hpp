@@ -4,6 +4,7 @@
 
 #include "audio/audio_manager.hpp"
 #include "core/settings.hpp"
+#include "session/session_name.hpp"
 #include "trigger/trigger_manager.hpp"
 #include "video/video_manager.hpp"
 
@@ -64,6 +65,28 @@ class RecordManager : public QObject {
     ///          be created; logs the reason on failure.
     [[nodiscard]] bool start();
 
+    /// @brief Sets the subject/session/task/notes applied to the *next*
+    ///        start().
+    ///
+    /// Deliberately armed state rather than an argument to start(). start()
+    /// has a second caller with no UI behind it — a StartRecording trigger
+    /// (Application) — and a defaulted argument there would have produced a
+    /// bare timestamp folder even when the operator had just typed a subject
+    /// into the monitor, silently losing attribution for exactly the sessions
+    /// that are hardest to reconstruct afterwards. Armed state means a
+    /// trigger-started recording inherits whatever is on screen.
+    ///
+    /// The run index in @p id is ignored: it is resolved against the
+    /// recordings directory inside start(), so the number written is always
+    /// the one that was actually free.
+    ///
+    /// Copied by value, so editing the fields mid-countdown cannot change a
+    /// start already in flight. Ignored while recording.
+    void set_session_identity(const SessionIdentity& id);
+
+    /// @returns The identity that will be applied to the next start().
+    [[nodiscard]] SessionIdentity session_identity() const;
+
     /// @brief Ends the current session.
     ///
     /// Stops video → audio → triggers in reverse order, then emits
@@ -103,6 +126,12 @@ class RecordManager : public QObject {
 
    private:
     void write_session_meta() const;
+    void write_session_notes() const;
+
+    /// Creates the session folder and returns its path, or an empty string if
+    /// it could not be created. Never reuses an existing directory — see the
+    /// implementation for why that used to be possible.
+    [[nodiscard]] QString create_session_folder() const;
     [[nodiscard]] QString build_session_path() const;
     [[nodiscard]] QString build_file_path(const QString& basename, const QString& ext) const;
 

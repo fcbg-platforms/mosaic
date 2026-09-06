@@ -10,6 +10,9 @@
 #include <QList>
 #include <QString>
 #include <QStringList>
+#include <algorithm>
+
+#include "session/session_name.hpp"
 
 namespace mosaic {
 
@@ -89,6 +92,11 @@ struct SessionInfo {
     QStringList audioFiles;
     QStringList analysisFiles;
     QList<Annotation> annotations;
+
+    /// Free-text operator note for the whole session, from notes.txt.
+    /// Session-level prose, as opposed to an Annotation, which is pinned to a
+    /// moment inside the recording.
+    QString notes;
 
     // Load from a session directory.
     static SessionInfo load(const QString& dir) {
@@ -229,7 +237,25 @@ struct SessionInfo {
         }
 
         info.load_annotations();
+        info.load_notes();
         return info;
+    }
+
+    // Order a session list newest first, by recorded start time.
+    //
+    // This used to be done by listing directories in reversed *name* order,
+    // which was only ever accidentally chronological: "yyyy-MM-dd_hh-mm-ss"
+    // happens to sort lexicographically the same way it sorts in time. A
+    // BIDS-style "sub-..." prefix destroys that coincidence and would silently
+    // reorder the browsers by subject instead, so ordering now uses startUtc —
+    // which is what "newest first" always meant. The predicate itself lives in
+    // session_name.hpp because this header pulls in QtGui (QColor, for
+    // Annotation) and so can never be unit-tested.
+    static void sort_newest_first(QList<SessionInfo>& sessions) {
+        std::stable_sort(sessions.begin(), sessions.end(),
+                         [](const SessionInfo& a, const SessionInfo& b) {
+                             return session_entry_newer(a.startUtc, a.name, b.startUtc, b.name);
+                         });
     }
 
     // List all valid sessions under rootDir, newest first.
@@ -239,14 +265,41 @@ struct SessionInfo {
         if (!root.exists()) {
             return result;
         }
-        const auto dirs =
-            root.entryInfoList(QDir::Dirs | QDir::NoDotAndDotDot, QDir::Name | QDir::Reversed);
+        // QDir::Name only for a deterministic scan order; the real ordering is
+        // applied below, once each session's start time has been read.
+        const auto dirs = root.entryInfoList(QDir::Dirs | QDir::NoDotAndDotDot, QDir::Name);
         for (const auto& di : dirs) {
             if (QFile::exists(di.filePath() + "/session_meta.json")) {
                 result.append(load(di.filePath()));
             }
         }
+        sort_newest_first(result);
         return result;
+    }
+
+    // Kept out of session_meta.json deliberately: that file is written once,
+    // before any data exists, and holds calibration matrices and time origins.
+    // Notes have to stay editable afterwards — the useful one is usually
+    // written after the session — and rewriting the provenance file to fix a
+    // sentence risks taking the rest with it. Same split as annotations.json.
+    void load_notes() {
+        notes.clear();
+        QFile f(path + "/notes.txt");
+        if (f.open(QIODevice::ReadOnly | QIODevice::Text)) {
+            notes = QString::fromUtf8(f.readAll());
+        }
+    }
+
+    void save_notes() const {
+        QFile f(path + "/notes.txt");
+        const QString trimmed = notes.trimmed();
+        if (trimmed.isEmpty()) {
+            f.remove(); // emptied on purpose — don't leave a stale note behind
+            return;
+        }
+        if (f.open(QIODevice::WriteOnly | QIODevice::Text)) {
+            f.write(trimmed.toUtf8());
+        }
     }
 
     void load_annotations() {

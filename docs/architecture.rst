@@ -141,8 +141,9 @@ A recording session creates the following files:
 .. raw:: html
 
    <div class="mosaic-diagram mosaic-tree">recordings/
-   └── 2026-06-04_14-32-05/
-       ├── session_meta.json        <span class="mosaic-tree-comment"># cameras, mics, triggers, recorded_by, start UTC</span>
+   └── sub-P01_ses-pre_task-rest_run-01_20260906T143012/
+       ├── session_meta.json        <span class="mosaic-tree-comment"># cameras, mics, triggers, recorded_by, start UTC, bids</span>
+       ├── notes.txt                <span class="mosaic-tree-comment"># operator's free-text note, if any</span>
        ├── trigger.csv              <span class="mosaic-tree-comment"># elapsed_ms, wall_clock, source, label, value</span>
        ├── sync_manifest.json       <span class="mosaic-tree-comment"># written after recording stops</span>
        ├── audio/
