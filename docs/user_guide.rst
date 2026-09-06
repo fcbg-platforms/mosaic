@@ -252,15 +252,18 @@ sitting alongside **Live**. The workflow is always the same shape:
       to skip diarization entirely even with a token present.
 
       **Reading the output**: pick a microphone; the transcript table shows
-      Start/End/Speaker/Text rows, colored and lightly tinted per speaker,
-      and clicking a row seeks audio playback. The active row highlights
-      automatically during playback. The waveform above the table is
-      shaded with a matching color band (a subtle background wash plus a
-      crisp top/bottom edge strip) for every diarized speaker turn, with a
-      color-swatch legend underneath — clicking anywhere on the waveform
-      also seeks playback. A stretch of waveform with no color band means
-      no speaker was confidently attributed there, not a rendering gap.
-      See :doc:`math/speaker_diarization` for the max-overlap
+      Start/End/Speaker/Text rows, each attributed row marked with a 🗣
+      glyph, colored and lightly tinted per speaker, and clicking a row
+      seeks audio playback. The active row highlights automatically during
+      playback. The waveform above the table is shaded with a matching
+      color band (a background wash plus a crisp top/bottom edge strip
+      carrying the speaker's name where the turn is wide enough to hold it)
+      for every diarized speaker turn, with a color-swatch legend
+      underneath — clicking anywhere on the waveform also seeks playback.
+      Time ticks along the middle of the waveform give each turn a
+      readable position. A stretch of waveform with no color band means no
+      speaker was confidently attributed there, not a rendering gap. See
+      :doc:`math/speaker_diarization` for the max-overlap
       speaker-assignment rule.
 
       .. important::
@@ -269,9 +272,26 @@ sitting alongside **Live**. The workflow is always the same shape:
          use accepted for ``pyannote/speaker-diarization-community-1``
          (generate a token at
          `huggingface.co/settings/tokens
-         <https://huggingface.co/settings/tokens>`_). Without a token,
-         transcription still runs — every segment just gets an empty
-         speaker label instead of a hard failure.
+         <https://huggingface.co/settings/tokens>`_).
+
+         **Both steps are required.** A token whose owner has not accepted
+         that model's terms fails at load with a 401 that looks exactly
+         like a bad token, and is the most common reason a correct-looking
+         setup still produces no speakers.
+
+         MOSAIC will not start a run that cannot produce speaker labels: if
+         the token field is empty and "Transcript only" is unticked, Run
+         stops immediately rather than spending minutes on transcription to
+         reach an unlabelled result. Tick "Transcript only" to transcribe
+         without speakers deliberately.
+
+      **If the Speaker column is blank**, a banner above the waveform says
+      why — no token, terms not accepted, the model failing to load, or the
+      model running and finding no speaker turns — together with what to do
+      about it. That reason is recorded in the transcript file itself
+      (``diarization_status``), so it is still available long after the run
+      log has scrolled away. Transcripts produced by older versions have no
+      such record; those report only that labels are missing.
 
    .. tab-item:: Facial Expression
 

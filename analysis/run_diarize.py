@@ -37,6 +37,7 @@ from diarize.pipeline import (  # noqa: E402
     load_diarization_pipeline,
     load_whisper_model,
     resolve_device,
+    resolve_diarization_status,
     transcribe_audio,
 )
 
@@ -105,13 +106,19 @@ def _load_models(model_size: str, device: str | None, hf_token: str | None, skip
     whisper_model = load_whisper_model(model_size, resolved_device)
 
     diarization_pipeline = None
+    load_status = "ok"
+    load_detail = ""
     if skip_diarization:
+        load_status = "skipped_by_user"
+        load_detail = "Transcript-only was requested."
         print(
             "[run_diarize] Skipping diarization: --skip-diarization requested "
             "— transcript only.",
             flush=True,
         )
     elif not token:
+        load_status = "no_token"
+        load_detail = "No Hugging Face token was provided."
         print(
             "[run_diarize] Skipping diarization: no Hugging Face token provided "
             "— transcript only. Pass --hf-token or set HF_TOKEN to enable "
@@ -123,9 +130,14 @@ def _load_models(model_size: str, device: str | None, hf_token: str | None, skip
         try:
             diarization_pipeline = load_diarization_pipeline(token, resolved_device)
         except Exception as exc:  # noqa: BLE001 - degrade to transcript-only, not a hard failure
+            load_status = "load_failed"
+            # Kept verbatim rather than summarised: the case worth diagnosing
+            # is a 401 from a token that exists but whose owner never accepted
+            # the gated model's terms, and only the raw message says so.
+            load_detail = str(exc)
             print(f"[run_diarize] Diarization pipeline unavailable: {exc}", file=sys.stderr)
 
-    return resolved_device, whisper_model, diarization_pipeline
+    return resolved_device, whisper_model, diarization_pipeline, (load_status, load_detail)
 
 
 # ── Session mode ─────────────────────────────────────────────────────────────
@@ -148,7 +160,7 @@ def process_session(
 
     print(f"[run_diarize] Found {len(audios)} audio file(s) in {session_dir / 'audio'}", flush=True)
 
-    _device, whisper_model, diarization_pipeline = _load_models(
+    _device, whisper_model, diarization_pipeline, load_outcome = _load_models(
         model_size, device, hf_token, skip_diarization
     )
 
@@ -164,6 +176,7 @@ def process_session(
             language,
             min_speakers,
             max_speakers,
+            load_outcome,
         ):
             failures += 1
 
@@ -185,6 +198,7 @@ def process_audio(
     language: str | None,
     min_speakers: int,
     max_speakers: int,
+    load_outcome: tuple[str, str],
 ) -> bool:
     """Returns True on success. whisper_model/diarization_pipeline come from
     _load_models() (diarization_pipeline may be None, meaning skip it —
@@ -206,6 +220,7 @@ def process_audio(
 
     diarization_ran = False
     diarization_turns: list = []
+    run_error: str | None = None
     if diarization_pipeline is None:
         print(
             f"[run_diarize] No diarization pipeline available for {audio_path.name} "
@@ -220,9 +235,23 @@ def process_audio(
             )
             diarization_ran = True
         except Exception as exc:  # noqa: BLE001 - degrade to transcript-only, not a hard failure
+            run_error = str(exc)
             print(f"[run_diarize] Diarization failed for {audio_path.name}: {exc}", file=sys.stderr)
 
     segments = assign_speakers(whisper_segments, diarization_turns)
+
+    # Persist *why*, not just whether. Without this the reason lives only in
+    # this run's stdout while the consequence — a transcript with no speakers —
+    # lives on disk forever, and the app has no way to explain itself later.
+    status, detail = resolve_diarization_status(
+        load_status=load_outcome[0],
+        load_detail=load_outcome[1],
+        run_error=run_error,
+        turn_count=len(diarization_turns),
+        labeled_segment_count=sum(1 for seg in segments if seg["speaker"]),
+    )
+    if status != "ok":
+        print(f"[run_diarize] No speaker labels ({status}): {detail}", flush=True)
 
     out_path.write_text(
         json.dumps(
@@ -231,6 +260,8 @@ def process_audio(
                 "model": model_size,
                 "language": detected_language,
                 "diarization": diarization_ran,
+                "diarization_status": status,
+                "diarization_detail": detail,
                 "segments": segments,
             },
             indent=2,
@@ -265,7 +296,7 @@ def main() -> None:
     elif args.audio:
         audio_path = Path(args.audio)
         out_path = audio_path.with_suffix("").with_suffix(".transcript.json")
-        _device, whisper_model, diarization_pipeline = _load_models(
+        _device, whisper_model, diarization_pipeline, load_outcome = _load_models(
             args.model, args.device, args.hf_token, args.skip_diarization
         )
         if not process_audio(
@@ -277,6 +308,7 @@ def main() -> None:
             args.language,
             args.min_speakers,
             args.max_speakers,
+            load_outcome,
         ):
             sys.exit(1)
 

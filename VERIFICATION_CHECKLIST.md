@@ -172,3 +172,37 @@ do that one even if you skip the rest.
       Browser search box and confirm that session is found (not everything
       hidden).
 
+## Speaker diarization — visible turns
+
+The whole point of this change is that a blank Speaker column stops being
+unexplained, so the no-token case matters as much as the working one.
+
+- [ ] **Pre-run guard.** With the Hugging Face token field empty and
+      "Transcript only" unticked, click Run: it must refuse immediately and say
+      a token is needed — *not* start transcribing. Tick "Transcript only" and
+      confirm Run then proceeds.
+- [ ] **Banner, no token.** Run with "Transcript only" ticked, then look at the
+      result: a banner above the waveform must say labelling was turned off.
+- [ ] **Banner, bad/unaccepted token.** Paste a syntactically valid token that
+      has *not* accepted the terms for
+      `pyannote/speaker-diarization-community-1` and run. The banner must say
+      the model could not be loaded, name both required steps, and show the
+      underlying 401 text — this is the case that is otherwise
+      indistinguishable from a wrong token.
+- [ ] **The working case, on a real two-person recording.** Confirm speaker
+      bands are now clearly visible on the waveform, that wide turns carry the
+      speaker's name inside the strip, and that the bands line up with who is
+      actually talking. This is the only check that proves the feature; every
+      other item here is about failure reporting.
+- [ ] Confirm an unattributed gap still draws no band at all.
+- [ ] Confirm 🗣 appears beside each attributed speaker in the transcript table
+      and in the legend chips, that unattributed rows keep the plain em-dash,
+      and that the Speaker column is wide enough for glyph + `SPEAKER_NN`
+      without clipping.
+- [ ] Confirm the waveform's time ticks read sensibly at several window widths
+      and on both a 30-second and a 30-minute recording (the tick interval
+      should change, not the tick count explode).
+- [ ] **Backward compatibility.** Open a transcript produced before this change
+      (no `diarization_status` key). It must load, and must not claim
+      diarization succeeded.
+

@@ -850,6 +850,8 @@ struct AnalysisTabW::Impl {
     AudioWaveformW* diarizeWaveform  = nullptr; // diarize only — whole-clip static waveform,
                                                 // playhead-synced to d->player, same visual
                                                 // style as the Audio settings tab's live view
+    QLabel* diarizeBannerLbl = nullptr;         // diarize only — says why speaker labels
+                                                // are missing, and what to do about it
     QWidget* speakerLegendRowW = nullptr;       // diarize only — color-swatch legend for the
                                                 // waveform's speaker bands, rebuilt by
                                                 // rebuild_speaker_legend()
@@ -1351,8 +1353,14 @@ void AnalysisTabW::build_ui() {
         "pyannote/speaker-diarization-community-1, then generate a token at "
         "huggingface.co/settings/tokens. Saved to this profile's settings so you "
         "don't need to re-enter it next time.");
-    connect(d->hfTokenEdit, &QLineEdit::textChanged, this,
-            [this](const QString& text) { d->settings.analysis.hfToken = text; });
+    connect(d->hfTokenEdit, &QLineEdit::textChanged, this, [this](const QString& text) {
+        // Trimmed at the point of storage, so the pre-run guard and the value
+        // actually handed to the script can never disagree. A token pasted
+        // with a trailing newline would otherwise pass the guard and then fail
+        // at load with a 401 indistinguishable from a wrong token — the exact
+        // confusion this feature exists to remove.
+        d->settings.analysis.hfToken = text.trimmed();
+    });
     diarizeLay->addWidget(d->hfTokenEdit, 1);
 
     d->minSpeakersSpin = new QSpinBox;
@@ -1805,6 +1813,21 @@ void AnalysisTabW::build_ui() {
     d->micRowW->setVisible(false); // shown only for the diarize plugin
     rightLay->addWidget(d->micRowW);
 
+    // Explains an unshaded waveform and a blank Speaker column. Sits directly
+    // above the waveform because that is the thing whose emptiness it accounts
+    // for. Hidden entirely when diarization worked — a banner that is always
+    // present is a banner nobody reads.
+    d->diarizeBannerLbl = new QLabel;
+    d->diarizeBannerLbl->setWordWrap(true);
+    d->diarizeBannerLbl->setTextFormat(Qt::RichText);
+    d->diarizeBannerLbl->setTextInteractionFlags(Qt::TextBrowserInteraction);
+    d->diarizeBannerLbl->setOpenExternalLinks(true);
+    d->diarizeBannerLbl->setStyleSheet(
+        "QLabel { background: #2a2410; border: 1px solid #6a5a20; border-radius: 5px;"
+        "  color: #e8d08a; font-size: 12px; padding: 7px 10px; }");
+    d->diarizeBannerLbl->setVisible(false);
+    rightLay->addWidget(d->diarizeBannerLbl);
+
     // Whole-clip waveform, same bipolar-envelope visual style as the Audio
     // settings tab's live monitor — static mode (see AudioWaveformW::
     // set_static_envelope()) with a playhead synced to d->player instead of
@@ -2208,7 +2231,7 @@ void AnalysisTabW::build_ui() {
     d->transcriptTable->horizontalHeader()->setSectionResizeMode(2, QHeaderView::Fixed);
     d->transcriptTable->setColumnWidth(0, 70);
     d->transcriptTable->setColumnWidth(1, 70);
-    d->transcriptTable->setColumnWidth(2, 110);
+    d->transcriptTable->setColumnWidth(2, 132); // fits the speaker glyph + "SPEAKER_NN"
     d->transcriptTable->setWordWrap(true);
     d->transcriptTable->setStyleSheet(
         "QTableWidget { font-size: 13px; } "
@@ -2485,6 +2508,13 @@ void AnalysisTabW::select_plugin(const QString& pluginId) {
     set_visible_animated(d->micRowW, isDiarize);
     set_visible_animated(d->transcriptTable, isDiarize);
     set_visible_animated(d->diarizeWaveform, isDiarize);
+    // Not set_visible_animated(): this banner's visibility depends on the
+    // loaded result's content as well as on the plugin, and
+    // refresh_diarize_banner() owns that decision. Here we only make sure it
+    // never leaks onto another plugin's page.
+    if (!isDiarize) {
+        d->diarizeBannerLbl->setVisible(false);
+    }
     set_visible_animated(d->speakerLegendRowW, isDiarize);
 
     // Diarize's "video" is really a .wav — the video-surface area would
@@ -2933,7 +2963,12 @@ void AnalysisTabW::reload_current_camera_result() {
             d->player->set_pose_result(d->currentResult);
             d->diarizeWaveform->clear_static_envelope();
             d->diarizeWaveform->set_speaker_bands({});
+            // Drop the previous mic's result too. Without this the waveform
+            // and bands clear but the transcript table and the banner keep
+            // describing the session that was selected before this one.
+            d->currentTranscript = TranscriptResult();
             rebuild_speaker_legend();
+            refresh_diarize_banner();
             update_transcript_table();
             return;
         }
@@ -2964,6 +2999,7 @@ void AnalysisTabW::reload_current_camera_result() {
         }
         d->diarizeWaveform->set_speaker_bands(bands);
         rebuild_speaker_legend();
+        refresh_diarize_banner();
         update_transcript_table();
 
         if (!d->currentTranscript.is_valid()) {
@@ -3489,8 +3525,15 @@ void AnalysisTabW::update_transcript_table() {
         endItem->setFlags(endItem->flags() & ~Qt::ItemIsEditable);
         d->transcriptTable->setItem(i, 1, endItem);
 
-        auto* speakerItem =
-            new QTableWidgetItem(seg.speaker.isEmpty() ? QString("—") : seg.speaker);
+        // A speaking-head glyph makes an attributed row scannable at a glance
+        // without reading the label. Written bare (U+1F5E3) with no U+FE0F
+        // variation selector: with one, Qt on Windows can pick a colour-font
+        // fallback whose metrics differ from the table's, which shifts the
+        // fixed-width Speaker column. Unattributed rows keep the plain em-dash
+        // — giving them a speaker glyph would assert an attribution the data
+        // does not contain, the same error as giving them a colour.
+        auto* speakerItem = new QTableWidgetItem(
+            seg.speaker.isEmpty() ? QString("—") : QString("🗣  ") + seg.speaker);
         speakerItem->setFlags(speakerItem->flags() & ~Qt::ItemIsEditable);
         // Colors the text to match the waveform's speaker bands and the
         // legend row, and bolds it so speaker identity pops at a glance.
@@ -3568,13 +3611,47 @@ void AnalysisTabW::rebuild_speaker_legend() {
         swatch->setStyleSheet(QString("background: %1; border-radius: 4px;").arg(color.name()));
         chipLay->addWidget(swatch);
 
-        auto* label = new QLabel(speaker);
+        // Same glyph as the transcript table's Speaker column, so a chip and
+        // a row are recognisably the same thing.
+        auto* label = new QLabel(QString("🗣  ") + speaker);
         label->setStyleSheet("color:#a0a0c8; font-size:12px;");
         chipLay->addWidget(label);
 
         layout->addWidget(chip);
     }
     static_cast<QHBoxLayout*>(layout)->addStretch();
+}
+
+void AnalysisTabW::refresh_diarize_banner() {
+    if (!is_diarize_plugin() || !d->currentTranscript.is_valid()) {
+        d->diarizeBannerLbl->setVisible(false);
+        return;
+    }
+
+    const auto status = d->currentTranscript.diarization_status();
+    const QString headline =
+        diarization_status_headline(status, d->currentTranscript.has_diarization());
+    if (headline.isEmpty()) {
+        d->diarizeBannerLbl->setVisible(false); // diarization worked; say nothing
+        return;
+    }
+
+    QString html = "<b>" + headline.toHtmlEscaped() + "</b>";
+    if (const QString remedy = diarization_status_remedy(status); !remedy.isEmpty()) {
+        html += "<br>" + remedy.toHtmlEscaped();
+    }
+    // The model's own error text, but only where it adds something the
+    // headline doesn't already say. For a gated-model 401 this is the one line
+    // separating a bad token from a token whose owner never accepted the
+    // licence, which is worth the extra clutter; for "no token" or "you asked
+    // for transcript only" it would just restate the headline.
+    if (const QString detail = d->currentTranscript.diarization_detail().trimmed();
+        !detail.isEmpty() && status != DiarizationStatus::SkippedByUser &&
+        status != DiarizationStatus::NoToken) {
+        html += "<br><span style='color:#a89060;'>" + detail.toHtmlEscaped() + "</span>";
+    }
+    d->diarizeBannerLbl->setText(html);
+    d->diarizeBannerLbl->setVisible(true);
 }
 
 void AnalysisTabW::highlight_active_transcript_row(int64_t ms) {
@@ -4409,6 +4486,27 @@ void AnalysisTabW::run_analysis() {
         const int maxSpeakers = d->maxSpeakersSpin->value();
         if (minSpeakers > 0 && maxSpeakers > 0 && minSpeakers > maxSpeakers) {
             d->statusLbl->setText("Error: Min speakers can't exceed Max speakers.");
+            d->statusLbl->setStyleSheet("color:#cc4444; font-size:15px; font-weight:600;");
+            return;
+        }
+
+        // Refuse a run that cannot produce what was asked for. Without a
+        // token run_diarize.py degrades to transcript-only, so the operator
+        // sits through a full Whisper transcription — minutes on a long
+        // recording — only to find a blank Speaker column at the end. Ticking
+        // "Transcript only" is the way to ask for that deliberately.
+        // Not just the field: run_diarize.py resolves the token as
+        // `--hf-token or $HF_TOKEN or $HUGGINGFACE_TOKEN`, and the child
+        // process inherits QProcessEnvironment::systemEnvironment(), so an
+        // operator who exports HF_TOKEN in their shell has a working setup
+        // this guard must not refuse.
+        const bool tokenAvailable = !d->settings.analysis.hfToken.trimmed().isEmpty() ||
+                                    qEnvironmentVariableIsSet("HF_TOKEN") ||
+                                    qEnvironmentVariableIsSet("HUGGINGFACE_TOKEN");
+        if (!tokenAvailable && !d->skipDiarizationCheck->isChecked()) {
+            d->statusLbl->setText(
+                "Speaker labelling needs a Hugging Face token — paste one above, or tick "
+                "\"Transcript only\" to transcribe without speaker labels.");
             d->statusLbl->setStyleSheet("color:#cc4444; font-size:15px; font-weight:600;");
             return;
         }

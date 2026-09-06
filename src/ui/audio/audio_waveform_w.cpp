@@ -1,6 +1,7 @@
 #include "ui/audio/audio_waveform_w.hpp"
 
 #include <QColor>
+#include <QFontMetrics>
 #include <QMouseEvent>
 #include <QPainter>
 #include <QPainterPath>
@@ -40,6 +41,11 @@ static constexpr QColor kStaticTraceColor(0x8a, 0x94, 0xb0);
 // Neutral fallback returned by speaker_color() for an empty/unrecognized
 // speaker label — distinct from every real palette entry.
 static constexpr QColor kUnknownSpeakerColor(0x55, 0x55, 0x66);
+
+// Height of the solid top/bottom strips framing a speaker turn. File-scope
+// because the time-tick gridlines inset themselves by it so they don't run
+// through the strips — the two must agree.
+static constexpr qreal kBandStripHeight = 9.0;
 
 struct AudioWaveformW::Impl {
     int channelCount{1};
@@ -286,8 +292,7 @@ void AudioWaveformW::paintEvent(QPaintEvent* /*event*/) {
             // passes so every strip draws on top of every wash, regardless
             // of band ordering.
             if (d->staticDurationMs > 0 && !d->bands.empty()) {
-                static constexpr qreal kBandStripHeight = 9.0;
-                auto bandX                              = [&](qint64 ms) {
+                auto bandX = [&](qint64 ms) {
                     return std::clamp<qreal>(
                                static_cast<qreal>(ms) / static_cast<qreal>(d->staticDurationMs),
                                0.0, 1.0) *
@@ -303,7 +308,11 @@ void AudioWaveformW::paintEvent(QPaintEvent* /*event*/) {
                         continue;
                     }
                     QColor wash = speaker_color(band.speaker);
-                    wash.setAlpha(55);
+                    // 55 was too faint to read against the #080816 ground —
+                    // roughly a 21% tint, which on a dark background is close
+                    // to invisible at a glance, and the whole point of the
+                    // band is to be seen at a glance.
+                    wash.setAlpha(80);
                     p.fillRect(QRectF(x0, 0, x1 - x0, rc.height()), wash);
                 }
                 for (const auto& band : d->bands) {
@@ -320,6 +329,90 @@ void AudioWaveformW::paintEvent(QPaintEvent* /*event*/) {
                     p.fillRect(
                         QRectF(x0, rc.height() - kBandStripHeight, x1 - x0, kBandStripHeight),
                         strip);
+
+                    // Name the speaker inside the band when it is wide enough
+                    // to hold the text. Colour alone forces a lookup against
+                    // the legend and a count of which hue is which; a label
+                    // removes that step for the long turns, which are the ones
+                    // worth identifying. Short turns keep colour only rather
+                    // than get a clipped or overlapping label.
+                    const qreal bandWidth = x1 - x0;
+                    const QString label   = band.speaker;
+                    QFont labelFont       = p.font();
+                    // 8, not 10: drawText(QRectF, ...) clips to the rect, and
+                    // a 10px line box (ascent+descent ~12px) does not fit the
+                    // 9px strip — the underscore in "SPEAKER_00" is the first
+                    // thing to vanish. Paired with TextDontClip below so a
+                    // descender is never sheared even at this size.
+                    labelFont.setPixelSize(8);
+                    labelFont.setBold(true);
+                    // Measured with the font it is actually drawn in, not the
+                    // painter's current one — otherwise the fit test is against
+                    // the wrong metrics and a label can overflow its band.
+                    const int textW = QFontMetrics(labelFont).horizontalAdvance(label);
+                    if (bandWidth >= textW + 12) {
+                        p.save();
+                        p.setFont(labelFont);
+                        // Dark text on the solid strip, which is a bright
+                        // palette colour — a light label would disappear.
+                        p.setPen(QColor(0x0a, 0x0a, 0x18, 220));
+                        p.drawText(QRectF(x0 + 5, 0, bandWidth - 10, kBandStripHeight),
+                                   Qt::AlignVCenter | Qt::AlignLeft | Qt::TextDontClip, label);
+                        p.restore();
+                    }
+                }
+            }
+
+            // Time ticks. Without them this strip shows *that* the speakers
+            // alternate but not *when*, so reading a turn off it means
+            // scrubbing the playhead until the readout matches — which
+            // defeats the point of an overview. Drawn after the bands so the
+            // labels stay legible over a coloured wash, before the playhead
+            // so the playhead stays on top.
+            if (d->staticDurationMs > 0) {
+                // Aim for a tick roughly every 90 px, snapped to a round
+                // interval — a "nice" number of seconds, not width/8, so the
+                // labels read as clock times rather than arbitrary offsets.
+                static constexpr qint64 kNiceStepsMs[] = {1000,   2000,    5000,   10000,  15000,
+                                                          30000,  60000,   120000, 300000, 600000,
+                                                          900000, 1800000, 3600000};
+                const qreal targetTicks                = std::max(2.0, rc.width() / 90.0);
+                qint64 step                            = kNiceStepsMs[std::size(kNiceStepsMs) - 1];
+                for (const qint64 candidate : kNiceStepsMs) {
+                    if (static_cast<qreal>(d->staticDurationMs) / candidate <= targetTicks) {
+                        step = candidate;
+                        break;
+                    }
+                }
+
+                QFont tickFont = p.font();
+                tickFont.setPixelSize(9);
+                p.setFont(tickFont);
+                for (qint64 t = step; t < d->staticDurationMs; t += step) {
+                    const qreal x = static_cast<qreal>(t) /
+                                    static_cast<qreal>(d->staticDurationMs) * rc.width();
+                    p.setPen(QPen(QColor(0xff, 0xff, 0xff, 26), 1, Qt::DotLine));
+                    p.drawLine(QPointF(x, kBandStripHeight),
+                               QPointF(x, rc.height() - kBandStripHeight));
+
+                    const qint64 totalSec = t / 1000;
+                    const QString label =
+                        QString("%1:%2").arg(totalSec / 60).arg(totalSec % 60, 2, 10, QChar('0'));
+                    const int tw = QFontMetrics(tickFont).horizontalAdvance(label);
+                    // Ticks run to just short of the duration, so the last one
+                    // can sit close enough to the right edge that its label
+                    // would be sheared mid-glyph. Draw the gridline regardless
+                    // — it still carries position — and drop only the text.
+                    if (x + tw + 6 > rc.width()) {
+                        continue;
+                    }
+                    // Backing plate, so a label over a bright band or a dense
+                    // part of the trace stays readable.
+                    p.fillRect(QRectF(x + 2, rc.height() / 2.0 - 6, tw + 4, 12),
+                               QColor(0x08, 0x08, 0x16, 170));
+                    p.setPen(QColor(0x8a, 0x8a, 0xb4));
+                    p.drawText(QRectF(x + 4, rc.height() / 2.0 - 6, tw, 12),
+                               Qt::AlignVCenter | Qt::AlignLeft, label);
                 }
             }
 
