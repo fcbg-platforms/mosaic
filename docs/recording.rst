@@ -30,12 +30,27 @@ Programmatically:
 What happens during ``start()``
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-1. **Session folder** is created. If the operator has filled in any of
-   Subject / Session / Task in the monitor, the folder is named with BIDS
-   entities followed by a timestamp — e.g.
-   ``recordings/sub-P01_ses-pre_task-rest_run-01_20260906T143012/``. If all
-   three are left blank the name is the timestamp alone, exactly as before
-   (``recordings/2026-06-04_14-32-05/``).
+1. **Session folder** is created, named with BIDS entities followed by a
+   timestamp — e.g.
+   ``recordings/sub-P01_ses-pre_task-rest_run-01_20260906T143012/``.
+
+   **A Subject is required to start a recording by hand.** Clicking Record
+   without one opens the *Name this recording* dialog rather than starting;
+   filling it in arms the countdown, cancelling records nothing. Session and
+   Task remain optional. Only ``sub-`` records *who* a recording is of, and
+   that is the one thing no amount of later archaeology recovers once a pile
+   of timestamp-named folders has accumulated.
+
+   The same dialog also handles a repeated subject/session/task, showing the
+   ``run-`` number the new recording will take. One dialog, not two: they can
+   hold at once, and two modals in a row is how a confirmation stops being
+   read.
+
+   The timestamp-only fallback (``recordings/2026-06-04_14-32-05/``) still
+   exists, but is now reachable only by a ``StartRecording`` **trigger**,
+   which fires with nobody at the keyboard to be asked. That path records
+   anyway and logs a warning: a mislabelled recording can be renamed
+   afterwards, one that never happened cannot.
 
    The name is BIDS-*inspired*, not BIDS-valid: entities appear in canonical
    BIDS order (``sub``, ``ses``, ``task``, ``run``) with alphanumeric-only
@@ -47,8 +62,10 @@ What happens during ``start()``
 
    ``run-NN`` counts repeats of the same subject/session/task and is
    **one past the highest run already present**, never one past the count —
-   deleting ``run-02`` will not cause its number to be reissued. Starting a
-   recording that would repeat an existing combination prompts first.
+   deleting ``run-02`` will not cause its number to be reissued. The index
+   shown in the monitor's preview line is advisory; ``RecordManager::start()``
+   re-resolves it authoritatively for both the button and the trigger path, so
+   the two can never disagree about the folder actually created.
 
    The folder is created with ``mkdir``, not ``mkpath``, so an existing
    directory is never silently recorded into; a clash falls back to

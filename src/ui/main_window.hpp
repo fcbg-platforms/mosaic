@@ -49,6 +49,13 @@ class MainWindow : public QMainWindow {
     // recording would start anyway a second or two later.
     void cancel_pending_recording_start();
 
+    // Starts a recording on behalf of Application's StartRecording *trigger*
+    // handler, which likewise only sees RecordManager. Returns false when
+    // there is no bridge to route through, so the caller can fall back to
+    // RecordManager directly rather than silently swallow a trigger.
+    // See MonitorBridge::start_from_trigger() for what routing through it buys.
+    [[nodiscard]] bool start_recording_from_trigger();
+
    signals:
     // Emitted when the user chooses File → Switch profile.
     void switch_profile_requested();

@@ -396,7 +396,21 @@ void Application::initialize(const QString& username, bool isAdmin) {
             [this](TriggerAction action, const TriggerEvent& /*event*/) {
                 if (action == TriggerAction::StartRecording) {
                     if (!d->recordManager->is_recording()) {
-                        [[maybe_unused]] const bool started = d->recordManager->start();
+                        // Through MonitorBridge when there is one, so both ways
+                        // of starting a recording agree on what starting means
+                        // — in particular, so a trigger firing with no subject
+                        // set leaves a warning in the log instead of quietly
+                        // producing an unattributable session. The bridge
+                        // deliberately skips the countdown and the duplicate-
+                        // name dialog on this path; see start_from_trigger().
+                        //
+                        // Falls through to RecordManager on a headless or
+                        // not-yet-built window: a trigger that starts nothing
+                        // at all is the one outcome worse than a badly named
+                        // recording.
+                        if (!d->mainWindow || !d->mainWindow->start_recording_from_trigger()) {
+                            [[maybe_unused]] const bool started = d->recordManager->start();
+                        }
                     }
                 } else if (action == TriggerAction::StopRecording) {
                     // Also aborts a pending pre-recording countdown, during

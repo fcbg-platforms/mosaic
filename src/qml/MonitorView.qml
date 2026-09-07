@@ -25,9 +25,11 @@ Rectangle {
     readonly property bool   hidePreviews: typeof backend !== "undefined" ? backend.hidePreviews : false
 
     // ── Session identity ───────────────────────────────────────────────────
-    // Who and what the next recording is of. All optional — left blank, the
-    // session keeps the timestamp-only folder name, so an operator is never
-    // blocked from pressing Record.
+    // Who and what the next recording is of. Session and task are optional; a
+    // subject is not — clicking Record without one opens a dialog asking for
+    // it, rather than quietly producing a timestamp-only folder name nobody can
+    // trace back to a participant. (A trigger-started recording still can:
+    // nobody is at the keyboard to be asked.)
     readonly property string subjectLabel:    typeof backend !== "undefined" ? backend.subjectLabel    : ""
     readonly property string sessionLabel:    typeof backend !== "undefined" ? backend.sessionLabel    : ""
     readonly property string taskLabel:       typeof backend !== "undefined" ? backend.taskLabel       : ""
@@ -151,8 +153,15 @@ Rectangle {
         // recording: burying per-session values in a settings pane means
         // they stop being filled in.
         SessionIdentityBar {
+            id: identityBar
             Layout.fillWidth: true
             visible: root.identityEditable
+            // Without a minimum, a ColumnLayout is free to shrink this to
+            // nothing: the camera grid above takes fillHeight, and once it is
+            // squeezed flat everything below shares what is left. Bound to the
+            // content rather than a magic number because the warning label
+            // wraps, so the bar is two lines tall at narrow widths.
+            Layout.minimumHeight: implicitHeight
         }
 
         // ── Operator notes ─────────────────────────────────────────────────
@@ -160,6 +169,7 @@ Rectangle {
         // usually the one written once something has actually happened.
         SessionNotesBox {
             Layout.fillWidth: true
+            Layout.minimumHeight: implicitHeight // same squeeze as above
         }
 
         // ── Recording controls ─────────────────────────────────────────────
@@ -168,6 +178,9 @@ Rectangle {
             recording:  root.recording
             elapsedMs:  root.elapsedMs
             countdown:  root.countdown
+            // The one control that must never be squeezable — see the
+            // implicitHeight note on the component itself.
+            Layout.minimumHeight: implicitHeight
 
             onStartRequested: {
                 if (typeof backend !== "undefined")
@@ -556,6 +569,12 @@ Rectangle {
             anchors.margins: 8
             spacing: 6
 
+            Label {
+                text: "SESSION"
+                color: "#55557a"
+                font { pixelSize: 10; bold: true; letterSpacing: 2 }
+            }
+
             RowLayout {
                 Layout.fillWidth: true
                 spacing: 8
@@ -728,8 +747,13 @@ Rectangle {
         signal startRequested()
         signal stopRequested()
 
-        height:       52
-        radius:       7
+        // implicitHeight, not height: a ColumnLayout takes its preferred-height
+        // hint from implicitHeight or Layout.preferredHeight and ignores a
+        // literal height binding, so this bar was advertising no preferred
+        // height at all and was first in line to be squeezed — unlike its two
+        // siblings above, which both set implicitHeight.
+        implicitHeight: 52
+        radius:         7
         color:        recording ? "#180a0a" : (pending ? "#1a1408" : "#09091a")
         border.color: recording ? "#772222" : (pending ? "#7a5c22" : "#1e1e40")
         border.width: 1
@@ -826,7 +850,10 @@ Rectangle {
                     hoverEnabled: true
                     cursorShape:  Qt.PointingHandCursor
                     // stopRequested() doubles as "cancel the pending start" —
-                    // see MonitorBridge::stopRecording().
+                    // see MonitorBridge::stopRecording(). Record is never
+                    // disabled: clicking it without a subject opens the dialog
+                    // that asks for one, which is more use than a dead button
+                    // beside fields the operator has not found.
                     onClicked:    (recording || bar.pending) ? bar.stopRequested()
                                                              : bar.startRequested()
                 }

@@ -52,10 +52,18 @@ inline constexpr int k_session_path_budget = 150;
 // build_session_folder_name().
 inline constexpr auto k_bids_timestamp_format = "yyyyMMdd'T'HHmmss";
 
-/// Who and what a recording is of. Every field is optional — an operator in a
-/// hurry must never be blocked from pressing Record, so an entirely empty
-/// identity is legal and falls back to the timestamp-only naming this app used
-/// before any of this existed.
+/// Who and what a recording is of.
+///
+/// Every field is optional *to this module*: an entirely empty identity is
+/// legal here and falls back to the timestamp-only naming this app used before
+/// any of this existed. That fallback still has to exist — a StartRecording
+/// trigger can fire with nobody at the keyboard, and an awkwardly-named
+/// recording beats no recording at all.
+///
+/// What is *not* optional is starting a recording by hand without a subject;
+/// see names_a_subject(). The permissiveness here and the requirement there
+/// are deliberately separate: this module says what a name can be, the UI says
+/// what an operator may do.
 struct SessionIdentity {
     QString subject; ///< BIDS "sub" label.
     QString session; ///< BIDS "ses" label.
@@ -85,6 +93,21 @@ struct SessionIdentity {
     /// as "../../etc" must not be able to reach a path.
     [[nodiscard]] static SessionIdentity from_json(const QJsonObject& obj);
 };
+
+/// Whether this identity is attributable to a participant, i.e. whether the
+/// folder it produces will carry a "sub-" entity.
+///
+/// A subject is the one label that has to be there. Session and task describe
+/// what was done and can be reconstructed later from a lab notebook or the
+/// recording itself; only "sub-" says *who it was of*, and that is the one
+/// thing no amount of after-the-fact archaeology recovers once a dozen
+/// timestamp-named folders have piled up.
+///
+/// Judged on the sanitized label, not the raw text: a subject field holding
+/// "!!!" is three characters the operator can see and zero characters that
+/// survive into the folder name, and a subject that names nothing is no
+/// subject. Consistent with has_entities(), which sanitizes for the same reason.
+[[nodiscard]] bool names_a_subject(const SessionIdentity& id);
 
 // ── Labels ─────────────────────────────────────────────────────────────────
 
@@ -182,11 +205,104 @@ struct SessionCollision {
 [[nodiscard]] SessionCollision check_collision(const QStringList& existingNames,
                                                const SessionIdentity& id);
 
+/// next_run_index() once the sibling list is already in hand.
+///
+/// Split out so a caller that needs both the count and the index — every
+/// caller, in practice — matches the directory once instead of twice. Assumes
+/// its argument really is a matched sibling list; it does no filtering of its
+/// own and an empty list means "run 1", not "not applicable".
+[[nodiscard]] int next_run_after(const QStringList& siblings);
+
 /// Whether recordDir + '/' + folderName leaves a plugin room to write inside
 /// the resulting session. Checked before a recording starts, so an over-long
 /// combination fails while it is still just text in a field — rather than
 /// hours later, when an analysis plugin cannot create its output file.
 [[nodiscard]] bool fits_path_budget(const QString& recordDir, const QString& folderName);
+
+// ── Advice ─────────────────────────────────────────────────────────────────
+
+/// What, if anything, is wrong with an identity — the classification behind
+/// IdentityAdvice::warning.
+///
+/// The prose is carried too, so the two surfaces cannot word the same problem
+/// differently, but the surfaces need the *category* for the one thing a
+/// sentence cannot give them: the dialog opened specifically to ask for a
+/// subject must not then print "A subject is required before recording." at the
+/// operator, which is a tautology inside a box whose only field is Subject. It
+/// suppresses NoSubject and renders every other issue verbatim.
+enum class IdentityIssue {
+    None,
+    NoSubject,       ///< Subject field empty.
+    SubjectUnusable, ///< Subject typed, but nothing survives sanitizing ("???").
+    LabelDropped,    ///< A session/task label sanitizes away entirely.
+    LabelTruncated,  ///< Legal characters, but longer than k_max_label_chars.
+    LabelCoerced,    ///< Illegal characters removed, something usable remains.
+    NameTooLong,     ///< The whole folder name overruns the path budget.
+};
+
+/// Everything the UI needs to say about one identity, decided in a single pass.
+///
+/// This exists because there are two surfaces asking the same question — the
+/// inline bar in the monitor and the dialog that opens when Record is clicked
+/// without a subject — and they must never give different answers about the
+/// same three labels. Phrasing the warnings in the UI layer would mean phrasing
+/// them twice, which is exactly how the two drift apart. (The usual argument
+/// for keeping strings out of a domain module is localization; this app has no
+/// translation layer, so it does not apply.)
+///
+/// The second reason it lives here rather than in MonitorBridge, where this
+/// logic started: that class pulls QtGui in via QImage, and mosaic_tests links
+/// only Qt6::Core and Qt6::Network. Logic deciding where recordings land is the
+/// wrong thing to leave untestable.
+struct IdentityAdvice {
+    /// The folder that would be created. **Empty exactly when the identity names
+    /// no subject** — build_session_folder_name() would happily return a name
+    /// there (the bare timestamp, or "ses-…_task-…" when only those two are
+    /// filled), and showing an accurate preview of a folder the operator cannot
+    /// create is worse than showing none.
+    ///
+    /// Deliberately *not* empty for an over-long name, which is the other way
+    /// canRecord goes false: there the name is exactly what the operator needs
+    /// to see in order to shorten it.
+    QString folderName;
+
+    /// One line about the *labels*, empty when there is nothing to say: what
+    /// got dropped or shortened, that a subject is still missing, or that the
+    /// name is too long for the recordings directory. The first problem only —
+    /// a field-by-field breakdown is noise next to a preview showing the result.
+    QString warning;
+
+    /// Whether a recording may be started by hand under this identity: it names
+    /// a subject (see names_a_subject()) *and* the resulting path leaves room
+    /// for the files written inside it (see fits_path_budget()). One answer
+    /// rather than two, because every caller wants the same thing from it —
+    /// whether to enable a button. Which of the two failed is in `warning`.
+    bool canRecord = false;
+
+    /// What history says about this combination. Deliberately data rather than
+    /// prose: a collision is a question with buttons attached ("record as
+    /// run-02?"), not a warning, so the surface asking it does the phrasing.
+    SessionCollision collision;
+
+    /// The category `warning` describes. IdentityIssue::None exactly when
+    /// `warning` is empty.
+    IdentityIssue issue = IdentityIssue::None;
+};
+
+/// Judge one identity: what it would create, what is wrong with it, and whether
+/// it may be recorded.
+///
+/// @param existingNames  One directory listing, from existing_session_names().
+///                       Taken as a parameter rather than read here so this
+///                       stays pure and so a caller that needs several answers
+///                       pays for one scan, not three.
+/// @param timestampFormat  As build_session_folder_name() takes it: the
+///                         operator's configured format, or empty for "no
+///                         timestamp".
+[[nodiscard]] IdentityAdvice advise_identity(const SessionIdentity& raw,
+                                             const QStringList& existingNames,
+                                             const QString& recordDir, const QDateTime& when,
+                                             const QString& timestampFormat);
 
 // ── Ordering ───────────────────────────────────────────────────────────────
 

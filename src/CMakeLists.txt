@@ -197,6 +197,8 @@ qt_add_executable(mosaic MACOSX_BUNDLE
     ui/session/session_player_w.cpp
     ui/session/session_health_dialog.hpp
     ui/session/session_health_dialog.cpp
+    ui/session/session_identity_dialog.hpp
+    ui/session/session_identity_dialog.cpp
 
     # ── Analysis tab ─────────────────────────────────────────────────────
     ui/analysis/subject_colors.hpp
