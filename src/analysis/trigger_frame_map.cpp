@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <cmath>
 
+#include "analysis/camera_timestamp_files.hpp"
 #include "utils/logger.hpp"
 
 namespace mosaic {
@@ -152,17 +153,19 @@ TriggerFrameMap TriggerFrameMap::generate(const QString& sessionPath) {
         [](const RawTrigger& a, const RawTrigger& b) { return a.elapsedNs < b.elapsedNs; });
 
     const QDir videoDir(sessionPath + "/video");
-    constexpr int kMaxCams = 16;
+    // By camera number, not by position — see SyncManifest::generate() and
+    // analysis/camera_timestamp_files.hpp for why the old contiguous scan
+    // dropped or renumbered cameras whenever one was absent.
     QVector<QVector<FrameTs>> camTs;
-    for (int i = 0; i < kMaxCams; ++i) {
-        auto ts = read_timestamps(videoDir.filePath(QString("timestamps_cam%1.csv").arg(i)));
+    for (const int camIndex : discover_camera_timestamp_indices(videoDir)) {
+        auto ts = read_timestamps(videoDir.filePath(QString("timestamps_cam%1.csv").arg(camIndex)));
         if (ts.isEmpty()) {
-            break;
+            continue; // captured nothing; must not hide later cameras
         }
 
         TriggerFrameCamera tc;
-        tc.index          = i;
-        tc.videoFile      = QString("video/video_%1.mp4").arg(i);
+        tc.index          = camIndex;
+        tc.videoFile      = QString("video/video_%1.mp4").arg(camIndex);
         tc.framesCaptured = static_cast<int>(ts.size());
         m.cameras_.append(tc);
         camTs.append(std::move(ts));
@@ -194,7 +197,11 @@ TriggerFrameMap TriggerFrameMap::generate(const QString& sessionPath) {
         for (int c = 0; c < m.cameras_.size(); ++c) {
             const auto& frames = camTs[c];
             TriggerFrameHit hit;
-            hit.cameraIndex = c;
+            // The camera's real number, so it agrees with cameras_[c].index
+            // and with the camera_index this is serialized as. Positional here
+            // would make trigger_frame_map.json claim camera 3's hit belongs to
+            // camera 1 whenever a camera is missing.
+            hit.cameraIndex = m.cameras_[c].index;
             if (frames.isEmpty()) {
                 row.frames.append(hit); // frameId stays -1: no data for this camera
                 continue;

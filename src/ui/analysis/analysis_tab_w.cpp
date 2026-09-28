@@ -2351,14 +2351,25 @@ void AnalysisTabW::build_ui() {
         if (row < 0 || row >= d->currentTriggerFrameMap.trigger_count()) {
             return;
         }
-        const int camIdx = d->cameraCombo->currentIndex();
-        const auto& hits = d->currentTriggerFrameMap.row(row).frames;
-        if (camIdx < 0 || camIdx >= hits.size()) {
+        // Match the selected camera by its video file, not by combo position.
+        // The combo is filled from SessionInfo::videoFiles (every video_*.mp4
+        // present) while `frames` is positional over the cameras that have
+        // timestamp data — so the two lists diverge whenever a camera has an
+        // mp4 but no usable timestamps_camN.csv, and position N in one is a
+        // different camera from position N in the other. Seeking on a mismatch
+        // would jump the currently displayed video to another camera's frame.
+        const QString selectedVideo = d->cameraCombo->currentData().toString();
+        const auto& m               = d->currentTriggerFrameMap;
+        const auto& hits            = m.row(row).frames;
+        for (int c = 0; c < hits.size() && c < m.camera_count(); ++c) {
+            if (m.camera_info(c).videoFile != selectedVideo) {
+                continue;
+            }
+            const int64_t posMs = hits[c].videoPositionMs;
+            if (posMs >= 0) {
+                d->player->seek(posMs);
+            }
             return;
-        }
-        const int64_t posMs = hits[camIdx].videoPositionMs;
-        if (posMs >= 0) {
-            d->player->seek(posMs);
         }
     });
     resultsSplitter->addWidget(d->triggerSyncTable);
@@ -4262,7 +4273,12 @@ void AnalysisTabW::update_trigger_sync_view() {
     d->triggerSyncTable->setColumnCount(7 + 2 * nCams);
     QStringList headers = {"Row", "Elapsed (ms)", "Wall clock", "Source", "Label", "Code", "Value"};
     for (int c = 0; c < nCams; ++c) {
-        headers << QString("Cam%1 Frame").arg(c) << QString("Cam%1 Δms").arg(c);
+        // The camera's number, not the column position — export_csv() already
+        // labels its columns cam<index>_*, so a positional header here would
+        // have the table and the exported file disagree about which camera a
+        // column belongs to on any session with a missing camera.
+        const int camNumber = m.camera_info(c).index;
+        headers << QString("Cam%1 Frame").arg(camNumber) << QString("Cam%1 Δms").arg(camNumber);
     }
     d->triggerSyncTable->setHorizontalHeaderLabels(headers);
 

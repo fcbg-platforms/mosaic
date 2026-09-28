@@ -12,6 +12,7 @@
 #include <cmath>
 #include <limits>
 
+#include "analysis/camera_timestamp_files.hpp"
 #include "utils/logger.hpp"
 
 namespace mosaic {
@@ -70,14 +71,30 @@ SyncManifest SyncManifest::generate(const QString& sessionPath, double masterFps
 
     const QDir videoDir(sessionPath + "/video");
 
-    // Load per-camera timestamp files (cam0, cam1, … until first miss).
-    const int kMaxCams = 16;
+    // Load per-camera timestamp files by camera *number*, not by position.
+    //
+    // This used to walk cam0, cam1, … and stop at the first missing file, then
+    // number its output by position in that run. A session where camera 0 is
+    // absent — one that failed to open, or a single-camera recording from any
+    // other camera — produced nothing at all, and a session with a gap in the
+    // middle silently renumbered every camera after it. camNumbers keeps each
+    // camera's real number alongside its frames so the two can't drift.
+    QVector<int> camNumbers;
     QVector<QVector<FrameTs>> camTs;
-    for (int i = 0; i < kMaxCams; ++i) {
-        auto ts = read_timestamps(videoDir.filePath(QString("timestamps_cam%1.csv").arg(i)));
+    for (const int camIndex : discover_camera_timestamp_indices(videoDir)) {
+        auto ts = read_timestamps(videoDir.filePath(QString("timestamps_cam%1.csv").arg(camIndex)));
         if (ts.isEmpty()) {
-            break;
+            // Present but unreadable, or a header with no rows. Skipped rather
+            // than ending the scan: a camera that captured nothing must not
+            // hide the cameras numbered after it, which is precisely what the
+            // old `break` did. Everything below indexes frames unguarded
+            // (camTs[c].front()), so an empty entry cannot be carried forward.
+            log_warning(QString("[SyncManifest] timestamps_cam%1.csv has no frames — skipping "
+                                "that camera")
+                            .arg(camIndex));
+            continue;
         }
+        camNumbers.append(camIndex);
         camTs.append(std::move(ts));
     }
 
@@ -178,8 +195,12 @@ SyncManifest SyncManifest::generate(const QString& sessionPath, double masterFps
         }
 
         CameraSync cs;
-        cs.index          = c;
-        cs.videoFile      = QString("video/video_%1.mp4").arg(c);
+        // The camera's real number, so `index` keeps meaning "config camera N"
+        // even when earlier cameras are missing. MainWindow::fill_sync() already
+        // matches on camSync.index == configIndex and was only ever correct
+        // while the run was gapless.
+        cs.index          = camNumbers[c];
+        cs.videoFile      = QString("video/video_%1.mp4").arg(camNumbers[c]);
         cs.framesCaptured = nf;
         cs.firstWallNs    = frames.front().wallNs;
         cs.lastWallNs     = frames.back().wallNs;
@@ -256,8 +277,16 @@ bool SyncManifest::save(const QString& sessionPath) const {
             deltas.append(
                 static_cast<double>(std::round(deltaMs_[c * totalTicks_ + t] * 10.0) / 10.0));
         }
-        ticks[QString("cam%1_frame_ids").arg(c)] = ids;
-        ticks[QString("cam%1_delta_ms").arg(c)]  = deltas;
+        // Keyed by the camera's real number, not its position here. The
+        // Python plugins already read these as cam{cam.index}_* (see
+        // run_gaze_fusion.py:336, run_pose3d.py:344) — with positional keys a
+        // session recorded from cameras 0/3/5 would write cam0/cam1/cam2 while
+        // those scripts asked for cam0/cam3/cam5, get empty arrays back, and
+        // silently fuse zero frames. Identical output for a gapless session,
+        // where position and number coincide.
+        const int camNumber                              = cameras_[c].index;
+        ticks[QString("cam%1_frame_ids").arg(camNumber)] = ids;
+        ticks[QString("cam%1_delta_ms").arg(camNumber)]  = deltas;
     }
     root["ticks"] = ticks;
 
@@ -321,8 +350,10 @@ SyncManifest SyncManifest::load(const QString& sessionPath) {
 
     const QJsonObject ticks = root["ticks"].toObject();
     for (int c = 0; c < nCams; ++c) {
-        const QJsonArray ids    = ticks[QString("cam%1_frame_ids").arg(c)].toArray();
-        const QJsonArray deltas = ticks[QString("cam%1_delta_ms").arg(c)].toArray();
+        // Same keying as save() — the camera's number, not its position.
+        const int camNumber     = m.cameras_[c].index;
+        const QJsonArray ids    = ticks[QString("cam%1_frame_ids").arg(camNumber)].toArray();
+        const QJsonArray deltas = ticks[QString("cam%1_delta_ms").arg(camNumber)].toArray();
         const int count         = std::min(
             {static_cast<int>(ids.size()), static_cast<int>(deltas.size()), m.totalTicks_});
         for (int t = 0; t < count; ++t) {

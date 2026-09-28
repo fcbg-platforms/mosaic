@@ -238,7 +238,12 @@ Whether or not hardware triggering was active, Mosaic always additionally
 builds a **post-hoc** alignment after recording, via
 :cpp:class:`mosaic::SyncManifest`:
 
-1. It reads every camera's ``timestamps_camN.csv``.
+1. It reads every camera's ``timestamps_camN.csv``, found by enumerating what
+   is actually in the ``video/`` folder rather than by counting up from
+   ``cam0``. Each camera keeps its own number, so a session missing a camera —
+   one that failed to open, or a single-camera recording from any camera other
+   than 0 — still aligns, and ``index`` in ``sync_manifest.json`` always means
+   the configured camera number.
 2. It finds the overlapping time window (on the shared ``elapsed_ns`` clock)
    across all cameras.
 3. It builds a uniform "master tick" timeline (default 25 fps) and, for each

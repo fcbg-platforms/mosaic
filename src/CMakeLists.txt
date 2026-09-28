@@ -33,6 +33,8 @@ qt_add_executable(mosaic MACOSX_BUNDLE
     analysis/voice_result.cpp
     analysis/expression_result.hpp
     analysis/expression_result.cpp
+    analysis/camera_timestamp_files.hpp
+    analysis/camera_timestamp_files.cpp
     analysis/sync_manifest.hpp
     analysis/sync_manifest.cpp
     analysis/trigger_frame_map.hpp
