@@ -14,6 +14,7 @@
 #include "utils/logger.hpp"
 #include "utils/ring_buffer.hpp"
 #include "utils/timestamp.hpp"
+#include "video/frame_shortfall.hpp"
 #include "video/gige_action_command.hpp"
 #include "video/video_encoder.hpp"
 #include "video/video_grabber.hpp"
@@ -63,7 +64,20 @@ class ActionCommandTicker : public QThread {
         : m_session(std::move(session)),
           m_targets(std::move(targets)),
           m_grabbers(std::move(grabbers)),
-          m_period(std::chrono::duration<double, std::milli>(periodMs)) {}
+          m_period(std::chrono::duration<double, std::milli>(periodMs)) {
+        // Baseline each camera's corrupted-frame counter, because it is the odd
+        // one out: ticks_fired() starts at zero with this ticker and
+        // frames_grabbed() is reset by start_grabbing(), but
+        // incomplete_frames_total() is cumulative for the camera's whole open()
+        // and deliberately never resets. Without this, a gap measured over
+        // seconds would be compared against corruption accumulated across the
+        // whole preview before it, every shortfall would classify as packet
+        // loss, and "missing trigger broadcasts" would become unreachable.
+        m_incompleteBaseline.reserve(m_grabbers.size());
+        for (auto* g : m_grabbers) {
+            m_incompleteBaseline.push_back(g ? g->incomplete_frames_total() : 0);
+        }
+    }
 
     // Total action-command ticks fired so far this ticker's lifetime.
     // Cross-thread-safe (atomic); read by VideoManager::stop_action_ticker()
@@ -115,7 +129,9 @@ class ActionCommandTicker : public QThread {
                 // exactly that gap, per camera, live during the session —
                 // distinct from the "incomplete frame" warning, which is
                 // about a frame that started arriving and got corrupted, not
-                // one that never arrived at all.
+                // one that never arrived at all — and then says which of the
+                // two this gap is, since they look identical from the frame
+                // count alone and need opposite remedies.
                 if (std::chrono::duration<double>(now - lastDiagTime).count() >= 5.0) {
                     lastDiagTime = now;
                     for (size_t i = 0; i < m_targets.size() && i < m_grabbers.size(); ++i) {
@@ -123,21 +139,66 @@ class ActionCommandTicker : public QThread {
                             continue;
                         }
                         const int64_t captured = m_grabbers[i]->frames_grabbed();
-                        // A little slack: the readiness barrier still lets a
-                        // camera join a few ticks late, and a healthy camera
-                        // can lag by a frame or two under normal jitter —
-                        // only flag a gap large enough to mean real,
-                        // sustained missed triggers, not startup noise.
+                        // Since this ticker started, so it covers the same
+                        // window as ticksFired and captured.
+                        const int64_t baseline =
+                            i < m_incompleteBaseline.size() ? m_incompleteBaseline[i] : 0;
+                        const int64_t incomplete = std::max<int64_t>(
+                            0, m_grabbers[i]->incomplete_frames_total() - baseline);
                         const int64_t missed = ticksFired - captured;
-                        if (missed > 5 && captured < (ticksFired * 9) / 10) {
-                            log_warning(QString("[VideoManager] Camera %1: %2 action-command "
-                                                "ticks fired so far but only %3 frames captured "
-                                                "(%4 missing) — this camera is likely missing "
-                                                "trigger broadcasts, not just corrupted frames.")
+
+                        // Which fault this is, rather than assuming. This line
+                        // used to say "likely missing trigger broadcasts" every
+                        // time without reading the corrupted-frame counter on
+                        // the same grabber, so a camera whose images were being
+                        // destroyed in transit reported a trigger problem. The
+                        // slack for a few late ticks and normal jitter now lives
+                        // in classify_frame_shortfall().
+                        const auto shortfall =
+                            classify_frame_shortfall(ticksFired, captured, incomplete);
+                        if (shortfall != FrameShortfall::None && captured < (ticksFired * 9) / 10) {
+                            QString cause;
+                            switch (shortfall) {
+                                case FrameShortfall::PacketLoss:
+                                    cause = QString(
+                                                "%1 of them arrived corrupted (GigE packet "
+                                                "loss) — check this camera's bandwidth, cable "
+                                                "and network port, not the trigger")
+                                                .arg(std::min(incomplete, missed));
+                                    break;
+                                case FrameShortfall::Both:
+                                    cause = QString(
+                                                "%1 arrived corrupted (GigE packet loss) and "
+                                                "the rest never arrived at all — this link has "
+                                                "both a bandwidth/cabling problem and missed "
+                                                "triggers")
+                                                .arg(std::min(incomplete, missed));
+                                    break;
+                                case FrameShortfall::MissedTriggers:
+                                case FrameShortfall::None:
+                                    // MissedTriggers allows some corruption
+                                    // (under k_packet_loss_share of the gap),
+                                    // so only say "none" when it was none.
+                                    cause = incomplete <= 0
+                                                ? QStringLiteral(
+                                                      "they never arrived at all and none were "
+                                                      "corrupted — this camera is missing trigger "
+                                                      "broadcasts")
+                                                : QString(
+                                                      "most never arrived at all (only %1 "
+                                                      "corrupted) — this camera is mainly "
+                                                      "missing trigger broadcasts")
+                                                      .arg(std::min(incomplete, missed));
+                                    break;
+                            }
+                            log_warning(QString("[VideoManager] Camera %1: %2 action-command ticks "
+                                                "fired so far but only %3 frames captured (%4 "
+                                                "missing); %5.")
                                             .arg(m_targets[i].cameraIndex)
                                             .arg(ticksFired)
                                             .arg(captured)
-                                            .arg(missed));
+                                            .arg(missed)
+                                            .arg(cause));
                         }
                     }
 
@@ -199,6 +260,9 @@ class ActionCommandTicker : public QThread {
     std::unique_ptr<ActionCommandSession> m_session;
     std::vector<ActionCommandTarget> m_targets;
     std::vector<VideoGrabber*> m_grabbers;
+    // incomplete_frames_total() per camera at construction — see the ctor for
+    // why this one counter needs a baseline and the other two do not.
+    std::vector<int64_t> m_incompleteBaseline;
     std::chrono::duration<double, std::milli> m_period;
     std::atomic<int64_t> m_ticksFired{0};
 };
@@ -618,17 +682,31 @@ void VideoManager::arm_and_fire_action_commands() {
         return;
     }
 
-    // start_grabbing() only confirms QThread::start() was scheduled, not
-    // that Pylon's StartGrabbing() has actually run yet (that call itself
-    // does real node-map I/O first) — firing immediately risks the ticker's
-    // first tick or two reaching a camera before it's truly listening,
-    // silently dropping that camera's earliest trigger(s) and skewing its
-    // first frame relative to the rest of the group. Poll briefly, bounded
-    // so a slow/stuck camera can never turn this into an indefinite wait —
-    // matches this feature's established "degrade safely, never hang"
-    // philosophy; a camera that's still not ready when the timeout expires
-    // just gets whatever tick catches it next, self-correcting rather than
-    // held up entirely.
+    // start_grabbing() only confirms QThread::start() was scheduled, not that
+    // Pylon's StartGrabbing() has actually run yet (that call does real
+    // node-map I/O first) — firing immediately would let the ticker's first
+    // tick or two reach a camera whose stream grabber is not armed. Poll
+    // briefly, bounded so a slow or stuck camera can never turn this into an
+    // indefinite wait: "degrade safely, never hang", and a camera still not
+    // armed when the timeout expires just gets whatever tick catches it next.
+    //
+    // Be precise about what this does and does not buy, because the difference
+    // has already misled one investigation. It guarantees that every armed
+    // camera's StartGrabbing() has returned before the first broadcast. It
+    // cannot guarantee that every camera's first *frame* lands with the group:
+    // between StartGrabbing() returning and a frame arriving, the camera still
+    // has to receive the trigger, expose, transmit, and have its packets
+    // survive the wire. On a link that is losing packets those first frames
+    // die in transit and that camera simply appears late, with the barrier
+    // having passed cleanly.
+    //
+    // Measured on room 11, 2026-09-07: with this barrier satisfied, Camera 2
+    // (config index 1) still delivered its first frame 264 ms (3.4 trigger
+    // periods) after the rest. It was the only camera logging incomplete
+    // frames that session, and once started it ran with zero gaps and ~1 ms of
+    // hardware-timestamp jitter. A late first frame is evidence about that
+    // camera's link, not about this wait being too short; a longer timeout
+    // would not have moved it.
     {
         constexpr int k_readinessPollTimeoutMs  = 500;
         constexpr int k_readinessPollIntervalMs = 2;
@@ -752,6 +830,15 @@ bool VideoManager::camera_action_command_ready(int index) const {
     }
     const auto& unit = d->units[static_cast<size_t>(index)];
     return unit.grabber && unit.grabber->action_command_ready();
+}
+
+VideoManager::CameraStats VideoManager::camera_stats_for_config_index(int configIndex) const {
+    for (std::size_t p = 0; p < d->units.size(); ++p) {
+        if (d->units[p].configIndex == configIndex) {
+            return camera_stats(static_cast<int>(p));
+        }
+    }
+    return {}; // configured but not open — grabberRunning stays false
 }
 
 int VideoManager::camera_config_index(int position) const {
