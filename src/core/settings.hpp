@@ -70,7 +70,11 @@ struct CameraParameters {
     QString exposureAuto       = "Once"; // "Off" | "Once" | "Continuous"
     double exposureTimeUs      = 10000.0;
     double exposureAutoLowerUs = 100.0;
-    double exposureAutoUpperUs = 50000.0;
+    // 40 ms, not 50: an exposure of E µs caps the frame rate at 1e6/E, so this
+    // must be at most 1e6/fps for the default 25 fps to be reachable at all.
+    // At 50 ms the shipped defaults guaranteed a sub-target rate in dim light.
+    // Only affects new cameras; a persisted value is kept as the operator set it.
+    double exposureAutoUpperUs = 40000.0;
 
     // Gain. Defaults to "Once", not "Off": this camera generation only
     // exposes the older SFNC 1.x "GainRaw" node, not the modern "Gain" (dB)

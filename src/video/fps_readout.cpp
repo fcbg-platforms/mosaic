@@ -38,7 +38,7 @@ bool is_at_configured_cap(double fps, bool specifyFps, double configuredFps) {
 } // namespace
 
 FpsReadout compute_fps_readout(double measuredFps, bool specifyFps, double configuredFps,
-                               bool manualExposure, double exposureTimeUs) {
+                               bool manualExposure, double exposureTimeUs, double autoUpperUs) {
     // A real measurement always wins: it already accounts for exposure,
     // sensor readout and link bandwidth together, which no client-side
     // arithmetic can.
@@ -72,6 +72,18 @@ FpsReadout compute_fps_readout(double measuredFps, bool specifyFps, double confi
         const double ceiling = k_us_per_second / exposureTimeUs;
         return {FpsReadoutKind::ExposureCeiling, ceiling,
                 falls_short(ceiling, specifyFps, configuredFps)};
+    }
+
+    // Auto exposure picks its own time but never beyond the upper limit, so
+    // 1e6/limit is the lowest the exposure ceiling can fall. belowConfigured
+    // here means "the limit is loose enough that exposure *may* hold the rate
+    // below what was asked" — exactly the warning an operator needs before a
+    // session, and the one room 11 never got: its 50 ms default limit allows
+    // only 20 fps, under the 25 configured, and was not even being applied.
+    if (!manualExposure && autoUpperUs > 0.0) {
+        const double floorOfCeiling = k_us_per_second / autoUpperUs;
+        return {FpsReadoutKind::ExposureLimitFloor, floorOfCeiling,
+                falls_short(floorOfCeiling, specifyFps, configuredFps)};
     }
 
     return {FpsReadoutKind::AwaitingMeasurement, -1.0, false};

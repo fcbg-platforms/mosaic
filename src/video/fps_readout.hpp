@@ -13,10 +13,12 @@ namespace mosaic {
 //
 // The one thing this deliberately never does is predict a frame rate from the
 // exposure time and present it as fact. Exposure is only one of three limits
-// (sensor readout time and GigE bandwidth are the others), and on this rig
-// bandwidth is the binding constraint on at least one camera — so a
-// client-side 1/exposure figure would be confidently wrong exactly when it
-// matters most. The camera's own ResultingFrameRate already accounts for all
+// (sensor readout time and GigE bandwidth are the others), so a client-side
+// 1/exposure figure can overstate what the camera will really deliver. (An
+// earlier version of this comment claimed bandwidth was the binding limit on
+// this rig. It was not: auto exposure was — unbounded, because the auto limits
+// never reached the camera — settling at ~69 ms and capping every camera at
+// ~14.5 fps.) The camera's own ResultingFrameRate already accounts for all
 // three, so a real measurement is always preferred; the exposure figure is
 // only ever offered as an upper *bound*, clearly distinguished from a
 // measurement (see FpsReadoutKind::ExposureCeiling).
@@ -53,6 +55,15 @@ enum class FpsReadoutKind {
     // exposes them. An upper bound, never a prediction — the real rate is
     // usually lower once readout and bandwidth are accounted for.
     ExposureCeiling,
+    // No measurement, auto exposure, and an upper limit the camera enforces.
+    // Deliberately NOT ExposureCeiling: the limit is only the *longest*
+    // exposure the camera may pick, so 1e6/limit is the lowest the exposure
+    // ceiling can fall — exposure will not hold the rate below it. Reading it
+    // as "at most" would invert its meaning, which is why it is its own kind
+    // rather than a flag a consumer could forget to check. belowConfigured
+    // means the limit is loose enough that exposure *may* hold the rate under
+    // what was asked for in dim light — not that it will.
+    ExposureLimitFloor,
     // The camera's own measured ResultingFrameRate.
     Measured,
 };
@@ -88,8 +99,8 @@ struct FpsReadout {
     bool belowConfigured = false;
     // Which constraint is holding `fps` down. Only ever classified for
     // Measured readouts with a configured rate to compare against;
-    // ExposureCeiling stays Unknown because its own wording already names
-    // exposure as the limit.
+    // ExposureCeiling and ExposureLimitFloor stay Unknown because both are
+    // statements about exposure by construction.
     FpsLimit limitedBy = FpsLimit::Unknown;
     // The exposure time, in microseconds, above which exposure alone would
     // push the rate below the configured cap: 1e6 / configuredFps. This is
@@ -114,8 +125,14 @@ struct FpsReadout {
 //                       exposure, so exposureTimeUs says nothing about what
 //                       it will actually use.
 // @param exposureTimeUs CameraParameters::exposureTimeUs.
+// @param autoUpperUs    CameraParameters::exposureAutoUpperUs: under auto
+//                       exposure, the longest exposure the camera may choose.
+//                       Only meaningful because VideoGrabber now writes it to
+//                       the camera — for months it was persisted and editable
+//                       but never applied, which is why this parameter did not
+//                       exist. <= 0 means no limit is known.
 [[nodiscard]] FpsReadout compute_fps_readout(double measuredFps, bool specifyFps,
                                              double configuredFps, bool manualExposure,
-                                             double exposureTimeUs);
+                                             double exposureTimeUs, double autoUpperUs);
 
 } // namespace mosaic

@@ -20,6 +20,22 @@
 
 namespace mosaic {
 
+#if defined(MOSAIC_HAVE_CAMERAS)
+namespace {
+
+// The SFNC 2.0 name of a float node if this camera has it, otherwise its
+// SFNC 1.x "…Abs" spelling. Decided by node *existence* (GetNode), never by
+// whether a read throws: a node that exists but is momentarily locked by an
+// auto function would otherwise be misread as absent, and the write would go
+// to a name that does not exist with a misleading warning. Same check the
+// BlackLevel/BalanceRatio code below already uses.
+const char* float_node_name(GenApi::INodeMap& cam, const char* sfnc2, const char* sfnc1) {
+    return cam.GetNode(sfnc2) != nullptr ? sfnc2 : sfnc1;
+}
+
+} // namespace
+#endif
+
 struct VideoGrabber::Impl {
     int cameraIndex;
     // Bound once, for this grabber's entire lifetime, to an element of the
@@ -294,23 +310,37 @@ bool VideoGrabber::open() {
                     [&] { CBooleanParameter(cam, "AcquisitionFrameRateEnable").SetValue(true); });
             // SFNC 2.0: AcquisitionFrameRate (float)
             // SFNC 1.x: AcquisitionFrameRateAbs (float) — same unit, different name
+            // Clamped to the node's range, like every neighbouring numeric
+            // write. It used to be the one unclamped write in this file, so an
+            // out-of-range rate threw and the camera kept its previous rate.
+            // Clamping must not make that silent instead, so say when it bites.
             try_set("AcquisitionFrameRate", [&] {
-                try {
-                    CFloatParameter(cam, "AcquisitionFrameRate").SetValue(d->params.fps);
-                } catch (const Pylon::GenericException&) {
-                    CFloatParameter(cam, "AcquisitionFrameRateAbs").SetValue(d->params.fps);
+                CFloatParameter p(
+                    cam, float_node_name(cam, "AcquisitionFrameRate", "AcquisitionFrameRateAbs"));
+                const double applied = std::clamp(d->params.fps, p.GetMin(), p.GetMax());
+                if (applied != d->params.fps) {
+                    log_warning(QString("[Camera %1] Frame rate %2 fps is outside what this "
+                                        "camera accepts (%3-%4); using %5 fps.")
+                                    .arg(d->cameraIndex)
+                                    .arg(d->params.fps)
+                                    .arg(p.GetMin())
+                                    .arg(p.GetMax())
+                                    .arg(applied));
                 }
+                p.SetValue(applied);
             });
         }
 
         // Hardware trigger input (external TTL pulse on a GPIO line, or a
         // GigE Vision Action Command broadcast, drives frame acquisition
-        // instead of the camera free-running at AcquisitionFrameRate). Off
-        // by default — CameraParameters::hwTriggerEnabled starts false, so
-        // this only takes effect if a user explicitly opts in via the HW
-        // Trigger tab. A camera left triggered with no signal/command ever
-        // arriving simply produces zero frames, so this must stay opt-in
-        // rather than auto-detected.
+        // instead of the camera free-running at AcquisitionFrameRate).
+        //
+        // On by default: CameraParameters::hwTriggerEnabled starts *true* with
+        // hwTriggerSource "Action1", so room 11's fleet is synchronised out of
+        // the box (see that field's doc comment). This comment used to claim
+        // the opposite. A camera left triggered with no signal or command ever
+        // arriving simply produces zero frames, which is why the source is
+        // never auto-detected — it is always what the HW Trigger tab says.
         const bool wantsActionCommand =
             d->params.hwTriggerEnabled && d->params.hwTriggerSource == "Action1";
         d->actionCommandReady = false;
@@ -554,15 +584,17 @@ bool VideoGrabber::open() {
         const int64_t freq  = safe_i("GevTimestampTickFrequency");
         d->tickFreqHz       = freq;
         const double rfps   = safe_f_fallback("ResultingFrameRate", "ResultingFrameRateAbs");
-        log_info(
-            QString("[Camera %1] GigE pkt=%2B scpd=%3 scftd=%4 scbwa=%5 resultFPS=%6 tickFreq=%7Hz")
-                .arg(d->cameraIndex)
-                .arg(pktSz)
-                .arg(scpd)
-                .arg(scftd)
-                .arg(scbwa)
-                .arg(rfps)
-                .arg(freq));
+        log_info(QString("[Camera %1] GigE pkt=%2B scpd=%3 scftd=%4 scbwa=%5 resultFPS=%6 "
+                         "exposureAutoLimits=%7-%8us tickFreq=%9Hz")
+                     .arg(d->cameraIndex)
+                     .arg(pktSz)
+                     .arg(scpd)
+                     .arg(scftd)
+                     .arg(scbwa)
+                     .arg(rfps)
+                     .arg(d->params.exposureAutoLowerUs)
+                     .arg(d->params.exposureAutoUpperUs)
+                     .arg(freq));
         if (scftd > 0 && freq > 0) {
             log_warning(
                 QString("[Camera %1] GevSCFTD=%2 ticks = %3 ms — camera delays frame transmission")
@@ -652,6 +684,50 @@ void VideoGrabber::apply_image_params() {
                              .arg(QString::fromLocal8Bit(e.GetDescription())));
         }
     };
+
+    // Auto-exposure limits — written BEFORE ExposureAuto so a "Once"
+    // convergence happens inside them rather than outside and then being
+    // clamped on the next apply.
+    //
+    // These two settings existed, were persisted, and were editable in the
+    // camera card for months without ever being written to the camera. Nothing
+    // bounded auto exposure, so the camera picked whatever the room's light
+    // suggested — on this rig ~69 ms, which caps acquisition at 1e6/69200 =
+    // 14.5 fps. That, not GigE bandwidth and not the pixel format, is why a rig
+    // configured for 25 fps recorded at 14.45 for months. A sensor cannot
+    // produce frames faster than it exposes them (see fps_readout.cpp), so an
+    // unbounded exposure is an unbounded cap on frame rate.
+    //
+    // Written in whichever order keeps the pair valid at every step, never by
+    // widening first. The two limits constrain each other inside the camera,
+    // so raising `lower` past the *currently active* `upper` is rejected — but
+    // the obvious workaround, widening `upper` to its maximum and then setting
+    // both, leaves auto exposure fully unbounded if the final write fails, and
+    // on a live re-apply mid-recording it opens a window in which Continuous
+    // auto can pick an exposure far past the limit. So: if the new lower would
+    // exceed the camera's current upper, raise upper first; otherwise lower
+    // first. Each step leaves a valid, bounded pair.
+    //
+    // The pair is also forced consistent here — both spinboxes range 10..1e6
+    // independently, so lower > upper is enterable — rather than letting the
+    // camera reject one of them silently.
+    try_set("AutoExposureTimeLimits", [&] {
+        CFloatParameter lowerNode(cam, float_node_name(cam, "AutoExposureTimeLowerLimit",
+                                                       "AutoExposureTimeAbsLowerLimit"));
+        CFloatParameter upperNode(cam, float_node_name(cam, "AutoExposureTimeUpperLimit",
+                                                       "AutoExposureTimeAbsUpperLimit"));
+        const double upper =
+            std::clamp(d->params.exposureAutoUpperUs, upperNode.GetMin(), upperNode.GetMax());
+        const double lower = std::clamp(std::min(d->params.exposureAutoLowerUs, upper),
+                                        lowerNode.GetMin(), lowerNode.GetMax());
+        if (lower > upperNode.GetValue()) {
+            upperNode.SetValue(upper);
+            lowerNode.SetValue(lower);
+        } else {
+            lowerNode.SetValue(lower);
+            upperNode.SetValue(upper);
+        }
+    });
 
     try_set("ExposureAuto", [&] {
         CEnumParameter(cam, "ExposureAuto").SetValue(d->params.exposureAuto.toStdString().c_str());
