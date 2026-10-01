@@ -169,6 +169,30 @@ std::optional<CameraParameters> CameraParameters::from_json(const QJsonObject& o
 
 // ── VideoSettings ──────────────────────────────────────────────────────────
 
+int VideoSettings::migrate_legacy_exposure_limit() {
+    const double target = CameraParameters{}.exposureAutoUpperUs;
+    int changed         = 0;
+    for (auto& c : cameras) {
+        if (c.exposureAutoUpperUs != kLegacyExposureAutoUpperUs) {
+            continue; // the operator's own value
+        }
+        if (!c.specifyFps || c.fps <= 0.0 || 1e6 / c.exposureAutoUpperUs >= c.fps) {
+            continue; // the old limit does not hold this camera's rate down
+        }
+        log_info(QString("[Settings] Camera '%1': auto-exposure upper limit %2 us -> %3 us. "
+                         "The old default capped it at %4 fps, below its configured %5 fps; "
+                         "it was never applied to the camera until now.")
+                     .arg(c.friendlyName.isEmpty() ? c.serialNumber : c.friendlyName)
+                     .arg(c.exposureAutoUpperUs, 0, 'f', 0)
+                     .arg(target, 0, 'f', 0)
+                     .arg(1e6 / c.exposureAutoUpperUs, 0, 'f', 1)
+                     .arg(c.fps, 0, 'f', 1));
+        c.exposureAutoUpperUs = target;
+        ++changed;
+    }
+    return changed;
+}
+
 QJsonObject VideoSettings::to_json() const {
     QJsonArray cams;
     for (const auto& c : cameras) cams.append(c.to_json());

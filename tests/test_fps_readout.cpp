@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 
+#include "core/settings.hpp"
 #include "video/fps_readout.hpp"
 
 using mosaic::compute_fps_readout;
@@ -21,7 +22,8 @@ TEST(FpsReadout, AMeasurementIsPreferredOverTheExposureCeiling) {
     // Manual exposure of 10 ms would imply a 100 fps ceiling, but the camera
     // reports 23.4 — bandwidth or readout, not exposure, is the real limit.
     const auto r = compute_fps_readout(23.4, /*specifyFps=*/true, /*configuredFps=*/25.0,
-                                       /*manualExposure=*/true, /*exposureTimeUs=*/10'000.0);
+                                       /*manualExposure=*/true, /*exposureTimeUs=*/10'000.0,
+                                       /*autoUpperUs=*/-1.0);
     EXPECT_EQ(r.kind, FpsReadoutKind::Measured);
     EXPECT_DOUBLE_EQ(r.fps, 23.4);
     // 23.4 is above 25 * 0.9 == 22.5, so this is not a shortfall.
@@ -29,7 +31,7 @@ TEST(FpsReadout, AMeasurementIsPreferredOverTheExposureCeiling) {
 }
 
 TEST(FpsReadout, AMeasurementBelowTheShortfallThresholdIsFlagged) {
-    const auto r = compute_fps_readout(15.7, true, 25.0, false, 10'000.0);
+    const auto r = compute_fps_readout(15.7, true, 25.0, false, 10'000.0, /*autoUpperUs=*/-1.0);
     EXPECT_EQ(r.kind, FpsReadoutKind::Measured);
     EXPECT_TRUE(r.belowConfigured);
 }
@@ -41,15 +43,18 @@ TEST(FpsReadout, ShortfallBoundaryMatchesTheSharedThreshold) {
     const double configured = 25.0;
     const double onTheLine  = configured * k_fps_shortfall_factor; // 22.5
 
-    EXPECT_FALSE(compute_fps_readout(onTheLine, true, configured, false, 0.0).belowConfigured);
+    EXPECT_FALSE(compute_fps_readout(onTheLine, true, configured, false, 0.0, /*autoUpperUs=*/-1.0)
+                     .belowConfigured);
     EXPECT_TRUE(
-        compute_fps_readout(onTheLine - 0.01, true, configured, false, 0.0).belowConfigured);
+        compute_fps_readout(onTheLine - 0.01, true, configured, false, 0.0, /*autoUpperUs=*/-1.0)
+            .belowConfigured);
 }
 
 // Without a pinned target rate there is nothing to fall short of, however low
 // the measurement is.
 TEST(FpsReadout, NothingFallsShortWhenNoFrameRateIsSpecified) {
-    const auto r = compute_fps_readout(2.0, /*specifyFps=*/false, 25.0, false, 0.0);
+    const auto r =
+        compute_fps_readout(2.0, /*specifyFps=*/false, 25.0, false, 0.0, /*autoUpperUs=*/-1.0);
     EXPECT_EQ(r.kind, FpsReadoutKind::Measured);
     EXPECT_FALSE(r.belowConfigured);
 }
@@ -57,7 +62,8 @@ TEST(FpsReadout, NothingFallsShortWhenNoFrameRateIsSpecified) {
 TEST(FpsReadout, ManualExposureWithoutAMeasurementGivesTheExposureCeiling) {
     // 40 ms exposure cannot yield more than 25 fps.
     const auto r = compute_fps_readout(kNoMeasurement, true, 25.0,
-                                       /*manualExposure=*/true, /*exposureTimeUs=*/40'000.0);
+                                       /*manualExposure=*/true, /*exposureTimeUs=*/40'000.0,
+                                       /*autoUpperUs=*/-1.0);
     EXPECT_EQ(r.kind, FpsReadoutKind::ExposureCeiling);
     EXPECT_DOUBLE_EQ(r.fps, 25.0);
     EXPECT_FALSE(r.belowConfigured);
@@ -66,8 +72,9 @@ TEST(FpsReadout, ManualExposureWithoutAMeasurementGivesTheExposureCeiling) {
 // The one real problem the ceiling can catch before a camera is ever opened:
 // an exposure time that alone rules out the requested rate.
 TEST(FpsReadout, AnExposureCeilingBelowTheConfiguredRateIsFlagged) {
-    const auto r = compute_fps_readout(kNoMeasurement, true, 25.0, true,
-                                       /*exposureTimeUs=*/100'000.0); // 10 fps ceiling
+    const auto r =
+        compute_fps_readout(kNoMeasurement, true, 25.0, true,
+                            /*exposureTimeUs=*/100'000.0, /*autoUpperUs=*/-1.0); // 10 fps ceiling
     EXPECT_EQ(r.kind, FpsReadoutKind::ExposureCeiling);
     EXPECT_DOUBLE_EQ(r.fps, 10.0);
     EXPECT_TRUE(r.belowConfigured);
@@ -79,7 +86,8 @@ TEST(FpsReadout, AnExposureCeilingBelowTheConfiguredRateIsFlagged) {
 // this module exists to avoid.
 TEST(FpsReadout, AutoExposureWithoutAMeasurementReportsNoNumberAtAll) {
     const auto r = compute_fps_readout(kNoMeasurement, true, 25.0,
-                                       /*manualExposure=*/false, /*exposureTimeUs=*/40'000.0);
+                                       /*manualExposure=*/false, /*exposureTimeUs=*/40'000.0,
+                                       /*autoUpperUs=*/-1.0);
     EXPECT_EQ(r.kind, FpsReadoutKind::AwaitingMeasurement);
     EXPECT_LT(r.fps, 0.0);
     EXPECT_FALSE(r.belowConfigured);
@@ -89,7 +97,8 @@ TEST(FpsReadout, AutoExposureWithoutAMeasurementReportsNoNumberAtAll) {
 // unavailable node could equally yield 0 — neither is a rate.
 TEST(FpsReadout, ZeroAndNegativeMeasurementsAreBothTreatedAsNoMeasurement) {
     for (const double measured : {0.0, -1.0, -42.0}) {
-        const auto r = compute_fps_readout(measured, true, 25.0, false, 40'000.0);
+        const auto r =
+            compute_fps_readout(measured, true, 25.0, false, 40'000.0, /*autoUpperUs=*/-1.0);
         EXPECT_EQ(r.kind, FpsReadoutKind::AwaitingMeasurement) << "measured = " << measured;
     }
 }
@@ -97,7 +106,7 @@ TEST(FpsReadout, ZeroAndNegativeMeasurementsAreBothTreatedAsNoMeasurement) {
 // A zero/garbage exposure would divide to infinity; fall through to the
 // honest "nothing to report" state instead.
 TEST(FpsReadout, ANonPositiveExposureTimeYieldsNoCeiling) {
-    const auto r = compute_fps_readout(kNoMeasurement, true, 25.0, true, 0.0);
+    const auto r = compute_fps_readout(kNoMeasurement, true, 25.0, true, 0.0, /*autoUpperUs=*/-1.0);
     EXPECT_EQ(r.kind, FpsReadoutKind::AwaitingMeasurement);
 }
 
@@ -109,7 +118,8 @@ TEST(FpsReadout, ANonPositiveExposureTimeYieldsNoCeiling) {
 
 TEST(FpsReadoutLimit, AMeasurementAtTheConfiguredRateIsCappedByIt) {
     const auto r = compute_fps_readout(25.0, /*specifyFps=*/true, /*configuredFps=*/25.0,
-                                       /*manualExposure=*/true, /*exposureTimeUs=*/10'000.0);
+                                       /*manualExposure=*/true, /*exposureTimeUs=*/10'000.0,
+                                       /*autoUpperUs=*/-1.0);
     EXPECT_EQ(r.limitedBy, FpsLimit::ConfiguredRate);
     EXPECT_FALSE(r.belowConfigured);
     // 1e6 / 25 == 40 ms: below that, exposure cannot be what limits the rate.
@@ -120,7 +130,7 @@ TEST(FpsReadoutLimit, AMeasurementAtTheConfiguredRateIsCappedByIt) {
 // resultFPS=14.9999 against a configured 15, so the tolerance has to absorb
 // the camera's own rounding rather than calling this a shortfall.
 TEST(FpsReadoutLimit, TheRealRoom11ReadingCountsAsAtTheCap) {
-    const auto r = compute_fps_readout(14.9999, true, 15.0, true, 10'000.0);
+    const auto r = compute_fps_readout(14.9999, true, 15.0, true, 10'000.0, /*autoUpperUs=*/-1.0);
     EXPECT_EQ(r.kind, FpsReadoutKind::Measured);
     EXPECT_EQ(r.limitedBy, FpsLimit::ConfiguredRate);
     EXPECT_NEAR(r.exposureCrossoverUs, 66'666.7, 0.1);
@@ -132,16 +142,20 @@ TEST(FpsReadoutLimit, CapBoundaryMatchesTheSharedTolerance) {
     const double configured = 25.0;
     const double onTheLine  = configured * (1.0 - k_fps_at_cap_tolerance); // 24.75
 
-    EXPECT_EQ(compute_fps_readout(onTheLine, true, configured, false, 0.0).limitedBy,
+    EXPECT_EQ(compute_fps_readout(onTheLine, true, configured, false, 0.0, /*autoUpperUs=*/-1.0)
+                  .limitedBy,
               FpsLimit::ConfiguredRate);
-    EXPECT_EQ(compute_fps_readout(onTheLine - 0.01, true, configured, false, 0.0).limitedBy,
-              FpsLimit::Other);
+    EXPECT_EQ(
+        compute_fps_readout(onTheLine - 0.01, true, configured, false, 0.0, /*autoUpperUs=*/-1.0)
+            .limitedBy,
+        FpsLimit::Other);
 }
 
 // Between the two thresholds the camera is under its cap but not by enough to
 // warn about — still "something other than the cap is binding".
 TEST(FpsReadoutLimit, AMeasurementUnderTheCapButAboveTheShortfallIsOther) {
-    const auto r = compute_fps_readout(24.0, true, 25.0, false, 0.0); // 96% of configured
+    const auto r = compute_fps_readout(24.0, true, 25.0, false, 0.0,
+                                       /*autoUpperUs=*/-1.0); // 96% of configured
     EXPECT_EQ(r.limitedBy, FpsLimit::Other);
     EXPECT_FALSE(r.belowConfigured);
     EXPECT_LT(r.exposureCrossoverUs, 0.0);
@@ -150,7 +164,7 @@ TEST(FpsReadoutLimit, AMeasurementUnderTheCapButAboveTheShortfallIsOther) {
 // The two classifications are defined so they can never both fire; the label
 // code relies on that to avoid contradicting itself.
 TEST(FpsReadoutLimit, AShortfallIsOtherAndNeverAlsoAtTheCap) {
-    const auto r = compute_fps_readout(15.7, true, 25.0, false, 10'000.0);
+    const auto r = compute_fps_readout(15.7, true, 25.0, false, 10'000.0, /*autoUpperUs=*/-1.0);
     EXPECT_TRUE(r.belowConfigured);
     EXPECT_EQ(r.limitedBy, FpsLimit::Other);
     EXPECT_LT(r.exposureCrossoverUs, 0.0);
@@ -158,7 +172,8 @@ TEST(FpsReadoutLimit, AShortfallIsOtherAndNeverAlsoAtTheCap) {
 
 // A free-running camera has no cap to be at, however fast it happens to run.
 TEST(FpsReadoutLimit, WithoutASpecifiedRateNothingCanBeClassified) {
-    const auto r = compute_fps_readout(200.0, /*specifyFps=*/false, 25.0, true, 1'000.0);
+    const auto r =
+        compute_fps_readout(200.0, /*specifyFps=*/false, 25.0, true, 1'000.0, /*autoUpperUs=*/-1.0);
     EXPECT_EQ(r.kind, FpsReadoutKind::Measured);
     EXPECT_EQ(r.limitedBy, FpsLimit::Unknown);
     EXPECT_LT(r.exposureCrossoverUs, 0.0);
@@ -168,11 +183,13 @@ TEST(FpsReadoutLimit, WithoutASpecifiedRateNothingCanBeClassified) {
 // wording already names exposure as the limit, and AwaitingMeasurement has
 // nothing to reason from at all.
 TEST(FpsReadoutLimit, StatesWithoutAMeasurementAreAlwaysUnknown) {
-    const auto ceiling = compute_fps_readout(-1.0, true, 25.0, true, 40'000.0);
+    const auto ceiling =
+        compute_fps_readout(-1.0, true, 25.0, true, 40'000.0, /*autoUpperUs=*/-1.0);
     EXPECT_EQ(ceiling.kind, FpsReadoutKind::ExposureCeiling);
     EXPECT_EQ(ceiling.limitedBy, FpsLimit::Unknown);
 
-    const auto awaiting = compute_fps_readout(-1.0, true, 25.0, false, 40'000.0);
+    const auto awaiting =
+        compute_fps_readout(-1.0, true, 25.0, false, 40'000.0, /*autoUpperUs=*/-1.0);
     EXPECT_EQ(awaiting.kind, FpsReadoutKind::AwaitingMeasurement);
     EXPECT_EQ(awaiting.limitedBy, FpsLimit::Unknown);
 }
@@ -184,7 +201,8 @@ TEST(FpsReadoutLimit, StatesWithoutAMeasurementAreAlwaysUnknown) {
 // on screen visibly doubles.
 TEST(FpsReadoutLimit, AMeasurementAboveTheConfiguredRateIsNotCappedByIt) {
     const auto r = compute_fps_readout(30.0, /*specifyFps=*/true, /*configuredFps=*/15.0,
-                                       /*manualExposure=*/true, /*exposureTimeUs=*/10'000.0);
+                                       /*manualExposure=*/true, /*exposureTimeUs=*/10'000.0,
+                                       /*autoUpperUs=*/-1.0);
     EXPECT_EQ(r.kind, FpsReadoutKind::Measured);
     EXPECT_EQ(r.limitedBy, FpsLimit::Unknown);
     EXPECT_FALSE(r.belowConfigured);
@@ -197,8 +215,69 @@ TEST(FpsReadoutLimit, CapBandUpperEdgeIsAlsoBoundedByTheTolerance) {
     const double configured = 25.0;
     const double justOver   = configured * (1.0 + k_fps_at_cap_tolerance); // 25.25
 
-    EXPECT_EQ(compute_fps_readout(justOver, true, configured, false, 0.0).limitedBy,
-              FpsLimit::ConfiguredRate);
-    EXPECT_EQ(compute_fps_readout(justOver + 0.01, true, configured, false, 0.0).limitedBy,
-              FpsLimit::Unknown);
+    EXPECT_EQ(
+        compute_fps_readout(justOver, true, configured, false, 0.0, /*autoUpperUs=*/-1.0).limitedBy,
+        FpsLimit::ConfiguredRate);
+    EXPECT_EQ(
+        compute_fps_readout(justOver + 0.01, true, configured, false, 0.0, /*autoUpperUs=*/-1.0)
+            .limitedBy,
+        FpsLimit::Unknown);
+}
+
+// ── Auto-exposure upper limit ──────────────────────────────────────────────
+//
+// For months exposureAutoUpperUs was persisted and editable but never written
+// to the camera, so auto exposure was unbounded and settled at ~69 ms — which
+// is exactly why room 11 recorded at 14.45 fps against 25 configured. Now that
+// the limit reaches the camera it is a real bound, and the readout uses it.
+
+// The room-11 default: a 50 ms limit lets exposure alone hold the rate down to
+// 20 fps — below the 25 configured. That is the warning nobody ever saw.
+TEST(FpsReadoutAutoLimit, TheDefaultLimitIsTooLooseForTheConfiguredRate) {
+    const auto r = mosaic::compute_fps_readout(-1.0, true, 25.0, /*manual=*/false, 10'000.0,
+                                               /*autoUpperUs=*/50'000.0);
+    // Its own kind, so no consumer can read this floor as an "at most".
+    EXPECT_EQ(r.kind, mosaic::FpsReadoutKind::ExposureLimitFloor);
+    EXPECT_DOUBLE_EQ(r.fps, 20.0);
+    EXPECT_TRUE(r.belowConfigured);
+}
+
+// A limit tight enough for the target: 40 ms allows exactly 25 fps, so exposure
+// is no longer what could hold the rate down.
+TEST(FpsReadoutAutoLimit, ATightEnoughLimitClearsTheWarning) {
+    const auto r = mosaic::compute_fps_readout(-1.0, true, 25.0, false, 10'000.0, 40'000.0);
+    EXPECT_DOUBLE_EQ(r.fps, 25.0);
+    EXPECT_FALSE(r.belowConfigured);
+}
+
+// With no limit known, auto exposure is genuinely unbounded and nothing can be
+// said — the old behaviour, deliberately preserved.
+TEST(FpsReadoutAutoLimit, NoLimitMeansNoClaim) {
+    const auto r = mosaic::compute_fps_readout(-1.0, true, 25.0, false, 10'000.0, -1.0);
+    EXPECT_EQ(r.kind, mosaic::FpsReadoutKind::AwaitingMeasurement);
+}
+
+// Manual exposure ignores the auto limit — the camera uses exposureTimeUs.
+TEST(FpsReadoutAutoLimit, ManualExposureIgnoresTheAutoLimit) {
+    const auto r = mosaic::compute_fps_readout(-1.0, true, 25.0, /*manual=*/true, 20'000.0,
+                                               /*autoUpperUs=*/100'000.0);
+    EXPECT_DOUBLE_EQ(r.fps, 50.0);
+    EXPECT_EQ(r.kind, mosaic::FpsReadoutKind::ExposureCeiling);
+}
+
+// A real measurement always wins over either bound.
+TEST(FpsReadoutAutoLimit, AMeasurementOverridesTheLimit) {
+    const auto r = mosaic::compute_fps_readout(14.45, true, 25.0, false, 10'000.0, 50'000.0);
+    EXPECT_EQ(r.kind, mosaic::FpsReadoutKind::Measured);
+}
+
+// The shipped defaults must be self-consistent: the default upper limit has to
+// permit the default frame rate, or every fresh camera starts in a warning.
+TEST(FpsReadoutAutoLimit, TheDefaultsNoLongerContradictEachOther) {
+    const mosaic::CameraParameters fresh;
+    const auto r =
+        mosaic::compute_fps_readout(-1.0, fresh.specifyFps, fresh.fps, fresh.exposureAuto == "Off",
+                                    fresh.exposureTimeUs, fresh.exposureAutoUpperUs);
+    EXPECT_EQ(r.kind, mosaic::FpsReadoutKind::ExposureLimitFloor);
+    EXPECT_FALSE(r.belowConfigured);
 }

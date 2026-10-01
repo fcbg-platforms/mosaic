@@ -75,8 +75,21 @@ Exposure tab
      - 10000 µs
      - Manual value, only used when Auto mode is ``Off``.
    * - Auto range (lower/upper)
-     - 100 / 50000 µs
-     - Clamps what ``Once``/``Continuous`` is allowed to pick.
+     - 100 / 40000 µs
+     - Clamps what ``Once``/``Continuous`` is allowed to pick. **This is also
+       a frame-rate setting**: a sensor cannot deliver frames faster than it
+       exposes them, so the upper limit caps auto-exposed acquisition at
+       ``1 000 000 / upper`` fps. The default 40 000 µs is exactly what the
+       default 25 fps needs; 50 fps needs 20 000 µs. Cameras configured before
+       this default changed keep their saved value (previously 50 000 µs,
+       which allows only 20 fps). A lower limit means a darker image in dim light,
+       which auto gain partly compensates. The card shows the resulting
+       figure beside the frame-rate field.
+
+       Until 2026-10 these two values were saved and shown here but never
+       written to the camera, so auto exposure ran unbounded. On room 11 it
+       settled near 69 ms, which is why every camera recorded at ~14.5 fps
+       against 25 configured.
 
 Gain tab
 --------
@@ -98,7 +111,12 @@ Gain tab
        manual-gain node (see below).
    * - Auto range (lower/upper)
      - 0.0 / 24.0 dB
-     - Clamps what ``Once``/``Continuous`` is allowed to pick.
+     - **Not currently applied** — saved and shown, but never written to the
+       camera, so auto gain uses the camera's own limits. Unlike the exposure
+       range this has not been wired up: these values are in dB, while the
+       ``acA1920-25gc`` only exposes the SFNC 1.x ``GainRaw`` node, whose
+       units are device-specific integers, and the conversion needs verifying
+       on the hardware before it can be trusted.
 
 .. note::
    **Why you may see "Skipping 'Gain': ... No node attached."** — this

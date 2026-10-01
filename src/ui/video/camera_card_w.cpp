@@ -383,6 +383,9 @@ void CameraCardW::build_exposure_tab(QWidget* tab) {
     });
     connect(upperSpin, qOverload<double>(&QDoubleSpinBox::valueChanged), this, [this](double v) {
         m_params.exposureAutoUpperUs = v;
+        // The readout now derives a figure from this limit, so it must follow
+        // edits the way it already follows the frame-rate field.
+        refresh_achievable_fps_label();
         emit params_changed();
     });
 }
@@ -663,9 +666,9 @@ void CameraCardW::refresh_achievable_fps_label() {
         return;
     }
 
-    const FpsReadout readout =
-        compute_fps_readout(m_achievableFps, m_params.specifyFps, m_params.fps,
-                            m_params.exposureAuto == "Off", m_params.exposureTimeUs);
+    const FpsReadout readout = compute_fps_readout(
+        m_achievableFps, m_params.specifyFps, m_params.fps, m_params.exposureAuto == "Off",
+        m_params.exposureTimeUs, m_params.exposureAutoUpperUs);
 
     // Text and tooltip are chosen together, per kind: the whole point of this
     // readout is to never present a computed bound as if it were a
@@ -693,6 +696,15 @@ void CameraCardW::refresh_achievable_fps_label() {
                 "produce frames faster than it exposes them. The real rate is usually lower, "
                 "since sensor readout and GigE bandwidth also apply; it is replaced by the "
                 "camera's own measurement a few seconds after the camera opens.";
+            break;
+        case FpsReadoutKind::ExposureLimitFloor:
+            text = QString("exposure limit allows ≥ %1 fps").arg(readout.fps, 0, 'f', 1);
+            tip =
+                "Auto exposure may choose any time up to its upper limit, so exposure "
+                "alone will not hold the frame rate below this figure. It may run faster "
+                "whenever the scene is bright enough for a shorter exposure; sensor "
+                "readout and GigE bandwidth can still cap it lower. Replaced by the "
+                "camera's own measurement a few seconds after it opens.";
             break;
         case FpsReadoutKind::Measured:
             text = QString("%1 fps").arg(readout.fps, 0, 'f', 1);
@@ -741,7 +753,22 @@ void CameraCardW::refresh_achievable_fps_label() {
                    .arg(m_params.fps, 0, 'f', 1);
     }
 
-    if (readout.belowConfigured) {
+    if (readout.belowConfigured && readout.kind == FpsReadoutKind::ExposureLimitFloor) {
+        // A possible shortfall, not a certain one, and the fix is a different
+        // control: in auto mode the exposure-time field is disabled, so the
+        // generic advice below would point at a control the operator cannot
+        // touch. Name the upper limit, and the actual trade-off.
+        text = QString("<font color='#ddaa44'>%1 — may fall below %2 fps in dim light</font>")
+                   .arg(text)
+                   .arg(m_params.fps, 0, 'f', 1);
+        tip += QString(
+                   "\n\nThe auto-exposure upper limit allows exposures long enough to "
+                   "hold the rate under the %1 fps configured on the Image tab. To "
+                   "guarantee %1 fps, set the upper limit on the Exposure tab to %2 µs "
+                   "or less — at the cost of a darker image in dim light.")
+                   .arg(m_params.fps, 0, 'f', 1)
+                   .arg(1'000'000.0 / m_params.fps, 0, 'f', 0);
+    } else if (readout.belowConfigured) {
         // Amber rather than red: the camera still records, it just can't hit
         // the rate that was asked for. Same rich-text idiom PerformanceMonitorW
         // already uses for its own out-of-range values.
