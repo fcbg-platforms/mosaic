@@ -278,6 +278,35 @@ void VideoEncoder::run_ffmpeg_loop() {
     // time_base = 1/1000, so: pts = elapsed_ms = elapsed_ns / 1_000_000.
     int64_t startNs = -1;
 
+    // sws_scale() below reads cfg.height rows of frame->stride bytes from the
+    // frame, trusting it to be the size this encoder was configured for. A
+    // smaller frame — a camera that kept a different ROI than the one asked
+    // for — would be read past its end. VideoManager sizes cfg from the
+    // camera's read-back dimensions, so this should never fire; it is here so
+    // that if it does, the cost is a dropped frame and one clear error rather
+    // than memory corruption on the encode thread.
+    bool sizeMismatchReported = false;
+    auto frame_fits           = [&](const VideoFrame& f) {
+        if (f.width == cfg.width && f.height == cfg.height &&
+            f.data.size() >= static_cast<size_t>(f.stride) * static_cast<size_t>(cfg.height)) {
+            return true;
+        }
+        if (!sizeMismatchReported) {
+            sizeMismatchReported = true;
+            const QString msg =
+                QString(
+                    "Camera delivers %1\xd7%2 frames but the encoder was configured for "
+                              "%3\xd7%4 — dropping them.")
+                    .arg(f.width)
+                    .arg(f.height)
+                    .arg(cfg.width)
+                    .arg(cfg.height);
+            log_error(QString("[Encoder %1] %2").arg(cfg.cameraIndex).arg(msg));
+            emit encoding_error(cfg.cameraIndex, msg);
+        }
+        return false;
+    };
+
     auto encode_frame = [&](AVFrame* frame) {
         if (avcodec_send_frame(ctx, frame) < 0) {
             return;
@@ -304,7 +333,7 @@ void VideoEncoder::run_ffmpeg_loop() {
             QThread::msleep(1);
             continue;
         }
-        if (!frame || !frame->is_valid()) {
+        if (!frame || !frame->is_valid() || !frame_fits(*frame)) {
             continue;
         }
 
@@ -327,7 +356,7 @@ void VideoEncoder::run_ffmpeg_loop() {
     {
         std::shared_ptr<VideoFrame> frame;
         while (d->frameBuffer.pop(frame)) {
-            if (!frame || !frame->is_valid()) {
+            if (!frame || !frame->is_valid() || !frame_fits(*frame)) {
                 continue;
             }
             av_frame_make_writable(avFrame);

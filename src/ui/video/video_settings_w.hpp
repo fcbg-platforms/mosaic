@@ -39,6 +39,18 @@ class VideoSettingsW : public QWidget {
     // exposure-ceiling state rather than as a number. No-op if out of range.
     void set_achievable_fps(int cameraIndex, double fps);
 
+    // Re-reads the interview section from VideoSettings::interview. Called by
+    // MainWindow after it switched the mode — from here or from the toggle
+    // above the live feeds — so both controls always show what is in effect,
+    // and after a refused switch, to put the checkbox back.
+    void sync_interview_from_settings();
+
+    // Locks the interview section while a recording runs. Switching mode or
+    // applying a new crop reopens the cameras, which would end the recording;
+    // MainWindow refuses that anyway, and a control that visibly cannot be
+    // used says so earlier than a refusal in the log.
+    void set_recording_locked(bool locked);
+
    signals:
     void settings_changed();
     // Fired only when cameras are added or removed (not on per-camera param changes).
@@ -51,9 +63,27 @@ class VideoSettingsW : public QWidget {
     // waiting for the next full reopen.
     void camera_params_changed(int index);
 
+    // The operator asked to turn interview mode on or off. Not applied here:
+    // MainWindow owns the reopen and may refuse (a recording is running), and
+    // answers by calling sync_interview_from_settings() either way. Any
+    // staged interview edits have already been written to the settings when
+    // this fires with `on`, so the mode opens with what is on screen.
+    void interview_mode_requested(bool on);
+    // Staged interview edits were written to VideoSettings::interview by
+    // "Apply". MainWindow reopens the cameras if interview mode is open; if it
+    // is off there is nothing to reopen, and the values wait for the next
+    // switch.
+    void interview_settings_applied();
+
    private:
     void build_encoding_section(QVBoxLayout* parent);
     void build_cameras_section(QVBoxLayout* parent);
+    void build_interview_section(QVBoxLayout* parent);
+    // Interview section helpers — see the .cpp.
+    void rebuild_interview_camera_combo(int select);
+    void load_interview_fields(const InterviewSettings& s);
+    [[nodiscard]] InterviewSettings staged_interview() const;
+    void refresh_interview_readouts();
     void make_card(int index);                     // create a card for cameras[index], no push_back
     void add_camera(CameraParameters params = {}); // push_back + make_card
     void discover_cameras(); // enumerate Pylon devices, add_camera() for new ones

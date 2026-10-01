@@ -2,6 +2,7 @@
 #include <QImage>
 #include <QObject>
 #include <memory>
+#include <optional>
 
 #include "core/settings.hpp"
 #include "video/video_frame.hpp"
@@ -152,6 +153,25 @@ class VideoManager : public QObject {
     /// opened cameras must label rows with — the position alone would call
     /// configured camera 2 "Cam 1" whenever an earlier camera failed to open.
     [[nodiscard]] int camera_config_index(int position) const;
+
+    /// The configured index of the camera open in interview mode, or -1 when
+    /// the cameras were opened normally. Reflects what open() actually did,
+    /// which can lag the settings: they change first, the reopen follows.
+    [[nodiscard]] int interview_camera_index() const;
+
+    /// The region of interest an open camera actually delivers, read back
+    /// after configuring it — the camera rounds a requested crop to its own
+    /// step and range, so this can differ from the settings. nullopt when the
+    /// camera is not open or the read-back failed; offsets are -1 when only
+    /// the size could be read. Used for session_meta.json, which must
+    /// describe the video that was recorded.
+    struct OpenedGeometry {
+        int width   = -1;
+        int height  = -1;
+        int offsetX = -1;
+        int offsetY = -1;
+    };
+    [[nodiscard]] std::optional<OpenedGeometry> opened_geometry(int configIndex) const;
 
     /// @returns The number of GigE Vision Action Command ticks fired during
     /// this camera group's most recently *attempted* arm_and_fire_action_commands()
