@@ -507,8 +507,16 @@ void SessionPlayerW::setup_players() {
     const int nCams = static_cast<int>(d->units.size());
 
     for (int i = 0; i < nCams; ++i) {
-        auto& u                 = d->units[i];
-        const QString videoPath = d->session.path + "/video/" + QString("video_%1.mp4").arg(i);
+        auto& u = d->units[i];
+        // The manifest's own video_file, not video_<slot>.mp4. Slot i is a
+        // position in the manifest's camera list, which is not the camera's
+        // number once any camera is missing — deriving the filename from the
+        // slot would load camera 1's footage into the slot carrying camera 2's
+        // seek offset and coverage, or look for a file that does not exist.
+        const QString videoFile = d->manifest.is_valid() && i < d->manifest.camera_count()
+                                      ? d->manifest.camera_info(i).videoFile
+                                      : QString("video/video_%1.mp4").arg(i);
+        const QString videoPath = d->session.path + "/" + videoFile;
 
         if (!QFileInfo::exists(videoPath)) {
             u.hasVideo = false;

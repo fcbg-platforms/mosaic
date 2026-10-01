@@ -15,6 +15,7 @@ add_executable(mosaic_tests
     test_ring_buffer.cpp
     test_timestamp.cpp
     test_sync_manifest.cpp
+    test_camera_timestamp_files.cpp
     test_trigger_frame_map.cpp
     test_trigger_recorder.cpp
     test_trigger_persistence.cpp
@@ -57,6 +58,7 @@ add_executable(mosaic_tests
     "${CMAKE_SOURCE_DIR}/src/video/gige_action_command.cpp"
     "${CMAKE_SOURCE_DIR}/src/calibration/rms_quality.cpp"
     "${CMAKE_SOURCE_DIR}/src/audio/audio_envelope.cpp"
+    "${CMAKE_SOURCE_DIR}/src/analysis/camera_timestamp_files.cpp"
     "${CMAKE_SOURCE_DIR}/src/analysis/sync_manifest.cpp"
     "${CMAKE_SOURCE_DIR}/src/analysis/trigger_frame_map.cpp"
     "${CMAKE_SOURCE_DIR}/src/trigger/trigger_recorder.cpp"

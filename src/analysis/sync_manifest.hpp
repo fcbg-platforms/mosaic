@@ -9,7 +9,18 @@ namespace mosaic {
 // ── CameraSync ─────────────────────────────────────────────────────────────
 
 struct CameraSync {
+    /// The camera's **configured** number — the N in timestamps_camN.csv and
+    /// video_N.mp4 — not this entry's position in the manifest's camera list.
+    ///
+    /// The two coincide only while every camera from 0 upwards is present. A
+    /// session missing a camera, or recorded from a single camera that is not
+    /// camera 0, has a list whose positions and numbers differ, and conflating
+    /// them attributes one camera's timing to another. Every query below
+    /// (camera_info, frame_at_tick, delta_ms_at_tick, seek_offset_ms) takes a
+    /// **position**; this field is the only place the number appears.
     int index = 0;
+    /// Path relative to the session folder. Use this rather than rebuilding it
+    /// from a position — see `index`.
     QString videoFile;
     int framesCaptured   = 0;
     double fpsActual     = 0.0;
@@ -41,7 +52,10 @@ struct CameraSync {
 //   m.save(sessionPath);
 //   ...
 //   auto m2 = SyncManifest::load(sessionPath);
-//   player->seek(camIdx, m2.seek_offset_ms(camIdx));
+//   // slot is a POSITION in the camera list, 0..camera_count()-1 — see
+//   // CameraSync::index for why that is not the camera's own number.
+//   player->open(m2.camera_info(slot).videoFile);
+//   player->seek(slot, m2.seek_offset_ms(slot));
 
 class SyncManifest {
    public:
@@ -70,6 +84,8 @@ class SyncManifest {
     [[nodiscard]] int64_t t_origin_wall_ns() const; // same instant, wall-clock (for reference)
 
     // ── Per-camera info ────────────────────────────────────────────────────
+    // `idx` is a position in the camera list, 0..camera_count()-1 — NOT a
+    // camera number. Read CameraSync::index off the result for that.
     [[nodiscard]] const CameraSync& camera_info(int idx) const;
 
     // ── Frame lookup ──────────────────────────────────────────────────────

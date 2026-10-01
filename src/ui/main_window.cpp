@@ -755,16 +755,12 @@ void MainWindow::show_session_health(const QString& sessionPath, int durationMs)
         }
         return label;
     };
-    // Known limitation, pre-existing and deliberately not fixed here:
-    // SyncManifest::generate() scans timestamps_cam0.csv, cam1.csv, … and
-    // BREAKS at the first missing file, then numbers its entries by position
-    // in that contiguous run — so CameraSync::index is only equal to a config
-    // index while no earlier camera is missing. If camera 1 fails to open,
-    // camera 2's real timestamps are never read and its SYNC column reads
-    // "n/a" despite valid data on disk. On this rig the camera that fails is
-    // the last one, so the common case is unaffected. Fixing it means changing
-    // SyncManifest's scan and index semantics, which SessionPlayerW and the
-    // saved sync_manifest.json also depend on — its own PR, not this one.
+    // CameraSync::index is the camera's real config index, so matching on it
+    // below is sound even when cameras are missing. That was not always true:
+    // SyncManifest used to scan cam0, cam1, … and stop at the first missing
+    // file, numbering by position in that run, so a camera that failed to open
+    // made every camera after it report "n/a" despite valid data on disk. It
+    // now enumerates by camera number — see analysis/camera_timestamp_files.hpp.
     const auto fill_sync = [&](CameraHealthInput& in, int configIndex) {
         if (!haveSync) {
             return;

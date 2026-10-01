@@ -8,6 +8,8 @@ namespace mosaic {
 
 // One camera's nearest-frame result for a single trigger event.
 struct TriggerFrameHit {
+    /// The camera's configured number, matching TriggerFrameCamera::index and
+    /// the camera_index this is serialized as — not a position.
     int cameraIndex         = -1;
     int frameId             = -1;  // -1 = no timestamps_camN.csv data for this camera
     double deltaMs          = 0.0; // signed: (frame.elapsedNs - trigger.elapsedNs)/1e6
@@ -27,10 +29,16 @@ struct TriggerFrameRow {
     // sources that don't set one.
     int code     = 0;
     double value = 0.0;
-    QVector<TriggerFrameHit> frames; // one entry per camera, index == cameraIndex
+    // One entry per camera, in the same order as TriggerFrameMap::cameras() —
+    // i.e. indexed by POSITION, not by camera number. Each hit carries its own
+    // cameraIndex for the number.
+    QVector<TriggerFrameHit> frames;
 };
 
 struct TriggerFrameCamera {
+    /// The camera's **configured** number — the N in timestamps_camN.csv — not
+    /// this entry's position in the camera list. The two differ as soon as a
+    /// camera is missing; see mosaic::CameraSync::index for the full rationale.
     int index = 0;
     QString videoFile; // relative to session dir, e.g. "video/video_0.mp4"
     int framesCaptured = 0;

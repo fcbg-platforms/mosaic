@@ -265,3 +265,51 @@ TEST(TriggerFrameMap, DefaultConstructedIsInvalid) {
     EXPECT_EQ(m.camera_count(), 0);
     EXPECT_EQ(m.trigger_count(), 0);
 }
+
+// ── Cameras enumerated by number, not by position ──────────────────────────
+//
+// Same contiguous-scan flaw SyncManifest had: cam0, cam1, … stopping at the
+// first missing file, numbering by position in that run. A trigger→frame map
+// that names the wrong camera sends an analyst to the wrong video file.
+
+TEST(TriggerFrameMap, ASingleCameraThatIsNotCameraZeroIsStillMapped) {
+    QTemporaryDir dir;
+    ASSERT_TRUE(dir.isValid());
+    ASSERT_TRUE(QDir().mkpath(dir.path() + "/video"));
+
+    write_timestamps_csv(dir.path() + "/video/timestamps_cam2.csv",
+                         {{0, 0}, {1, 40'000'000}, {2, 80'000'000}});
+    write_trigger_csv(dir.path() + "/trigger.csv",
+                      {"40,40000000,2026-09-28T10:00:00.040Z,keyboard,start,1"});
+
+    const auto m = TriggerFrameMap::generate(dir.path());
+
+    ASSERT_TRUE(m.is_valid());
+    ASSERT_EQ(m.camera_count(), 1);
+    EXPECT_EQ(m.camera_info(0).index, 2);
+    EXPECT_EQ(m.camera_info(0).videoFile, "video/video_2.mp4");
+}
+
+TEST(TriggerFrameMap, CamerasEitherSideOfAGapKeepTheirOwnNumbers) {
+    QTemporaryDir dir;
+    ASSERT_TRUE(dir.isValid());
+    ASSERT_TRUE(QDir().mkpath(dir.path() + "/video"));
+
+    const QVector<std::tuple<int, int64_t>> rows{{0, 0}, {1, 40'000'000}, {2, 80'000'000}};
+    for (const int cam : {0, 3}) {
+        write_timestamps_csv(dir.path() + QString("/video/timestamps_cam%1.csv").arg(cam), rows);
+    }
+    write_trigger_csv(dir.path() + "/trigger.csv",
+                      {"40,40000000,2026-09-28T10:00:00.040Z,keyboard,start,1"});
+
+    const auto m = TriggerFrameMap::generate(dir.path());
+
+    ASSERT_TRUE(m.is_valid());
+    ASSERT_EQ(m.camera_count(), 2);
+    EXPECT_EQ(m.camera_info(0).index, 0);
+    EXPECT_EQ(m.camera_info(1).index, 3);
+    EXPECT_EQ(m.camera_info(1).videoFile, "video/video_3.mp4");
+    // Every row still carries one hit per camera, in the same order.
+    ASSERT_EQ(m.trigger_count(), 1);
+    EXPECT_EQ(m.row(0).frames.size(), 2);
+}
