@@ -45,6 +45,7 @@
 #include "ui/video/performance_monitor_w.hpp"
 #include "ui/video/video_settings_w.hpp"
 #include "utils/logger.hpp"
+#include "video/camera_label.hpp"
 #include "video/video_feed_provider.hpp"
 
 namespace mosaic {
@@ -746,7 +747,7 @@ void MainWindow::show_session_health(const QString& sessionPath, int durationMs)
     // which the dialog spells out.
     const auto& configured  = d->settings.video.cameras;
     const auto camera_label = [&configured](int configIndex) {
-        QString label = QString("Camera %1").arg(configIndex + 1);
+        QString label = mosaic::camera_label(configIndex);
         if (configIndex >= 0 && configIndex < static_cast<int>(configured.size())) {
             const QString& serial = configured[static_cast<size_t>(configIndex)].serialNumber;
             if (!serial.isEmpty()) {

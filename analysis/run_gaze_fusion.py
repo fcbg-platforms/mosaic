@@ -136,7 +136,7 @@ def main() -> None:
         video_path = session_dir / cam.video_file
         if not video_path.exists():
             print(
-                f"[run_gaze_fusion] Missing video for camera {cam.index}: {video_path}",
+                f"[run_gaze_fusion] Missing video for Camera {cam.index + 1}: {video_path}",
                 file=sys.stderr,
             )
             continue
@@ -238,7 +238,8 @@ def _analyse_video(
 
     total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     print(
-        f"[run_gaze_fusion] Analysing camera {cam.index}: {video_path.name} " f"({total} frames)",
+        f"[run_gaze_fusion] Analysing Camera {cam.index + 1}: {video_path.name} "
+        f"({total} frames)",
         flush=True,
     )
 

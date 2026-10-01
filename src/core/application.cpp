@@ -13,6 +13,7 @@
 #include "ui/main_window.hpp"
 #include "utils/logger.hpp"
 #include "utils/timestamp.hpp"
+#include "video/camera_label.hpp"
 
 namespace {
 
@@ -36,7 +37,7 @@ std::vector<mosaic::CameraParameters> default_room11_cameras() {
     for (size_t i = 0; i < kSerials.size(); ++i) {
         mosaic::CameraParameters cam;
         cam.serialNumber = QString::fromLatin1(kSerials[i]);
-        cam.friendlyName = QString("Camera %1").arg(i + 1);
+        cam.friendlyName = mosaic::camera_label(static_cast<int>(i));
         cameras.push_back(cam);
     }
     return cameras;

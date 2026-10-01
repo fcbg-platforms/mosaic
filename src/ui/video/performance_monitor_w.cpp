@@ -18,6 +18,7 @@
 #include <limits>
 
 #include "analysis/pose_models.hpp"
+#include "video/camera_label.hpp"
 
 namespace mosaic {
 
@@ -102,6 +103,11 @@ struct PerformanceMonitorW::Impl {
 
     std::vector<CameraRow> cameraRows;
     int lastCameraCount = -1;
+    // Configured index of each row as last built. Rows are labelled from this,
+    // so the count alone is not enough to know they are still right: a reopen
+    // in which a *different* camera fails leaves the count unchanged and every
+    // label naming the wrong camera.
+    std::vector<int> lastConfigIndices;
 };
 
 // ── Construction ───────────────────────────────────────────────────────────
@@ -330,12 +336,22 @@ void PerformanceMonitorW::build_ui() {
 void PerformanceMonitorW::rebuild_camera_rows() {
     const int count    = d->videoMgr ? d->videoMgr->camera_count() : 0;
     d->lastCameraCount = count;
+    d->lastConfigIndices.clear();
+    for (int i = 0; i < count; ++i) {
+        d->lastConfigIndices.push_back(d->videoMgr->camera_config_index(i));
+    }
     d->cameraRows.clear();
 
-    // Remove existing grid rows (skip header row 0)
-    while (d->grid->rowCount() > 1) {
+    // Remove existing grid rows (skip header row 0).
+    //
+    // A bounded loop over every row, not `while (rowCount() > 1)`: a
+    // QGridLayout's rowCount() never shrinks when items are removed, so that
+    // loop never ended once rows existed, freezing the UI thread the first time
+    // the camera count changed with rows already built.
+    const int rowsBefore = d->grid->rowCount();
+    for (int r = rowsBefore - 1; r >= 1; --r) {
         for (int col = 0; col < d->grid->columnCount(); ++col) {
-            auto* item = d->grid->itemAtPosition(d->grid->rowCount() - 1, col);
+            auto* item = d->grid->itemAtPosition(r, col);
             if (item) {
                 if (item->widget()) {
                     item->widget()->deleteLater();
@@ -359,7 +375,11 @@ void PerformanceMonitorW::rebuild_camera_rows() {
         cr.statusDot->setFixedWidth(16);
         d->grid->addWidget(cr.statusDot, row, 0);
 
-        auto* camLbl = new QLabel(QString("Cam %1").arg(idx + 1));
+        // Labelled by the camera's configured index, not this row's position in
+        // the opened-camera list: they differ whenever an earlier camera fails
+        // to open, and the Perf tab is where you go to find out which one.
+        const int configIndex = d->videoMgr ? d->videoMgr->camera_config_index(idx) : idx;
+        auto* camLbl = new QLabel(camera_short_label(configIndex >= 0 ? configIndex : idx));
         camLbl->setStyleSheet("color: #9898cc; font-size: 11px; font-weight: bold;");
         camLbl->setAlignment(Qt::AlignCenter);
         d->grid->addWidget(camLbl, row, 1);
@@ -398,8 +418,14 @@ void PerformanceMonitorW::on_tick() {
 
     const int count = d->videoMgr->camera_count();
 
-    // Rebuild rows if camera count changed
-    if (count != d->lastCameraCount) {
+    // Rebuild rows if the opened cameras changed — by count, or by which ones
+    // (see lastConfigIndices).
+    std::vector<int> configIndices;
+    configIndices.reserve(static_cast<size_t>(count));
+    for (int i = 0; i < count; ++i) {
+        configIndices.push_back(d->videoMgr->camera_config_index(i));
+    }
+    if (count != d->lastCameraCount || configIndices != d->lastConfigIndices) {
         rebuild_camera_rows();
     }
 

@@ -15,6 +15,7 @@
 #include <QToolButton>
 #include <QVBoxLayout>
 
+#include "video/camera_label.hpp"
 #include "video/fps_readout.hpp"
 
 namespace mosaic {
@@ -151,7 +152,7 @@ void CameraCardW::build_header() {
     lay->addWidget(expandBtn);
 
     // Always show 1-based position. set_index() updates this after sibling deletions.
-    m_nameLabel = new QLabel(QString("Camera %1").arg(m_index + 1));
+    m_nameLabel = new QLabel(camera_label(m_index));
     m_nameLabel->setStyleSheet(
         "font-weight: bold; font-size: 12px;"
         " color: #c8c8e0; background: transparent;");
@@ -644,7 +645,7 @@ void CameraCardW::toggle_expanded() {
 
 void CameraCardW::set_index(int index) {
     m_index = index;
-    if (m_nameLabel) m_nameLabel->setText(QString("Camera %1").arg(index + 1));
+    if (m_nameLabel) m_nameLabel->setText(camera_label(index));
 }
 
 void CameraCardW::set_connected(bool connected) {

@@ -18,6 +18,7 @@
 #include <functional>
 
 #include "ui/analysis/subject_colors.hpp"
+#include "video/camera_label.hpp"
 
 namespace mosaic {
 
@@ -366,8 +367,8 @@ class SkeletonOverlayW : public QWidget {
         painter.setPen(Qt::NoPen);
         painter.drawEllipse(to_widget(tipNative), 3, 3);
 
-        const QString label = QString("cam%1  dx%2 dy%3")
-                                  .arg(cam->cameraIndex)
+        const QString label = QString("%1  dx%2 dy%3")
+                                  .arg(camera_short_label(cam->cameraIndex))
                                   .arg(cam->gazeDx, 0, 'f', 2)
                                   .arg(cam->gazeDy, 0, 'f', 2);
         const QRectF labelBg(box.left(), box.top() - fm.height() - 4,

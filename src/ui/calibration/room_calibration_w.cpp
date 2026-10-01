@@ -18,6 +18,7 @@
 #include <QTimer>
 #include <QVBoxLayout>
 
+#include "video/camera_label.hpp"
 #include "video/video_manager.hpp"
 
 namespace mosaic {
@@ -233,7 +234,7 @@ void RoomCalibrationW::build_camera_section(QVBoxLayout* parent) {
         col->addWidget(thumb);
 
         auto* caption = new QHBoxLayout;
-        caption->addWidget(new QLabel(QString("Cam %1").arg(i)));
+        caption->addWidget(new QLabel(camera_short_label(i)));
         auto* dot = new QLabel("○");
         dot->setStyleSheet("color: #606080;");
         d->foundDots[i] = dot;
@@ -306,7 +307,7 @@ void RoomCalibrationW::build_capture_section(QVBoxLayout* parent) {
     row2->addWidget(new QLabel("Reference camera:"));
     d->referenceCombo = new QComboBox;
     for (int i = 0; i < static_cast<int>(d->videoSettings.cameras.size()); ++i) {
-        d->referenceCombo->addItem(QString("Camera %1").arg(i));
+        d->referenceCombo->addItem(camera_label(i));
     }
     row2->addWidget(d->referenceCombo);
 
@@ -435,7 +436,7 @@ void RoomCalibrationW::update_result_table() {
         const bool resolved = d->manager.is_resolved(i);
         const double rms    = d->manager.reprojection_rms_for(i);
 
-        auto* camItem = new QTableWidgetItem(QString("Camera %1").arg(i));
+        auto* camItem = new QTableWidgetItem(camera_label(i));
         auto* resItem = new QTableWidgetItem(resolved ? "Yes" : "No");
         auto* rmsItem = new QTableWidgetItem(rms >= 0.0 ? QString::number(rms, 'f', 3) : "—");
         if (!resolved) {

@@ -15,6 +15,7 @@
 #include <optional>
 
 #include "ui/analysis/subject_colors.hpp"
+#include "video/camera_label.hpp"
 
 namespace mosaic {
 
@@ -307,7 +308,7 @@ void Skeleton3DRoomViewW::paintEvent(QPaintEvent*) {
                         p.setBrush(color);
                         p.drawEllipse(*pt, 6, 6);
                         p.setPen(color);
-                        p.drawText(*pt + QPointF(8, -8), QString("cam%1").arg(camIndex));
+                        p.drawText(*pt + QPointF(8, -8), camera_short_label(camIndex));
                     }});
     }
 

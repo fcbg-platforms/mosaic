@@ -324,7 +324,11 @@ def process_session(session_dir: Path, master_fps_arg: float) -> None:
 
     for d in discovered:
         if d.skipped:
-            print(f"[run_sync_repair] Camera {d.index}: skipped — {d.skip_reason}", file=sys.stderr)
+            print(
+                f"[run_sync_repair] Camera {d.index + 1} (video_{d.index}.mp4): skipped — "
+                f"{d.skip_reason}",
+                file=sys.stderr,
+            )
 
     present = [d for d in discovered if not d.skipped]
     if not present:
@@ -427,7 +431,8 @@ def process_session(session_dir: Path, master_fps_arg: float) -> None:
 
         if output_count != grid.total_ticks:
             print(
-                f"[run_sync_repair] Camera {d.index}: produced {output_count} output "
+                f"[run_sync_repair] Camera {d.index + 1} ({d.video_path.name}): "
+                f"produced {output_count} output "
                 f"frame(s), expected {grid.total_ticks} — treating as failed.",
                 file=sys.stderr,
             )
@@ -459,7 +464,8 @@ def process_session(session_dir: Path, master_fps_arg: float) -> None:
             "note": note,
         }
         print(
-            f"[run_sync_repair] Done. Camera {d.index}: {output_count} frame(s), "
+            f"[run_sync_repair] Done. Camera {d.index + 1} ({d.video_path.name}): "
+            f"{output_count} frame(s), "
             f"{dup_count} duplicated -> synced/{d.video_path.name}",
             flush=True,
         )

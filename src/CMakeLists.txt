@@ -164,6 +164,7 @@ qt_add_executable(mosaic MACOSX_BUNDLE
     video/video_encoder.cpp
     video/video_manager.hpp
     video/video_manager.cpp
+    video/camera_label.hpp
     video/video_feed_provider.hpp
     video/video_feed_provider.cpp
 
