@@ -23,6 +23,16 @@ Explicit scope (stated, not silently dropped):
     why, and AnalysisManager::run_sync_repair()'s doc comment on the C++
     side.
 
+Alignment: when the recording logged its trigger ticks
+(video/action_ticks.csv + video/action_group.json — every hardware-triggered
+recording since they were added), each frame is placed on the tick that
+produced it (sync_repair/tick_alignment.py) and the output has one frame per
+tick over the window every camera was running in. Otherwise — older sessions,
+free-running cameras, an explicit --master-fps — frames are placed on a grid
+by arrival time, as before (sync_repair/alignment.py). Either way every
+camera's output has the same frame count, and a tick a camera has no frame
+for repeats its last real frame with a red MISSING tag (sync_repair/marker.py).
+
 See analysis/README.rst for full documentation.
 """
 
@@ -45,6 +55,10 @@ from sync_repair.alignment import (
     build_tick_grid,
     compute_master_fps,
 )
+from sync_repair.marker import mark_missing
+from sync_repair.tick_alignment import TickCamera, build_tick_plan, gap_ranges
+
+_MAX_GAPS_LISTED = 100  # per camera in sync_repair.json; the total is always given
 
 _MAX_CAMERAS = 16  # matches SyncManifest::generate()'s own kMaxCams constant
 
@@ -153,7 +167,9 @@ def discover_cameras(session_dir: Path) -> list[DiscoveredCamera]:
     return result
 
 
-def _read_camera_frames(csv_path: Path, camera_index: int) -> tuple[CameraFrames, dict[int, int]]:
+def _read_camera_frames(
+    csv_path: Path, camera_index: int
+) -> tuple[CameraFrames, dict[int, int], np.ndarray]:
     """Returns (CameraFrames for alignment, frame_id -> CSV row ordinal
     map). A row's ordinal position (0-based enumerate order over the file)
     is what maps 1:1 onto the source mp4's frame sequence — NOT the
@@ -163,6 +179,7 @@ def _read_camera_frames(csv_path: Path, camera_index: int) -> tuple[CameraFrames
     analysis/sync_repair/alignment.py's module doc)."""
     frame_ids: list[int] = []
     elapsed_ns: list[int] = []
+    hw_ns: list[int] = []
     ordinal_map: dict[int, int] = {}
     with csv_path.open(newline="") as f:
         for ordinal, row in enumerate(csv.DictReader(f)):
@@ -171,8 +188,14 @@ def _read_camera_frames(csv_path: Path, camera_index: int) -> tuple[CameraFrames
                 ens = int(row["elapsed_ns"])
             except (KeyError, ValueError, TypeError):
                 continue
+            # Older files have no hardware column; 0 means "unavailable".
+            try:
+                hw = int(row.get("hw_timestamp_ns") or 0)
+            except (ValueError, TypeError):
+                hw = 0
             frame_ids.append(fid)
             elapsed_ns.append(ens)
+            hw_ns.append(hw)
             ordinal_map[fid] = ordinal
     return (
         CameraFrames(
@@ -181,7 +204,44 @@ def _read_camera_frames(csv_path: Path, camera_index: int) -> tuple[CameraFrames
             elapsed_ns=np.array(elapsed_ns, dtype=np.int64),
         ),
         ordinal_map,
+        np.array(hw_ns, dtype=np.int64),
     )
+
+
+def _load_trigger_ticks(session_dir: Path) -> tuple[np.ndarray, set[int]] | None:
+    """The recording's trigger tick times and the configured indices of the
+    cameras they apply to, or None when the session has no usable tick log
+    (older sessions, free-running rigs, interview mode)."""
+    video_dir = session_dir / "video"
+    log_path = video_dir / "action_ticks.csv"
+    group_path = video_dir / "action_group.json"
+    if not log_path.exists() or not group_path.exists():
+        return None
+    try:
+        group = json.loads(group_path.read_text())
+        cameras = {int(c) for c in group.get("cameras", [])}
+    except (ValueError, TypeError, OSError):
+        return None
+    times: list[int] = []
+    with log_path.open(newline="") as f:
+        for expected_tick, row in enumerate(csv.DictReader(f)):
+            # Stop at the first row that is not a complete, consecutive,
+            # later tick. A crash — or a ticker thread killed mid-write —
+            # leaves a cut-off last line, and a cut-off number still parses
+            # ("1234" of "123456789"): only the row's shape and order say it
+            # is wrong. Everything before it is intact.
+            try:
+                tick = int(row["tick"])
+                t = int(row["elapsed_ns"])
+                int(row["fired"])
+            except (KeyError, ValueError, TypeError):
+                break
+            if tick != expected_tick or (times and t <= times[-1]):
+                break
+            times.append(t)
+    if len(times) < 2 or not cameras:
+        return None
+    return np.array(times, dtype=np.int64), cameras
 
 
 # ── Per-camera repair (single sequential forward pass) ──────────────────────
@@ -208,6 +268,8 @@ def _repair_camera(
     out_video_path: Path,
     out_csv_path: Path,
     master_fps: float,
+    missing: np.ndarray | None = None,
+    first_tick: int | None = None,
 ) -> tuple[int, int, str | None]:
     """Writes out_video_path (exactly len(assigned_frame_ids) frames, one
     per master tick) and out_csv_path (its per-tick audit trail) via a
@@ -215,6 +277,12 @@ def _repair_camera(
     never uses CAP_PROP_POS_FRAMES. Correct because assigned_frame_ids is
     guaranteed non-decreasing across ticks by construction (see
     build_tick_grid()'s own doc comment).
+
+    `missing` marks output frames that repeat an earlier frame because the
+    camera has none for that tick; they carry a red MISSING tag. Without it
+    (arrival-time alignment), a repeat of the previous tick's frame is the
+    same thing and is tagged the same way. `first_tick` numbers the repair
+    map's `tick` column when the output is on trigger ticks.
 
     Returns (output_frame_count, duplicated_frame_count, note_or_None).
     note is set only if the source video ended earlier than its own CSV
@@ -277,8 +345,15 @@ def _repair_camera(
             # note flags this camera's whole output as unreliable.
             current_frame = np.zeros((height, width, 3), dtype=np.uint8)
 
-        is_duplicate = truncated or (prev_frame_id is not None and frame_id == prev_frame_id)
-        writer.write(current_frame)
+        is_missing = (
+            bool(missing[tick])
+            if missing is not None
+            else (prev_frame_id is not None and frame_id == prev_frame_id)
+        )
+        is_duplicate = truncated or is_missing
+        # Tagged so a repeat is never mistaken for a fresh image — see
+        # sync_repair/marker.py.
+        writer.write(mark_missing(current_frame) if is_duplicate else current_frame)
         if is_duplicate:
             duplicated_count += 1
         rows.append((tick, frame_id, is_duplicate))
@@ -294,9 +369,14 @@ def _repair_camera(
 
     with out_csv_path.open("w", newline="") as f:
         w = csv.writer(f)
-        w.writerow(["output_frame_index", "source_frame_id", "duplicated"])
+        # `missing` is the newer name for the same flag; `duplicated` is kept
+        # for readers of older maps. `tick` is the trigger tick (empty when
+        # aligned on arrival time).
+        w.writerow(["output_frame_index", "source_frame_id", "duplicated", "missing", "tick"])
         for out_idx, fid, dup in rows:
-            w.writerow([out_idx, fid, "true" if dup else "false"])
+            flag = "true" if dup else "false"
+            tick_col = "" if first_tick is None else first_tick + out_idx
+            w.writerow([out_idx, fid, flag, flag, tick_col])
 
     note = None
     if truncated:
@@ -340,11 +420,13 @@ def process_session(session_dir: Path, master_fps_arg: float) -> None:
         sys.exit(1)
 
     cam_frames: dict[int, CameraFrames] = {}
+    hw_by_camera: dict[int, np.ndarray] = {}
     ordinal_maps: dict[int, dict[int, int]] = {}
     source_counts: dict[int, int] = {}
     for d in present:
-        cf, om = _read_camera_frames(d.csv_path, d.index)
+        cf, om, hw = _read_camera_frames(d.csv_path, d.index)
         cam_frames[d.index] = cf
+        hw_by_camera[d.index] = hw
         ordinal_maps[d.index] = om
         source_counts[d.index] = len(cf.frame_ids)
         if len(cf.frame_ids) == 0:
@@ -366,10 +448,113 @@ def process_session(session_dir: Path, master_fps_arg: float) -> None:
         flush=True,
     )
 
-    if master_fps_arg > 0.0:
+    # Per camera: the frame each output tick shows, which output frames are
+    # missing, how it was aligned, and the trigger-tick extras for the report.
+    per_camera: dict[int, dict] = {}
+    alignment = "arrival_time"
+    first_tick: int | None = None
+
+    trigger = None if master_fps_arg > 0.0 else _load_trigger_ticks(session_dir)
+    plan = None
+    if trigger is not None:
+        tick_times, group = trigger
+        group_cams = [
+            TickCamera(
+                index=i,
+                frame_ids=cam_frames[i].frame_ids,
+                elapsed_ns=cam_frames[i].elapsed_ns,
+                hw_ns=hw_by_camera[i],
+            )
+            for i in sorted(cam_frames)
+            if i in group
+        ]
+        plan = build_tick_plan(tick_times, group_cams)
+        if plan is None:
+            print(
+                "[run_sync_repair] Trigger tick log present but unusable — aligning on "
+                "arrival time instead.",
+                flush=True,
+            )
+
+    if plan is not None:
+        alignment = "trigger_ticks"
+        first_tick = plan.first_tick
+        master_fps = plan.tick_rate_fps
+        total_ticks = plan.total_ticks
+        window_times = tick_times[plan.first_tick : plan.first_tick + plan.total_ticks]
+        latencies = [
+            c.median_latency_ms for c in plan.cameras.values() if c.median_latency_ms is not None
+        ]
+        typical_latency_ns = float(np.median(latencies)) * 1e6 if latencies else 0.0
+        for i, cam in plan.cameras.items():
+            per_camera[i] = {
+                "frame_ids": cam.frame_ids,
+                "missing": cam.missing,
+                "alignment": cam.method,
+                "lead_in_trimmed": cam.lead_in_trimmed,
+                "tail_trimmed": cam.tail_trimmed,
+                "alignment_uncertain": cam.uncertain,
+                "median_latency_ms": cam.median_latency_ms,
+            }
+        # A camera outside the Action group free-runs: it never followed these
+        # ticks, so it gets the frame that arrived nearest each tick's expected
+        # arrival time, and a repeat where none is new. Only cameras still in
+        # the run — one whose timestamps file was empty is already skipped.
+        for i in sorted(d.index for d in present):
+            if i in per_camera:
+                continue
+            cf = cam_frames[i]
+            fallback_note = (
+                "in the trigger group but delivered fewer than two frames — placed by "
+                "arrival time"
+                if i in group
+                else None
+            )
+            ids = np.empty(total_ticks, dtype=np.int64)
+            ptr = 0
+            for out in range(total_ticks):
+                target = float(window_times[out]) + typical_latency_ns
+                while ptr + 1 < len(cf.elapsed_ns) and abs(cf.elapsed_ns[ptr + 1] - target) < abs(
+                    cf.elapsed_ns[ptr] - target
+                ):
+                    ptr += 1
+                ids[out] = cf.frame_ids[ptr]
+            rep = np.zeros(total_ticks, dtype=bool)
+            rep[1:] = ids[1:] == ids[:-1]
+            per_camera[i] = {
+                "frame_ids": ids,
+                "missing": rep,
+                "alignment": "arrival_time",
+                "lead_in_trimmed": None,
+                "tail_trimmed": None,
+                "alignment_uncertain": False,
+                "median_latency_ms": None,
+                "fallback_note": fallback_note,
+            }
+        # The ticker re-paces itself as the cameras' measured rates settle, so
+        # the tick rate can change during a recording. The output is a
+        # constant-rate video (one frame per tick), so a changing rate plays
+        # parts of it slightly fast or slow — frame k still means tick k.
+        # Said, not hidden.
+        if plan.max_tick_rate_fps > plan.min_tick_rate_fps * 1.02:
+            print(
+                f"[run_sync_repair] Note: the trigger rate varied between "
+                f"{plan.min_tick_rate_fps:.2f} and {plan.max_tick_rate_fps:.2f} fps during this "
+                f"recording; the synced videos play at {master_fps:.2f} fps throughout, so "
+                f"stretches recorded at another rate play slightly fast or slow. Frame k is "
+                f"still trigger tick k in every camera.",
+                flush=True,
+            )
+        print(
+            f"[run_sync_repair] Aligned on {total_ticks} trigger tick(s) @ "
+            f"{master_fps:.3f} fps ({total_ticks / master_fps:.1f}s)",
+            flush=True,
+        )
+
+    if plan is None and master_fps_arg > 0.0:
         master_fps = master_fps_arg
         print(f"[run_sync_repair] Using explicit master fps: {master_fps:.3f}", flush=True)
-    else:
+    elif plan is None:
         master_fps = compute_master_fps(list(cam_frames.values()))
         if master_fps <= 0.0:
             print(
@@ -383,12 +568,26 @@ def process_session(session_dir: Path, master_fps_arg: float) -> None:
             flush=True,
         )
 
-    grid: AlignmentResult = build_tick_grid(list(cam_frames.values()), master_fps)
-    print(
-        f"[run_sync_repair] {grid.total_ticks} tick(s) @ {master_fps:.3f} fps "
-        f"({grid.total_ticks / master_fps:.1f}s)",
-        flush=True,
-    )
+    if plan is None:
+        grid: AlignmentResult = build_tick_grid(list(cam_frames.values()), master_fps)
+        total_ticks = grid.total_ticks
+        for i, ids in grid.frame_ids_by_camera.items():
+            rep = np.zeros(len(ids), dtype=bool)
+            rep[1:] = ids[1:] == ids[:-1]
+            per_camera[i] = {
+                "frame_ids": ids,
+                "missing": rep,
+                "alignment": "arrival_time",
+                "lead_in_trimmed": None,
+                "tail_trimmed": None,
+                "alignment_uncertain": False,
+                "median_latency_ms": None,
+            }
+        print(
+            f"[run_sync_repair] {total_ticks} tick(s) @ {master_fps:.3f} fps "
+            f"({total_ticks / master_fps:.1f}s), aligned on arrival time",
+            flush=True,
+        )
 
     out_dir = session_dir / "synced"
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -420,20 +619,23 @@ def process_session(session_dir: Path, master_fps_arg: float) -> None:
         out_video = out_dir / d.video_path.name
         out_csv = out_dir / f"{d.video_path.stem}.repair_map.csv"
 
+        pc = per_camera[d.index]
         output_count, dup_count, note = _repair_camera(
             d.video_path,
             ordinal_maps[d.index],
-            grid.frame_ids_by_camera[d.index],
+            pc["frame_ids"],
             out_video,
             out_csv,
             master_fps,
+            missing=pc["missing"],
+            first_tick=first_tick if pc["alignment"].startswith("trigger_ticks") else None,
         )
 
-        if output_count != grid.total_ticks:
+        if output_count != total_ticks:
             print(
                 f"[run_sync_repair] Camera {d.index + 1} ({d.video_path.name}): "
                 f"produced {output_count} output "
-                f"frame(s), expected {grid.total_ticks} — treating as failed.",
+                f"frame(s), expected {total_ticks} — treating as failed.",
                 file=sys.stderr,
             )
             out_video.unlink(missing_ok=True)
@@ -452,6 +654,7 @@ def process_session(session_dir: Path, master_fps_arg: float) -> None:
             }
             continue
 
+        gaps = gap_ranges(pc["missing"])
         summary_cameras[d.index] = {
             "index": d.index,
             "source_video": video_rel,
@@ -462,7 +665,21 @@ def process_session(session_dir: Path, master_fps_arg: float) -> None:
             "skipped": False,
             "skip_reason": None,
             "note": note,
+            # How this camera was lined up, and what it is missing.
+            "alignment": pc["alignment"],
+            "missing_frame_count": int(np.sum(pc["missing"])),
+            "gap_count": len(gaps),
+            "gaps": [list(g) for g in gaps[:_MAX_GAPS_LISTED]],
+            "lead_in_trimmed": pc["lead_in_trimmed"],
+            "tail_trimmed": pc["tail_trimmed"],
+            "alignment_uncertain": pc["alignment_uncertain"],
+            "median_latency_ms": pc["median_latency_ms"],
         }
+        if pc.get("fallback_note"):
+            existing = summary_cameras[d.index]["note"]
+            summary_cameras[d.index]["note"] = (
+                pc["fallback_note"] if not existing else f"{existing}; {pc['fallback_note']}"
+            )
         print(
             f"[run_sync_repair] Done. Camera {d.index + 1} ({d.video_path.name}): "
             f"{output_count} frame(s), "
@@ -472,9 +689,18 @@ def process_session(session_dir: Path, master_fps_arg: float) -> None:
 
     summary = {
         "schema": "mosaic-sync-repair-v1",
+        "alignment": alignment,
         "master_fps": master_fps,
-        "total_ticks": grid.total_ticks,
-        "duration_ms": round(grid.total_ticks / master_fps * 1000),
+        "tick_rate_fps": master_fps if alignment == "trigger_ticks" else None,
+        "min_tick_rate_fps": plan.min_tick_rate_fps if plan is not None else None,
+        "max_tick_rate_fps": plan.max_tick_rate_fps if plan is not None else None,
+        "first_tick": first_tick,
+        "total_ticks": total_ticks,
+        # The real span of the recording on trigger ticks, not frames / rate,
+        # which is off whenever the tick rate changed during it.
+        "duration_ms": round(plan.duration_ms)
+        if plan is not None
+        else round(total_ticks / master_fps * 1000),
         "generated_at_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "cameras": [summary_cameras[idx] for idx in sorted(summary_cameras)],
     }

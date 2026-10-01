@@ -203,6 +203,65 @@ Each camera produces a ``timestamps_camN.csv`` alongside its ``video_N.mp4``, bo
    the ``VideoGrabber`` thread — before the frame is handed to the encoder.
    This gives the most accurate timestamp possible for each frame.
 
+Equal frame counts: ``synced/``
+-------------------------------
+
+The raw videos in ``video/`` are kept exactly as recorded, and they rarely
+have the same length. A camera can join a few triggers late, lose frames to
+packet loss, or stop slightly before the others. After each recording, MOSAIC
+therefore runs **Frame Sync Repair** in the background and writes an aligned
+copy of every camera's video to ``synced/video_N.mp4``:
+
+- **Every camera has the same number of frames**, one per trigger tick, over
+  the window in which every camera was recording.
+- **Frame *k* means the same moment in every camera**: it is the frame that
+  trigger tick *k* produced.
+- **A frame a camera missed is visible.** It shows that camera's last real
+  frame with a small red **MISSING** tag in the top-left corner, so motion
+  stays continuous and the gap cannot be mistaken for a fresh image.
+
+How frames are placed on ticks. Every hardware-triggered recording logs its
+trigger ticks to ``video/action_ticks.csv`` (``tick,elapsed_ns,fired``: when
+each Action Command was broadcast, on the same clock as the frame timestamps),
+and ``video/action_group.json`` names the cameras the ticks apply to. Each
+camera's own hardware clock is mapped onto the host clock by a robust
+straight-line fit over the whole recording, which absorbs clock drift and
+ignores host stalls and corrupt timestamps. Each frame then lands on a tick on
+its own merits, so a glitch moves at most that one frame. A frame without a
+hardware timestamp is placed by its arrival time. Cameras are lined up with
+each other by their trigger-to-arrival latency, which is near-identical across
+identically set up cameras. The earliest camera's first frame answers tick 0,
+because every camera is armed before the first trigger.
+
+The trigger rate can change during a recording: the ticker re-paces itself as
+the cameras' measured rates settle. The synced videos have a single frame
+rate, so stretches recorded at another rate play slightly fast or slow. Frame
+*k* is still trigger tick *k* in every camera. The report gives the rate range
+(``min_tick_rate_fps`` / ``max_tick_rate_fps``) and the real ``duration_ms``. Sessions without a tick log (older
+recordings, free-running cameras, interview mode) are aligned on arrival time
+instead, as before. The report says which method each camera used.
+
+What it writes, in ``synced/``:
+
+- ``video_N.mp4``, the aligned video;
+- ``video_N.repair_map.csv`` with
+  ``output_frame_index,source_frame_id,duplicated,missing,tick``, where
+  ``missing`` (and its older name ``duplicated``) marks a repeated, tagged
+  frame;
+- ``sync_repair.json``, which holds per camera ``alignment``,
+  ``missing_frame_count``, ``gaps`` (output-frame ranges), ``lead_in_trimmed``
+  / ``tail_trimmed`` (its frames before and after the common window) and
+  ``alignment_uncertain``.
+
+The Analysis tab's *Frame Sync Repair* page shows the same per camera, with
+the gap ranges on hover.
+
+It never starts while a recording is running. Analysis runs started during a
+recording, this one included, wait until it stops, and analysis processes run
+at below-normal priority. It is skipped for sessions with fewer than two
+cameras, and can be turned off under **Settings → Record → Starting a
+Recording**. The original videos are never changed.
+
 .. _synchronization:
 
 Synchronization

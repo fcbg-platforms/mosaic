@@ -23,6 +23,7 @@ SyncRepairResult SyncRepairResult::load(const QString& jsonPath) {
     result.masterFps_  = root["master_fps"].toDouble();
     result.totalTicks_ = root["total_ticks"].toInt();
     result.durationMs_ = static_cast<int64_t>(root["duration_ms"].toDouble());
+    result.alignment_  = root["alignment"].toString();
 
     for (const auto& camVal : root["cameras"].toArray()) {
         const QJsonObject camObj = camVal.toObject();
@@ -37,6 +38,19 @@ SyncRepairResult SyncRepairResult::load(const QString& jsonPath) {
         cam.skipped              = camObj["skipped"].toBool();
         cam.skipReason           = camObj["skip_reason"].toString();
         cam.note                 = camObj["note"].toString();
+        cam.alignment            = camObj["alignment"].toString();
+        cam.missingFrameCount    = camObj["missing_frame_count"].toInt(-1);
+        cam.gapCount             = camObj["gap_count"].toInt(0);
+        for (const auto& g : camObj["gaps"].toArray()) {
+            const QJsonArray pair = g.toArray();
+            if (pair.size() == 2) {
+                cam.gaps.append({pair[0].toInt(), pair[1].toInt()});
+            }
+        }
+        // null (arrival-time alignment) and absent both read as -1.
+        cam.leadInTrimmed      = camObj["lead_in_trimmed"].toInt(-1);
+        cam.tailTrimmed        = camObj["tail_trimmed"].toInt(-1);
+        cam.alignmentUncertain = camObj["alignment_uncertain"].toBool(false);
 
         result.cameras_ << cam;
     }

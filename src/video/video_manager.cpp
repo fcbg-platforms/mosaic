@@ -2,6 +2,10 @@
 
 #include <QCoreApplication>
 #include <QDir>
+#include <QFile>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QSet>
 #include <QStringList>
 #include <QThread>
@@ -14,6 +18,7 @@
 #include "utils/logger.hpp"
 #include "utils/ring_buffer.hpp"
 #include "utils/timestamp.hpp"
+#include "video/action_tick_log.hpp"
 #include "video/gige_action_command.hpp"
 #include "video/video_encoder.hpp"
 #include "video/video_grabber.hpp"
@@ -57,12 +62,17 @@ class ActionCommandTicker : public QThread {
     // camera's own frames_grabbed() (already atomic-safe for cross-thread
     // reads) for the per-camera missed-trigger diagnostic in run() — never
     // written to from this thread.
+    // tickLog, when given, receives one row per tick — only the recording
+    // ticker gets one (see VideoManager::start()); preview ticks are not
+    // worth a file. Owned here so it closes when this thread is done.
     ActionCommandTicker(std::unique_ptr<ActionCommandSession> session,
                         std::vector<ActionCommandTarget> targets,
-                        std::vector<VideoGrabber*> grabbers, double periodMs)
+                        std::vector<VideoGrabber*> grabbers, double periodMs,
+                        std::unique_ptr<ActionTickLog> tickLog = nullptr)
         : m_session(std::move(session)),
           m_targets(std::move(targets)),
           m_grabbers(std::move(grabbers)),
+          m_tickLog(std::move(tickLog)),
           m_period(std::chrono::duration<double, std::milli>(periodMs)) {}
 
     // Total action-command ticks fired so far this ticker's lifetime.
@@ -92,8 +102,15 @@ class ActionCommandTicker : public QThread {
                     continue;
                 }
                 nextTick += std::chrono::duration_cast<SteadyClock::duration>(m_period);
+                // Stamped immediately before the broadcast, on the frames' own
+                // clock: the command fires immediately (no scheduled
+                // ActionTime), so this is when the cameras were triggered.
+                const int64_t tickElapsedNs = elapsed_ns();
                 const int fired =
                     m_session->fire(m_targets, k_action_group_key, k_action_group_mask);
+                if (m_tickLog) {
+                    m_tickLog->append(ticksFired, tickElapsedNs, fired);
+                }
                 ++ticksFired;
                 m_ticksFired.store(ticksFired, std::memory_order_relaxed);
                 if (fired < static_cast<int>(m_targets.size())) {
@@ -199,6 +216,15 @@ class ActionCommandTicker : public QThread {
     std::unique_ptr<ActionCommandSession> m_session;
     std::vector<ActionCommandTarget> m_targets;
     std::vector<VideoGrabber*> m_grabbers;
+    std::unique_ptr<ActionTickLog> m_tickLog; // null for the preview ticker
+
+   public:
+    // Only after a forced terminate() — see VideoManager::stop_action_ticker().
+    // Deliberately leaks the log object rather than destroy (and so flush) a
+    // stream the killed thread may have been writing to.
+    void abandon_tick_log() { (void)m_tickLog.release(); }
+
+   private:
     std::chrono::duration<double, std::milli> m_period;
     std::atomic<int64_t> m_ticksFired{0};
 };
@@ -244,6 +270,12 @@ struct VideoManager::Impl {
     // handler.
     std::vector<VideoManager::RecordingCameraSnapshot> lastRecordingSnapshot;
     int64_t lastRecordingActionTicks = -1;
+
+    // Where the next ticker started by arm_and_fire_action_commands() writes
+    // its tick log; empty = no log. Set by start() for the recording's ticker
+    // only, and cleared straight after, so the preview ticker that resumes
+    // once recording stops never writes into the finished session.
+    QString tickLogDir;
 };
 
 VideoManager::VideoManager(QObject* parent) : QObject(parent), d(std::make_unique<Impl>()) {}
@@ -487,7 +519,12 @@ void VideoManager::start(const QString& sessionDir, const QString& videoBasename
     // step fully done before the fast, tightly-timed fire step) is what
     // delivers materially tighter cross-camera simultaneity than a single
     // interleaved start_grabbing() loop would.
+    //
+    // This ticker — the recording's — logs every tick into the session, so
+    // frames can later be placed on the trigger that produced them.
+    d->tickLogDir = sessionDir;
     arm_and_fire_action_commands();
+    d->tickLogDir.clear();
 
     d->recording = true;
 }
@@ -707,8 +744,31 @@ void VideoManager::arm_and_fire_action_commands() {
                  .arg(periodMs, 0, 'f', 1)
                  .arg(targets.size())
                  .arg(targetDesc.join(", ")));
-    d->actionTicker = std::make_unique<ActionCommandTicker>(std::move(session), std::move(targets),
-                                                            std::move(grabbers), periodMs);
+    // The recording's tick log, plus which cameras the ticks apply to: a
+    // camera outside the Action1 group free-runs, and must not be forced onto
+    // a trigger grid it never followed.
+    std::unique_ptr<ActionTickLog> tickLog;
+    if (!d->tickLogDir.isEmpty()) {
+        tickLog = std::make_unique<ActionTickLog>();
+        if (tickLog->open(d->tickLogDir + "/action_ticks.csv")) {
+            QJsonArray cams;
+            for (const auto& t : targets) cams.append(t.cameraIndex);
+            const QJsonObject group{
+                {"tick_log", "action_ticks.csv"},
+                {"cameras", cams},
+                {"initial_period_ms", periodMs},
+                {"margin", k_default_action_margin},
+            };
+            QFile f(d->tickLogDir + "/action_group.json");
+            if (f.open(QIODevice::WriteOnly | QIODevice::Text)) {
+                f.write(QJsonDocument(group).toJson(QJsonDocument::Indented));
+            }
+        } else {
+            tickLog.reset();
+        }
+    }
+    d->actionTicker = std::make_unique<ActionCommandTicker>(
+        std::move(session), std::move(targets), std::move(grabbers), periodMs, std::move(tickLog));
     d->actionTicker->start();
 }
 
@@ -721,6 +781,10 @@ void VideoManager::stop_action_ticker() {
         log_warning("[VideoManager] ActionCommandTicker did not finish in 5 s — forcing terminate");
         d->actionTicker->terminate();
         d->actionTicker->wait();
+        // Killed possibly mid-write: its tick log's stream is in an unknown
+        // state, and flushing it on destruction could write garbage or crash.
+        // Abandon it instead — the loader stops at the last complete row.
+        d->actionTicker->abandon_tick_log();
     }
     // Snapshot before destroying — see action_ticks_fired()'s doc comment.
     d->lastActionTicksFired = d->actionTicker->ticks_fired();

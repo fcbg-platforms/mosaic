@@ -156,6 +156,8 @@ qt_add_executable(mosaic MACOSX_BUNDLE
     video/param_mapping.hpp
     video/fps_readout.hpp
     video/fps_readout.cpp
+    video/action_tick_log.hpp
+    video/action_tick_log.cpp
     video/gige_action_command.hpp
     video/gige_action_command.cpp
     video/video_grabber.hpp
