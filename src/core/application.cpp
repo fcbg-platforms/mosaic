@@ -339,6 +339,10 @@ void Application::initialize(const QString& username, bool isAdmin) {
     // why this must run unconditionally, not just on the branches above).
     migrate_own_flat_sessions(d->username, d->settings.record.directory);
 
+    // Here, on the settings this session adopts — never in from_json(), which
+    // also peeks at other profiles' settings. See the method's doc comment.
+    d->settings.video.migrate_legacy_exposure_limit();
+
     if (d->isAdmin) {
         ProfileManager profileMgr;
         profileMgr.load();

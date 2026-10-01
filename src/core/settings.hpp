@@ -140,6 +140,34 @@ struct CameraParameters {
 
 // ── Video ──────────────────────────────────────────────────────────────────
 struct VideoSettings {
+    /// The auto-exposure upper limit every camera shipped with before it was
+    /// ever applied to the hardware. Kept only so the migration below can
+    /// recognise a value nobody chose.
+    static constexpr double kLegacyExposureAutoUpperUs = 50000.0;
+
+    /// Move cameras still on the old 50 ms auto-exposure upper limit to the
+    /// current default — but only where that old value actually holds the
+    /// frame rate below what the camera is configured for (1e6/upper < fps).
+    ///
+    /// Why it exists: the limit was never written to the camera until it was
+    /// fixed, so every saved settings.json carries the untouched 50 ms default.
+    /// Changing CameraParameters' default alone does nothing for those; room
+    /// 11's 25 fps cameras would keep a limit that caps them at 20 fps.
+    ///
+    /// Why so narrow: a value of exactly 50000 is almost certainly the untouched
+    /// default, but where it doesn't constrain the configured rate (e.g. a
+    /// 15 fps profile) moving it would only shorten exposure and darken the
+    /// image for nothing. Any other value is an operator's choice and is never
+    /// touched.
+    ///
+    /// Deliberately NOT called from from_json(): AppSettings::load() is also
+    /// used to peek at other profiles' settings, and migrating there would
+    /// announce changes to cameras that are not loaded. Called once from
+    /// Application::initialize() on the settings actually adopted.
+    ///
+    /// @returns how many cameras were changed.
+    int migrate_legacy_exposure_limit();
+
     // Global encoding
     QString codec  = "h264_nvenc"; // "h264_nvenc" | "hevc_nvenc" | "libx264"
     QString preset = "p4";         // GPU: p1-p7  |  CPU: fast, medium, slow

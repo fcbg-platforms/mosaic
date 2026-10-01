@@ -86,3 +86,62 @@ TEST(ProfileIsolation, DifferentUsernamesGetDistinctSettingsPaths) {
     EXPECT_EQ(ProfileManager::profile_dir("lab_beta"), QFileInfo(pathB).absolutePath());
     EXPECT_NE(ProfileManager::profile_dir("lab_alpha"), ProfileManager::profile_dir("lab_beta"));
 }
+
+// ── Legacy auto-exposure limit migration ───────────────────────────────────
+
+namespace {
+mosaic::CameraParameters camera_with(double fps, double upperUs) {
+    mosaic::CameraParameters c;
+    c.fps                 = fps;
+    c.exposureAutoUpperUs = upperUs;
+    return c;
+}
+} // namespace
+
+// Room 11: 25 fps cameras on the untouched 50 ms default, which caps them at
+// 20 fps now that the limit actually reaches the camera.
+TEST(LegacyExposureLimit, TheOldDefaultIsMovedWhereItBlocksTheConfiguredRate) {
+    VideoSettings v;
+    v.cameras = {camera_with(25.0, 50000.0), camera_with(25.0, 50000.0)};
+    EXPECT_EQ(v.migrate_legacy_exposure_limit(), 2);
+    EXPECT_DOUBLE_EQ(v.cameras[0].exposureAutoUpperUs, CameraParameters{}.exposureAutoUpperUs);
+}
+
+// The guest profile runs at 15 fps; 50 ms allows 20, so it does not constrain
+// anything and shortening it would only darken the image.
+TEST(LegacyExposureLimit, TheOldDefaultIsLeftWhereItDoesNotBlockAnything) {
+    VideoSettings v;
+    v.cameras = {camera_with(15.0, 50000.0)};
+    EXPECT_EQ(v.migrate_legacy_exposure_limit(), 0);
+    EXPECT_DOUBLE_EQ(v.cameras[0].exposureAutoUpperUs, 50000.0);
+}
+
+// Any value other than the exact old default is an operator's choice.
+TEST(LegacyExposureLimit, AnOperatorsOwnValueIsNeverTouched) {
+    VideoSettings v;
+    v.cameras = {camera_with(25.0, 60000.0), camera_with(25.0, 49999.0)};
+    EXPECT_EQ(v.migrate_legacy_exposure_limit(), 0);
+    EXPECT_DOUBLE_EQ(v.cameras[0].exposureAutoUpperUs, 60000.0);
+    EXPECT_DOUBLE_EQ(v.cameras[1].exposureAutoUpperUs, 49999.0);
+}
+
+// A free-running camera has no configured rate for the limit to block.
+TEST(LegacyExposureLimit, AFreeRunningCameraIsLeftAlone) {
+    VideoSettings v;
+    v.cameras               = {camera_with(25.0, 50000.0)};
+    v.cameras[0].specifyFps = false;
+    EXPECT_EQ(v.migrate_legacy_exposure_limit(), 0);
+}
+
+// Loading must not migrate: load() is also used to read other profiles.
+TEST(LegacyExposureLimit, LoadingAloneDoesNotMigrate) {
+    AppSettings settings;
+    settings.video.cameras = {camera_with(25.0, 50000.0)};
+    QTemporaryDir dir;
+    ASSERT_TRUE(dir.isValid());
+    const QString path = dir.filePath("settings.json");
+    ASSERT_TRUE(settings.save(path));
+    const auto loaded = AppSettings::load(path);
+    ASSERT_TRUE(loaded.has_value());
+    EXPECT_DOUBLE_EQ(loaded->video.cameras[0].exposureAutoUpperUs, 50000.0);
+}
