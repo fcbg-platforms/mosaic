@@ -39,6 +39,7 @@
 #include "ui/record/record_settings_w.hpp"
 #include "ui/session/session_browser_w.hpp"
 #include "ui/session/session_health_dialog.hpp"
+#include "ui/session/session_identity_dialog.hpp"
 #include "ui/trigger/trigger_event_panel_w.hpp"
 #include "ui/trigger/trigger_settings_w.hpp"
 #include "ui/video/performance_monitor_w.hpp"
@@ -156,6 +157,12 @@ MainWindow::~MainWindow() = default;
 
 void MainWindow::cancel_pending_recording_start() {
     if (d->bridge) d->bridge->cancel_countdown();
+}
+
+bool MainWindow::start_recording_from_trigger() {
+    if (!d->bridge) return false;
+    d->bridge->start_from_trigger();
+    return true;
 }
 
 // ── Menu bar ───────────────────────────────────────────────────────────────
@@ -312,7 +319,7 @@ void MainWindow::build_central_widget() {
     connect(recordSettingsW, &RecordSettingsW::settings_changed, d->bridge,
             &MonitorBridge::refresh_record_settings);
 
-    // Duplicate-name prompt. Owned here rather than in MonitorBridge because
+    // Session-details prompt. Owned here rather than in MonitorBridge because
     // the bridge is a plain QObject with no widget parent — pulling QtWidgets
     // into it would destroy the separation it exists to maintain — and because
     // a QML popup is not usable for this: the project targets Qt 6.4, where a
@@ -322,38 +329,51 @@ void MainWindow::build_central_widget() {
     // Queued, not direct. exec() spins a nested event loop, and a direct
     // connection would enter it from inside QQuickWidget's delivery of the
     // record button's own mouse event. Queuing lets startRecording() return to
-    // QML first, then opens the box.
+    // QML first, then opens the dialog.
     connect(
-        d->bridge, &MonitorBridge::runCollisionDetected, this,
-        [this](const QString& prefix, int existingCount, int suggestedRun) {
-            const QString runLabel = QString("run-%1").arg(suggestedRun, 2, 10, QChar('0'));
+        d->bridge, &MonitorBridge::identityConfirmationNeeded, this,
+        [this](const QString& subject, const QString& session, const QString& task) {
+            QString chosenSubject;
+            QString chosenSession;
+            QString chosenTask;
+            const bool accepted = [&] {
+                // Scoped so the dialog is destroyed before the bridge is called
+                // below. With a zero start delay, arm_countdown() goes straight
+                // into RecordManager::start(), which blocks the GUI thread for
+                // several hundred ms — leaving this window on screen across it
+                // would read as a freeze.
+                SessionIdentityDialog dlg(
+                    subject, session, task,
+                    [this](const SessionIdentity& id) {
+                        const auto& rec = d->settings.record;
+                        return advise_identity(id, existing_session_names(rec.directory),
+                                               rec.directory, QDateTime::currentDateTime(),
+                                               rec.addTimestamp ? rec.timestampFormat : QString());
+                    },
+                    this);
+                if (dlg.exec() != QDialog::Accepted) {
+                    return false;
+                }
+                chosenSubject = dlg.subject();
+                chosenSession = dlg.session();
+                chosenTask    = dlg.task();
+                return true;
+            }();
 
-            QMessageBox box(this);
-            box.setIcon(QMessageBox::Question);
-            box.setWindowTitle("Duplicate session");
-            box.setText(QString("%1 already has %2 recording%3.")
-                            .arg(prefix)
-                            .arg(existingCount)
-                            .arg(existingCount == 1 ? "" : "s"));
-            box.setInformativeText(
-                QString("Record this one as %1?\n\nNothing will be overwritten either way — "
-                        "this only decides how the new session is numbered.")
-                    .arg(runLabel));
-
-            auto* record =
-                box.addButton(QString("Record as %1").arg(runLabel), QMessageBox::AcceptRole);
-            auto* change = box.addButton("Change details…", QMessageBox::ResetRole);
-            box.addButton(QMessageBox::Cancel);
-            box.setDefaultButton(record); // Enter = the common case
-            box.exec();
-
-            if (box.clickedButton() == record) {
-                d->bridge->confirmRunAndStart(suggestedRun);
+            if (!accepted) {
+                d->bridge->cancelPendingStart();
                 return;
             }
-            d->bridge->cancelPendingStart();
-            if (box.clickedButton() == change && d->monitorView) {
-                d->monitorView->setFocus(); // back to the fields they need to edit
+            if (!d->bridge->confirmIdentityAndStart(chosenSubject, chosenSession, chosenTask)) {
+                // A trigger started a recording while the dialog was open. The
+                // screen already shows REC, so without this the operator would
+                // reasonably read their own click as having started it — and
+                // that running session carries a different identity.
+                QMessageBox::information(
+                    this, "Already recording",
+                    "A recording was started by a trigger while you were entering the "
+                    "session details.\n\nYour details were saved for the next recording; "
+                    "the one now running is not named after them.");
             }
         },
         Qt::QueuedConnection);
@@ -621,6 +641,14 @@ void MainWindow::build_central_widget() {
     d->loggerPanel->setMinimumHeight(80);
     d->rightSplitter->addWidget(d->loggerPanel);
 
+    // A QML Layout.minimumHeight cannot hold a QSplitter back — the splitter
+    // simply gives the QQuickWidget less than the minimums add up to, the
+    // column overflows, and the Record button goes off the bottom edge with no
+    // scrollbar to recover it. This is the guard that actually stops that, and
+    // the reason it is safe: the window floor is 1200x720 and the logger panel
+    // caps at 280, so 360 always fits.
+    d->monitorView->setMinimumHeight(360);
+    d->rightSplitter->setChildrenCollapsible(false);
     d->rightSplitter->setStretchFactor(0, 1);
     d->rightSplitter->setStretchFactor(1, 0);
     d->rightSplitter->setSizes({700, 180});

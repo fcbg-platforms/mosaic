@@ -140,9 +140,12 @@ live only in a PR description or a plan file where it'll be forgotten.
 The regression risk of the whole feature is the session *ordering* change, so
 do that one even if you skip the rest.
 
-- [ ] **Backward compatibility.** With Subject/Session/Task all blank, record a
-      session and confirm the folder name is exactly the old
-      `yyyy-MM-dd_hh-mm-ss` form and `session_meta.json` has no `bids` key.
+- [ ] **Backward compatibility.** No longer reachable by hand — Record with a
+      blank subject now opens the details dialog. Test it on the trigger path
+      instead: with Subject/Session/Task all blank, fire a `StartRecording`
+      trigger and confirm the folder name is exactly the old
+      `yyyy-MM-dd_hh-mm-ss` form, `session_meta.json` has no `bids` key, and
+      the log carries the "no subject set" warning.
 - [ ] **Ordering (the one that can regress).** Open the Session Browser and the
       Analysis tab with a mix of old timestamp folders and new BIDS folders and
       confirm the list really is newest-first — not grouped by subject. Repeat
@@ -153,16 +156,32 @@ do that one even if you skip the rest.
       `bids: {sub, ses, task, run}`.
 - [ ] Type a hyphen or accent into a label (`P-01`, `Müller`) and confirm the
       warning line explains the coercion and the preview shows `P01` / `Muller`.
-- [ ] **Duplicate prompt.** Record the same subject/session/task twice.
-      The second start must prompt *before* the countdown, offer `run-02`, and
-      the created folder must actually use `run-02`. Check Cancel and
-      "Change details…" both leave no folder behind.
+- [ ] **Duplicate prompt.** Record the same subject/session/task twice. The
+      second start must open the details dialog *before* the countdown, showing
+      `run-02` inline, and the created folder must actually use `run-02`.
+      Cancel must leave no folder behind.
 - [ ] Delete `run-02` of three and record again — the new session must be
       `run-04`, never a reused `run-02`.
 - [ ] **Overwrite guard.** Set Record settings → uncheck "add timestamp", leave
-      the identity blank, and record twice. The second must land in `session_2`
-      with a logged warning, not overwrite the first. (Before this change it
-      silently overwrote.)
+      the identity blank, and fire the start trigger twice. The second must land
+      in `session_2` with a logged warning, not overwrite the first. (Before
+      this change it silently overwrote.)
+
+- [ ] **The dialog appears only when it must.** Type a subject into the inline
+      bar for a combination not yet recorded, then click Record: no dialog, the
+      countdown starts immediately. This is the case that must not regress into
+      friction on every take.
+- [ ] **Dialog, no subject.** Click Record with everything blank. The dialog
+      opens prefilled from the last recording, "Start recording" is disabled
+      until a subject is typed, and the preview line matches the folder actually
+      created. Cancel must create nothing and start no countdown.
+- [ ] **Dialog under a trigger.** With the dialog open, fire a `StartRecording`
+      trigger, then press "Start recording". Exactly one recording must exist,
+      and the log must say the details were saved but no second recording begun.
+- [ ] **Squeeze test.** Drag the Live/logger splitter as small as it will go.
+      The Record button and the subject/session/task row must both stay visible
+      and clickable — before this change the splitter could push them off the
+      bottom edge with no scrollbar to recover them.
 - [ ] Start a recording from a keyboard trigger and confirm it inherits the
       identity typed in the monitor (no dialog, correct run number).
 - [ ] **Notes.** Type a note before recording; edit it *during* the recording;

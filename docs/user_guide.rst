@@ -19,21 +19,30 @@ Recording a session
 2. On the **Live** tab, confirm each configured camera's preview is live in
    the monitor grid, and adjust per-camera settings (exposure, gain, ROI,
    trigger mode) in the sidebar if needed.
-3. *(Optional)* Fill in **Subject**, **Session** and **Task** above the
-   Record button. These name the session folder in BIDS style — e.g.
+3. Fill in **Subject** above the Record button, and optionally **Session**
+   and **Task**. These name the session folder in BIDS style — e.g.
    ``sub-P01_ses-pre_task-rest_run-01_20260906T143012`` — and the preview
    line under the fields shows exactly what will be created, run number
    included. Labels may contain letters and digits only; anything else is
    dropped, and the warning line says so before you commit.
 
-   All three are optional. Left blank, the folder keeps the plain timestamp
-   name, so you are never blocked from recording. The values carry over to
-   the next session, so running one participant through several tasks means
-   changing one field.
+   **Subject is required.** Clicking Record without one opens a *Name this
+   recording* dialog instead of starting, so the fields find you rather than
+   the other way round — a recording nobody can trace back to a participant
+   is the one mistake that cannot be repaired afterwards. Session and Task
+   stay optional. Note that a field holding only punctuation counts as blank:
+   labels are judged on what survives into the folder name, and ``???``
+   contributes nothing.
 
-   If the combination already has recordings, MOSAIC asks before starting
-   and offers the next ``run-`` number. Nothing is ever overwritten either
-   way — the prompt only decides how the new session is numbered.
+   The values carry over to the next session, so running one participant
+   through several tasks means changing one field. Use **Clear** between
+   participants.
+
+   If the combination already has recordings, that same dialog opens showing
+   the next ``run-`` number. Nothing is ever overwritten either way — it only
+   decides how the new session is numbered. With a usable subject already
+   typed and no repeat, Record starts the countdown directly and no dialog
+   appears.
 4. *(Optional)* Type anything worth remembering into the **Notes** box. It
    stays editable *during* the recording, and again afterwards from the
    Session Health dialog that appears on Stop — which is usually when you

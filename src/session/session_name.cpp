@@ -41,6 +41,8 @@ bool SessionIdentity::has_entities() const {
            !sanitize_label(task).isEmpty();
 }
 
+bool names_a_subject(const SessionIdentity& id) { return !sanitize_label(id.subject).isEmpty(); }
+
 QJsonObject SessionIdentity::to_json() const {
     // The sanitized values, not the raw ones — this records what was actually
     // used to name the folder, which is the only version that is true.
@@ -218,12 +220,7 @@ QStringList matching_session_folders(const QStringList& existingNames, const Ses
     return out;
 }
 
-int next_run_index(const QStringList& existingNames, const SessionIdentity& id) {
-    if (!id.has_entities()) {
-        return 0;
-    }
-    const QStringList siblings = matching_session_folders(existingNames, id);
-
+int next_run_after(const QStringList& siblings) {
     int highest = 0;
     for (const QString& name : siblings) {
         highest = qMax(highest, parse_session_folder_name(name).run);
@@ -234,16 +231,151 @@ int next_run_index(const QStringList& existingNames, const SessionIdentity& id) 
     return qMax(highest + 1, static_cast<int>(siblings.size()) + 1);
 }
 
+int next_run_index(const QStringList& existingNames, const SessionIdentity& id) {
+    if (!id.has_entities()) {
+        return 0;
+    }
+    return next_run_after(matching_session_folders(existingNames, id));
+}
+
 SessionCollision check_collision(const QStringList& existingNames, const SessionIdentity& id) {
-    SessionCollision out;
     const QStringList siblings = matching_session_folders(existingNames, id);
-    out.existingCount          = static_cast<int>(siblings.size());
-    out.suggestedRun           = next_run_index(existingNames, id);
+
+    SessionCollision out;
+    out.existingCount = static_cast<int>(siblings.size());
+    // One match pass, not two. This used to call next_run_index(), which
+    // re-derived the same sibling list — every folder name in the recordings
+    // directory got split and parsed twice per call, and the identity preview
+    // calls this on every keystroke.
+    //
+    // The has_entities() guard has to stay here rather than move into
+    // next_run_after(): an entity-less identity reports run 0, meaning "not
+    // applicable", and next_run_after({}) would answer 1 instead. Pinned by
+    // SessionCollisions.AnEmptyIdentityNeverCollidesWithLegacyFolders.
+    out.suggestedRun = id.has_entities() ? next_run_after(siblings) : 0;
     return out;
 }
 
 bool fits_path_budget(const QString& recordDir, const QString& folderName) {
     return recordDir.size() + 1 + folderName.size() <= k_session_path_budget;
+}
+
+// ── Advice ─────────────────────────────────────────────────────────────────
+
+IdentityAdvice advise_identity(const SessionIdentity& raw, const QStringList& existingNames,
+                               const QString& recordDir, const QDateTime& when,
+                               const QString& timestampFormat) {
+    IdentityAdvice out;
+
+    SessionIdentity resolved = raw;
+    // One match pass for the whole function: the run index, the collision count
+    // and the budget measurement all come off this list. Any caller-supplied
+    // resolved.run is overwritten rather than trusted — the same struct is used
+    // as input and output by MonitorBridge, and a stale index would be measured
+    // against the path budget and shown in the preview.
+    const QStringList siblings = matching_session_folders(existingNames, resolved);
+    if (resolved.has_entities()) {
+        // Resolved before the budget check below, so that check measures the
+        // name that will actually be created rather than one missing "_run-NN".
+        resolved.run = next_run_after(siblings);
+    } else {
+        resolved.run = 0;
+    }
+
+    out.canRecord = names_a_subject(resolved);
+    if (!out.canRecord) {
+        // Collision deliberately left at its default. The siblings matched
+        // above are those of a *different* combination — with the subject blank
+        // and session/task carried over from the last participant,
+        // matching_session_folders() finds the subject-less recordings a
+        // trigger can still produce. Reporting "already has 1 recording, this
+        // will be run-02" beside an empty Subject field quotes a run number for
+        // a recording nobody is describing, and it changes the moment a subject
+        // is typed.
+
+        // No subject: say that and stop. Everything below reports problems with
+        // a name that is obtainable, so it is all moot until this one is fixed.
+        // folderName stays empty — see its doc comment.
+        if (raw.subject.isEmpty()) {
+            out.issue   = IdentityIssue::NoSubject;
+            out.warning = QStringLiteral("A subject is required before recording.");
+        } else {
+            // Typed, but nothing survives sanitizing, e.g. "???". The generic
+            // message would leave the operator staring at a filled field being
+            // told to fill it in.
+            out.issue   = IdentityIssue::SubjectUnusable;
+            out.warning = QString(
+                              "Subject \"%1\" has no letters or digits — a subject is "
+                              "required before recording.")
+                              .arg(raw.subject);
+        }
+        return out;
+    }
+
+    out.collision.existingCount = static_cast<int>(siblings.size());
+    out.collision.suggestedRun  = resolved.run;
+    out.folderName              = build_session_folder_name(resolved, when, timestampFormat);
+
+    // Report the first problem only. A field-by-field breakdown is noise beside
+    // a preview that already shows the result.
+    struct Field {
+        const char* name;
+        const QString& text;
+    };
+    for (const Field f :
+         {Field{"Subject", raw.subject}, Field{"Session", raw.session}, Field{"Task", raw.task}}) {
+        if (f.text.isEmpty()) continue;
+        const QString clean = sanitize_label(f.text);
+        if (clean == f.text) continue;
+
+        if (clean.isEmpty()) {
+            // Reachable for Session and Task only — a subject that sanitizes to
+            // nothing has already returned above.
+            out.issue   = IdentityIssue::LabelDropped;
+            out.warning = QString("%1 \"%2\" has no letters or digits and will be ignored.")
+                              .arg(f.name, f.text);
+        } else if (sanitize_label(f.text, f.text.size()) == f.text) {
+            // Nothing was dropped for being the wrong kind of character — the
+            // label is simply too long. Saying "only letters and digits are
+            // allowed" here would be actively wrong, and would hide the real
+            // danger: two long ids sharing a prefix collapse to one identity.
+            out.issue   = IdentityIssue::LabelTruncated;
+            out.warning = QString(
+                              "%1 is longer than %2 characters and will be shortened "
+                              "to \"%3\" — check it still identifies uniquely.")
+                              .arg(f.name)
+                              .arg(k_max_label_chars)
+                              .arg(clean);
+        } else {
+            out.issue = IdentityIssue::LabelCoerced;
+            out.warning =
+                QString("%1 will be recorded as \"%2\" — only letters and digits are allowed.")
+                    .arg(f.name, clean);
+        }
+        break;
+    }
+
+    // Folded into canRecord rather than merely reported: an over-budget folder
+    // records perfectly well and then fails silently hours later, when an
+    // analysis plugin cannot create its output inside it.
+    //
+    // This is the one place "report the first problem only" does not apply, and
+    // the exception is the point. Every issue above is cosmetic — the recording
+    // proceeds, the name is simply not the one that was typed — so naming one
+    // and stopping is kind. This one *refuses*, and a refusal whose reason is
+    // not on screen is exactly the failure this struct was reshaped to remove:
+    // a dead Start button beside a sentence about a coerced hyphen says nothing
+    // about path length. So it appends rather than defers, and it takes the
+    // issue category — between a cosmetic note and a blocking one, the blocking
+    // one is what the surfaces need to key off.
+    if (!fits_path_budget(recordDir, out.folderName)) {
+        out.canRecord = false;
+        const QString tooLong =
+            QString("This name is too long for %1 — shorten a label.").arg(recordDir);
+        out.warning = out.warning.isEmpty() ? tooLong : out.warning + " " + tooLong;
+        out.issue   = IdentityIssue::NameTooLong;
+    }
+    return out;
 }
 
 // ── Ordering ───────────────────────────────────────────────────────────────

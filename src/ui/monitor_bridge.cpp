@@ -111,6 +111,18 @@ bool MonitorBridge::hidePreviews() const { return m_hidePreviews; }
 // ── Record settings mirror ─────────────────────────────────────────────────
 
 void MonitorBridge::refresh_record_settings() {
+    // Before the early return below, because most of what this signal reports
+    // has nothing to do with previews: the recordings directory, "add
+    // timestamp", the timestamp format. All three change what the folder
+    // preview says, and the too-long warning now quotes the directory by name —
+    // so an operator who reacts to "too long for D:/very/long/path" by pointing
+    // Record settings somewhere shorter would otherwise keep reading the old
+    // path until they happened to touch a label field. Click-time behaviour was
+    // always correct (startRecording() recomputes first); this is about not
+    // showing them something false in the meantime.
+    recompute_identity_preview();
+    emit identityChanged();
+
     const bool hide = m_recordSettings.hidePreviewsWhileRecording;
     if (hide == m_hidePreviews) return;
     m_hidePreviews = hide;
@@ -123,54 +135,74 @@ void MonitorBridge::startRecording() {
     // Idempotent: a second click, or Ctrl+R while the countdown is already
     // running, must not re-arm it or start a second recording.
     if (m_rm->is_recording() || m_countdownSeconds > 0) return;
-    // A duplicate-name question is already on screen; QMessageBox::exec()
+    // A confirmation dialog is already on screen; QMessageBox/QDialog::exec()
     // spins the event loop, so clicks still arrive here.
-    if (m_awaitingCollisionAnswer) return;
+    if (m_awaitingConfirmation) return;
 
-    const SessionIdentity id = current_identity();
-
-    // Refuse a name that would leave no room for the files written *inside*
-    // the session. Measured against m_folderPreview, which has the run index
-    // resolved: building the name from `id` here instead would omit "_run-NN"
-    // and let a name through that the warning line right next to the button
-    // was already calling too long.
     recompute_identity_preview();
-    if (!fits_path_budget(m_recordSettings.directory, m_folderPreview)) {
-        log_warning(
-            "[MonitorBridge] Session name is too long for the recordings "
-            "directory — shorten a label before recording.");
-        emit identityChanged(); // republishes identityWarning
-        return;
-    }
 
-    // Ask before doing anything, never after a 3-2-1 countdown.
-    const auto report = check_collision(existing_session_names(m_recordSettings.directory), id);
-    if (report.collides()) {
-        m_awaitingCollisionAnswer = true;
-        m_collisionIdentity       = id;
-        emit runCollisionDetected(entity_prefix(id), report.existingCount, report.suggestedRun);
+    // Ask before doing anything, never after a 3-2-1 countdown. One dialog
+    // covers both reasons to ask — the identity is unusable (no subject, or a
+    // name too long for the recordings directory), or this combination has
+    // been recorded before. Merged deliberately: they can hold at once, and
+    // two modals in a row is how a confirmation stops being read.
+    if (!m_advice.canRecord || m_advice.collision.collides()) {
+        m_awaitingConfirmation = true;
+        emit identityConfirmationNeeded(m_subjectLabel, m_sessionLabel, m_taskLabel);
         return; // deliberately NOT armed yet
     }
 
-    arm_countdown(id);
+    arm_countdown(current_identity());
 }
 
-void MonitorBridge::confirmRunAndStart(int run) {
-    Q_UNUSED(run); // start() re-resolves the index authoritatively
-    m_awaitingCollisionAnswer = false;
-    // A StartRecording trigger can fire while the modal is open, because
-    // exec() runs a nested event loop. Re-check rather than starting a second
-    // session on top of it.
-    if (m_rm->is_recording() || m_countdownSeconds > 0) return;
-    arm_countdown(m_collisionIdentity);
+bool MonitorBridge::confirmIdentityAndStart(const QString& subject, const QString& session,
+                                            const QString& task) {
+    m_awaitingConfirmation = false;
+
+    // Three strings, not a SessionIdentity. current_identity() also carries the
+    // operator's notes (see it), so accepting a whole identity built from the
+    // dialog's three fields would silently wipe whatever was typed in the notes
+    // box — the one thing on that screen there is no way to get back.
+    // Written before the is_recording() check below, not after: if a trigger
+    // did race us, throwing away what the operator just typed would be the
+    // wrong repair — those labels are still the ones they want for the next
+    // recording. Safe against the running session, because
+    // RecordManager::set_session_identity() refuses to change an identity once
+    // that session's folder exists.
+    m_subjectLabel = subject;
+    m_sessionLabel = session;
+    m_taskLabel    = task;
+    publish_identity();
+    emit identityChanged(); // the inline bar mirrors what the dialog was told
+
+    // A trigger can start a recording while the dialog is open: exec() spins a
+    // nested event loop, and TriggerManager's signal is not user input, so
+    // modality does not hold it back. Re-checked here rather than trusted from
+    // startRecording() for that reason — and said out loud, because an accepted
+    // dialog that silently records nothing is indistinguishable from a bug.
+    if (m_rm->is_recording()) {
+        log_warning(
+            "[MonitorBridge] A recording was already started (by a trigger) while the "
+            "session details were being entered — the details were saved but no second "
+            "recording was begun.");
+        return false;
+    }
+    arm_countdown(current_identity());
+    return true;
 }
 
 void MonitorBridge::cancelPendingStart() {
-    m_awaitingCollisionAnswer = false;
-    log_info("[MonitorBridge] Duplicate-name prompt dismissed — nothing was recorded.");
+    m_awaitingConfirmation = false;
+    log_info("[MonitorBridge] Session-details prompt dismissed — nothing was recorded.");
 }
 
 void MonitorBridge::arm_countdown(const SessionIdentity& id) {
+    // The guard lives here, not only in the callers. Every path that starts a
+    // recording funnels through this function, and re-deriving the condition at
+    // each one is how a new caller silently gets a second countdown stacked on
+    // a running session.
+    if (m_rm->is_recording() || m_countdownSeconds > 0) return;
+
     m_rm->set_session_identity(id);
 
     const int configured = m_recordSettings.startDelaySec;
@@ -190,6 +222,41 @@ void MonitorBridge::arm_countdown(const SessionIdentity& id) {
     emit countdownSecondsChanged();
     m_countdownTimer->start();
     log_info(QString("[MonitorBridge] Recording starts in %1 s.").arg(delay));
+}
+
+void MonitorBridge::start_from_trigger() {
+    // RecordManager::start() has its own already-recording guard, but reaching
+    // it would log "start() called while already recording" — which reads as a
+    // fault when it is the ordinary case of two triggers arriving close
+    // together.
+    if (m_rm->is_recording()) return;
+
+    const SessionIdentity id = current_identity();
+    if (!names_a_subject(id)) {
+        // Not a refusal. Unlike the Record button there is nobody here to
+        // correct it, and a recording that happened under an awkward name can
+        // be renamed afterwards while one that never happened cannot.
+        log_warning(
+            "[MonitorBridge] Trigger started a recording with no subject set — it will "
+            "be named by timestamp only and cannot be attributed to a participant "
+            "afterwards.");
+    }
+
+    // No duplicate-name scan here on purpose. It costs a synchronous directory
+    // listing on the thread that also drives the camera previews, and it would
+    // only be advisory: RecordManager::start() resolves the run index
+    // authoritatively for both callers, and the path budget is enforced there
+    // too. A trigger's start latency is the experiment's, so it buys nothing
+    // worth the delay.
+    m_rm->set_session_identity(id);
+    set_start_pending(true);
+    // begin_recording_now(), not arm_countdown(): the start delay exists so a
+    // human who clicked can get out of shot. A trigger fires at the moment the
+    // experiment means, and silently shifting that by three seconds would
+    // corrupt exactly the alignment triggers exist to provide. It also clears
+    // any countdown already running, so an operator's pending click cannot
+    // fire a second session in on top of this one.
+    begin_recording_now();
 }
 
 void MonitorBridge::stopRecording() {
@@ -234,12 +301,24 @@ void MonitorBridge::begin_recording_now() {
 void MonitorBridge::cancel_countdown() {
     m_countdownTimer->stop();
     // Cleared before the early return below, and this is reachable: while the
-    // duplicate-name prompt is open there is no countdown, but QMessageBox::
-    // exec() spins the event loop, so a StopRecording *trigger* can still land
+    // session-details dialog is open there is no countdown, but QDialog::exec()
+    // spins the event loop, so a StopRecording *trigger* can still land
     // (Application's action_requested handler ->
     // MainWindow::cancel_pending_recording_start() -> here). Leaving the flag
     // set on that path would make the bridge permanently deaf to Record.
-    m_awaitingCollisionAnswer = false;
+    //
+    // Belt and braces now rather than the sole guarantee: MainWindow's exec()
+    // is stack-scoped and always follows with exactly one of
+    // confirmIdentityAndStart() or cancelPendingStart(), so the flag clears on
+    // every path anyway. Kept because the cost is one assignment and the
+    // failure it prevents is a Record button that stays dead for the rest of
+    // the session.
+    //
+    // Note what this deliberately does *not* do: a stop trigger arriving while
+    // the operator is mid-sentence in the dialog does not veto the Start they
+    // press a moment later. They are answering a question that was asked before
+    // the trigger fired, and an explicit click is the more recent instruction.
+    m_awaitingConfirmation = false;
     if (m_countdownSeconds == 0) return;
     m_countdownSeconds = 0;
     emit countdownSecondsChanged();
@@ -322,63 +401,41 @@ void MonitorBridge::publish_identity() {
     recompute_identity_preview();
 }
 
-QString MonitorBridge::folderPreview() const { return m_folderPreview; }
+QString MonitorBridge::folderPreview() const {
+    // advise_identity() returns an empty name when there is nothing recordable,
+    // rather than the name build_session_folder_name() would have produced —
+    // showing an accurate preview of a folder the operator cannot create is
+    // worse than showing none. The placeholder is a UI affordance, so it is
+    // worded here; QML prefixes this with "▸ " unconditionally and would
+    // otherwise render a bare arrow pointing at nothing.
+    if (m_advice.folderName.isEmpty()) {
+        return QStringLiteral("(enter a subject to name this session)");
+    }
+    return m_advice.folderName;
+}
 
-QString MonitorBridge::identityWarning() const { return m_identityWarning; }
+QString MonitorBridge::identityWarning() const { return m_advice.warning; }
 
 void MonitorBridge::recompute_identity_preview() {
-    m_resolvedIdentity = current_identity();
-    if (m_resolvedIdentity.has_entities()) {
-        // One listing, reused for the preview, the warning and the pre-flight
-        // length check below.
-        m_resolvedIdentity.run =
-            next_run_index(existing_session_names(m_recordSettings.directory), m_resolvedIdentity);
-    }
-    m_folderPreview = build_session_folder_name(
-        m_resolvedIdentity, QDateTime::currentDateTime(),
+    // One directory listing, one pass, one set of answers. All of the judgement
+    // lives in advise_identity() rather than here: the dialog that opens on
+    // Record needs exactly the same answers about exactly the same three
+    // labels, and anything decided in this class cannot be unit-tested at all
+    // (mosaic_tests links Qt6::Core and Qt6::Network; this header pulls QtGui
+    // in via QImage).
+    //
+    // Not cached. It is one QDir::entryList per keystroke, which is nothing for
+    // the tens-to-hundreds of sessions a recordings directory actually holds —
+    // and it used to be three, because check_collision() re-derived the sibling
+    // list that next_run_index() had already built. If `directory` is ever
+    // pointed at a slow network share this is the first thing to revisit; a
+    // cache would be safe to add because RecordManager::start() re-resolves the
+    // run index and re-checks the budget authoritatively, so a stale reading
+    // here could only ever make the *preview* wrong, never the folder created.
+    m_advice = advise_identity(
+        current_identity(), existing_session_names(m_recordSettings.directory),
+        m_recordSettings.directory, QDateTime::currentDateTime(),
         m_recordSettings.addTimestamp ? m_recordSettings.timestampFormat : QString());
-
-    m_identityWarning = QString();
-
-    // Report the first problem only. A field-by-field breakdown is noise
-    // beside a preview that already shows the result.
-    struct Field {
-        const char* name;
-        const QString& raw;
-    };
-    for (const Field f : {Field{"Subject", m_subjectLabel}, Field{"Session", m_sessionLabel},
-                          Field{"Task", m_taskLabel}}) {
-        if (f.raw.isEmpty()) continue;
-        const QString clean = sanitize_label(f.raw);
-        if (clean == f.raw) continue;
-
-        if (clean.isEmpty()) {
-            m_identityWarning = QString("%1 \"%2\" has no letters or digits and will be ignored.")
-                                    .arg(f.name, f.raw);
-        } else if (sanitize_label(f.raw, f.raw.size()) == f.raw) {
-            // Nothing was dropped for being the wrong kind of character — the
-            // label is simply too long. Saying "only letters and digits are
-            // allowed" here would be actively wrong, and would hide the real
-            // danger: two long ids sharing a prefix collapse to one identity.
-            m_identityWarning = QString(
-                                    "%1 is longer than %2 characters and will be shortened "
-                                    "to \"%3\" — check it still identifies uniquely.")
-                                    .arg(f.name)
-                                    .arg(k_max_label_chars)
-                                    .arg(clean);
-        } else {
-            m_identityWarning =
-                QString("%1 will be recorded as \"%2\" — only letters and digits are allowed.")
-                    .arg(f.name, clean);
-        }
-        break;
-    }
-
-    if (m_identityWarning.isEmpty() &&
-        !fits_path_budget(m_recordSettings.directory, m_folderPreview)) {
-        m_identityWarning = QString("This name is too long for %1 — shorten a label.")
-                                .arg(m_recordSettings.directory);
-    }
 }
 
 void MonitorBridge::flush_notes_to_disk() const {

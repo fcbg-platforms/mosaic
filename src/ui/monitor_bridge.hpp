@@ -7,6 +7,7 @@
 
 #include "core/settings.hpp"
 #include "record/record_manager.hpp"
+#include "session/session_name.hpp"
 #include "video/video_feed_provider.hpp"
 
 namespace mosaic {
@@ -43,8 +44,11 @@ class MonitorBridge : public QObject {
 
     // ── Session identity ───────────────────────────────────────────────────
     //
-    // Who and what the next recording is of. All optional: left empty, the
-    // session keeps the timestamp-only folder name this app has always used.
+    // Who and what the next recording is of. A subject is required to record by
+    // hand: clicking Record without one opens a dialog asking for it rather
+    // than starting. Session and task stay optional. A recording started by an
+    // external trigger can still land with none of them set, and then keeps the
+    // timestamp-only folder name this app has always used.
     //
     // These hold the operator's text *verbatim*, not the sanitized label.
     // Sanitizing on every keystroke would delete characters from under the
@@ -62,7 +66,8 @@ class MonitorBridge : public QObject {
     // run index included. The point is that the operator never has to guess.
     Q_PROPERTY(QString folderPreview READ folderPreview NOTIFY identityChanged)
     // One line, empty when there is nothing to say: what got dropped from a
-    // label, or that the name is too long for the recordings directory.
+    // label, that a subject is still missing, or that the name is too long for
+    // the recordings directory.
     Q_PROPERTY(QString identityWarning READ identityWarning NOTIFY identityChanged)
 
    public:
@@ -103,6 +108,23 @@ class MonitorBridge : public QObject {
     // rather than only after the next app start.
     void refresh_record_settings();
 
+    // Starts a recording on behalf of an external StartRecording trigger.
+    //
+    // Deliberately not startRecording(): a trigger gets no countdown, because
+    // that delay is an affordance for a human who has just clicked and a
+    // trigger's timing belongs to the experiment; no duplicate-name dialog,
+    // because nobody is at the keyboard to answer one; and no subject
+    // requirement, because refusing here would turn a mislabelled recording
+    // into no recording at all, which is strictly worse. What it does add over
+    // the old route — Application calling RecordManager::start() directly — is
+    // that a trigger firing with no subject now says so in the log, and that
+    // there is one place describing what starting a recording means.
+    //
+    // Reached from Application's action_requested handler via
+    // MainWindow::start_recording_from_trigger(), for the same reason
+    // cancel_countdown() is: that handler only sees RecordManager.
+    void start_from_trigger();
+
     // Aborts a pending start countdown, if one is running; a no-op otherwise.
     // Public because the countdown deliberately lives here rather than in
     // RecordManager — it's an affordance for a human clicking Record, and a
@@ -123,10 +145,18 @@ class MonitorBridge : public QObject {
     // recording. One control, one meaning: "make it stop".
     Q_INVOKABLE void stopRecording();
 
-    // Answers to the duplicate-name question MainWindow asks on our behalf
-    // (see runCollisionDetected). Exactly one of these must be called for
-    // every signal emitted, or Record stays deaf.
-    Q_INVOKABLE void confirmRunAndStart(int run);
+    // Answers to the question MainWindow asks on our behalf (see
+    // identityConfirmationNeeded).
+    //
+    // Three strings rather than a SessionIdentity on purpose: that struct also
+    // carries the operator's notes, and accepting one built from the dialog's
+    // three fields would silently wipe whatever is in the notes box.
+    // Returns false when the labels were saved but no recording could be
+    // started — which happens when a trigger started one while the dialog was
+    // open. The caller is expected to say so on screen: an accepted dialog that
+    // silently records nothing is indistinguishable from a bug.
+    bool confirmIdentityAndStart(const QString& subject, const QString& session,
+                                 const QString& task);
     Q_INVOKABLE void cancelPendingStart();
 
     // Clears subject/session/task/notes.
@@ -148,13 +178,21 @@ class MonitorBridge : public QObject {
     void identityChanged();
     void notesChanged();
 
-    // This subject/session/task already has recordings. Emitted *instead of*
-    // arming the countdown, so the operator is asked before anything happens
-    // rather than after a 3-2-1. MainWindow shows the dialog: a QML popup
-    // cannot be used here because the project targets Qt 6.4, where a Popup is
-    // clipped to its QQuickWidget — a window the user can drag arbitrarily
-    // small — and a question governing where data lands must not be croppable.
-    void runCollisionDetected(QString entityPrefix, int existingCount, int suggestedRun);
+    // This recording cannot start on what has been typed so far, or would
+    // repeat a combination already on disk. Emitted *instead of* arming the
+    // countdown, so the operator is asked before anything happens rather than
+    // after a 3-2-1.
+    //
+    // MainWindow shows the dialog: a QML popup cannot be used here because the
+    // project targets Qt 6.4, where a Popup is clipped to its QQuickWidget — a
+    // window the user can drag arbitrarily small — and a question governing
+    // where data lands must not be croppable.
+    //
+    // The three labels ride along rather than being read back off this object,
+    // so the dialog has everything it needs to prefill itself from the signal
+    // alone. Exactly one of confirmIdentityAndStart() or cancelPendingStart()
+    // must follow, or Record stays deaf.
+    void identityConfirmationNeeded(QString subject, QString session, QString task);
 
    private:
     // Clears the countdown (notifying QML first, so a failed start can never
@@ -204,20 +242,18 @@ class MonitorBridge : public QObject {
     QString m_sessionLabel;
     QString m_taskLabel;
     QString m_notes;
-    // True from emitting runCollisionDetected until the answer arrives.
+    // True from emitting identityConfirmationNeeded() until the answer arrives.
     // Without it a second Record click would stack a second dialog behind the
-    // first — QMessageBox::exec() spins the event loop, so clicks keep being
+    // first — QDialog::exec() spins the event loop, so clicks keep being
     // delivered while it is open.
-    bool m_awaitingCollisionAnswer{false};
-    SessionIdentity m_collisionIdentity;
+    bool m_awaitingConfirmation{false};
     // Debounces notes typed *during* a recording; see flush_notes_to_disk().
     QTimer* m_notesFlushTimer{nullptr};
-    // Cached by recompute_identity_preview(); m_resolvedIdentity carries the
-    // run index so the pre-flight length check measures the name that will
-    // actually be created, not one that is missing "_run-NN".
-    SessionIdentity m_resolvedIdentity;
-    QString m_folderPreview;
-    QString m_identityWarning;
+    // Everything the UI says about the current three labels, refreshed by
+    // recompute_identity_preview() on every edit. One struct rather than four
+    // parallel members, so the preview, the warning and "may this record" are
+    // decided in a single pass and cannot drift out of agreement.
+    IdentityAdvice m_advice;
 };
 
 } // namespace mosaic
