@@ -1,7 +1,9 @@
 #include "ui/video/video_settings_w.hpp"
 
+#include <QCheckBox>
 #include <QComboBox>
 #include <QDoubleSpinBox>
+#include <QFormLayout>
 #include <QFrame>
 #include <QGroupBox>
 #include <QHBoxLayout>
@@ -12,9 +14,13 @@
 #include <QStackedWidget>
 #include <QVBoxLayout>
 #include <algorithm>
+#include <iterator>
 
 #include "ui/video/camera_card_w.hpp"
 #include "utils/logger.hpp"
+#include "video/camera_label.hpp"
+#include "video/fps_readout.hpp"
+#include "video/interview_mode.hpp"
 #include "video/video_grabber.hpp"
 
 namespace mosaic {
@@ -30,7 +36,54 @@ struct VideoSettingsW::Impl {
     QVector<CameraCardW*> cards;
     QLabel* discoverStatusLbl = nullptr;
     QPushButton* discoverBtn  = nullptr;
+
+    // ── Interview section ────────────────────────────────────────────────
+    // Edits are staged in these widgets and reach VideoSettings::interview
+    // only on Apply (or when the mode is switched on). Writing through on
+    // every keystroke would make the settings describe a crop the open camera
+    // does not have — and session_meta.json is written from the settings.
+    QGroupBox* interviewBox        = nullptr;
+    QCheckBox* interviewEnabled    = nullptr;
+    QLabel* interviewStatus        = nullptr;
+    QComboBox* interviewCamera     = nullptr;
+    QComboBox* interviewPreset     = nullptr;
+    QSpinBox* interviewWidth       = nullptr;
+    QSpinBox* interviewHeight      = nullptr;
+    QSpinBox* interviewOffsetX     = nullptr;
+    QSpinBox* interviewOffsetY     = nullptr;
+    QDoubleSpinBox* interviewFps   = nullptr;
+    QDoubleSpinBox* interviewUpper = nullptr;
+    QLabel* interviewExposureHint  = nullptr;
+    QLabel* interviewLinkLoad      = nullptr;
+    QLabel* interviewMeasured      = nullptr;
+    QPushButton* interviewApply    = nullptr;
+    QPushButton* interviewRevert   = nullptr;
+    // The interview camera's own measured rate, while interview mode is open;
+    // -1 otherwise. See set_achievable_fps().
+    double interviewMeasuredFps = -1.0;
+    bool recordingLocked        = false;
+    // Set while load_interview_fields() fills the widgets, so the fills do
+    // not count as operator edits.
+    bool loadingInterview = false;
 };
+
+namespace {
+
+// Crop presets offered in the interview section, centred in the camera's
+// frame. Sizes rather than offsets: the offsets follow from the frame.
+struct CropPreset {
+    const char* label;
+    int width;
+    int height;
+};
+constexpr CropPreset k_crop_presets[] = {
+    {"Full frame", 0, 0}, // 0×0 = the camera's own configured size
+    {"1280 × 720 (centre)", 1280, 720},
+    {"960 × 720 (centre, face)", 960, 720},
+    {"640 × 480 (centre)", 640, 480},
+};
+
+} // namespace
 
 // ── Constructor ────────────────────────────────────────────────────────────
 
@@ -53,6 +106,7 @@ VideoSettingsW::VideoSettingsW(VideoSettings& settings, QWidget* parent)
     contentLay->setSpacing(10);
 
     build_encoding_section(contentLay);
+    build_interview_section(contentLay);
     build_cameras_section(contentLay);
     contentLay->addStretch();
 
@@ -68,6 +122,7 @@ VideoSettingsW::VideoSettingsW(VideoSettings& settings, QWidget* parent)
 
     // Create cards for cameras already in settings WITHOUT pushing them again.
     for (int i = 0; i < static_cast<int>(m_settings.cameras.size()); ++i) make_card(i);
+    sync_interview_from_settings();
 }
 
 VideoSettingsW::~VideoSettingsW() = default;
@@ -89,7 +144,408 @@ void VideoSettingsW::set_achievable_fps(int cameraIndex, double fps) {
     if (cameraIndex < 0 || cameraIndex >= d->cards.size()) {
         return;
     }
+    // In interview mode this camera is running the interview crop and rate,
+    // so its measurement belongs to the interview section. Handing it to the
+    // card as well would grade a 40 fps crop against the card's own 25 fps
+    // room setting — a true number under a false comparison.
+    if (m_settings.interview_active() && cameraIndex == m_settings.interview.cameraIndex) {
+        d->interviewMeasuredFps = fps;
+        refresh_interview_readouts();
+        d->cards[cameraIndex]->set_achievable_fps(-1.0);
+        return;
+    }
     d->cards[cameraIndex]->set_achievable_fps(fps);
+}
+
+// ── Interview section ──────────────────────────────────────────────────────
+
+void VideoSettingsW::build_interview_section(QVBoxLayout* parent) {
+    auto* box       = new QGroupBox("Interview mode");
+    d->interviewBox = box;
+    auto* lay       = new QVBoxLayout(box);
+    lay->setSpacing(8);
+
+    auto* intro = new QLabel(
+        "Record one camera only, cropped and at a higher frame rate. The other cameras "
+        "are closed while it is on. Switch it here or with the toggle above the live "
+        "feeds; the room configuration below is not changed.");
+    intro->setProperty("role", "muted");
+    intro->setWordWrap(true);
+    lay->addWidget(intro);
+
+    auto* toggleRow     = new QHBoxLayout;
+    d->interviewEnabled = new QCheckBox("Interview mode on");
+    d->interviewStatus  = new QLabel;
+    d->interviewStatus->setProperty("role", "muted");
+    toggleRow->addWidget(d->interviewEnabled);
+    toggleRow->addStretch();
+    toggleRow->addWidget(d->interviewStatus);
+    lay->addLayout(toggleRow);
+
+    auto* form = new QFormLayout;
+    form->setLabelAlignment(Qt::AlignRight | Qt::AlignVCenter);
+    form->setHorizontalSpacing(10);
+
+    d->interviewCamera = new QComboBox;
+    d->interviewCamera->setToolTip(
+        "The camera to record. Its own settings card still controls everything but the "
+        "crop, frame rate and exposure limit set here.");
+    form->addRow("Camera:", d->interviewCamera);
+
+    d->interviewPreset = new QComboBox;
+    for (const auto& p : k_crop_presets) {
+        d->interviewPreset->addItem(p.label);
+    }
+    d->interviewPreset->addItem("Custom");
+    d->interviewPreset->setToolTip(
+        "A smaller crop is what makes a higher frame rate possible: the sensor reads out "
+        "row by row, and every pixel crosses the camera's gigabit link.");
+    form->addRow("Crop:", d->interviewPreset);
+
+    auto make_spin = [](int lo, int hi, int step, const QString& suffix) {
+        auto* s = new QSpinBox;
+        s->setRange(lo, hi);
+        s->setSingleStep(step);
+        s->setSuffix(suffix);
+        s->setFixedWidth(92);
+        return s;
+    };
+    d->interviewWidth   = make_spin(16, 4096, 16, " px");
+    d->interviewHeight  = make_spin(16, 4096, 8, " px");
+    d->interviewOffsetX = make_spin(0, 4096, 4, " px");
+    d->interviewOffsetY = make_spin(0, 4096, 4, " px");
+
+    auto* sizeRow = new QHBoxLayout;
+    sizeRow->addWidget(d->interviewWidth);
+    sizeRow->addWidget(new QLabel("×"));
+    sizeRow->addWidget(d->interviewHeight);
+    sizeRow->addStretch();
+    form->addRow("Size:", sizeRow);
+
+    auto* offsetRow = new QHBoxLayout;
+    offsetRow->addWidget(d->interviewOffsetX);
+    offsetRow->addWidget(new QLabel(","));
+    offsetRow->addWidget(d->interviewOffsetY);
+    auto* centreBtn = new QPushButton("Centre");
+    centreBtn->setFixedHeight(24);
+    centreBtn->setToolTip("Centre the crop in the camera's configured frame.");
+    offsetRow->addWidget(centreBtn);
+    offsetRow->addStretch();
+    form->addRow("Offset:", offsetRow);
+
+    d->interviewFps = new QDoubleSpinBox;
+    d->interviewFps->setRange(1.0, 200.0);
+    d->interviewFps->setDecimals(1);
+    d->interviewFps->setSingleStep(5.0);
+    d->interviewFps->setSuffix(" fps");
+    d->interviewFps->setFixedWidth(110);
+    d->interviewFps->setToolTip(
+        "The rate to ask the camera for. Out-of-range values are clamped by the camera "
+        "and logged; the rate it really reaches is shown below once it runs.");
+    form->addRow("Frame rate:", d->interviewFps);
+
+    d->interviewUpper = new QDoubleSpinBox;
+    d->interviewUpper->setRange(100.0, 1'000'000.0);
+    d->interviewUpper->setDecimals(0);
+    d->interviewUpper->setSingleStep(1000.0);
+    d->interviewUpper->setSuffix(" µs");
+    d->interviewUpper->setFixedWidth(110);
+    d->interviewUpper->setToolTip(
+        "The longest exposure auto exposure may choose in this mode. A frame cannot be "
+        "exposed for longer than the gap between frames, so the higher the frame rate, "
+        "the lower this must be — at the cost of a darker image in dim light.");
+    auto* upperRow           = new QHBoxLayout;
+    d->interviewExposureHint = new QLabel;
+    d->interviewExposureHint->setProperty("role", "muted");
+    upperRow->addWidget(d->interviewUpper);
+    upperRow->addWidget(d->interviewExposureHint, 1);
+    form->addRow("Exposure limit:", upperRow);
+
+    lay->addLayout(form);
+
+    d->interviewLinkLoad = new QLabel;
+    d->interviewLinkLoad->setProperty("role", "muted");
+    d->interviewLinkLoad->setWordWrap(true);
+    d->interviewLinkLoad->setTextFormat(Qt::RichText);
+    lay->addWidget(d->interviewLinkLoad);
+
+    d->interviewMeasured = new QLabel;
+    d->interviewMeasured->setWordWrap(true);
+    d->interviewMeasured->setTextFormat(Qt::RichText);
+    lay->addWidget(d->interviewMeasured);
+
+    auto* btnRow       = new QHBoxLayout;
+    d->interviewApply  = new QPushButton("Apply");
+    d->interviewRevert = new QPushButton("Revert");
+    d->interviewApply->setFixedHeight(26);
+    d->interviewRevert->setFixedHeight(26);
+    btnRow->addStretch();
+    btnRow->addWidget(d->interviewRevert);
+    btnRow->addWidget(d->interviewApply);
+    lay->addLayout(btnRow);
+
+    // ── Behaviour ───────────────────────────────────────────────────────
+    const auto on_edit = [this] {
+        if (d->loadingInterview) return;
+        refresh_interview_readouts();
+    };
+    for (auto* s :
+         {d->interviewWidth, d->interviewHeight, d->interviewOffsetX, d->interviewOffsetY}) {
+        connect(s, qOverload<int>(&QSpinBox::valueChanged), this, on_edit);
+    }
+    // A hand-edited size no longer matches a preset; say so rather than leave
+    // a preset name over a crop it does not describe.
+    for (auto* s : {d->interviewWidth, d->interviewHeight}) {
+        connect(s, qOverload<int>(&QSpinBox::valueChanged), this, [this] {
+            if (d->loadingInterview) return;
+            const QSignalBlocker block(d->interviewPreset);
+            d->interviewPreset->setCurrentIndex(d->interviewPreset->count() - 1); // Custom
+        });
+    }
+    for (auto* s : {d->interviewFps, d->interviewUpper}) {
+        connect(s, qOverload<double>(&QDoubleSpinBox::valueChanged), this, on_edit);
+    }
+    connect(d->interviewCamera, qOverload<int>(&QComboBox::currentIndexChanged), this, on_edit);
+
+    connect(d->interviewPreset, qOverload<int>(&QComboBox::currentIndexChanged), this,
+            [this](int idx) {
+                if (d->loadingInterview || idx < 0 ||
+                    idx >= static_cast<int>(std::size(k_crop_presets))) {
+                    return; // "Custom": leave the fields as they are
+                }
+                const int cam = d->interviewCamera->currentData().toInt();
+                const CameraParameters frame =
+                    (cam >= 0 && cam < static_cast<int>(m_settings.cameras.size()))
+                        ? m_settings.cameras[static_cast<size_t>(cam)]
+                        : CameraParameters{};
+                const auto& p       = k_crop_presets[idx];
+                const int w         = p.width > 0 ? p.width : frame.width;
+                const int h         = p.height > 0 ? p.height : frame.height;
+                d->loadingInterview = true;
+                d->interviewWidth->setValue(w);
+                d->interviewHeight->setValue(h);
+                d->interviewOffsetX->setValue(p.width > 0 ? centred_offset(frame.width, w) : 0);
+                d->interviewOffsetY->setValue(p.height > 0 ? centred_offset(frame.height, h) : 0);
+                d->loadingInterview = false;
+                refresh_interview_readouts();
+            });
+
+    connect(centreBtn, &QPushButton::clicked, this, [this] {
+        const int cam = d->interviewCamera->currentData().toInt();
+        if (cam < 0 || cam >= static_cast<int>(m_settings.cameras.size())) return;
+        const auto& frame = m_settings.cameras[static_cast<size_t>(cam)];
+        d->interviewOffsetX->setValue(centred_offset(frame.width, d->interviewWidth->value()));
+        d->interviewOffsetY->setValue(centred_offset(frame.height, d->interviewHeight->value()));
+    });
+
+    connect(d->interviewApply, &QPushButton::clicked, this, [this] {
+        m_settings.interview = staged_interview();
+        emit settings_changed();
+        emit interview_settings_applied();
+        refresh_interview_readouts();
+    });
+    connect(d->interviewRevert, &QPushButton::clicked, this,
+            [this] { load_interview_fields(m_settings.interview); });
+
+    // The checkbox asks; MainWindow decides. Put it straight back and let
+    // sync_interview_from_settings() show the outcome, so a refused switch
+    // can never leave it claiming a mode that is not in effect.
+    connect(d->interviewEnabled, &QCheckBox::toggled, this, [this](bool on) {
+        if (d->loadingInterview) return;
+        {
+            const QSignalBlocker block(d->interviewEnabled);
+            d->interviewEnabled->setChecked(!on);
+        }
+        if (on) {
+            // Open with what is on screen, not with whatever was last applied.
+            m_settings.interview         = staged_interview();
+            m_settings.interview.enabled = false; // MainWindow sets it on success
+            emit settings_changed();
+        }
+        emit interview_mode_requested(on);
+    });
+
+    parent->addWidget(box);
+}
+
+void VideoSettingsW::rebuild_interview_camera_combo(int keep) {
+    if (!d->interviewCamera) return;
+    const QSignalBlocker block(d->interviewCamera);
+    d->interviewCamera->clear();
+    for (int i = 0; i < static_cast<int>(m_settings.cameras.size()); ++i) {
+        const auto& cam = m_settings.cameras[static_cast<size_t>(i)];
+        QString text    = camera_label(i);
+        if (!cam.serialNumber.isEmpty()) {
+            text += QString("  ·  %1").arg(cam.serialNumber);
+        }
+        d->interviewCamera->addItem(text, i);
+    }
+    // A persisted index past the end of the list (settings from a bigger rig)
+    // is kept visible as such rather than silently replaced by camera 1:
+    // VideoSettings::interview_active() already treats it as "off".
+    if (keep >= static_cast<int>(m_settings.cameras.size())) {
+        d->interviewCamera->addItem(QString("%1 (not configured)").arg(camera_label(keep)), keep);
+    }
+    d->interviewCamera->setCurrentIndex(d->interviewCamera->findData(keep));
+}
+
+void VideoSettingsW::load_interview_fields(const InterviewSettings& s) {
+    d->loadingInterview = true;
+    d->interviewCamera->setCurrentIndex(d->interviewCamera->findData(s.cameraIndex));
+    d->interviewWidth->setValue(s.width);
+    d->interviewHeight->setValue(s.height);
+    d->interviewOffsetX->setValue(s.offsetX);
+    d->interviewOffsetY->setValue(s.offsetY);
+    d->interviewFps->setValue(s.fps);
+    d->interviewUpper->setValue(s.exposureAutoUpperUs);
+    // Show the matching preset when the crop is one, "Custom" otherwise.
+    int preset = d->interviewPreset->count() - 1;
+    for (int i = 0; i < static_cast<int>(std::size(k_crop_presets)); ++i) {
+        if (k_crop_presets[i].width == s.width && k_crop_presets[i].height == s.height) {
+            preset = i;
+            break;
+        }
+    }
+    d->interviewPreset->setCurrentIndex(preset);
+    d->loadingInterview = false;
+    refresh_interview_readouts();
+}
+
+InterviewSettings VideoSettingsW::staged_interview() const {
+    InterviewSettings s   = m_settings.interview; // keeps `enabled`
+    s.cameraIndex         = d->interviewCamera->currentData().toInt();
+    s.width               = d->interviewWidth->value();
+    s.height              = d->interviewHeight->value();
+    s.offsetX             = d->interviewOffsetX->value();
+    s.offsetY             = d->interviewOffsetY->value();
+    s.fps                 = d->interviewFps->value();
+    s.exposureAutoUpperUs = d->interviewUpper->value();
+    return s;
+}
+
+void VideoSettingsW::sync_interview_from_settings() {
+    if (!d->interviewEnabled) return;
+    rebuild_interview_camera_combo(m_settings.interview.cameraIndex);
+    {
+        const QSignalBlocker block(d->interviewEnabled);
+        d->interviewEnabled->setChecked(m_settings.interview_active());
+    }
+    if (!m_settings.interview_active()) {
+        d->interviewMeasuredFps = -1.0;
+    }
+    load_interview_fields(m_settings.interview);
+}
+
+void VideoSettingsW::set_recording_locked(bool locked) {
+    d->recordingLocked = locked;
+    if (d->interviewBox) {
+        d->interviewBox->setEnabled(!locked);
+        d->interviewBox->setToolTip(locked ? "Locked while recording — switching or changing "
+                                             "interview mode reopens the cameras."
+                                           : QString());
+    }
+    refresh_interview_readouts();
+}
+
+void VideoSettingsW::refresh_interview_readouts() {
+    if (!d->interviewMeasured) return;
+    const InterviewSettings staged = staged_interview();
+    const bool active              = m_settings.interview_active();
+    const bool dirty               = staged.cameraIndex != m_settings.interview.cameraIndex ||
+                       staged.width != m_settings.interview.width ||
+                       staged.height != m_settings.interview.height ||
+                       staged.offsetX != m_settings.interview.offsetX ||
+                       staged.offsetY != m_settings.interview.offsetY ||
+                       staged.fps != m_settings.interview.fps ||
+                       staged.exposureAutoUpperUs != m_settings.interview.exposureAutoUpperUs;
+    d->interviewApply->setEnabled(dirty);
+    d->interviewRevert->setEnabled(dirty);
+    d->interviewApply->setText(dirty && active ? "Apply && reopen" : "Apply");
+
+    d->interviewStatus->setText(
+        active ? QString("On — %1 only").arg(camera_label(m_settings.interview.cameraIndex))
+               : "Off — recording every camera");
+
+    // Exposure limit vs rate: the one trade-off this section must not hide.
+    const double maxExposure = max_exposure_us_for_fps(staged.fps);
+    if (staged.exposureAutoUpperUs > maxExposure) {
+        d->interviewExposureHint->setText(
+            QString("<font color='#ddaa44'>may hold it below %1 fps — %2 µs or less "
+                    "guarantees it</font>")
+                .arg(staged.fps, 0, 'f', 1)
+                .arg(maxExposure, 0, 'f', 0));
+    } else {
+        d->interviewExposureHint->setText(QString("allows %1 fps (≤ %2 µs)")
+                                              .arg(staged.fps, 0, 'f', 1)
+                                              .arg(maxExposure, 0, 'f', 0));
+    }
+
+    // Crop vs the camera's frame, and what the link has to carry.
+    const int cam = staged.cameraIndex;
+    QStringList lines;
+    if (cam >= 0 && cam < static_cast<int>(m_settings.cameras.size())) {
+        const auto& frame = m_settings.cameras[static_cast<size_t>(cam)];
+        if (!crop_fits(frame.width, frame.height, staged.width, staged.height, staged.offsetX,
+                       staged.offsetY)) {
+            lines << QString(
+                         "<font color='#ddaa44'>The crop runs outside %1's %2×%3 frame — "
+                         "the camera will shrink or shift it.</font>")
+                         .arg(camera_label(cam))
+                         .arg(frame.width)
+                         .arg(frame.height);
+        }
+    }
+    const double mbps = stream_mb_per_s(staged.width, staged.height, staged.fps);
+    const double load = mbps / k_gige_link_mb_per_s;
+    const QString loadText = QString("Link: ≈ %1 MB/s of the camera's %2 MB/s gigabit link (%3%).")
+                                 .arg(mbps, 0, 'f', 0)
+                                 .arg(k_gige_link_mb_per_s, 0, 'f', 0)
+                                 .arg(load * 100.0, 0, 'f', 0);
+    lines << (load > 0.9 ? QString("<font color='#ddaa44'>%1 Too close to the link's capacity "
+                                   "— expect lost frames; shrink the crop or the rate.</font>")
+                               .arg(loadText)
+                         : loadText);
+    d->interviewLinkLoad->setText(lines.join("<br>"));
+
+    // What the camera actually reaches — only knowable while it runs.
+    if (!active) {
+        d->interviewMeasured->setText(
+            "<span style='color:#7878a0'>The rate the camera really reaches is shown here "
+            "once interview mode is on.</span>");
+        return;
+    }
+    const CameraParameters& src =
+        m_settings.cameras[static_cast<size_t>(m_settings.interview.cameraIndex)];
+    const FpsReadout r = compute_fps_readout(
+        d->interviewMeasuredFps, true, m_settings.interview.fps, src.exposureAuto == "Off",
+        src.exposureTimeUs, m_settings.interview.exposureAutoUpperUs);
+    QString text;
+    switch (r.kind) {
+        case FpsReadoutKind::Measured:
+            text = QString("Camera reports <b>%1 fps</b>").arg(r.fps, 0, 'f', 1);
+            if (r.belowConfigured) {
+                text = QString(
+                           "<font color='#ddaa44'>%1 — below the %2 fps asked for. A "
+                           "smaller crop height raises the ceiling; check the exposure "
+                           "limit too.</font>")
+                           .arg(text)
+                           .arg(m_settings.interview.fps, 0, 'f', 1);
+            } else if (r.limitedBy == FpsLimit::ConfiguredRate) {
+                text += QString(" — running at the %1 fps asked for.")
+                            .arg(m_settings.interview.fps, 0, 'f', 1);
+            }
+            break;
+        case FpsReadoutKind::ExposureCeiling:
+            text = QString("At most %1 fps at the camera's manual exposure.").arg(r.fps, 0, 'f', 1);
+            break;
+        case FpsReadoutKind::ExposureLimitFloor:
+        case FpsReadoutKind::AwaitingMeasurement:
+            text =
+                "<span style='color:#7878a0'>Measuring — the camera reports its real rate "
+                "a few seconds after it opens.</span>";
+            break;
+    }
+    d->interviewMeasured->setText(text);
 }
 
 // ── Encoding section ───────────────────────────────────────────────────────
@@ -313,6 +769,7 @@ void VideoSettingsW::discover_cameras() {
     }
 
     if (added > 0) {
+        rebuild_interview_camera_combo(d->interviewCamera->currentData().toInt());
         emit settings_changed();
         emit cameras_list_changed();
     }
@@ -355,6 +812,7 @@ void VideoSettingsW::add_camera(CameraParameters params) {
     }
     m_settings.cameras.push_back(std::move(params));
     make_card(static_cast<int>(m_settings.cameras.size()) - 1);
+    rebuild_interview_camera_combo(d->interviewCamera->currentData().toInt());
     emit settings_changed();
     emit cameras_list_changed();
 }

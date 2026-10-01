@@ -19,6 +19,55 @@ A camera is always labelled by its own number, never by its position in a
 list. In a session where Camera 2 is missing, the remaining cameras are still
 Camera 1, 3, 4 and so on.
 
+.. _interview mode:
+
+Interview mode
+--------------
+
+A session can record **one camera only** — by default *Camera 3*, the one
+facing the subject — cropped and at a higher frame rate than a whole-room
+session allows. The other cameras are closed while it is on.
+
+**Switching.** The **Room | Interview** toggle above the live feeds, or the
+*Interview mode on* checkbox in the **Video** settings tab. Either one closes
+and reopens the cameras (a few seconds), and the live view then shows that one
+camera. Switching is refused while a recording runs or is about to start —
+reopening the cameras would end it — and both controls stay locked until it
+stops.
+
+**Configuring.** The *Interview mode* section of the **Video** tab sets the
+camera, the crop (presets, or size and offset by hand, with *Centre*), the
+frame rate and the auto-exposure upper limit for the mode. Edits are staged
+until **Apply**; with interview mode on, Apply reopens the camera. Everything
+else about the camera — white balance, gain, calibration — still comes from its
+own card. The room configuration is never changed, so switching back is
+lossless. The mode and its settings are saved with the profile.
+
+Why a crop buys frame rate: this camera reads its sensor row by row and sends
+2 bytes per pixel (YUV 4:2:2) over a gigabit link, so both the sensor readout
+time and the link load scale with the pixel count. The section shows the link
+load the crop and rate imply, warns when the exposure limit is too long for the
+rate (a frame cannot be exposed for longer than ``1e6 / fps`` µs), and, once
+the mode is on, the rate the camera really reaches.
+
+**How it records.**
+
+- Only ``video/video_N.mp4`` and ``timestamps_camN.csv`` for the interview
+  camera are written, under its configured number (``video_2.mp4`` for Camera
+  3).
+- The camera **free-runs** at its own frame rate: hardware triggering (GigE
+  Action Commands) exists to line several cameras up and is turned off for a
+  single camera. Hardware timestamps are still recorded.
+- ``session_meta.json`` records ``recording.mode = "interview"`` with the
+  camera and rate; see :ref:`session metadata`.
+- The sync manifest's master timeline runs at the interview rate rather than
+  the usual 25 fps, so playback and analysis see every frame.
+- The session health report only expects the interview camera; the closed
+  cameras are not reported as failures.
+
+The Real-time tab is not affected and still lists every configured camera; only
+the interview camera delivers frames.
+
 Where camera settings live
 ---------------------------
 
