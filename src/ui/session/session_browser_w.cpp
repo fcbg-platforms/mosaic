@@ -54,6 +54,9 @@ class SessionRow : public QWidget {
         setFixedHeight(80);
         setCursor(Qt::PointingHandCursor);
         setMouseTracking(true);
+        if (m_info.interrupted) {
+            setToolTip(QString::fromUtf8(kInterruptedSessionTip));
+        }
     }
 
     void set_selected(bool s) {
@@ -132,6 +135,13 @@ class SessionRow : public QWidget {
             bx += tw + 4;
         };
 
+        // First, because it qualifies everything after it: the files end
+        // wherever the crash left them.
+        if (m_info.interrupted) {
+            drawBadge("INTERRUPTED", QColor("#2a0a0a"), QColor("#ff6655"));
+        } else if (m_info.recordingNow) {
+            drawBadge("RECORDING", QColor("#0a2410"), QColor("#44dd66"));
+        }
         if (m_info.hasPoseAnalysis) {
             drawBadge("POSE", QColor("#0a2a0a"), QColor("#44cc44"));
         }

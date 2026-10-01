@@ -1,8 +1,10 @@
 #include "audio/wav_writer.hpp"
 
+#include <QElapsedTimer>
 #include <QFile>
 #include <QMutex>
 #include <QMutexLocker>
+#include <algorithm>
 #include <cstdint>
 
 #include "utils/logger.hpp"
@@ -39,6 +41,17 @@ struct WavWriter::Impl {
     int channels{2};
     int bitsPerSample{16};
     int64_t bytesWritten{0};
+    QElapsedTimer sinceHeaderUpdate;
+    int headerUpdateIntervalMs{1000};
+
+    // Writes the RIFF and data chunk sizes for what has been written so far.
+    // Clamped to what a 32-bit RIFF size can hold (~6.7 h of 44.1 kHz stereo).
+    void update_header_sizes() {
+        const uint32_t dataSize =
+            static_cast<uint32_t>(std::min(bytesWritten, int64_t(0xFFFF'FFFF) - 36));
+        poke_le32(file, 4, 36 + dataSize);
+        poke_le32(file, 40, dataSize);
+    }
 };
 
 // ── WavWriter ──────────────────────────────────────────────────────────────
@@ -80,6 +93,7 @@ bool WavWriter::open(const QString& path, int sampleRate, int channels, int bits
     write_le32(d->file, 0); // ← dataSize placeholder   (offset 40)
 
     d->open = true;
+    d->sinceHeaderUpdate.start();
     log_info(QString("[WavWriter] Opened %1  (%2 Hz, %3 ch, %4 bit)")
                  .arg(path)
                  .arg(sampleRate)
@@ -99,20 +113,25 @@ bool WavWriter::write(const char* data, qint64 bytes) {
         return false;
     }
     d->bytesWritten += written;
+    if (d->sinceHeaderUpdate.elapsed() >= d->headerUpdateIntervalMs) {
+        d->update_header_sizes();
+        d->file.flush(); // out of QFile's buffer, so a crash of this process keeps it
+        d->sinceHeaderUpdate.restart();
+    }
     return true;
+}
+
+void WavWriter::set_header_update_interval_ms(int ms) {
+    QMutexLocker lock(&d->mutex);
+    d->headerUpdateIntervalMs = ms < 0 ? 0 : ms;
 }
 
 void WavWriter::close() {
     QMutexLocker lock(&d->mutex);
     if (!d->open) return;
 
-    // Fix up chunk sizes in the header
-    const uint32_t dataSize =
-        static_cast<uint32_t>(std::min(d->bytesWritten, int64_t(0xFFFF'FFFF)));
-    const uint32_t riffSize = 36 + dataSize;
-
-    poke_le32(d->file, 4, riffSize);
-    poke_le32(d->file, 40, dataSize);
+    // Final chunk sizes.
+    d->update_header_sizes();
 
     d->file.flush();
     d->file.close();

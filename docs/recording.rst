@@ -148,6 +148,9 @@ succeeds later.  Fields:
      "session_start_utc":        "2026-06-04T14:32:05.123Z",
      "session_start_elapsed_ns": 12345678,
      "session_folder":           "/home/user/recordings/2026-06-04_14-32-05",
+     "session_end": {
+       "utc": "2026-06-04T14:42:07.481Z", "duration_ms": 602358, "ended_cleanly": true
+     },
      "bids": {
        "sub": "P01", "ses": "pre", "task": "rest", "run": 1
      },
@@ -170,6 +173,41 @@ succeeds later.  Fields:
        "parallel_ports": [ { "port_address": "0xAEFC" } ]
      }
    }
+
+``session_end`` is written as ``null`` when the recording starts and replaced
+with the object above once every camera, microphone and trigger file has been
+closed. While recording, MOSAIC also rewrites a small ``recording_heartbeat``
+file in the session folder every 5 s and deletes it on a clean stop. A
+``null`` end with a heartbeat less than 20 s old is a session being recorded
+right now, on this machine or another one sharing the folder, and is listed as
+**RECORDING**. With an older heartbeat or none, the session never finished.
+Sessions recorded before this field existed have no ``session_end`` at all and
+are not flagged.
+
+If MOSAIC crashes
+-----------------
+
+A crash, a forced close or a power cut no longer costs the whole session:
+
+- **Video** is written as *fragmented* MP4: a header followed by
+  self-contained fragments, one per keyframe (every 2 s). A crashed file plays
+  up to its last complete fragment. A regular MP4 keeps its index at the end of
+  the file and cannot be opened at all without it. On a normal stop the
+  fragmented file also gets an index, and players, OpenCV and the analysis
+  plugins read it exactly like before.
+- **Timestamp files** are flushed to disk about once a second.
+- **Audio** WAV headers are updated about once a second, so a crashed WAV
+  declares the audio written up to then rather than reading as empty.
+- **Triggers** are written to disk as each one arrives, as before.
+
+So expect to lose at most the last couple of seconds. The videos and their
+timestamp files may end a second or two apart: frames are matched by row, so
+only that ragged end is affected.
+
+An interrupted session is tagged **INTERRUPTED** in the session browser and
+"interrupted" in the Analysis tab's session list. It can be played and analysed
+like any other. A power cut can still lose data the operating system had not
+yet written to disk.
 
 Timestamp files
 ---------------

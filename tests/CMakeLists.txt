@@ -46,11 +46,15 @@ add_executable(mosaic_tests
     test_analysis_manager.cpp
     test_session_health.cpp
     test_session_name.cpp
+    test_crash_safety.cpp
     test_time_axis.cpp
     test_spectrogram_colormap.cpp
     test_voice_result.cpp
     test_analysis_plugins.cpp
+    "${CMAKE_SOURCE_DIR}/src/session/session_end.cpp"
     "${CMAKE_SOURCE_DIR}/src/session/session_health.cpp"
+    "${CMAKE_SOURCE_DIR}/src/audio/wav_writer.cpp"
+    "${CMAKE_SOURCE_DIR}/src/video/frame_timestamp_writer.cpp"
     "${CMAKE_SOURCE_DIR}/src/session/session_name.cpp"
     "${CMAKE_SOURCE_DIR}/src/core/recording_access_control.cpp"
     "${CMAKE_SOURCE_DIR}/src/ui/audio/speaker_palette.cpp"
