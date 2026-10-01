@@ -754,6 +754,13 @@ bool VideoManager::camera_action_command_ready(int index) const {
     return unit.grabber && unit.grabber->action_command_ready();
 }
 
+int VideoManager::camera_config_index(int position) const {
+    if (position < 0 || position >= static_cast<int>(d->units.size())) {
+        return -1;
+    }
+    return d->units[static_cast<size_t>(position)].configIndex;
+}
+
 VideoManager::CameraStats VideoManager::camera_stats(int index) const {
     CameraStats stats;
     if (index < 0 || index >= static_cast<int>(d->units.size())) {

@@ -27,6 +27,7 @@
 #include <cmath>
 
 #include "utils/logger.hpp"
+#include "video/camera_label.hpp"
 
 namespace mosaic {
 
@@ -120,7 +121,7 @@ class CameraSlotW : public QWidget {
         base_ = new QLabel(this);
         base_->setAlignment(Qt::AlignCenter);
         base_->setStyleSheet("background:#080816;");
-        base_->setText(QString("Cam %1").arg(camIdx_ + 1));
+        base_->setText(camera_short_label(camIdx_));
         base_->setStyleSheet("QLabel{background:#080816;color:#1a1a38;font-size:11px;}");
         lay->addWidget(base_);
 
@@ -139,7 +140,7 @@ class CameraSlotW : public QWidget {
 
         // Camera index badge (top-left)
         camBadge_ = new QLabel(overlay_);
-        camBadge_->setText(QString("Cam %1").arg(camIdx_ + 1));
+        camBadge_->setText(camera_short_label(camIdx_));
         camBadge_->setStyleSheet(
             "QLabel{background:#12122a;border:1px solid #252545;"
             "border-radius:8px;padding:1px 7px;color:#6666aa;font-size:9px;"
@@ -194,7 +195,7 @@ class CameraSlotW : public QWidget {
 
     void set_no_video() {
         display_->clear();
-        base_->setText(QString("Cam %1\nNo video").arg(camIdx_ + 1));
+        base_->setText(camera_short_label(camIdx_) + "\nNo video");
         update_dot(false);
     }
 
@@ -231,6 +232,9 @@ struct PlayerUnit {
     CameraSlotW* slot    = nullptr;
     int64_t seekOffsetMs = 0;
     bool hasVideo        = false;
+    // The camera's configured index — not this unit's slot position, which
+    // stops matching once any camera is missing from the manifest.
+    int cameraNumber = 0;
 };
 
 // ── SessionPlayerW::Impl ─────────────────────────────────────────────────
@@ -391,11 +395,21 @@ void SessionPlayerW::build_ui() {
 
     for (int i = 0; i < std::max(nCams, 1); ++i) {
         PlayerUnit u;
-        u.slot         = new CameraSlotW(i, gridWidget);
-        u.seekOffsetMs = d->manifest.is_valid() ? d->manifest.seek_offset_ms(i) : 0;
-        if (d->manifest.is_valid() && i < d->manifest.camera_count()) {
-            const auto& cs = d->manifest.camera_info(i);
-            u.slot->set_stats(cs.fpsActual, cs.coveragePct);
+        // The slot is labelled with the camera's own number. `i` is a position
+        // in the manifest's camera list, which stops matching the camera once
+        // any is missing — the same distinction SyncManifest's CameraSync::index
+        // documents.
+        // Labelled with the camera's own number. `i` is a position in the
+        // manifest's camera list, which stops matching the camera once any is
+        // missing — see SyncManifest's CameraSync::index.
+        const CameraSync* cs = d->manifest.is_valid() && i < d->manifest.camera_count()
+                                   ? &d->manifest.camera_info(i)
+                                   : nullptr;
+        u.cameraNumber       = cs ? cs->index : i;
+        u.slot               = new CameraSlotW(u.cameraNumber, gridWidget);
+        u.seekOffsetMs       = d->manifest.is_valid() ? d->manifest.seek_offset_ms(i) : 0;
+        if (cs) {
+            u.slot->set_stats(cs->fpsActual, cs->coveragePct);
         }
         d->units.append(u);
 
@@ -521,7 +535,9 @@ void SessionPlayerW::setup_players() {
         if (!QFileInfo::exists(videoPath)) {
             u.hasVideo = false;
             u.slot->set_no_video();
-            log_info(QString("[Player] Cam %1: no video file").arg(i));
+            log_info(QString("[Player] Camera %1 (%2): no video file")
+                         .arg(u.cameraNumber)
+                         .arg(videoFile));
             continue;
         }
 

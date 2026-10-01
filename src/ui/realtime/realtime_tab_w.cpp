@@ -17,6 +17,7 @@
 #include "ui/realtime/realtime_camera_tile_w.hpp"
 #include "ui/realtime/realtime_trace_w.hpp"
 #include "ui/realtime/transcript_panel_w.hpp"
+#include "video/camera_label.hpp"
 
 namespace mosaic {
 
@@ -348,7 +349,7 @@ void RealtimeTabW::rebuild_trace_camera_combo() {
     const QSignalBlocker blocker(d->traceCameraCombo);
     d->traceCameraCombo->clear();
     for (int i = 0; i < count; ++i) {
-        d->traceCameraCombo->addItem(QString("Cam %1").arg(i));
+        d->traceCameraCombo->addItem(camera_short_label(i));
     }
 
     const int restored = std::clamp(previous, 0, std::max(0, count - 1));

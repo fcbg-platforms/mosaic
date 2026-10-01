@@ -140,8 +140,18 @@ class VideoManager : public QObject {
 
     /// @brief Returns a performance snapshot for one camera.
     ///
-    /// @param index  Zero-based camera index.  Returns a zeroed struct if out of range.
+    /// @param index  Position in the *opened* camera list, 0..camera_count().
+    ///               Not the configured index: cameras that fail to open are
+    ///               never added, so with camera 1 down, position 1 is camera 2.
+    ///               Use camera_config_index() to name it. Returns a zeroed
+    ///               struct if out of range.
     [[nodiscard]] CameraStats camera_stats(int index) const;
+
+    /// The configured index of the opened camera at `position` (the same
+    /// position camera_stats() takes), or -1 if out of range. What a UI listing
+    /// opened cameras must label rows with — the position alone would call
+    /// configured camera 2 "Cam 1" whenever an earlier camera failed to open.
+    [[nodiscard]] int camera_config_index(int position) const;
 
     /// @returns The number of GigE Vision Action Command ticks fired during
     /// this camera group's most recently *attempted* arm_and_fire_action_commands()

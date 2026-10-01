@@ -19,6 +19,7 @@
 #include "ui/anim_utils.hpp"
 #include "ui/calibration/badge_style.hpp"
 #include "ui/realtime/pose_skeleton_edges.hpp"
+#include "video/camera_label.hpp"
 
 namespace mosaic {
 
@@ -273,7 +274,7 @@ RealtimeCameraTileW::RealtimeCameraTileW(int cameraIndex, bool liveAnalysisEnabl
     d->liveDot   = new QLabel;
     d->liveDot->setFixedSize(10, 10);
     d->liveDot->setStyleSheet("background:#44446a; border-radius:5px;");
-    auto* camLbl = new QLabel(QString("Cam %1").arg(cameraIndex));
+    auto* camLbl = new QLabel(camera_short_label(cameraIndex));
     camLbl->setStyleSheet("color:#c8c8e0; font-weight:600;");
     d->analyzeCk = new QCheckBox("Analyze");
     d->analyzeCk->setChecked(liveAnalysisEnabled);

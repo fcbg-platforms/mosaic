@@ -77,8 +77,27 @@
 #include "ui/audio/voice_spectrogram_w.hpp"
 #include "ui/calibration/badge_style.hpp"
 #include "utils/logger.hpp"
+#include "video/camera_label.hpp"
 
 namespace mosaic {
+
+namespace {
+
+// The configured index of the camera chosen in a session's camera combo.
+//
+// The combo's own currentIndex() is a position in SessionInfo::videoFiles,
+// which lists only the videos present: with camera 1 missing, position 1 is
+// video_2.mp4. Every overlay setter matches results by configured index (the
+// Python plugins derive it from the file name), so passing the position drew
+// another camera's gaze ray or skeleton over this video — and, now that the
+// combo is labelled by camera number, under a label that names the right one.
+// Falls back to the position only for a file not named video_N.
+int combo_camera_index(const QComboBox* combo) {
+    const int fromFile = camera_index_from_video_file(combo->currentData().toString());
+    return fromFile >= 0 ? fromFile : combo->currentIndex();
+}
+
+} // namespace
 
 namespace {
 
@@ -1101,7 +1120,7 @@ AnalysisTabW::AnalysisTabW(AppSettings& settings, AnalysisManager* analysisMgr,
         // not per frame — so no spam concern), unlike the per-frame match
         // which replaces the log line entirely.
         static const QRegularExpression cameraRe(
-            QStringLiteral(R"(^\[run_\w+\] Camera (\d+)/(\d+):)"));
+            QStringLiteral(R"(^\[run_\w+\] Camera (\d+)/(\d+):\s*(.*)$)"));
         const auto cameraMatch = cameraRe.match(line);
         if (cameraMatch.hasMatch()) {
             const int camIdx   = cameraMatch.captured(1).toInt();
@@ -1109,7 +1128,19 @@ AnalysisTabW::AnalysisTabW(AppSettings& settings, AnalysisManager* analysisMgr,
             d->cameraProgressBar->setVisible(true);
             d->cameraProgressBar->setRange(0, camTotal);
             d->cameraProgressBar->setValue(camIdx);
-            d->cameraProgressBar->setFormat(QString("Camera %1/%2").arg(camIdx).arg(camTotal));
+            // The plugins print their 1-based *position* in the batch, not the
+            // camera's number, so "Camera 2/5" used to read as an identity it
+            // was not. Name the camera from the video being processed, and show
+            // the position as the count it is.
+            // The file name is optional in the plugins' contract; without one
+            // there is nothing truthful to name, so show only the count.
+            const QString video = cameraMatch.captured(3).trimmed();
+            d->cameraProgressBar->setFormat(
+                video.isEmpty() ? QString("Camera %1 of %2").arg(camIdx).arg(camTotal)
+                                : QString("%1 · %2 of %3")
+                                      .arg(camera_label_for_video(video))
+                                      .arg(camIdx)
+                                      .arg(camTotal));
             // Each new camera restarts its own per-frame progress at 0 —
             // avoids the bar briefly showing the previous camera's leftover
             // percentage before its first "NN.N% (a/b)" line arrives.
@@ -2502,7 +2533,10 @@ void AnalysisTabW::select_session(const QString& path) {
     d->cameraCombo->clear();
     if (info) {
         for (int i = 0; i < info->videoFiles.size(); ++i) {
-            d->cameraCombo->addItem(QString("Camera %1").arg(i), info->videoFiles[i]);
+            // From the file name, not the list position: videoFiles holds only
+            // the videos present, so a missing camera shifts every later entry.
+            d->cameraCombo->addItem(camera_label_for_video(info->videoFiles[i]),
+                                    info->videoFiles[i]);
         }
     }
     d->cameraCombo->blockSignals(false);
@@ -2903,7 +2937,7 @@ void AnalysisTabW::reload_current_camera_result() {
         if (d->cameraCombo->currentIndex() >= 0) {
             const QString videoRel = d->cameraCombo->currentData().toString();
             d->player->set_video(info->path + "/" + videoRel);
-            d->player->set_gaze_result(d->currentGazeFusion, d->cameraCombo->currentIndex());
+            d->player->set_gaze_result(d->currentGazeFusion, combo_camera_index(d->cameraCombo));
         } else {
             d->player->set_video(QString());
             d->player->set_pose_result(d->currentResult);
@@ -2939,7 +2973,8 @@ void AnalysisTabW::reload_current_camera_result() {
         if (d->cameraCombo->currentIndex() >= 0) {
             const QString videoRel = d->cameraCombo->currentData().toString();
             d->player->set_video(info->path + "/" + videoRel);
-            d->player->set_skeleton3d_result(d->currentSkeleton3D, d->cameraCombo->currentIndex());
+            d->player->set_skeleton3d_result(d->currentSkeleton3D,
+                                             combo_camera_index(d->cameraCombo));
         } else {
             d->player->set_video(QString());
             d->player->set_pose_result(d->currentResult);
@@ -3303,7 +3338,7 @@ void AnalysisTabW::reload_current_camera_result() {
         const QString rppgAbs = info->path + "/" + rppg_json_path_for(videoRel);
         d->currentRppgResult =
             QFileInfo::exists(rppgAbs) ? RppgResult::load(rppgAbs) : RppgResult();
-        d->player->set_rppg_result(d->currentRppgResult, d->cameraCombo->currentIndex());
+        d->player->set_rppg_result(d->currentRppgResult, combo_camera_index(d->cameraCombo));
 
         update_rppg_view();
 
@@ -3326,7 +3361,7 @@ void AnalysisTabW::reload_current_camera_result() {
         const QString gaze2dAbs = info->path + "/" + gaze2d_json_path_for(videoRel);
         d->currentGaze2dResult =
             QFileInfo::exists(gaze2dAbs) ? Gaze2dResult::load(gaze2dAbs) : Gaze2dResult();
-        d->player->set_gaze2d_result(d->currentGaze2dResult, d->cameraCombo->currentIndex());
+        d->player->set_gaze2d_result(d->currentGaze2dResult, combo_camera_index(d->cameraCombo));
 
         update_gaze2d_view();
 
@@ -3580,6 +3615,11 @@ void AnalysisTabW::export_kinematics_csv() {
     // keeps the exported timestamp_ms values directly comparable across
     // cameras instead of each column restarting at its own camera's start.
     struct CameraResult {
+        // Data, not a screen label: written verbatim into the CSV's `camera`
+        // column, which has always held "Camera <0-based>". Built from the
+        // configured index rather than the list position (identical output for
+        // a session with no missing camera, correct for one with a gap), and
+        // deliberately NOT camera_label(), which is 1-based for display.
         QString label;
         PoseAnalysisResult result;
     };
@@ -3591,8 +3631,10 @@ void AnalysisTabW::export_kinematics_csv() {
         if (!result.is_valid() || result.frames().isEmpty()) {
             continue;
         }
-        t0 = std::min(t0, result.frames().first().timestampNs);
-        perCamera.push_back({QString("Camera %1").arg(camIdx), std::move(result)});
+        t0                    = std::min(t0, result.frames().first().timestampNs);
+        const int configIndex = camera_index_from_video_file(info->videoFiles[camIdx]);
+        perCamera.push_back(
+            {QString("Camera %1").arg(configIndex >= 0 ? configIndex : camIdx), std::move(result)});
     }
     if (perCamera.isEmpty()) {
         return;
@@ -3927,7 +3969,11 @@ void AnalysisTabW::export_expression_csv() {
         return;
     }
 
-    const QString cameraLabel = d->cameraCombo->currentText();
+    // A file name, so data: keep the long-standing "Camera <0-based>" form
+    // rather than the combo's 1-based screen label, or re-exporting a session
+    // would write Camera 1_expression.csv beside an existing Camera
+    // 0_expression.csv for the same camera.
+    const QString cameraLabel = QString("Camera %1").arg(combo_camera_index(d->cameraCombo));
     const QString suggested   = info->path + "/" + cameraLabel + "_expression.csv";
     const auto& names         = d->currentExpressionResult.blendshape_names();
     const auto& frames        = d->currentExpressionResult.frames();
@@ -4273,14 +4319,27 @@ void AnalysisTabW::update_trigger_sync_view() {
     d->triggerSyncTable->setColumnCount(7 + 2 * nCams);
     QStringList headers = {"Row", "Elapsed (ms)", "Wall clock", "Source", "Label", "Code", "Value"};
     for (int c = 0; c < nCams; ++c) {
-        // The camera's number, not the column position — export_csv() already
-        // labels its columns cam<index>_*, so a positional header here would
-        // have the table and the exported file disagree about which camera a
-        // column belongs to on any session with a missing camera.
+        // Screen columns are 1-based like every other camera label ("Cam 3"),
+        // while export_csv() keeps the data name cam2_frame_id. They name the
+        // same camera by design — see video/camera_label.hpp — and the header
+        // tooltip says so, so nobody reads "Cam 3" and goes looking for cam3_*.
         const int camNumber = m.camera_info(c).index;
-        headers << QString("Cam%1 Frame").arg(camNumber) << QString("Cam%1 Δms").arg(camNumber);
+        headers << camera_short_label(camNumber) + " Frame"
+                << camera_short_label(camNumber) + " Δms";
     }
     d->triggerSyncTable->setHorizontalHeaderLabels(headers);
+    for (int c = 0; c < nCams; ++c) {
+        const int camNumber = m.camera_info(c).index;
+        for (int k = 0; k < 2; ++k) {
+            if (auto* h = d->triggerSyncTable->horizontalHeaderItem(7 + 2 * c + k)) {
+                h->setToolTip(QString("%1 — exported as cam%2_%3 (files and data count "
+                                      "cameras from 0)")
+                                  .arg(camera_label(camNumber))
+                                  .arg(camNumber)
+                                  .arg(k == 0 ? "frame_id" : "delta_ms"));
+            }
+        }
+    }
 
     const auto& rows = m.rows();
     d->triggerSyncTable->setRowCount(rows.size());
@@ -4552,7 +4611,7 @@ void AnalysisTabW::update_sync_repair_view() {
             d->syncRepairTable->setItem(i, col, item);
         };
 
-        set_cell(0, QString("Camera %1").arg(c.index));
+        set_cell(0, camera_label(c.index));
         set_cell(1, c.skipped ? "—" : QString::number(c.sourceFramesCaptured));
         set_cell(2, c.skipped ? "—" : QString::number(c.outputFrameCount));
         set_cell(3, c.skipped ? "—" : QString::number(c.duplicatedFrameCount));

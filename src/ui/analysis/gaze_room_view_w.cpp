@@ -4,6 +4,8 @@
 #include <algorithm>
 #include <limits>
 
+#include "video/camera_label.hpp"
+
 namespace mosaic {
 
 namespace {
@@ -132,7 +134,7 @@ void GazeRoomViewW::paintEvent(QPaintEvent*) {
         painter.setBrush(color);
         painter.drawEllipse(p, 5, 5);
         painter.setPen(color);
-        painter.drawText(p + QPointF(6, -6), QString("cam%1").arg(cam.index));
+        painter.drawText(p + QPointF(6, -6), camera_short_label(cam.index));
     }
 
     // Current fused frame: per-camera rays (thin) + the fused ray (bold).

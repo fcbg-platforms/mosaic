@@ -13,6 +13,7 @@
 
 #include "session/session_info.hpp"
 #include "ui/calibration/badge_style.hpp"
+#include "video/camera_label.hpp"
 
 namespace mosaic {
 
@@ -150,7 +151,7 @@ SessionHealthDialog::SessionHealthDialog(const SessionHealthReport& report, QWid
         // verdict (Excellent and Good share a colour, and a screenshot or a
         // colour-blind reader loses it entirely), so a below-Good row also
         // says so in text.
-        QString nameText = raw.name.isEmpty() ? QString("Camera %1").arg(raw.index + 1) : raw.name;
+        QString nameText = raw.name.isEmpty() ? camera_label(raw.index) : raw.name;
         if (entry.quality == RmsQuality::Acceptable || entry.quality == RmsQuality::Poor) {
             nameText += QString("  · %1").arg(quality_text(entry.quality));
         }

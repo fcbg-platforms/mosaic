@@ -2,6 +2,8 @@
 
 #include <algorithm>
 
+#include "video/camera_label.hpp"
+
 namespace mosaic {
 
 RmsQuality camera_health_quality_for(const CameraHealthInput& raw,
@@ -121,9 +123,8 @@ SessionHealthReport build_session_health_report(const QString& sessionPath,
         // 1-based to match the producer's own label and CameraCardW's headers.
         // (The on-disk artifacts are 0-based — video_0.mp4 is Camera 1 — which
         // the dialog's tooltip spells out.)
-        const QString name = worstEntry->raw.name.isEmpty()
-                                 ? QString("Camera %1").arg(worstEntry->raw.index + 1)
-                                 : worstEntry->raw.name;
+        const QString name = worstEntry->raw.name.isEmpty() ? camera_label(worstEntry->raw.index)
+                                                            : worstEntry->raw.name;
         report.headline    = QString("%1: %2").arg(name, quality_label(worstEntry->quality));
     }
     return report;

@@ -20,6 +20,7 @@
 #include "ui/calibration/badge_style.hpp"
 #include "ui/calibration/room_calibration_w.hpp"
 #include "utils/logger.hpp"
+#include "video/camera_label.hpp"
 #include "video/video_manager.hpp"
 
 namespace mosaic {
@@ -283,7 +284,12 @@ void CalibrationW::build_capture_section(QVBoxLayout* parent) {
     d->cameraCombo = new QComboBox;
     for (int i = 0; i < static_cast<int>(d->videoSettings.cameras.size()); ++i) {
         const QString name = d->videoSettings.cameras[static_cast<size_t>(i)].friendlyName;
-        d->cameraCombo->addItem(QString("Camera %1 — %2").arg(i).arg(name));
+        // The friendly name only when it adds something: the default name *is*
+        // camera_label(i), and "Camera 1 — Camera 1" six times over helps nobody
+        // pick the camera to calibrate.
+        const QString label = camera_label(i);
+        d->cameraCombo->addItem(
+            name.isEmpty() || name == label ? label : QString("%1 — %2").arg(label, name));
     }
     if (d->cameraCombo->count() == 0) {
         d->cameraCombo->addItem("No cameras configured");
@@ -466,9 +472,9 @@ void CalibrationW::save_to_settings() {
     emit calibration_saved(camIdx);
 
     QMessageBox::information(this, "Calibration saved",
-                             QString("Camera %1 calibration stored in settings.\n"
+                             QString("%1 calibration stored in settings.\n"
                                      "It will be written to the settings file on application exit.")
-                                 .arg(camIdx));
+                                 .arg(camera_label(camIdx)));
 }
 
 } // namespace mosaic

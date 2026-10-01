@@ -5,6 +5,20 @@ Camera settings
    :local:
    :depth: 2
 
+Camera numbering
+----------------
+
+Everywhere on screen, cameras are numbered **from 1**: Camera 1 to Camera 6,
+matching the room labels and ``setup_nic_cameras.ps1``. Files and data are
+numbered **from 0**, so *Camera 3* records ``video/video_2.mp4`` and
+``timestamps_cam2.csv``, and appears as index ``2`` in ``sync_manifest.json``
+and as ``[Camera 2]`` in ``mosaic.log``. The data side is kept 0-based because
+saved sessions and the analysis plugins depend on those names.
+
+A camera is always labelled by its own number, never by its position in a
+list. In a session where Camera 2 is missing, the remaining cameras are still
+Camera 1, 3, 4 and so on.
+
 Where camera settings live
 ---------------------------
 
