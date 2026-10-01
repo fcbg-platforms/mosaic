@@ -3,6 +3,7 @@
 #include <QString>
 #include <functional>
 
+#include "session/preflight.hpp"
 #include "session/session_name.hpp"
 
 class QLabel;
@@ -11,7 +12,9 @@ class QPushButton;
 
 namespace mosaic {
 
-// Asks who and what a recording is of, at the moment Record is pressed.
+// Asks who and what a recording is of, at the moment Record is pressed — and,
+// when the pre-flight check found something, shows that too (see
+// session/preflight.hpp), so there is one question to answer, not two.
 //
 // Opened only when the question actually needs asking — the identity cannot
 // produce a folder (no subject, or a name too long for the recordings
@@ -39,8 +42,12 @@ class SessionIdentityDialog : public QDialog {
     // knows nothing about how one is arrived at.
     using AdviseFn = std::function<IdentityAdvice(const SessionIdentity&)>;
 
+    // `preflight` adds a "Checks" section listing what was checked; with any
+    // warning or failure in it the accept button reads "Record anyway". An
+    // empty report shows no section, which is the dialog as it always was.
     SessionIdentityDialog(const QString& subject, const QString& session, const QString& task,
-                          AdviseFn advise, QWidget* parent = nullptr);
+                          AdviseFn advise, const PreflightReport& preflight = {},
+                          QWidget* parent = nullptr);
 
     [[nodiscard]] QString subject() const;
     [[nodiscard]] QString session() const;
@@ -53,12 +60,13 @@ class SessionIdentityDialog : public QDialog {
     void refresh();
 
     AdviseFn m_advise;
-    QLineEdit* m_subject = nullptr;
-    QLineEdit* m_session = nullptr;
-    QLineEdit* m_task    = nullptr;
-    QLabel* m_preview    = nullptr;
-    QLabel* m_warning    = nullptr;
-    QPushButton* m_start = nullptr;
+    bool m_preflightProblems = false;
+    QLineEdit* m_subject     = nullptr;
+    QLineEdit* m_session     = nullptr;
+    QLineEdit* m_task        = nullptr;
+    QLabel* m_preview        = nullptr;
+    QLabel* m_warning        = nullptr;
+    QPushButton* m_start     = nullptr;
 };
 
 } // namespace mosaic

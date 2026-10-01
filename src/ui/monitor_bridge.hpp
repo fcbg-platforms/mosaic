@@ -4,9 +4,11 @@
 #include <QString>
 #include <QTimer>
 #include <QVariantList>
+#include <functional>
 
 #include "core/settings.hpp"
 #include "record/record_manager.hpp"
+#include "session/preflight.hpp"
 #include "session/session_name.hpp"
 #include "video/video_feed_provider.hpp"
 
@@ -107,6 +109,16 @@ class MonitorBridge : public QObject {
     // previews" in the settings tab reaches the live monitor immediately,
     // rather than only after the next app start.
     void refresh_record_settings();
+
+    // Supplies the pre-flight report startRecording() consults. A callback so
+    // this class needs neither the camera/audio managers nor QtWidgets —
+    // MainWindow has the managers and builds the report.
+    using PreflightProvider = std::function<PreflightReport()>;
+    void set_preflight_provider(PreflightProvider provider);
+
+    // The report behind the confirmation now being asked for (see
+    // identityConfirmationNeeded). Empty when checks are off or all passed.
+    [[nodiscard]] const PreflightReport& last_preflight() const;
 
     // Starts a recording on behalf of an external StartRecording trigger.
     //
@@ -254,6 +266,8 @@ class MonitorBridge : public QObject {
     // parallel members, so the preview, the warning and "may this record" are
     // decided in a single pass and cannot drift out of agreement.
     IdentityAdvice m_advice;
+    PreflightProvider m_preflightProvider;
+    PreflightReport m_preflight;
 };
 
 } // namespace mosaic

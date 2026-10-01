@@ -141,12 +141,19 @@ void MonitorBridge::startRecording() {
 
     recompute_identity_preview();
 
+    // The rig check — cameras, sync, microphones, disk. Run now, at the click,
+    // so it describes the rig as it is when recording is about to begin.
+    m_preflight = (m_recordSettings.runPreflightChecks && m_preflightProvider)
+                      ? m_preflightProvider()
+                      : PreflightReport{};
+
     // Ask before doing anything, never after a 3-2-1 countdown. One dialog
-    // covers both reasons to ask — the identity is unusable (no subject, or a
-    // name too long for the recordings directory), or this combination has
-    // been recorded before. Merged deliberately: they can hold at once, and
-    // two modals in a row is how a confirmation stops being read.
-    if (!m_advice.canRecord || m_advice.collision.collides()) {
+    // covers every reason to ask — the identity is unusable (no subject, or a
+    // name too long for the recordings directory), this combination has been
+    // recorded before, or a pre-flight check found something. Merged
+    // deliberately: they can hold at once, and two modals in a row is how a
+    // confirmation stops being read.
+    if (!m_advice.canRecord || m_advice.collision.collides() || m_preflight.needs_attention()) {
         m_awaitingConfirmation = true;
         emit identityConfirmationNeeded(m_subjectLabel, m_sessionLabel, m_taskLabel);
         return; // deliberately NOT armed yet
@@ -191,6 +198,12 @@ bool MonitorBridge::confirmIdentityAndStart(const QString& subject, const QStrin
     return true;
 }
 
+void MonitorBridge::set_preflight_provider(PreflightProvider provider) {
+    m_preflightProvider = std::move(provider);
+}
+
+const PreflightReport& MonitorBridge::last_preflight() const { return m_preflight; }
+
 void MonitorBridge::cancelPendingStart() {
     m_awaitingConfirmation = false;
     log_info("[MonitorBridge] Session-details prompt dismissed — nothing was recorded.");
@@ -204,6 +217,9 @@ void MonitorBridge::arm_countdown(const SessionIdentity& id) {
     if (m_rm->is_recording() || m_countdownSeconds > 0) return;
 
     m_rm->set_session_identity(id);
+    // Reaching here past a dialog that listed problems means "Record anyway":
+    // keep a record of what was overridden. Empty when nothing was.
+    m_rm->set_preflight_warnings(m_preflight.problems());
 
     const int configured = m_recordSettings.startDelaySec;
     const int delay      = std::clamp(configured, 0, RecordSettings::kMaxStartDelaySec);
@@ -249,6 +265,9 @@ void MonitorBridge::start_from_trigger() {
     // too. A trigger's start latency is the experiment's, so it buys nothing
     // worth the delay.
     m_rm->set_session_identity(id);
+    // A trigger runs no checks, so it must not carry findings from an
+    // earlier, abandoned click.
+    m_rm->set_preflight_warnings({});
     set_start_pending(true);
     // begin_recording_now(), not arm_countdown(): the start delay exists so a
     // human who clicked can get out of shot. A trigger fires at the moment the

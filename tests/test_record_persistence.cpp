@@ -110,3 +110,21 @@ TEST(RecordPersistence, HandEditedIdentityIsSanitizedOnLoad) {
     EXPECT_EQ(loaded->lastIdentity.session, "pre");
     EXPECT_EQ(loaded->lastIdentity.task, "rest");
 }
+
+// ── Pre-flight checks ──────────────────────────────────────────────────────
+
+// On for anyone upgrading: the checks only ever add a dialog when something is
+// wrong, so an existing install should get them without opting in.
+TEST(RecordPersistence, PreflightChecksDefaultOnForOlderSettings) {
+    const auto loaded = RecordSettings::from_json(legacy_record_settings());
+    ASSERT_TRUE(loaded.has_value());
+    EXPECT_TRUE(loaded->runPreflightChecks);
+}
+
+TEST(RecordPersistence, TurningPreflightChecksOffSurvivesASave) {
+    RecordSettings s;
+    s.runPreflightChecks = false;
+    const auto parsed    = RecordSettings::from_json(s.to_json());
+    ASSERT_TRUE(parsed.has_value());
+    EXPECT_FALSE(parsed->runPreflightChecks);
+}

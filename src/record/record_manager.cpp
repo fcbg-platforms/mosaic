@@ -35,6 +35,9 @@ struct RecordManager::Impl {
     // session_meta.json.
     SessionIdentity pendingIdentity;
     SessionIdentity activeIdentity;
+    // See set_preflight_warnings(): pending until start() consumes them.
+    QStringList pendingPreflightWarnings;
+    QStringList activePreflightWarnings;
 
     explicit Impl(AppSettings& s, TriggerManager* tr, AudioManager* au, VideoManager* vi,
                   const QString& user)
@@ -137,6 +140,11 @@ void RecordManager::write_session_meta() const {
     if (d->activeIdentity.has_entities()) {
         root.insert("bids", d->activeIdentity.to_json());
     }
+    // What the operator knew was wrong and recorded anyway. Only when there
+    // was something, so an ordinary session's metadata is unchanged.
+    if (!d->activePreflightWarnings.isEmpty()) {
+        root.insert("preflight_warnings", QJsonArray::fromStringList(d->activePreflightWarnings));
+    }
 
     QFile file(path);
     if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
@@ -158,6 +166,13 @@ void RecordManager::set_session_identity(const SessionIdentity& id) {
 
 SessionIdentity RecordManager::session_identity() const { return d->pendingIdentity; }
 
+void RecordManager::set_preflight_warnings(const QStringList& warnings) {
+    if (d->recording) {
+        return;
+    }
+    d->pendingPreflightWarnings = warnings;
+}
+
 bool RecordManager::start() {
     if (d->recording) {
         log_warning("[RecordManager] start() called while already recording.");
@@ -170,7 +185,12 @@ bool RecordManager::start() {
     // has a caller with no UI at all (a StartRecording trigger). Both paths
     // therefore number repeats the same way; the pre-flight scan behind the
     // operator's collision dialog is only advisory, and this one decides.
-    d->activeIdentity = d->pendingIdentity;
+    d->activeIdentity          = d->pendingIdentity;
+    d->activePreflightWarnings = d->pendingPreflightWarnings;
+    d->pendingPreflightWarnings.clear();
+    for (const QString& w : d->activePreflightWarnings) {
+        log_warning(QString("[Preflight] Recording started despite: %1").arg(w));
+    }
     if (d->activeIdentity.has_entities()) {
         d->activeIdentity.run =
             next_run_index(existing_session_names(d->settings.record.directory), d->activeIdentity);

@@ -430,6 +430,7 @@ QJsonObject RecordSettings::to_json() const {
         {"enable_trigger", enableTrigger},
         {"start_delay_sec", startDelaySec},
         {"hide_previews_while_recording", hidePreviewsWhileRecording},
+        {"run_preflight_checks", runPreflightChecks},
         {"last_identity", lastIdentity.to_json()},
     };
 }
@@ -455,6 +456,8 @@ std::optional<RecordSettings> RecordSettings::from_json(const QJsonObject& o) {
     if (o.contains("hide_previews_while_recording"))
         s.hidePreviewsWhileRecording =
             o["hide_previews_while_recording"].toBool(s.hidePreviewsWhileRecording);
+    if (o.contains("run_preflight_checks"))
+        s.runPreflightChecks = o["run_preflight_checks"].toBool(s.runPreflightChecks);
     // from_json re-sanitizes every label, which matters here: settings.json is
     // a plain file a user can edit, and these values go on to form a directory
     // name.

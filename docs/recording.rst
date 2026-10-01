@@ -13,6 +13,34 @@ The simplest way to start one is via the **● Record** button in the QML
 monitor view or ``Ctrl+R`` — both call
 :cpp:func:`mosaic::MonitorBridge::startRecording`.
 
+Pre-flight check
+~~~~~~~~~~~~~~~~
+
+When **● Record** or ``Ctrl+R`` is pressed, MOSAIC first checks the rig as it
+is at that moment:
+
+- every configured camera is **open** and **delivering frames**;
+- each camera can reach its **frame rate**, judged by the camera's own measured
+  rate. A camera that only just opened reports "still measuring" rather than a
+  problem;
+- cameras set to hardware trigger (Action1) are actually **synchronised**, not
+  silently free-running;
+- every configured **microphone** is connected. A missing one would otherwise
+  be replaced by the system's default input without a word;
+- the **disk** has room. Free space is divided by the estimated recording rate
+  (cameras × video bitrate, plus audio): under 10 minutes left is red, under
+  60 minutes amber.
+
+If everything passes, nothing changes: recording starts as before. If not,
+the problems are listed in the *Name this recording* dialog, titled *Before
+recording*, together with the checks that passed. Its button reads **Record
+anyway**. Nothing is ever blocked. Whatever the operator recorded despite is
+written to ``session_meta.json`` as ``preflight_warnings`` and to the log.
+
+Recordings started by a trigger are never checked: their timing belongs to the
+experiment. The check can be turned off under **Settings → Record → Starting a
+Recording**.
+
 Programmatically:
 
 .. code-block:: cpp
