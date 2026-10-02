@@ -17,6 +17,7 @@ add_executable(mosaic_tests
     test_sync_manifest.cpp
     test_camera_timestamp_files.cpp
     test_camera_label.cpp
+    test_interview_mode.cpp
     test_trigger_frame_map.cpp
     test_trigger_recorder.cpp
     test_trigger_persistence.cpp

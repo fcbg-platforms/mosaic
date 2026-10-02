@@ -5,6 +5,7 @@
 #include <QFileInfo>
 #include <QJsonDocument>
 #include <QStandardPaths>
+#include <algorithm>
 
 #include "trigger/trigger_types.hpp"
 #include "utils/dpapi_crypt.hpp"
@@ -193,11 +194,82 @@ int VideoSettings::migrate_legacy_exposure_limit() {
     return changed;
 }
 
+// ── InterviewSettings ──────────────────────────────────────────────────────
+
+QJsonObject InterviewSettings::to_json() const {
+    return {
+        {"enabled", enabled},  {"camera_index", cameraIndex},
+        {"width", width},      {"height", height},
+        {"offset_x", offsetX}, {"offset_y", offsetY},
+        {"fps", fps},          {"exposure_auto_upper_us", exposureAutoUpperUs},
+    };
+}
+
+InterviewSettings InterviewSettings::from_json(const QJsonObject& o) {
+    InterviewSettings s;
+    s.enabled             = o["enabled"].toBool(s.enabled);
+    s.cameraIndex         = o["camera_index"].toInt(s.cameraIndex);
+    s.width               = o["width"].toInt(s.width);
+    s.height              = o["height"].toInt(s.height);
+    s.offsetX             = o["offset_x"].toInt(s.offsetX);
+    s.offsetY             = o["offset_y"].toInt(s.offsetY);
+    s.fps                 = o["fps"].toDouble(s.fps);
+    s.exposureAutoUpperUs = o["exposure_auto_upper_us"].toDouble(s.exposureAutoUpperUs);
+    // A hand-edited or damaged file must not reach the camera as a zero-size
+    // crop or a zero rate (1e6/fps is computed from it in several places).
+    // Fall back field by field rather than rejecting the block, so one bad
+    // value does not silently reset the rest of the operator's choices.
+    const InterviewSettings defaults;
+    if (s.width <= 0) s.width = defaults.width;
+    if (s.height <= 0) s.height = defaults.height;
+    if (s.offsetX < 0) s.offsetX = 0;
+    if (s.offsetY < 0) s.offsetY = 0;
+    if (!(s.fps > 0.0)) s.fps = defaults.fps;
+    if (!(s.exposureAutoUpperUs > 0.0)) s.exposureAutoUpperUs = defaults.exposureAutoUpperUs;
+    return s;
+}
+
+CameraParameters interview_camera_params(const CameraParameters& source,
+                                         const InterviewSettings& interview) {
+    CameraParameters p    = source;
+    p.width               = interview.width;
+    p.height              = interview.height;
+    p.offsetX             = interview.offsetX;
+    p.offsetY             = interview.offsetY;
+    p.specifyFps          = true;
+    p.fps                 = interview.fps;
+    p.exposureAutoUpperUs = interview.exposureAutoUpperUs;
+    // Keep the pair ordered: the grabber clamps lower to upper anyway, but the
+    // persisted pair should not claim a range the camera never had.
+    p.exposureAutoLowerUs = std::min(p.exposureAutoLowerUs, p.exposureAutoUpperUs);
+    p.hwTriggerEnabled    = false;
+    return p;
+}
+
+// ── VideoSettings ──────────────────────────────────────────────────────────
+
+bool VideoSettings::interview_active() const {
+    return interview.enabled && interview.cameraIndex >= 0 &&
+           interview.cameraIndex < static_cast<int>(cameras.size());
+}
+
+std::vector<int> VideoSettings::recorded_camera_indices() const {
+    if (interview_active()) {
+        return {interview.cameraIndex};
+    }
+    std::vector<int> all(cameras.size());
+    for (size_t i = 0; i < all.size(); ++i) {
+        all[i] = static_cast<int>(i);
+    }
+    return all;
+}
+
 QJsonObject VideoSettings::to_json() const {
     QJsonArray cams;
     for (const auto& c : cameras) cams.append(c.to_json());
     return {
-        {"codec", codec}, {"preset", preset}, {"crf", crf}, {"bitrate", bitrate}, {"cameras", cams},
+        {"codec", codec},     {"preset", preset}, {"crf", crf},
+        {"bitrate", bitrate}, {"cameras", cams},  {"interview", interview.to_json()},
     };
 }
 
@@ -207,6 +279,8 @@ std::optional<VideoSettings> VideoSettings::from_json(const QJsonObject& o) {
     if (o.contains("preset")) s.preset = o["preset"].toString(s.preset);
     if (o.contains("crf")) s.crf = o["crf"].toInt(s.crf);
     if (o.contains("bitrate")) s.bitrate = o["bitrate"].toInt(s.bitrate);
+    if (o.contains("interview"))
+        s.interview = InterviewSettings::from_json(o["interview"].toObject());
     // Legacy "sync_fps"/"target_fps" keys from older settings.json files are
     // silently ignored — the feature was never wired into acquisition.
     if (o.contains("cameras")) {
