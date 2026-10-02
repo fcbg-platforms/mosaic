@@ -47,17 +47,24 @@ add_executable(mosaic_tests
     test_dpapi_crypt.cpp
     test_analysis_manager.cpp
     test_session_health.cpp
+    test_camera_health.cpp
+    test_frame_shortfall.cpp
     test_session_name.cpp
+    test_crash_safety.cpp
     test_time_axis.cpp
     test_spectrogram_colormap.cpp
     test_voice_result.cpp
     test_analysis_plugins.cpp
+    "${CMAKE_SOURCE_DIR}/src/session/session_end.cpp"
     "${CMAKE_SOURCE_DIR}/src/session/session_health.cpp"
+    "${CMAKE_SOURCE_DIR}/src/audio/wav_writer.cpp"
+    "${CMAKE_SOURCE_DIR}/src/video/frame_timestamp_writer.cpp"
     "${CMAKE_SOURCE_DIR}/src/session/session_name.cpp"
     "${CMAKE_SOURCE_DIR}/src/core/recording_access_control.cpp"
     "${CMAKE_SOURCE_DIR}/src/ui/audio/speaker_palette.cpp"
     "${CMAKE_SOURCE_DIR}/src/ui/audio/spectrogram_colormap.cpp"
     "${CMAKE_SOURCE_DIR}/src/video/fps_readout.cpp"
+    "${CMAKE_SOURCE_DIR}/src/video/frame_shortfall.cpp"
     "${CMAKE_SOURCE_DIR}/src/video/gige_action_command.cpp"
     "${CMAKE_SOURCE_DIR}/src/video/action_tick_log.cpp"
     "${CMAKE_SOURCE_DIR}/src/calibration/rms_quality.cpp"

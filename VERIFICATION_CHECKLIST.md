@@ -135,6 +135,38 @@ live only in a PR description or a plan file where it'll be forgotten.
       machine" warning actually fires when importing a config exported from a different Windows
       account/machine, and stays silent for a same-account import.
 
+## Live camera health + preview space
+
+- [ ] **The chips agree with reality.** Unplug one camera's cable during
+      preview: within ~2 s its chip goes red, and the chip and tooltip name the
+      right camera (check against the room label, 1-based). Replug: it returns
+      to neutral.
+- [ ] **No crying wolf.** On a healthy rig every chip is the neutral colour.
+      Colour appearing when nothing is wrong is what makes operators stop
+      reading it.
+- [ ] A camera that is configured but not grabbing shows **no chip at all**,
+      rather than a red one: it is switched off, not broken.
+- [ ] Chips do not change the header row's height, so they do not shrink the
+      camera grid.
+- [ ] **During a recording**, unplugging a camera logs one
+      `[Health] Camera N is delivering far fewer frames than the others …`
+      line, and replugging logs one "keeping up again" line, not one per
+      second.
+- [ ] With previews hidden while recording, the strip shows each camera's real
+      rate (`Cam 3 — 24.9 fps`) in the same colours.
+- [ ] **The shortfall diagnostic names the right fault.** When a triggered
+      camera falls behind, `[VideoManager] Camera N: …` says *packet loss*
+      while its incomplete-frame counter climbs, and *missing trigger
+      broadcasts* only when it does not. A long preview beforehand must not
+      make every recording read as packet loss (the counter is baselined per
+      ticker).
+- [ ] **More video.** The camera grid is visibly taller than before; the log
+      panel still has its level filter, Auto-scroll and Clear reachable.
+- [ ] View → Reset layout restores the log panel at the new size (~120 px).
+      Ctrl+L still hides and shows it.
+- [ ] Drag the Live/logger splitter to both extremes: the Record button and the
+      subject/session/task row stay visible and usable.
+
 ## BIDS-style session naming
 
 The regression risk of the whole feature is the session *ordering* change, so

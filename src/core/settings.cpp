@@ -243,6 +243,9 @@ CameraParameters interview_camera_params(const CameraParameters& source,
     // persisted pair should not claim a range the camera never had.
     p.exposureAutoLowerUs = std::min(p.exposureAutoLowerUs, p.exposureAutoUpperUs);
     p.hwTriggerEnabled    = false;
+    // One camera, nothing to stagger against — and the delay appears to cost
+    // frame time (see CameraParameters::staggerTransmission).
+    p.staggerTransmission = false;
     return p;
 }
 

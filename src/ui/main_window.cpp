@@ -45,6 +45,7 @@
 #include "ui/video/performance_monitor_w.hpp"
 #include "ui/video/video_settings_w.hpp"
 #include "utils/logger.hpp"
+#include "utils/timestamp.hpp"
 #include "video/camera_label.hpp"
 #include "video/video_feed_provider.hpp"
 
@@ -222,7 +223,7 @@ void MainWindow::build_menu_bar() {
         // mainSplitter now lives inside topTabs' "Live" tab page, so its
         // available height is the window height minus the tab bar itself.
         const int tabBarH = d->topTabs ? d->topTabs->tabBar()->height() : 0;
-        d->rightSplitter->setSizes({height() - tabBarH - 200, 200});
+        d->rightSplitter->setSizes({height() - tabBarH - 120, 120});
         if (d->realtimeTab) {
             d->realtimeTab->reset_layout();
         }
@@ -402,6 +403,42 @@ void MainWindow::build_central_widget() {
     if (d->videoMgr) {
         connect(d->videoMgr, &VideoManager::frame_preview, d->bridge,
                 &MonitorBridge::on_frame_preview, Qt::QueuedConnection);
+
+        // Per-camera delivery health, polled into the monitor once a second.
+        //
+        // Polled because there is nothing periodic to subscribe to: VideoManager
+        // emits per-event signals and one-shot measurements, but nothing
+        // carrying a rate. camera_stats() is what PerformanceMonitorW already
+        // polls at this cadence, so the Live and Perf tabs cannot disagree.
+        //
+        // Over every *configured* camera by configured index — not
+        // camera_count()/camera_stats(), which count and index only the cameras
+        // that opened. With Camera 2 down, position 1 is Camera 3, and a chip
+        // reporting its neighbour's rate would send the operator to the wrong
+        // cable.
+        auto* healthTimer = new QTimer(this);
+        healthTimer->setInterval(1000);
+        connect(healthTimer, &QTimer::timeout, this, [this] {
+            if (!d->videoMgr || !d->bridge) return;
+            const auto n = d->settings.video.cameras.size();
+            std::vector<double> fps(n, 0.0);
+            std::vector<bool> running(n, false);
+            for (std::size_t i = 0; i < n; ++i) {
+                const auto st = d->videoMgr->camera_stats_for_config_index(static_cast<int>(i));
+                // Judged by its newest frame's age as well as its rate: the
+                // grabber's rate is only recomputed on a good frame, so a
+                // camera whose link has dropped keeps its last healthy figure.
+                // Frame timestamps are on the elapsed_ns() clock.
+                const double ageSec =
+                    st.lastFrameElapsedNs >= 0
+                        ? static_cast<double>(elapsed_ns() - st.lastFrameElapsedNs) / 1e9
+                        : -1.0;
+                fps[i]     = delivered_fps(st.fps, ageSec);
+                running[i] = st.grabberRunning;
+            }
+            d->bridge->update_camera_health(fps, running);
+        });
+        healthTimer->start();
         // Live per-camera "does this firmware support GigE Vision Action
         // Command triggering" readout — see gige_action_command.hpp /
         // CameraCardW::set_action_command_capability().
@@ -414,6 +451,16 @@ void MainWindow::build_central_widget() {
         // client-side 1/exposure guess. See compute_fps_readout().
         connect(d->videoMgr, &VideoManager::achievable_fps_changed, videoSettingsW,
                 &VideoSettingsW::set_achievable_fps);
+        // The interview camera's real rate, for the monitor's badge — which
+        // used to show the rate asked for (50) while the camera ran at 36.7.
+        connect(d->videoMgr, &VideoManager::achievable_fps_changed, this,
+                [this](int configIndex, double fps) {
+                    if (configIndex == d->videoMgr->interview_camera_index()) {
+                        d->bridge->set_interview_rates(d->videoMgr->camera_max_fps(configIndex),
+                                                       fps);
+                    }
+                });
+        publish_interview_rates(); // the cameras were opened before this window
     }
 
     // When the camera list changes, fully reload the hardware.
@@ -648,8 +695,10 @@ void MainWindow::build_central_widget() {
 
     // Logger panel
     d->loggerPanel = new LoggerPanelW;
-    d->loggerPanel->setMaximumHeight(280);
-    d->loggerPanel->setMinimumHeight(80);
+    // Kept short so the video gets the height: a handful of recent lines is
+    // what the panel is for at a glance, and it scrolls.
+    d->loggerPanel->setMaximumHeight(160);
+    d->loggerPanel->setMinimumHeight(60);
     d->rightSplitter->addWidget(d->loggerPanel);
 
     // A QML Layout.minimumHeight cannot hold a QSplitter back — the splitter
@@ -657,12 +706,12 @@ void MainWindow::build_central_widget() {
     // column overflows, and the Record button goes off the bottom edge with no
     // scrollbar to recover it. This is the guard that actually stops that, and
     // the reason it is safe: the window floor is 1200x720 and the logger panel
-    // caps at 280, so 360 always fits.
+    // caps at 160 a few lines above, so 360 always fits.
     d->monitorView->setMinimumHeight(360);
     d->rightSplitter->setChildrenCollapsible(false);
     d->rightSplitter->setStretchFactor(0, 1);
     d->rightSplitter->setStretchFactor(1, 0);
-    d->rightSplitter->setSizes({700, 180});
+    d->rightSplitter->setSizes({700, 110});
 
     d->mainSplitter->addWidget(d->rightSplitter);
     d->mainSplitter->setStretchFactor(0, 0);
@@ -921,6 +970,7 @@ void MainWindow::reopen_cameras(const QString& why) {
             d->videoMgr->start_preview();
         }
         d->bridge->refresh_video_settings();
+        publish_interview_rates();
         d->bridge->set_interview_switching(false);
         if (d->videoSettingsW) {
             d->videoSettingsW->sync_interview_from_settings();
@@ -930,6 +980,18 @@ void MainWindow::reopen_cameras(const QString& why) {
             QTimer::singleShot(0, this, [this] { reopen_cameras("coalesced request"); });
         }
     });
+}
+
+void MainWindow::publish_interview_rates() {
+    if (!d->videoMgr || !d->bridge) return;
+    const int idx = d->videoMgr->interview_camera_index();
+    // What the camera says it can do with the crop just applied, at once —
+    // the measured rate follows a few seconds later via achievable_fps_changed.
+    const double cameraMax = idx >= 0 ? d->videoMgr->camera_max_fps(idx) : -1.0;
+    d->bridge->set_interview_rates(cameraMax, -1.0);
+    if (d->videoSettingsW) {
+        d->videoSettingsW->set_interview_camera_max_fps(cameraMax);
+    }
 }
 
 void MainWindow::set_interview_mode(bool on) {

@@ -83,11 +83,18 @@ class VideoGrabber : public QThread {
 
     // True only once the grab thread has actually reached Pylon's
     // StartGrabbing() (or, in stub builds, the equivalent point in
-    // run_stub_loop()) — NOT merely once start_grabbing() has returned,
-    // which only confirms the thread was scheduled to start, not that the
-    // camera is actually listening for triggers yet. Used by
-    // VideoManager::arm_and_fire_action_commands() to avoid firing the
-    // first Action Command(s) before every armed camera is truly ready.
+    // run_stub_loop()) — NOT merely once start_grabbing() has returned, which
+    // only confirms the thread was scheduled to start.
+    //
+    // Reads "this camera's stream grabber is armed", and nothing stronger. It
+    // is set the instant StartGrabbing() returns, before any frame has been
+    // received, so it says nothing about whether the camera is delivering:
+    // triggers still have to arrive, exposures happen, and packets survive the
+    // wire. A camera on a lossy link can report true here and still produce
+    // its first frame several trigger periods after its peers. Used by
+    // VideoManager::arm_and_fire_action_commands() to avoid firing the first
+    // Action Command(s) at an unarmed grabber — see the barrier there for what
+    // that does and does not prevent.
     [[nodiscard]] bool is_actually_grabbing() const;
 
     [[nodiscard]] bool is_open() const;
@@ -138,6 +145,13 @@ class VideoGrabber : public QThread {
     // reading frames that have 1276 reads past the end of every frame.
     [[nodiscard]] int frame_width() const;
     [[nodiscard]] int frame_height() const;
+
+    // The camera's own ResultingFrameRate read at the end of open(): the most
+    // it says it can deliver with the settings just applied (crop, exposure,
+    // transmission delay). Available immediately, unlike achievable_fps(),
+    // which waits for a warm-up; may differ from it once auto exposure
+    // settles. -1 when unavailable (stub builds, node missing).
+    [[nodiscard]] double camera_max_fps() const;
     // Same, for the ROI offsets the camera actually applied. -1 when unknown.
     [[nodiscard]] int frame_offset_x() const;
     [[nodiscard]] int frame_offset_y() const;

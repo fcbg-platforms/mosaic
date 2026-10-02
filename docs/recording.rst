@@ -148,6 +148,9 @@ succeeds later.  Fields:
      "session_start_utc":        "2026-06-04T14:32:05.123Z",
      "session_start_elapsed_ns": 12345678,
      "session_folder":           "/home/user/recordings/2026-06-04_14-32-05",
+     "session_end": {
+       "utc": "2026-06-04T14:42:07.481Z", "duration_ms": 602358, "ended_cleanly": true
+     },
      "bids": {
        "sub": "P01", "ses": "pre", "task": "rest", "run": 1
      },
@@ -177,11 +180,49 @@ succeeds later.  Fields:
    }
 
 ``cameras`` lists the cameras the session *recorded*, with the parameters they
-were opened with, each under its configured ``index``. ``recording.mode`` is
+were opened with, each under its configured ``index``. ``fps`` is the rate
+asked for. ``camera_reported_fps``, when present, is what the camera said at
+the start it would deliver with those settings, which is lower whenever the
+crop or exposure caps the rate. Interview mode once asked 50 and ran at 36.7. ``recording.mode`` is
 ``"room"`` or ``"interview"``; an interview session also carries
 ``interview_camera`` (configured index) and ``interview_fps``, and its
 ``cameras`` array holds that one camera with the interview crop and rate. Older
 sessions have no ``mode`` and are room sessions. See :ref:`interview mode`.
+
+``session_end`` is written as ``null`` when the recording starts and replaced
+with the object above once every camera, microphone and trigger file has been
+closed. While recording, MOSAIC also rewrites a small ``recording_heartbeat``
+file in the session folder every 5 s and deletes it on a clean stop. A
+``null`` end with a heartbeat less than 20 s old is a session being recorded
+right now, on this machine or another one sharing the folder, and is listed as
+**RECORDING**. With an older heartbeat or none, the session never finished.
+Sessions recorded before this field existed have no ``session_end`` at all and
+are not flagged.
+
+If MOSAIC crashes
+-----------------
+
+A crash, a forced close or a power cut no longer costs the whole session:
+
+- **Video** is written as *fragmented* MP4: a header followed by
+  self-contained fragments, one per keyframe (every 2 s). A crashed file plays
+  up to its last complete fragment. A regular MP4 keeps its index at the end of
+  the file and cannot be opened at all without it. On a normal stop the
+  fragmented file also gets an index, and players, OpenCV and the analysis
+  plugins read it exactly like before.
+- **Timestamp files** are flushed to disk about once a second.
+- **Audio** WAV headers are updated about once a second, so a crashed WAV
+  declares the audio written up to then rather than reading as empty.
+- **Triggers** are written to disk as each one arrives, as before.
+
+So expect to lose at most the last couple of seconds. The videos and their
+timestamp files may end a second or two apart: frames are matched by row, so
+only that ragged end is affected.
+
+An interrupted session is tagged **INTERRUPTED** in the session browser and
+"interrupted" in the Analysis tab's session list. It can be played and analysed
+like any other. A power cut can still lose data the operating system had not
+yet written to disk.
 
 Timestamp files
 ---------------
@@ -426,9 +467,25 @@ A *real* problem looks nothing like that, and is easy to tell apart in
 ``mosaic.log``:
 
 - ``[VideoManager] Camera N: <ticks> action-command ticks fired so far but
-  only <captured> frames captured (<missing> missing) — this camera is
-  likely missing trigger broadcasts, not just corrupted frames.`` —
-  recurring every ~5s for the same camera, not a one-off.
+  only <captured> frames captured (<missing> missing); …`` — recurring every
+  ~5s for the same camera, not a one-off. ``N`` is the configured index (log
+  numbering, from 0). **Read the clause after the semicolon**: it names which
+  of two very different faults this is, by comparing the gap against the
+  camera's corrupted-frame counter since ticking started.
+
+  - *"…they never arrived at all and none were corrupted — this camera is
+    missing trigger broadcasts"* → the trigger path. Check the camera's
+    ``ActionDeviceKey``, its subnet, and the pacing margin
+    (``k_default_action_margin``).
+  - *"…N of them arrived corrupted (GigE packet loss)"* → the network. Check
+    the cable and network port, then bandwidth. Frames were captured and
+    destroyed in transit; the trigger is fine.
+  - Both can be named at once when both are material.
+
+The same fault shows live on the **Live** tab: see the frame-rate chips in
+:doc:`user_guide`. When a camera falls behind or stalls during a recording,
+``[Health] Camera N …`` (on-screen numbering, from 1) is logged once, and once
+again when it recovers.
 - ``[Camera N] <count> incomplete frame(s) in last 5 s (GigE packet loss —
   check NIC jumbo frames and switch bandwidth)`` — also recurring every ~5s.
 

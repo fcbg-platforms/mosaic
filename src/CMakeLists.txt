@@ -158,6 +158,9 @@ qt_add_executable(mosaic MACOSX_BUNDLE
     video/fps_readout.cpp
     video/action_tick_log.hpp
     video/action_tick_log.cpp
+    video/camera_health.hpp
+    video/frame_shortfall.hpp
+    video/frame_shortfall.cpp
     video/gige_action_command.hpp
     video/gige_action_command.cpp
     video/video_grabber.hpp
@@ -193,6 +196,8 @@ qt_add_executable(mosaic MACOSX_BUNDLE
     # ── Session browser & player ──────────────────────────────────────────
     session/session_info.hpp
     session/session_health.hpp
+    session/session_end.hpp
+    session/session_end.cpp
     session/session_health.cpp
     session/session_name.hpp
     session/session_name.cpp
