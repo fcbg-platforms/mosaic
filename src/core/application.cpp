@@ -454,12 +454,25 @@ void Application::initialize(const QString& username, bool isAdmin) {
             [](const QString& line) { log_info("[Analysis] " + line); });
     connect(d->analysisManager.get(), &AnalysisManager::setup_error, this,
             [](const QString& msg) { log_error("[Analysis] " + msg); });
-    connect(d->recordManager.get(), &RecordManager::recording_stopped, this,
-            [this](const QString& path, int /*durationMs*/) {
-                if (d->analysisManager->auto_analyze()) {
-                    d->analysisManager->analyze_session(path);
-                }
-            });
+    // Nothing new starts while a recording runs — see
+    // AnalysisManager::set_launches_held().
+    connect(d->recordManager.get(), &RecordManager::recording_started, this,
+            [this](const QString&) { d->analysisManager->set_launches_held(true); });
+    connect(
+        d->recordManager.get(), &RecordManager::recording_stopped, this,
+        [this](const QString& path, int /*durationMs*/) {
+            if (d->analysisManager->auto_analyze()) {
+                d->analysisManager->analyze_session(path);
+            }
+            // Equal-length, trigger-aligned copies of every camera's
+            // video. Queued while still held, so it and anything else
+            // waiting start together on release below.
+            if (d->settings.record.autoSyncRepair && d->settings.record.enableVideo &&
+                QDir(path + "/video").entryList({"timestamps_cam*.csv"}, QDir::Files).size() >= 2) {
+                d->analysisManager->run_sync_repair(path, 0.0);
+            }
+            d->analysisManager->set_launches_held(false);
+        });
 
     d->mainWindow = std::make_unique<MainWindow>(d->settings, d->username, d->triggerManager.get(),
                                                  d->audioManager.get(), d->videoManager.get(),

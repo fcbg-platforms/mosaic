@@ -203,4 +203,42 @@ TEST_F(AnalysisManagerTest, SetupErrorWhenInterpreterMissing) {
     EXPECT_FALSE(errorMessage.isEmpty());
 }
 
+// While a recording runs, nothing new may start: it is queued, and starts the
+// moment the hold is released.
+TEST_F(AnalysisManagerTest, HeldLaunchesWaitUntilReleased) {
+    mgr.set_launches_held(true);
+    bool started = false;
+    QObject::connect(&mgr, &AnalysisManager::analysis_started,
+                     [&started](const QString&) { started = true; });
+
+    mgr.analyze_session("session-during-recording");
+    EXPECT_FALSE(mgr.is_running());
+    EXPECT_FALSE(started);
+
+    mgr.set_launches_held(false);
+    EXPECT_TRUE(mgr.is_running()) << "setup_error: " << lastSetupError.toStdString();
+    EXPECT_TRUE(started);
+    ASSERT_TRUE(wait_for_signal(&mgr, &AnalysisManager::analysis_finished, 3000));
+}
+
+// A run already going is left alone, but when it finishes the queue does not
+// advance into a recording that has started meanwhile.
+TEST_F(AnalysisManagerTest, AQueuedJobDoesNotStartDuringARecording) {
+    qputenv("MOSAIC_TEST_STUB_SLEEP_MS", "400");
+    mgr.analyze_session("session-running");
+    ASSERT_TRUE(mgr.is_running());
+    mgr.analyze_session("session-queued");
+
+    mgr.set_launches_held(true); // a recording starts
+    ASSERT_TRUE(wait_for_signal(&mgr, &AnalysisManager::analysis_finished, 3000));
+    EXPECT_FALSE(mgr.is_running()) << "the queued job started during the recording";
+
+    QString startedSession;
+    QObject::connect(&mgr, &AnalysisManager::analysis_started,
+                     [&startedSession](const QString& s) { startedSession = s; });
+    mgr.set_launches_held(false); // it stops
+    EXPECT_EQ(startedSession, "session-queued");
+    ASSERT_TRUE(wait_for_signal(&mgr, &AnalysisManager::analysis_finished, 3000));
+}
+
 } // namespace mosaic

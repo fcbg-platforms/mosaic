@@ -415,6 +415,13 @@ struct RecordSettings {
     // see that every camera is delivering frames.
     bool hidePreviewsWhileRecording = true;
 
+    // After each recording, run Frame Sync Repair so every camera gets an
+    // aligned, equal-length copy in synced/ (one frame per trigger tick, a
+    // camera's missed frames tagged). Never started while a recording runs —
+    // see AnalysisManager::set_launches_held(). Skipped for sessions with
+    // fewer than two cameras, where there is nothing to line up.
+    bool autoSyncRepair = true;
+
     // Upper bound for startDelaySec, shared by the settings UI's spinbox and
     // MonitorBridge's clamp so the two can't disagree.
     static constexpr int kMaxStartDelaySec = 10;

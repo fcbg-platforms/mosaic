@@ -2405,9 +2405,15 @@ void AnalysisTabW::build_ui() {
     });
     resultsSplitter->addWidget(d->triggerSyncTable);
 
-    d->syncRepairTable = new QTableWidget(0, 5); // Camera | Source | Output | Duplicated | Status
+    d->syncRepairTable = new QTableWidget(0, 7);
     d->syncRepairTable->setHorizontalHeaderLabels(
-        {"Camera", "Source frames", "Output frames", "Duplicated", "Status"});
+        {"Camera", "Source frames", "Output frames", "Missing", "Trimmed", "Aligned on", "Status"});
+    d->syncRepairTable->horizontalHeaderItem(3)->setToolTip(
+        "Output frames this camera has no real frame for. Each shows the last real frame with "
+        "a red MISSING tag in its corner. Hover a cell for the gap ranges.");
+    d->syncRepairTable->horizontalHeaderItem(4)->setToolTip(
+        "This camera's frames before / after the window in which every camera was recording. "
+        "A camera that started late trims the others' lead-in, not its own frames.");
     d->syncRepairTable->horizontalHeader()->setStretchLastSection(true);
     d->syncRepairTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
     d->syncRepairTable->setSelectionBehavior(QAbstractItemView::SelectRows);
@@ -4620,10 +4626,51 @@ void AnalysisTabW::update_sync_repair_view() {
         set_cell(0, camera_label(c.index));
         set_cell(1, c.skipped ? "—" : QString::number(c.sourceFramesCaptured));
         set_cell(2, c.skipped ? "—" : QString::number(c.outputFrameCount));
-        set_cell(3, c.skipped ? "—" : QString::number(c.duplicatedFrameCount));
-        const QString status =
+        // Older reports have no missing count; their duplicated count is the
+        // same figure under its former name.
+        const int missing = c.missingFrameCount >= 0 ? c.missingFrameCount : c.duplicatedFrameCount;
+        set_cell(3, c.skipped ? "—" : QString::number(missing));
+        if (!c.skipped && !c.gaps.isEmpty()) {
+            QStringList ranges;
+            for (const auto& g : c.gaps) {
+                ranges << (g.first == g.second ? QString::number(g.first)
+                                               : QString("%1–%2").arg(g.first).arg(g.second));
+            }
+            QString tip = QString("Missing output frames: %1").arg(ranges.join(", "));
+            if (c.gapCount > c.gaps.size()) {
+                tip += QString(" … (%1 gaps in all)").arg(c.gapCount);
+            }
+            d->syncRepairTable->item(i, 3)->setToolTip(tip);
+        }
+        set_cell(4, (c.skipped || c.leadInTrimmed < 0)
+                        ? "—"
+                        : QString("%1 / %2").arg(c.leadInTrimmed).arg(c.tailTrimmed));
+        QString aligned = "—";
+        if (c.alignment.startsWith("trigger_ticks")) {
+            aligned = c.alignment.endsWith("hw_timestamp") ? "Trigger ticks"
+                                                           : "Trigger ticks (no HW clock)";
+        } else if (c.alignment == "arrival_time") {
+            aligned = "Arrival time";
+        }
+        set_cell(5, c.skipped ? "—" : aligned);
+        QString status =
             c.skipped ? "Skipped: " + c.skipReason : (c.note.isEmpty() ? "OK" : c.note);
-        set_cell(4, status);
+        if (!c.skipped && c.droppedOutAt >= 0) {
+            status = QString(
+                         "Dropped out at frame %1 (unplugged or link lost) — MISSING "
+                         "from there; the other cameras keep their full length. %2")
+                         .arg(c.droppedOutAt)
+                         .arg(status);
+        }
+        if (!c.skipped && c.joinedLateAt >= 0) {
+            status = QString("Joined late, at frame %1 — MISSING before it. %2")
+                         .arg(c.joinedLateAt)
+                         .arg(status);
+        }
+        if (!c.skipped && c.alignmentUncertain) {
+            status = "Placement uncertain (latency differs from the other cameras) — " + status;
+        }
+        set_cell(6, status);
     }
 
     if (!r.is_valid()) {
@@ -4631,9 +4678,12 @@ void AnalysisTabW::update_sync_repair_view() {
         return;
     }
 
-    QString stats = QString("%1 tick(s) @ %2 fps — %3 duplicated frame(s) total")
+    QString stats = QString(
+                        "%1 frame(s) per camera @ %2 fps, aligned on %3 — %4 missing "
+                        "frame(s) in all")
                         .arg(r.total_ticks())
                         .arg(r.master_fps(), 0, 'f', 1)
+                        .arg(r.on_trigger_ticks() ? "trigger ticks" : "arrival time")
                         .arg(r.total_duplicated_frames());
     if (r.skipped_camera_count() > 0) {
         stats += QString(", %1 camera(s) skipped").arg(r.skipped_camera_count());
@@ -4650,7 +4700,8 @@ void AnalysisTabW::export_sync_repair_csv() {
     const QString suggested = info->path + "/sync_repair_summary.csv";
 
     export_csv(this, "Export Frame Sync Repair Summary", suggested, [&](QTextStream& ts) {
-        ts << "camera,source_frames,output_frames,duplicated_frames,skipped,skip_reason,note\n";
+        ts << "camera,source_frames,output_frames,duplicated_frames,skipped,skip_reason,note,"
+              "alignment,missing_frames,lead_in_trimmed,tail_trimmed,gaps\n";
         for (const auto& c : d->currentSyncRepair.cameras()) {
             // Minimal CSV escaping — both fields are free text that may
             // contain commas or quotes (same convention as
@@ -4661,7 +4712,15 @@ void AnalysisTabW::export_sync_repair_csv() {
             note.replace('"', "\"\"");
             ts << c.index << "," << c.sourceFramesCaptured << "," << c.outputFrameCount << ","
                << c.duplicatedFrameCount << "," << (c.skipped ? "true" : "false") << ",\""
-               << skipReason << "\",\"" << note << "\"\n";
+               << skipReason << "\",\"" << note << "\",";
+            // gaps as "first-last;first-last" in output-frame indices.
+            QStringList gaps;
+            for (const auto& g : c.gaps) gaps << QString("%1-%2").arg(g.first).arg(g.second);
+            ts << c.alignment << ","
+               << (c.missingFrameCount >= 0 ? QString::number(c.missingFrameCount) : QString())
+               << "," << (c.leadInTrimmed >= 0 ? QString::number(c.leadInTrimmed) : QString())
+               << "," << (c.tailTrimmed >= 0 ? QString::number(c.tailTrimmed) : QString()) << ","
+               << gaps.join(';') << "\n";
         }
     });
 }

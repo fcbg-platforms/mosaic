@@ -220,6 +220,21 @@ void RecordSettingsW::build_start_section(QVBoxLayout* parent) {
         "the Perf tab.");
     lay->addWidget(d->hidePreviewsChk);
 
+    auto* syncChk =
+        new QCheckBox("After each recording, line up every camera's video (Frame Sync Repair)");
+    syncChk->setChecked(m_settings.autoSyncRepair);
+    syncChk->setToolTip(
+        "Writes synced/video_N.mp4 for every camera: the same number of frames each, one per "
+        "trigger tick, over the time every camera was recording. A frame a camera missed shows "
+        "its last real frame with a red MISSING tag, and is listed in the Analysis tab. The "
+        "original videos are never changed. Runs in the background once recording stops, and "
+        "waits if another recording starts first.");
+    lay->addWidget(syncChk);
+    connect(syncChk, &QCheckBox::toggled, this, [this](bool v) {
+        m_settings.autoSyncRepair = v;
+        emit settings_changed();
+    });
+
     connect(d->delaySpin, &QSpinBox::valueChanged, this, [this](int v) {
         m_settings.startDelaySec = v;
         emit settings_changed();

@@ -79,6 +79,18 @@ class AnalysisManager : public QObject {
     /// @returns @c true while the analysis subprocess is running.
     [[nodiscard]] bool is_running() const;
 
+    /// Holds new analysis runs while a recording is in progress: anything
+    /// asked for meanwhile is queued, and the queue resumes when the hold is
+    /// released. A run already going is left alone.
+    ///
+    /// Why: these scripts decode and re-encode video at full speed, and doing
+    /// that while six GigE streams are being captured and encoded on the same
+    /// machine risks the very frame drops the recording is trying to avoid.
+    /// Application holds on recording_started and releases on
+    /// recording_stopped.
+    void set_launches_held(bool held);
+    [[nodiscard]] bool launches_held() const;
+
     // ── Operations ───────────────────────────────────────────────────────────
 
     /// @brief Analyse all .mp4 files in @p sessionPath asynchronously.

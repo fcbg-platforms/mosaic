@@ -1,4 +1,5 @@
 #pragma once
+#include <QPair>
 #include <QString>
 #include <QVector>
 #include <cstdint>
@@ -20,6 +21,37 @@ struct SyncRepairCamera {
     QString note;       // empty unless run_sync_repair.py's truncated-source-video
                         // guard fired for this camera (see run_sync_repair.py's
                         // _repair_camera() doc comment)
+
+    // ── How it was aligned, and what it is missing ─────────────────────────
+    // Absent from reports written before trigger-tick alignment existed;
+    // those read as arrival-time alignment with nothing more known.
+
+    /// "trigger_ticks:hw_timestamp", "trigger_ticks:arrival_interval" or
+    /// "arrival_time". Empty in older reports.
+    QString alignment;
+    /// Output frames with no real frame for their tick — shown as the last
+    /// real frame with a red MISSING tag. -1 when the report predates it
+    /// (duplicatedFrameCount is the older, equivalent figure).
+    int missingFrameCount = -1;
+    int gapCount          = 0;
+    /// Inclusive output-frame ranges [first, last]; at most 100 are listed
+    /// (gapCount has the total).
+    QVector<QPair<int, int>> gaps;
+    /// This camera's frames before/after the window every camera was
+    /// running in; -1 when unknown (arrival-time alignment).
+    int leadInTrimmed = -1;
+    int tailTrimmed   = -1;
+    /// Its trigger-to-arrival latency did not settle near the other
+    /// cameras' — its placement on ticks may be off by one.
+    bool alignmentUncertain = false;
+    /// Output frame where this camera started delivering, when it joined
+    /// far later than the others (MISSING before it); -1 otherwise.
+    int joinedLateAt = -1;
+    /// Output frame after its last real one, when it dropped out far earlier
+    /// than the others (unplugged, link lost; MISSING from there); -1
+    /// otherwise. The others keep their full length — see
+    /// analysis/sync_repair/tick_alignment.py's DROPOUT_TOLERANCE_S.
+    int droppedOutAt = -1;
 };
 
 /// Parses a "synced/sync_repair.json" summary written by
@@ -46,6 +78,9 @@ class SyncRepairResult {
     [[nodiscard]] double master_fps() const { return masterFps_; }
     [[nodiscard]] int total_ticks() const { return totalTicks_; }
     [[nodiscard]] int64_t duration_ms() const { return durationMs_; }
+    /// "trigger_ticks" or "arrival_time"; empty in reports that predate it.
+    [[nodiscard]] const QString& alignment() const { return alignment_; }
+    [[nodiscard]] bool on_trigger_ticks() const { return alignment_ == "trigger_ticks"; }
     [[nodiscard]] const QVector<SyncRepairCamera>& cameras() const { return cameras_; }
 
     /// Sum of duplicatedFrameCount across every non-skipped camera.
@@ -59,6 +94,7 @@ class SyncRepairResult {
     double masterFps_   = 0.0;
     int totalTicks_     = 0;
     int64_t durationMs_ = 0;
+    QString alignment_;
     QVector<SyncRepairCamera> cameras_;
 };
 
