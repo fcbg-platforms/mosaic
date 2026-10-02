@@ -228,6 +228,11 @@ copy of every camera's video to ``synced/video_N.mp4``:
   the window in which every camera was recording.
 - **Frame *k* means the same moment in every camera**: it is the frame that
   trigger tick *k* produced.
+- **A camera that drops out does not shorten the others.** Small start and
+  stop differences (under 2 s) are trimmed so every camera starts and ends
+  together. A camera that stops or starts further from the rest, for example
+  one unplugged mid-session, is shown as MISSING for the part it was absent,
+  and the others keep their full length.
 - **A frame a camera missed is visible.** It shows that camera's last real
   frame with a small red **MISSING** tag in the top-left corner, so motion
   stays continuous and the gap cannot be mistaken for a fresh image.

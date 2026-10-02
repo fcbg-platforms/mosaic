@@ -51,6 +51,8 @@ SyncRepairResult SyncRepairResult::load(const QString& jsonPath) {
         cam.leadInTrimmed      = camObj["lead_in_trimmed"].toInt(-1);
         cam.tailTrimmed        = camObj["tail_trimmed"].toInt(-1);
         cam.alignmentUncertain = camObj["alignment_uncertain"].toBool(false);
+        cam.joinedLateAt       = camObj["joined_late_at"].toInt(-1);
+        cam.droppedOutAt       = camObj["dropped_out_at"].toInt(-1);
 
         result.cameras_ << cam;
     }

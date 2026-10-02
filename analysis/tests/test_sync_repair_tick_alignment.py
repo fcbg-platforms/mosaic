@@ -300,3 +300,43 @@ def test_mark_missing_fits_a_tiny_frame():
 
     tiny = np.zeros((20, 30, 3), dtype=np.uint8)
     assert mark_missing(tiny).shape == tiny.shape
+
+
+# ── Cameras that drop out or join late ───────────────────────────────────────
+
+
+def test_a_camera_that_drops_out_does_not_cut_the_others():
+    # The rig case: Camera 2 unplugged at tick 215 and never came back, while
+    # five cameras ran to 558. The first version trimmed everyone to 215.
+    ticks = _ticks(558)
+    cams = [_camera(i, ticks, range(558)) for i in (0, 2, 3, 4, 5)]
+    cams.append(_camera(1, ticks, range(215)))
+    plan = build_tick_plan(ticks, cams)
+    assert plan.total_ticks == 558
+    dropped = plan.cameras[1]
+    assert dropped.dropped_out_at == 215
+    assert not dropped.missing[:215].any() and dropped.missing[215:].all()
+    for i in (0, 2, 3, 4, 5):
+        assert not plan.cameras[i].missing.any()
+        assert plan.cameras[i].tail_trimmed == 0
+
+
+def test_ordinary_start_and_stop_differences_are_still_trimmed():
+    # 7 ticks late and 3 early at 25 fps: well inside the tolerance.
+    ticks = _ticks(200)
+    cams = [_camera(0, ticks, range(200)), _camera(1, ticks, range(7, 197))]
+    plan = build_tick_plan(ticks, cams)
+    assert plan.first_tick == 7 and plan.total_ticks == 190
+    assert plan.cameras[1].dropped_out_at is None
+    assert plan.cameras[1].joined_late_at is None
+    assert not plan.cameras[1].missing.any()
+
+
+def test_a_camera_that_joins_much_later_is_missing_until_it_arrives():
+    ticks = _ticks(300)
+    cams = [_camera(0, ticks, range(300)), _camera(1, ticks, range(120, 300))]
+    plan = build_tick_plan(ticks, cams)
+    assert plan.first_tick == 0 and plan.total_ticks == 300
+    late = plan.cameras[1]
+    assert late.joined_late_at == 120
+    assert late.missing[:120].all() and not late.missing[120:].any()

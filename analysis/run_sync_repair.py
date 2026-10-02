@@ -495,6 +495,8 @@ def process_session(session_dir: Path, master_fps_arg: float) -> None:
                 "tail_trimmed": cam.tail_trimmed,
                 "alignment_uncertain": cam.uncertain,
                 "median_latency_ms": cam.median_latency_ms,
+                "joined_late_at": cam.joined_late_at,
+                "dropped_out_at": cam.dropped_out_at,
             }
         # A camera outside the Action group free-runs: it never followed these
         # ticks, so it gets the frame that arrived nearest each tick's expected
@@ -674,6 +676,10 @@ def process_session(session_dir: Path, master_fps_arg: float) -> None:
             "tail_trimmed": pc["tail_trimmed"],
             "alignment_uncertain": pc["alignment_uncertain"],
             "median_latency_ms": pc["median_latency_ms"],
+            # Output frame where it started delivering / stopped, when it
+            # joined or dropped out far from the others; else null.
+            "joined_late_at": pc.get("joined_late_at"),
+            "dropped_out_at": pc.get("dropped_out_at"),
         }
         if pc.get("fallback_note"):
             existing = summary_cameras[d.index]["note"]

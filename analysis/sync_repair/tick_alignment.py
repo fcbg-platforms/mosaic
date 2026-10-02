@@ -51,6 +51,16 @@ import numpy as np
 #: fraction of a period after anchoring is flagged ``uncertain``.
 UNCERTAIN_FRACTION = 1.0 / 3.0
 
+#: Start/stop differences up to this long are ordinary — a camera joining a few
+#: triggers late, stopping a frame early — and are trimmed from every camera so
+#: all start and end together. A camera starting or stopping further from the
+#: rest than this has dropped out (unplugged, link lost): it must not cut the
+#: other cameras' recording to its own length, so the others keep their full
+#: span and it is MISSING for the part it was absent. Found on the rig
+#: (2026-10-02): one camera unplugged and lost for good cost five healthy
+#: cameras the last 27 s of a 44 s recording.
+DROPOUT_TOLERANCE_S = 2.0
+
 #: Clock-fit residuals beyond this many robust standard deviations (MAD-based)
 #: are left out of the refit — a host stall makes a frame arrive late, and it
 #: must not drag the line.
@@ -81,6 +91,12 @@ class CameraPlan:
     tail_trimmed: int = 0  # ... and after it
     uncertain: bool = False
     median_latency_ms: float | None = None
+    # Output index where this camera first delivers, when it joined later than
+    # DROPOUT_TOLERANCE_S after the others (missing before it); else None.
+    joined_late_at: int | None = None
+    # Output index after its last frame, when it stopped more than
+    # DROPOUT_TOLERANCE_S before the others (missing from there); else None.
+    dropped_out_at: int | None = None
 
 
 @dataclass
@@ -248,8 +264,14 @@ def build_tick_plan(tick_times_ns: np.ndarray, cameras: list[TickCamera]) -> Tic
         placed[cam.index] = (ticks, positions[cam.index][1], lat)
     ref_final = placed[ref.index][2]
 
-    first = max(int(t[0]) for t, *_ in placed.values())
-    last = min(int(t[-1]) for t, *_ in placed.values())
+    # The window: where every camera was recording, give or take ordinary
+    # start/stop differences — see DROPOUT_TOLERANCE_S. A camera outside the
+    # tolerance does not move the window; it is missing for that part.
+    tol = max(1, int(round(DROPOUT_TOLERANCE_S * 1e9 / period)))
+    firsts = [int(t[0]) for t, *_ in placed.values()]
+    lasts = [int(t[-1]) for t, *_ in placed.values()]
+    first = max(f for f in firsts if f <= min(firsts) + tol)
+    last = min(v for v in lasts if v >= max(lasts) - tol)
     first = max(first, 0)
     last = min(last, len(tick_times) - 1)
     if last < first:
@@ -277,8 +299,8 @@ def build_tick_plan(tick_times_ns: np.ndarray, cameras: list[TickCamera]) -> Tic
         out_ids = np.empty(total, dtype=np.int64)
         missing = np.ones(total, dtype=bool)
         # The frame each output tick shows: its own, or the last real one
-        # before it. Every camera has a frame at or before `first` (the
-        # window starts at the latest camera's first tick), so "before" exists.
+        # before it. A camera that joined late has none before its first
+        # frame: those ticks show its first frame, tagged MISSING.
         ptr = 0
         last_real = int(cam.frame_ids[0])
         for out in range(total):
@@ -306,6 +328,8 @@ def build_tick_plan(tick_times_ns: np.ndarray, cameras: list[TickCamera]) -> Tic
             tail_trimmed=int(np.sum(ticks > last)),
             uncertain=abs(lat - ref_final) > UNCERTAIN_FRACTION * period,
             median_latency_ms=lat / 1e6,
+            joined_late_at=int(ticks[0]) - first if int(ticks[0]) > first else None,
+            dropped_out_at=int(ticks[-1]) - first + 1 if int(ticks[-1]) < last else None,
         )
     return plan
 

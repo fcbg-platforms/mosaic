@@ -4649,6 +4649,18 @@ void AnalysisTabW::update_sync_repair_view() {
         set_cell(5, c.skipped ? "—" : aligned);
         QString status =
             c.skipped ? "Skipped: " + c.skipReason : (c.note.isEmpty() ? "OK" : c.note);
+        if (!c.skipped && c.droppedOutAt >= 0) {
+            status = QString(
+                         "Dropped out at frame %1 (unplugged or link lost) — MISSING "
+                         "from there; the other cameras keep their full length. %2")
+                         .arg(c.droppedOutAt)
+                         .arg(status);
+        }
+        if (!c.skipped && c.joinedLateAt >= 0) {
+            status = QString("Joined late, at frame %1 — MISSING before it. %2")
+                         .arg(c.joinedLateAt)
+                         .arg(status);
+        }
         if (!c.skipped && c.alignmentUncertain) {
             status = "Placement uncertain (latency differs from the other cameras) — " + status;
         }

@@ -142,7 +142,8 @@ const char* kTickFixtureJson = R"JSON(
      "source_frames_captured": 57, "output_frame_count": 56, "duplicated_frame_count": 3,
      "skipped": false, "skip_reason": null, "note": null,
      "alignment": "trigger_ticks:hw_timestamp", "missing_frame_count": 3, "gap_count": 1,
-     "gaps": [[16, 18]], "lead_in_trimmed": 0, "tail_trimmed": 0, "alignment_uncertain": true},
+     "gaps": [[16, 18]], "lead_in_trimmed": 0, "tail_trimmed": 0, "alignment_uncertain": true,
+     "dropped_out_at": 40},
     {"index": 4, "source_video": "video/video_4.mp4", "repaired_video": "synced/video_4.mp4",
      "source_frames_captured": 50, "output_frame_count": 56, "duplicated_frame_count": 6,
      "skipped": false, "skip_reason": null, "note": null,
@@ -180,6 +181,9 @@ TEST(SyncRepairResult, ReadsTriggerTickAlignmentAndGaps) {
     ASSERT_EQ(c2.gaps.size(), 1);
     EXPECT_EQ(c2.gaps[0], qMakePair(16, 18));
     EXPECT_TRUE(c2.alignmentUncertain);
+    EXPECT_EQ(c2.droppedOutAt, 40);
+    EXPECT_EQ(c2.joinedLateAt, -1);
+    EXPECT_EQ(c0.droppedOutAt, -1);
 
     // A free-running camera in a triggered rig: arrival time, trims unknown.
     const auto& c4 = r.cameras()[2];

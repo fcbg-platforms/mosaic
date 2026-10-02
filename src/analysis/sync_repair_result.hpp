@@ -44,6 +44,14 @@ struct SyncRepairCamera {
     /// Its trigger-to-arrival latency did not settle near the other
     /// cameras' — its placement on ticks may be off by one.
     bool alignmentUncertain = false;
+    /// Output frame where this camera started delivering, when it joined
+    /// far later than the others (MISSING before it); -1 otherwise.
+    int joinedLateAt = -1;
+    /// Output frame after its last real one, when it dropped out far earlier
+    /// than the others (unplugged, link lost; MISSING from there); -1
+    /// otherwise. The others keep their full length — see
+    /// analysis/sync_repair/tick_alignment.py's DROPOUT_TOLERANCE_S.
+    int droppedOutAt = -1;
 };
 
 /// Parses a "synced/sync_repair.json" summary written by
