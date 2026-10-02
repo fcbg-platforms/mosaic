@@ -583,19 +583,23 @@ bool VideoGrabber::open() {
             auto p = CIntegerParameter(cam, "GevSCPD");
             p.SetValue(std::clamp(static_cast<int64_t>(0), p.GetMin(), p.GetMax()));
         });
-        // Stagger frame transmission across cameras so they don't all burst
-        // onto the same I350-T4 card simultaneously.  Each camera waits
-        // (index × 5 ms) after frame readout before transmitting.
-        // At 125 MHz tick frequency: 5 ms = 625 000 ticks.
+        // No frame transmission delay (GevSCFTD = 0), written explicitly
+        // because a camera keeps the last value written across opens.
         //
-        // Not for a camera recording alone (interview mode): there is nothing
-        // to stagger against, and the delay appears to count against the
-        // frame time — see CameraParameters::staggerTransmission.
+        // Cameras used to be staggered by (index × 5 ms) so they would not all
+        // send at once onto the same I350-T4 card. Measured on room 11
+        // (2026-10-02, full frame, 25 fps asked): the delay adds straight onto
+        // each camera's frame time — readout 38.3 ms + delay + 0.5 ms — so the
+        // six cameras could manage 25.0 / 22.8 / 20.5 / 18.6 / 17.0 / 15.7 fps,
+        // and Action1 triggering paces the whole group at 85% of the slowest:
+        // ~13.3 fps (14.45 when Camera 6 was not opening — the ceiling this rig
+        // showed for months). Without it every camera reports 25 and the group
+        // records at 21.25 fps, with no incomplete (packet-loss) frames on any
+        // camera over a 450-frame recording. At 25 fps a full frame leaves ~1.7
+        // ms between readouts, so no stagger worth having fits anyway.
         try_set("GevSCFTD", [&] {
             auto p = CIntegerParameter(cam, "GevSCFTD");
-            const int64_t delayTicks =
-                d->params.staggerTransmission ? static_cast<int64_t>(d->cameraIndex) * 625000LL : 0;
-            p.SetValue(std::clamp(delayTicks, p.GetMin(), p.GetMax()));
+            p.SetValue(std::clamp(static_cast<int64_t>(0), p.GetMin(), p.GetMax()));
         });
     }
 
@@ -648,8 +652,8 @@ bool VideoGrabber::open() {
         d->openMaxFps       = rfps;
         // Sensor readout time, where the camera exposes it (ace GigE:
         // ReadoutTimeAbs, µs). Logged because this camera's rate turned out to
-        // be bound by readout, not exposure or bandwidth — see
-        // CameraParameters::staggerTransmission.
+        // be bound by readout (plus, until it was removed, the transmission
+        // stagger), not exposure or bandwidth — see the GevSCFTD write above.
         const double readoutUs = safe_f("ReadoutTimeAbs");
         log_info(QString("[Camera %1] GigE pkt=%2B scpd=%3 scftd=%4 scbwa=%5 resultFPS=%6 "
                          "exposureAutoLimits=%7-%8us tickFreq=%9Hz readout=%10us")

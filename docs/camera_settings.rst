@@ -49,9 +49,10 @@ with the profile.
 row by row, so the number of rows sets how fast it can go. Width and exposure
 hardly matter. Measured on room 11 (Camera 3): 1280×720 gave 36.7 fps,
 960×720 38.9, 1280×540 43.6, and exposure limits from 2 to 20 ms changed
-nothing. Those figures included a 10 ms transmission delay that staggers six
-cameras on a shared link. Interview mode now turns that delay off, since its
-one camera has nothing to stagger against. As soon as a crop is applied, the
+nothing. Those figures still included a 10 ms transmission delay, which has
+since been removed for every camera (see *Frame rate in room mode* below);
+without it, 1280×720 reaches 38.9 fps and 1280×540 about 51.6. As soon as a
+crop is applied, the
 section shows the **camera's own maximum** for it, and offers **Use N fps**
 when the rate asked for is higher. Once running, it shows the measured rate.
 The badge above the live view shows the rate the camera actually delivers,
@@ -61,6 +62,17 @@ with the requested rate beside it when they differ, e.g.
 The exposure hint only warns when the limit is longer than one frame period at
 the chosen rate, which is a hard bound. A short exposure does not by itself
 make a rate reachable.
+
+**Frame rate in room mode.** The same sensor needs 38.3 ms to read out a
+full 1920×1080 frame, so each camera can reach about 25 fps. Triggered
+cameras are paced together at 85% of the slowest camera's rate, about
+21 fps. Cameras used to delay sending each frame by 5 ms per camera index, to
+keep them from sending at the same moment. That delay added directly to each
+frame's time and capped the six cameras at 25 / 22.8 / 20.5 / 18.6 / 17.0 /
+15.7 fps, so the group recorded at about 13 fps. That is the ~14.45 fps
+ceiling this rig showed for months. Measured on room 11 on 2026-10-02 at
+25 fps asked: with the delay removed every camera reported 25 and the group
+recorded at 21.25 fps, with no packet loss on any camera.
 
 **How it records.**
 
