@@ -1,8 +1,10 @@
 #include "video/video_encoder.hpp"
 
 #include <QFile>
+#include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <cmath>
 
 #include "utils/logger.hpp"
 #include "utils/timestamp.hpp"
@@ -341,6 +343,17 @@ void VideoEncoder::run_ffmpeg_loop() {
             }
             if (ret < 0) {
                 break;
+            }
+            // Every packet needs a duration. The encoder leaves it 0, and the
+            // MP4 muxer derives a sample's duration from the next one — so the
+            // last frame in display order had none, the file's playable range
+            // ended at that frame's *start*, and it was flagged "discard":
+            // every recording decoded one frame short of its timestamp CSV
+            // (found on room 11, 2026-10-02: 595 of 596, 557 of 558). The
+            // nominal frame interval is right for the last frame and ignored
+            // for the rest, whose durations come from the next timestamp.
+            if (pkt->duration <= 0) {
+                pkt->duration = std::max<int64_t>(1, std::llround(1000.0 / std::max(1.0, cfg.fps)));
             }
             av_packet_rescale_ts(pkt, ctx->time_base, stream->time_base);
             pkt->stream_index         = stream->index;
