@@ -568,10 +568,17 @@ Rectangle {
                 font { pixelSize: 12; bold: true; letterSpacing: 1 }
             }
 
-            Flow {
+            // One row, always: the cameras are read side by side, and a Flow
+            // capped at 720 px wrapped the sixth chip onto a line of its own.
+            // When the window is too narrow for the row, it is scaled down to
+            // fit rather than wrapped — still one glance across.
+            Row {
+                id: stripRow
                 anchors.horizontalCenter: parent.horizontalCenter
-                width: Math.min(parent.width, 720)
                 spacing: 8
+                scale: implicitWidth > parent.width && implicitWidth > 0
+                       ? parent.width / implicitWidth : 1.0
+                transformOrigin: Item.Top
 
                 Repeater {
                     model: root.liveCameras
