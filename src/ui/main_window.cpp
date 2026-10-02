@@ -414,6 +414,16 @@ void MainWindow::build_central_widget() {
         // client-side 1/exposure guess. See compute_fps_readout().
         connect(d->videoMgr, &VideoManager::achievable_fps_changed, videoSettingsW,
                 &VideoSettingsW::set_achievable_fps);
+        // The interview camera's real rate, for the monitor's badge — which
+        // used to show the rate asked for (50) while the camera ran at 36.7.
+        connect(d->videoMgr, &VideoManager::achievable_fps_changed, this,
+                [this](int configIndex, double fps) {
+                    if (configIndex == d->videoMgr->interview_camera_index()) {
+                        d->bridge->set_interview_rates(d->videoMgr->camera_max_fps(configIndex),
+                                                       fps);
+                    }
+                });
+        publish_interview_rates(); // the cameras were opened before this window
     }
 
     // When the camera list changes, fully reload the hardware.
@@ -921,6 +931,7 @@ void MainWindow::reopen_cameras(const QString& why) {
             d->videoMgr->start_preview();
         }
         d->bridge->refresh_video_settings();
+        publish_interview_rates();
         d->bridge->set_interview_switching(false);
         if (d->videoSettingsW) {
             d->videoSettingsW->sync_interview_from_settings();
@@ -930,6 +941,18 @@ void MainWindow::reopen_cameras(const QString& why) {
             QTimer::singleShot(0, this, [this] { reopen_cameras("coalesced request"); });
         }
     });
+}
+
+void MainWindow::publish_interview_rates() {
+    if (!d->videoMgr || !d->bridge) return;
+    const int idx = d->videoMgr->interview_camera_index();
+    // What the camera says it can do with the crop just applied, at once —
+    // the measured rate follows a few seconds later via achievable_fps_changed.
+    const double cameraMax = idx >= 0 ? d->videoMgr->camera_max_fps(idx) : -1.0;
+    d->bridge->set_interview_rates(cameraMax, -1.0);
+    if (d->videoSettingsW) {
+        d->videoSettingsW->set_interview_camera_max_fps(cameraMax);
+    }
 }
 
 void MainWindow::set_interview_mode(bool on) {

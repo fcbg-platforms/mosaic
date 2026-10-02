@@ -55,6 +55,13 @@ class MonitorBridge : public QObject {
     // which takes a few seconds on real hardware; the toggle shows it and
     // refuses a second request meanwhile.
     Q_PROPERTY(bool interviewSwitching READ interviewSwitching NOTIFY interviewChanged)
+    // What the interview camera actually does, as opposed to interviewFps, the
+    // rate asked for — the badge showed "50 fps" while the camera ran at 36.7.
+    // interviewCameraMaxFps: the camera's own reported maximum for the crop it
+    // was opened with, known at once; interviewMeasuredFps: its measured rate,
+    // known a few seconds later. -1 when unknown.
+    Q_PROPERTY(double interviewCameraMaxFps READ interviewCameraMaxFps NOTIFY interviewChanged)
+    Q_PROPERTY(double interviewMeasuredFps READ interviewMeasuredFps NOTIFY interviewChanged)
 
     // ── Session identity ───────────────────────────────────────────────────
     //
@@ -102,6 +109,8 @@ class MonitorBridge : public QObject {
     [[nodiscard]] int interviewCameraIndex() const;
     [[nodiscard]] double interviewFps() const;
     [[nodiscard]] bool interviewSwitching() const;
+    [[nodiscard]] double interviewCameraMaxFps() const;
+    [[nodiscard]] double interviewMeasuredFps() const;
     [[nodiscard]] QString subjectLabel() const;
     [[nodiscard]] QString sessionLabel() const;
     [[nodiscard]] QString taskLabel() const;
@@ -133,6 +142,10 @@ class MonitorBridge : public QObject {
 
     // Set by MainWindow around the close/reopen a switch needs.
     void set_interview_switching(bool switching);
+
+    // Set by MainWindow: the camera's reported maximum after each (re)open,
+    // and its measured rate as it arrives. -1 clears.
+    void set_interview_rates(double cameraMaxFps, double measuredFps);
 
     // Starts a recording on behalf of an external StartRecording trigger.
     //
@@ -277,6 +290,8 @@ class MonitorBridge : public QObject {
     int m_interviewCameraIndex{0};
     double m_interviewFps{0.0};
     bool m_interviewSwitching{false};
+    double m_interviewCameraMaxFps{-1.0};
+    double m_interviewMeasuredFps{-1.0};
 
     QString m_subjectLabel;
     QString m_sessionLabel;

@@ -300,3 +300,12 @@ TEST(InterviewModeSync, GenerateWithoutARateUsesTheInterviewRate) {
     // And an explicit rate still wins.
     EXPECT_DOUBLE_EQ(SyncManifest::generate(dir.path(), 25.0).master_fps(), 25.0);
 }
+
+// One camera has nothing to stagger its transmission against, and on this rig
+// the stagger delay (index × 5 ms, 10 ms for Camera 3) appeared as a fixed
+// 10 ms in every frame's time — capping 1280×720 at 36.7 fps.
+TEST(InterviewMode, TheInterviewCameraDoesNotStaggerItsTransmission) {
+    CameraParameters room;
+    ASSERT_TRUE(room.staggerTransmission); // the room keeps its tested setting
+    EXPECT_FALSE(interview_camera_params(room, InterviewSettings{}).staggerTransmission);
+}

@@ -115,6 +115,12 @@ struct VideoGrabber::Impl {
     int frameHeight  = -1;
     int frameOffsetX = -1;
     int frameOffsetY = -1;
+    // The camera's own ResultingFrameRate as read at the end of open(): the
+    // most it says it can deliver with the settings just applied. -1 when the
+    // node was unavailable. Unlike resultingFps this is not held back until a
+    // warm-up has passed — it is shown as "the camera's limit for this crop"
+    // straight after a change, and refined by the measured rate later.
+    double openMaxFps = -1.0;
 
     // The camera's real ResultingFrameRate. Atomic, unlike most of Impl:
     // refresh_achievable_fps() writes it from open() on the main thread *and*
@@ -576,9 +582,14 @@ bool VideoGrabber::open() {
         // onto the same I350-T4 card simultaneously.  Each camera waits
         // (index × 5 ms) after frame readout before transmitting.
         // At 125 MHz tick frequency: 5 ms = 625 000 ticks.
+        //
+        // Not for a camera recording alone (interview mode): there is nothing
+        // to stagger against, and the delay appears to count against the
+        // frame time — see CameraParameters::staggerTransmission.
         try_set("GevSCFTD", [&] {
-            auto p                   = CIntegerParameter(cam, "GevSCFTD");
-            const int64_t delayTicks = static_cast<int64_t>(d->cameraIndex) * 625000LL;
+            auto p = CIntegerParameter(cam, "GevSCFTD");
+            const int64_t delayTicks =
+                d->params.staggerTransmission ? static_cast<int64_t>(d->cameraIndex) * 625000LL : 0;
             p.SetValue(std::clamp(delayTicks, p.GetMin(), p.GetMax()));
         });
     }
@@ -629,8 +640,14 @@ bool VideoGrabber::open() {
         const int64_t freq  = safe_i("GevTimestampTickFrequency");
         d->tickFreqHz       = freq;
         const double rfps   = safe_f_fallback("ResultingFrameRate", "ResultingFrameRateAbs");
+        d->openMaxFps       = rfps;
+        // Sensor readout time, where the camera exposes it (ace GigE:
+        // ReadoutTimeAbs, µs). Logged because this camera's rate turned out to
+        // be bound by readout, not exposure or bandwidth — see
+        // CameraParameters::staggerTransmission.
+        const double readoutUs = safe_f("ReadoutTimeAbs");
         log_info(QString("[Camera %1] GigE pkt=%2B scpd=%3 scftd=%4 scbwa=%5 resultFPS=%6 "
-                         "exposureAutoLimits=%7-%8us tickFreq=%9Hz")
+                         "exposureAutoLimits=%7-%8us tickFreq=%9Hz readout=%10us")
                      .arg(d->cameraIndex)
                      .arg(pktSz)
                      .arg(scpd)
@@ -639,7 +656,8 @@ bool VideoGrabber::open() {
                      .arg(rfps)
                      .arg(d->params.exposureAutoLowerUs)
                      .arg(d->params.exposureAutoUpperUs)
-                     .arg(freq));
+                     .arg(freq)
+                     .arg(readoutUs, 0, 'f', 0));
         if (scftd > 0 && freq > 0) {
             log_warning(
                 QString("[Camera %1] GevSCFTD=%2 ticks = %3 ms — camera delays frame transmission")
@@ -1435,6 +1453,7 @@ QString VideoGrabber::action_broadcast_address() const { return d->actionBroadca
 double VideoGrabber::configured_fps() const { return d->params.fps; }
 int VideoGrabber::frame_width() const { return d->frameWidth; }
 int VideoGrabber::frame_height() const { return d->frameHeight; }
+double VideoGrabber::camera_max_fps() const { return d->openMaxFps; }
 int VideoGrabber::frame_offset_x() const { return d->frameOffsetX; }
 int VideoGrabber::frame_offset_y() const { return d->frameOffsetY; }
 double VideoGrabber::achievable_fps() const { return d->resultingFps; }

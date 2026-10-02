@@ -12,8 +12,10 @@
 #include <QScrollArea>
 #include <QSpinBox>
 #include <QStackedWidget>
+#include <QToolButton>
 #include <QVBoxLayout>
 #include <algorithm>
+#include <cmath>
 #include <iterator>
 
 #include "ui/video/camera_card_w.hpp"
@@ -56,6 +58,13 @@ struct VideoSettingsW::Impl {
     QLabel* interviewExposureHint  = nullptr;
     QLabel* interviewLinkLoad      = nullptr;
     QLabel* interviewMeasured      = nullptr;
+    QLabel* interviewCameraLimit   = nullptr;
+    QPushButton* interviewUseMax   = nullptr;
+    QToolButton* interviewToggle   = nullptr; // collapses/expands the section
+    QWidget* interviewBody         = nullptr;
+    QLabel* interviewHeaderStatus  = nullptr;
+    double interviewCameraMaxFps   = -1.0;  // see set_interview_camera_max_fps()
+    bool interviewWasActive        = false; // to open the section on off -> on only
     QPushButton* interviewApply    = nullptr;
     QPushButton* interviewRevert   = nullptr;
     // The interview camera's own measured rate, while interview mode is open;
@@ -76,11 +85,17 @@ struct CropPreset {
     int width;
     int height;
 };
+// Ordered by height, because height is what sets this camera's rate: it reads
+// its sensor row by row, and width hardly matters. Measured on room 11
+// (2026-10-02, Camera 3, with the 10 ms transmission delay interview mode no
+// longer uses): 1280×720 36.7 fps, 960×720 38.9, 1280×540 43.6. The camera's
+// own figure for whatever is applied is shown under the presets.
 constexpr CropPreset k_crop_presets[] = {
     {"Full frame", 0, 0}, // 0×0 = the camera's own configured size
     {"1280 × 720 (centre)", 1280, 720},
-    {"960 × 720 (centre, face)", 960, 720},
-    {"640 × 480 (centre)", 640, 480},
+    {"1280 × 540 (centre, faster)", 1280, 540},
+    {"960 × 540 (centre, face, faster)", 960, 540},
+    {"640 × 480 (centre, fastest)", 640, 480},
 };
 
 } // namespace
@@ -160,9 +175,41 @@ void VideoSettingsW::set_achievable_fps(int cameraIndex, double fps) {
 // ── Interview section ──────────────────────────────────────────────────────
 
 void VideoSettingsW::build_interview_section(QVBoxLayout* parent) {
-    auto* box       = new QGroupBox("Interview mode");
+    // Collapsed by default: most sessions never touch it, and its dozen
+    // controls would otherwise sit above the cameras every time. A header
+    // button opens it; it also opens by itself while interview mode is on, so
+    // the settings in effect are in view (sync_interview_from_settings()).
+    auto* box       = new QGroupBox;
     d->interviewBox = box;
-    auto* lay       = new QVBoxLayout(box);
+    auto* outer     = new QVBoxLayout(box);
+    outer->setSpacing(6);
+
+    auto* header       = new QHBoxLayout;
+    d->interviewToggle = new QToolButton;
+    d->interviewToggle->setText("Interview mode");
+    d->interviewToggle->setCheckable(true);
+    d->interviewToggle->setChecked(false);
+    d->interviewToggle->setArrowType(Qt::RightArrow);
+    d->interviewToggle->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+    d->interviewToggle->setAutoRaise(true);
+    d->interviewToggle->setStyleSheet("QToolButton { font-weight: bold; border: none; }");
+    d->interviewHeaderStatus = new QLabel;
+    d->interviewHeaderStatus->setProperty("role", "muted");
+    header->addWidget(d->interviewToggle);
+    header->addStretch();
+    header->addWidget(d->interviewHeaderStatus);
+    outer->addLayout(header);
+
+    d->interviewBody = new QWidget;
+    d->interviewBody->setVisible(false);
+    outer->addWidget(d->interviewBody);
+    connect(d->interviewToggle, &QToolButton::toggled, this, [this](bool open) {
+        d->interviewToggle->setArrowType(open ? Qt::DownArrow : Qt::RightArrow);
+        d->interviewBody->setVisible(open);
+    });
+
+    auto* lay = new QVBoxLayout(d->interviewBody);
+    lay->setContentsMargins(0, 0, 0, 0);
     lay->setSpacing(8);
 
     auto* intro = new QLabel(
@@ -268,6 +315,26 @@ void VideoSettingsW::build_interview_section(QVBoxLayout* parent) {
     d->interviewLinkLoad->setWordWrap(true);
     d->interviewLinkLoad->setTextFormat(Qt::RichText);
     lay->addWidget(d->interviewLinkLoad);
+
+    auto* limitRow          = new QHBoxLayout;
+    d->interviewCameraLimit = new QLabel;
+    d->interviewCameraLimit->setWordWrap(true);
+    d->interviewCameraLimit->setTextFormat(Qt::RichText);
+    d->interviewUseMax = new QPushButton;
+    d->interviewUseMax->setFixedHeight(24);
+    d->interviewUseMax->setVisible(false);
+    d->interviewUseMax->setToolTip(
+        "Ask for the rate this camera says it can deliver with this crop. Apply to use it.");
+    connect(d->interviewUseMax, &QPushButton::clicked, this, [this] {
+        if (d->interviewCameraMaxFps > 0) {
+            // Rounded down, so the request never ends up a hair above the
+            // camera's own figure and reads as "below the rate asked for".
+            d->interviewFps->setValue(std::floor(d->interviewCameraMaxFps * 10.0) / 10.0);
+        }
+    });
+    limitRow->addWidget(d->interviewCameraLimit, 1);
+    limitRow->addWidget(d->interviewUseMax);
+    lay->addLayout(limitRow);
 
     d->interviewMeasured = new QLabel;
     d->interviewMeasured->setWordWrap(true);
@@ -430,16 +497,32 @@ void VideoSettingsW::sync_interview_from_settings() {
         const QSignalBlocker block(d->interviewEnabled);
         d->interviewEnabled->setChecked(m_settings.interview_active());
     }
-    if (!m_settings.interview_active()) {
-        d->interviewMeasuredFps = -1.0;
+    const bool active = m_settings.interview_active();
+    if (!active) {
+        d->interviewMeasuredFps  = -1.0;
+        d->interviewCameraMaxFps = -1.0;
+    } else if (!d->interviewWasActive && d->interviewToggle) {
+        // Opened when the mode turns on, to show the settings in effect — and
+        // only then, so an operator who collapses it again is not overruled
+        // by every later reopen or refresh.
+        d->interviewToggle->setChecked(true);
     }
+    d->interviewWasActive = active;
     load_interview_fields(m_settings.interview);
+}
+
+void VideoSettingsW::set_interview_camera_max_fps(double fps) {
+    d->interviewCameraMaxFps = fps;
+    refresh_interview_readouts();
 }
 
 void VideoSettingsW::set_recording_locked(bool locked) {
     d->recordingLocked = locked;
     if (d->interviewBox) {
-        d->interviewBox->setEnabled(!locked);
+        // The settings lock, not the header: opening the section to see what
+        // is in effect stays possible during a recording.
+        (d->interviewBody ? d->interviewBody : static_cast<QWidget*>(d->interviewBox))
+            ->setEnabled(!locked);
         d->interviewBox->setToolTip(locked ? "Locked while recording — switching or changing "
                                              "interview mode reopens the cameras."
                                            : QString());
@@ -465,19 +548,26 @@ void VideoSettingsW::refresh_interview_readouts() {
     d->interviewStatus->setText(
         active ? QString("On — %1 only").arg(camera_label(m_settings.interview.cameraIndex))
                : "Off — recording every camera");
+    if (d->interviewHeaderStatus) {
+        d->interviewHeaderStatus->setText(
+            active ? QString("On · %1").arg(camera_label(m_settings.interview.cameraIndex))
+                   : "Off");
+    }
 
-    // Exposure limit vs rate: the one trade-off this section must not hide.
+    // Exposure limit vs rate. Only the necessary condition is stated: an
+    // exposure longer than a frame period cannot reach the rate. Short enough
+    // is NOT sufficient — on this camera the rate turned out to be set by
+    // sensor readout (crop height), and exposure from 2 to 20 ms changed
+    // nothing. This hint used to say "allows N fps", which was false.
     const double maxExposure = max_exposure_us_for_fps(staged.fps);
     if (staged.exposureAutoUpperUs > maxExposure) {
         d->interviewExposureHint->setText(
-            QString("<font color='#ddaa44'>may hold it below %1 fps — %2 µs or less "
-                    "guarantees it</font>")
+            QString("<font color='#ddaa44'>longer than one frame at %1 fps — %2 µs or "
+                    "less is needed</font>")
                 .arg(staged.fps, 0, 'f', 1)
                 .arg(maxExposure, 0, 'f', 0));
     } else {
-        d->interviewExposureHint->setText(QString("allows %1 fps (≤ %2 µs)")
-                                              .arg(staged.fps, 0, 'f', 1)
-                                              .arg(maxExposure, 0, 'f', 0));
+        d->interviewExposureHint->setText("shorter is darker in dim light");
     }
 
     // Crop vs the camera's frame, and what the link has to carry.
@@ -507,6 +597,43 @@ void VideoSettingsW::refresh_interview_readouts() {
                          : loadText);
     d->interviewLinkLoad->setText(lines.join("<br>"));
 
+    // The camera's own limit for the applied crop, known at once.
+    d->interviewUseMax->setVisible(false);
+    if (!active || d->interviewCameraMaxFps <= 0) {
+        d->interviewCameraLimit->setText(
+            active ? QString()
+                   : "<span style='color:#7878a0'>The camera's own limit for a crop is shown "
+                     "here once interview mode is on.</span>");
+        d->interviewCameraLimit->setVisible(!active);
+    } else {
+        d->interviewCameraLimit->setVisible(true);
+        const double asked = m_settings.interview.fps;
+        const double cap   = d->interviewCameraMaxFps;
+        // ResultingFrameRate is the lesser of the rate asked for and what the
+        // camera can do, so a figure below the request is the camera's limit.
+        QString t;
+        if (asked > cap * 1.01) {
+            t = QString(
+                    "<font color='#ddaa44'>Camera's maximum for this crop: <b>%1 fps</b> — "
+                    "less than the %2 fps asked for. It reads the sensor row by row, so "
+                    "fewer rows (a shorter crop) raise it; width and exposure hardly "
+                    "matter.</font>")
+                    .arg(cap, 0, 'f', 1)
+                    .arg(asked, 0, 'f', 1);
+            d->interviewUseMax->setText(
+                QString("Use %1 fps").arg(std::floor(cap * 10.0) / 10.0, 0, 'f', 1));
+            d->interviewUseMax->setVisible(true);
+        } else {
+            t = QString("The camera can deliver the %1 fps asked for with this crop.")
+                    .arg(asked, 0, 'f', 1);
+        }
+        if (dirty) {
+            t += "<br><span style='color:#7878a0'>(for the crop applied now — Apply to see "
+                 "the new one's)</span>";
+        }
+        d->interviewCameraLimit->setText(t);
+    }
+
     // What the camera actually reaches — only knowable while it runs.
     if (!active) {
         d->interviewMeasured->setText(
@@ -525,9 +652,8 @@ void VideoSettingsW::refresh_interview_readouts() {
             text = QString("Camera reports <b>%1 fps</b>").arg(r.fps, 0, 'f', 1);
             if (r.belowConfigured) {
                 text = QString(
-                           "<font color='#ddaa44'>%1 — below the %2 fps asked for. A "
-                           "smaller crop height raises the ceiling; check the exposure "
-                           "limit too.</font>")
+                           "<font color='#ddaa44'>%1 — below the %2 fps asked for. Fewer "
+                           "crop rows raise the ceiling.</font>")
                            .arg(text)
                            .arg(m_settings.interview.fps, 0, 'f', 1);
             } else if (r.limitedBy == FpsLimit::ConfiguredRate) {

@@ -32,6 +32,20 @@ Rectangle {
     readonly property int    interviewCameraIndex: typeof backend !== "undefined" ? backend.interviewCameraIndex : 0
     readonly property real   interviewFps:         typeof backend !== "undefined" ? backend.interviewFps         : 0
     readonly property bool   interviewSwitching:   typeof backend !== "undefined" ? backend.interviewSwitching   : false
+    // What the interview camera really does (-1 = not known yet): its own
+    // reported maximum for the crop, then its measured rate. The badge shows
+    // these, not interviewFps — that is only the rate asked for, and the
+    // camera can deliver less (a crop's rows set its limit).
+    readonly property real   interviewCameraMaxFps: typeof backend !== "undefined" ? backend.interviewCameraMaxFps : -1
+    readonly property real   interviewMeasuredFps:  typeof backend !== "undefined" ? backend.interviewMeasuredFps  : -1
+    readonly property real   interviewActualFps: root.interviewMeasuredFps > 0 ? root.interviewMeasuredFps
+                                               : root.interviewCameraMaxFps > 0 ? root.interviewCameraMaxFps
+                                               : -1
+    // Below what was asked for: worth a different colour and the requested
+    // rate beside it, so "36.7 fps" is never read as the setting.
+    readonly property bool   interviewShortOfRate: root.interviewMode
+                                                   && root.interviewActualFps > 0
+                                                   && root.interviewActualFps < root.interviewFps * 0.97
 
     // Configured indices of the cameras this view is about — the ones that can
     // deliver frames. Empty while none are configured or a switch is reopening.
@@ -108,19 +122,37 @@ Rectangle {
                 width: camCountLabel.implicitWidth + 12
                 height: 18; radius: 9
                 color: root.interviewMode ? "#2a2110" : "#1a1a38"
-                border.color: root.interviewMode ? "#6a5220" : "#33335a"
+                border.color: root.interviewShortOfRate ? "#aa8833"
+                            : root.interviewMode ? "#6a5220" : "#33335a"
                 border.width: 1
 
                 Label {
                     id: camCountLabel
                     anchors.centerIn: parent
-                    text: root.interviewMode
-                        ? "Cam " + (root.interviewCameraIndex + 1) + " only · "
-                          + root.interviewFps.toFixed(0) + " fps"
-                        : root.cameraCount + " cam" + (root.cameraCount !== 1 ? "s" : "")
-                    color: root.interviewMode ? "#ddaa55" : "#6666aa"
+                    text: !root.interviewMode
+                        ? root.cameraCount + " cam" + (root.cameraCount !== 1 ? "s" : "")
+                        : "Cam " + (root.interviewCameraIndex + 1) + " only · "
+                          + (root.interviewActualFps > 0
+                             ? root.interviewActualFps.toFixed(1) + " fps"
+                               + (root.interviewShortOfRate
+                                  ? " (asked " + root.interviewFps.toFixed(0) + ")" : "")
+                             // Nothing reported (stub builds, a camera
+                             // without the node): the setting, as before.
+                             : root.interviewFps.toFixed(0) + " fps")
+                    color: root.interviewShortOfRate ? "#ffcc66"
+                         : root.interviewMode ? "#ddaa55" : "#6666aa"
                     font { pixelSize: 9; bold: true }
                 }
+
+                HoverHandler { id: badgeHover }
+                ToolTip.visible: badgeHover.hovered && root.interviewMode
+                ToolTip.delay: 300
+                ToolTip.text: root.interviewShortOfRate
+                    ? "Camera " + (root.interviewCameraIndex + 1) + " delivers "
+                      + root.interviewActualFps.toFixed(1) + " fps, less than the "
+                      + root.interviewFps.toFixed(0) + " fps asked for. A shorter crop (fewer "
+                      + "rows) raises it — Settings → Video → Interview mode."
+                    : "The rate the camera really delivers, not the setting."
             }
 
             Item { Layout.fillWidth: true }
@@ -619,7 +651,7 @@ Rectangle {
             ? (root.interviewSwitching ? "Reopening the cameras…"
                                        : "Locked while recording — switching reopens the cameras")
             : "Room: every camera.  Interview: Cam " + (root.interviewCameraIndex + 1)
-              + " only, cropped, at " + root.interviewFps.toFixed(0)
+              + " only, cropped, at up to " + root.interviewFps.toFixed(0)
               + " fps (set up in Settings → Video)."
 
         Row {

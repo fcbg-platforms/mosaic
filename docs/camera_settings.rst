@@ -35,20 +35,32 @@ camera. Switching is refused while a recording runs or is about to start —
 reopening the cameras would end it — and both controls stay locked until it
 stops.
 
-**Configuring.** The *Interview mode* section of the **Video** tab sets the
-camera, the crop (presets, or size and offset by hand, with *Centre*), the
-frame rate and the auto-exposure upper limit for the mode. Edits are staged
-until **Apply**; with interview mode on, Apply reopens the camera. Everything
-else about the camera — white balance, gain, calibration — still comes from its
-own card. The room configuration is never changed, so switching back is
-lossless. The mode and its settings are saved with the profile.
+**Configuring.** The *Interview mode* section of the **Video** tab is
+collapsed by default. Click its header to open it; it opens by itself while
+interview mode is on. It sets the camera, the crop (presets, or size and offset
+by hand, with *Centre*), the frame rate and the auto-exposure upper limit for
+the mode. Edits are staged until **Apply**; with interview mode on, Apply
+reopens the camera. Everything else about the camera — white balance, gain,
+calibration — still comes from its own card. The room configuration is never
+changed, so switching back is lossless. The mode and its settings are saved
+with the profile.
 
-Why a crop buys frame rate: this camera reads its sensor row by row and sends
-2 bytes per pixel (YUV 4:2:2) over a gigabit link, so both the sensor readout
-time and the link load scale with the pixel count. The section shows the link
-load the crop and rate imply, warns when the exposure limit is too long for the
-rate (a frame cannot be exposed for longer than ``1e6 / fps`` µs), and, once
-the mode is on, the rate the camera really reaches.
+**What sets the frame rate: the crop's height.** This camera reads its sensor
+row by row, so the number of rows sets how fast it can go. Width and exposure
+hardly matter. Measured on room 11 (Camera 3): 1280×720 gave 36.7 fps,
+960×720 38.9, 1280×540 43.6, and exposure limits from 2 to 20 ms changed
+nothing. Those figures included a 10 ms transmission delay that staggers six
+cameras on a shared link. Interview mode now turns that delay off, since its
+one camera has nothing to stagger against. As soon as a crop is applied, the
+section shows the **camera's own maximum** for it, and offers **Use N fps**
+when the rate asked for is higher. Once running, it shows the measured rate.
+The badge above the live view shows the rate the camera actually delivers,
+with the requested rate beside it when they differ, e.g.
+"Cam 3 only · 36.7 fps (asked 50)".
+
+The exposure hint only warns when the limit is longer than one frame period at
+the chosen rate, which is a hard bound. A short exposure does not by itself
+make a rate reachable.
 
 **How it records.**
 

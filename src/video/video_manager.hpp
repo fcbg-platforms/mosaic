@@ -159,6 +159,12 @@ class VideoManager : public QObject {
     /// which can lag the settings: they change first, the reopen follows.
     [[nodiscard]] int interview_camera_index() const;
 
+    /// The camera's own reported frame rate for its current settings: its
+    /// refreshed ResultingFrameRate once known (VideoGrabber::achievable_fps(),
+    /// which follows live edits), else the figure from open()
+    /// (VideoGrabber::camera_max_fps()). -1 when not open or it did not say.
+    [[nodiscard]] double camera_max_fps(int configIndex) const;
+
     /// The region of interest an open camera actually delivers, read back
     /// after configuring it — the camera rounds a requested crop to its own
     /// step and range, so this can differ from the settings. nullopt when the
