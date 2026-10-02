@@ -68,9 +68,10 @@ struct VideoGrabber::Impl {
     // Set true only once run_pylon_loop() has actually reached Pylon's
     // StartGrabbing() call (or immediately in the stub loop, which has no
     // equivalent setup step) — NOT merely once start_grabbing() has
-    // returned, which only confirms QThread::start() scheduled the thread,
-    // not that Pylon is actually listening for triggers yet. Reset false at
-    // the start of every start_grabbing() call. See is_actually_grabbing().
+    // returned, which only confirms QThread::start() scheduled the thread.
+    // Means "the stream grabber is armed", not "frames are arriving" — it is
+    // stored before any frame has been received. Reset false at the start of
+    // every start_grabbing() call. See is_actually_grabbing().
     std::atomic<bool> actuallyGrabbing{false};
 
     // GigE Vision Action Command trigger state — see
@@ -115,6 +116,16 @@ struct VideoGrabber::Impl {
     int frameHeight  = -1;
     int frameOffsetX = -1;
     int frameOffsetY = -1;
+    // The camera's own ResultingFrameRate as read at the end of open(): the
+    // most it says it can deliver with the settings just applied. -1 when the
+    // node was unavailable. Unlike resultingFps this is not held back until a
+    // warm-up has passed — it is shown as "the camera's limit for this crop"
+    // straight after a change, and refined by the measured rate later.
+    double openMaxFps = -1.0;
+    // Last exposure/gain logged by log_exposure_if_changed() — grab thread
+    // only (refresh_achievable_fps() runs there after open()), so plain values.
+    double loggedExposureUs = -1.0;
+    double loggedGain       = -1.0;
 
     // The camera's real ResultingFrameRate. Atomic, unlike most of Impl:
     // refresh_achievable_fps() writes it from open() on the main thread *and*
@@ -576,9 +587,14 @@ bool VideoGrabber::open() {
         // onto the same I350-T4 card simultaneously.  Each camera waits
         // (index × 5 ms) after frame readout before transmitting.
         // At 125 MHz tick frequency: 5 ms = 625 000 ticks.
+        //
+        // Not for a camera recording alone (interview mode): there is nothing
+        // to stagger against, and the delay appears to count against the
+        // frame time — see CameraParameters::staggerTransmission.
         try_set("GevSCFTD", [&] {
-            auto p                   = CIntegerParameter(cam, "GevSCFTD");
-            const int64_t delayTicks = static_cast<int64_t>(d->cameraIndex) * 625000LL;
+            auto p = CIntegerParameter(cam, "GevSCFTD");
+            const int64_t delayTicks =
+                d->params.staggerTransmission ? static_cast<int64_t>(d->cameraIndex) * 625000LL : 0;
             p.SetValue(std::clamp(delayTicks, p.GetMin(), p.GetMax()));
         });
     }
@@ -629,8 +645,14 @@ bool VideoGrabber::open() {
         const int64_t freq  = safe_i("GevTimestampTickFrequency");
         d->tickFreqHz       = freq;
         const double rfps   = safe_f_fallback("ResultingFrameRate", "ResultingFrameRateAbs");
+        d->openMaxFps       = rfps;
+        // Sensor readout time, where the camera exposes it (ace GigE:
+        // ReadoutTimeAbs, µs). Logged because this camera's rate turned out to
+        // be bound by readout, not exposure or bandwidth — see
+        // CameraParameters::staggerTransmission.
+        const double readoutUs = safe_f("ReadoutTimeAbs");
         log_info(QString("[Camera %1] GigE pkt=%2B scpd=%3 scftd=%4 scbwa=%5 resultFPS=%6 "
-                         "exposureAutoLimits=%7-%8us tickFreq=%9Hz")
+                         "exposureAutoLimits=%7-%8us tickFreq=%9Hz readout=%10us")
                      .arg(d->cameraIndex)
                      .arg(pktSz)
                      .arg(scpd)
@@ -639,7 +661,8 @@ bool VideoGrabber::open() {
                      .arg(rfps)
                      .arg(d->params.exposureAutoLowerUs)
                      .arg(d->params.exposureAutoUpperUs)
-                     .arg(freq));
+                     .arg(freq)
+                     .arg(readoutUs, 0, 'f', 0));
         if (scftd > 0 && freq > 0) {
             log_warning(
                 QString("[Camera %1] GevSCFTD=%2 ticks = %3 ms — camera delays frame transmission")
@@ -796,6 +819,37 @@ void VideoGrabber::apply_image_params() {
             upperNode.SetValue(upper);
         }
     });
+
+    // Start auto exposure inside its limits. The limits only bound what auto
+    // exposure *chooses*; they do not move an exposure already outside them.
+    // And "Once" stops as soon as the image reaches its target brightness —
+    // so with a bright scene it stopped immediately and left the exposure
+    // where it was. Measured on room 11 (2026-10-02): limit 1000 µs, exposure
+    // stayed at 19985 µs through two reopens (costing 49 fps instead of 51.6),
+    // then dropped to 1015 µs on a third. Moving the current exposure into the
+    // limits first makes the limit hold from the first open.
+    if (d->params.exposureAuto != "Off") {
+        try_set("ExposureIntoAutoLimits", [&] {
+            CFloatParameter exposure(cam, float_node_name(cam, "ExposureTime", "ExposureTimeAbs"));
+            const double upper  = d->params.exposureAutoUpperUs;
+            const double lower  = std::min(d->params.exposureAutoLowerUs, upper);
+            const double now    = exposure.GetValue();
+            const double target = std::clamp(now, lower, upper);
+            if (target != now) {
+                // ExposureTime is writable only with auto exposure off; it is
+                // set back to the configured mode just below.
+                CEnumParameter(cam, "ExposureAuto").SetValue("Off");
+                exposure.SetValue(std::clamp(target, exposure.GetMin(), exposure.GetMax()));
+                log_info(QString("[Camera %1] Exposure %2 us was outside the auto limits "
+                                 "(%3-%4 us) — starting auto exposure from %5 us.")
+                             .arg(d->cameraIndex)
+                             .arg(now, 0, 'f', 0)
+                             .arg(lower, 0, 'f', 0)
+                             .arg(upper, 0, 'f', 0)
+                             .arg(target, 0, 'f', 0));
+            }
+        });
+    }
 
     try_set("ExposureAuto", [&] {
         CEnumParameter(cam, "ExposureAuto").SetValue(d->params.exposureAuto.toStdString().c_str());
@@ -967,6 +1021,38 @@ void VideoGrabber::refresh_achievable_fps() {
         return;
     }
     d->resultingFps.store(rfps); // see achievable_fps()
+
+    // What auto exposure and auto gain actually settled on. Logged because
+    // they compensate for each other: cap the exposure and auto gain raises
+    // the gain to reach the same target brightness, so the image looks
+    // unchanged (only noisier) and an exposure limit appears to "do nothing".
+    // Only when a value moves by more than 5%, so a settled camera logs once.
+    {
+        const double exposureUs = safe_f_fallback("ExposureTime", "ExposureTimeAbs");
+        double gain             = safe_f_fallback("Gain", "GainAbs");
+        bool gainIsRaw          = false;
+        if (gain < 0.0) {
+            try {
+                gain = static_cast<double>(Pylon::CIntegerParameter(cam, "GainRaw").GetValue());
+                gainIsRaw = true;
+            } catch (...) {
+                gain = -1.0;
+            }
+        }
+        const auto moved = [](double was, double now) {
+            return now >= 0.0 && (was < 0.0 || std::abs(now - was) > 0.05 * std::max(1.0, was));
+        };
+        if (moved(d->loggedExposureUs, exposureUs) || moved(d->loggedGain, gain)) {
+            d->loggedExposureUs = exposureUs;
+            d->loggedGain       = gain;
+            log_info(QString("[Camera %1] Auto settled: exposure %2 us (limit %3 us), gain %4%5")
+                         .arg(d->cameraIndex)
+                         .arg(exposureUs, 0, 'f', 0)
+                         .arg(d->params.exposureAutoUpperUs, 0, 'f', 0)
+                         .arg(gain, 0, 'f', gainIsRaw ? 0 : 2)
+                         .arg(gainIsRaw ? " (raw)" : " dB"));
+        }
+    }
 
     // Only announce a genuine change: this runs every ~2s per camera, and a
     // stable camera's reading jitters in the third decimal place, which would
@@ -1435,6 +1521,7 @@ QString VideoGrabber::action_broadcast_address() const { return d->actionBroadca
 double VideoGrabber::configured_fps() const { return d->params.fps; }
 int VideoGrabber::frame_width() const { return d->frameWidth; }
 int VideoGrabber::frame_height() const { return d->frameHeight; }
+double VideoGrabber::camera_max_fps() const { return d->openMaxFps; }
 int VideoGrabber::frame_offset_x() const { return d->frameOffsetX; }
 int VideoGrabber::frame_offset_y() const { return d->frameOffsetY; }
 double VideoGrabber::achievable_fps() const { return d->resultingFps; }

@@ -234,7 +234,30 @@ void VideoEncoder::run_ffmpeg_loop() {
         }
     }
 
-    if (avformat_write_header(fmtCtx, nullptr) < 0) {
+    // Fragmented MP4, so a recording survives a crash. A regular MP4 keeps its
+    // index (the moov atom) at the end of the file, written only by
+    // av_write_trailer(): if MOSAIC crashes, is killed or loses its encoder
+    // thread, every video of the session is unplayable — "moov atom not
+    // found" — however long it ran. Fragmented, the file is a header followed
+    // by self-contained fragments, so it plays up to the last complete one.
+    //
+    // Each fragment starts at a keyframe (frag_keyframe), and keyframes come
+    // every gop_size = 2 s, so a crash costs at most ~2 s. A clean stop still
+    // runs av_write_trailer(), which appends a fragment index (mfra) — checked
+    // against regular MP4 on a 60 s clip: identical fps, frame count and seek
+    // positions in OpenCV and ffprobe. A power cut can still lose what the OS
+    // had not written yet; that needs FlushFileBuffers and is not handled.
+    //
+    // MP4/MOV only: these flags mean nothing to another container.
+    AVDictionary* muxOpts = nullptr;
+    const QString muxName = QString::fromLatin1(fmtCtx->oformat->name);
+    const bool fragmented = muxName.contains("mp4") || muxName.contains("mov");
+    if (fragmented) {
+        av_dict_set(&muxOpts, "movflags", "+frag_keyframe+empty_moov+default_base_moof", 0);
+    }
+    const int headerRet = avformat_write_header(fmtCtx, &muxOpts);
+    av_dict_free(&muxOpts);
+    if (headerRet < 0) {
         if (!(fmtCtx->oformat->flags & AVFMT_NOFILE)) {
             avio_closep(&fmtCtx->pb);
         }
@@ -320,9 +343,16 @@ void VideoEncoder::run_ffmpeg_loop() {
                 break;
             }
             av_packet_rescale_ts(pkt, ctx->time_base, stream->time_base);
-            pkt->stream_index = stream->index;
+            pkt->stream_index         = stream->index;
+            const bool startsFragment = fragmented && (pkt->flags & AV_PKT_FLAG_KEY);
             av_interleaved_write_frame(fmtCtx, pkt);
             av_packet_unref(pkt);
+            // A keyframe closes the previous fragment. Push it out of FFmpeg's
+            // I/O buffer now, so a crash loses at most the fragment in
+            // progress rather than whatever was still sitting in that buffer.
+            if (startsFragment && fmtCtx->pb) {
+                avio_flush(fmtCtx->pb);
+            }
         }
     };
 

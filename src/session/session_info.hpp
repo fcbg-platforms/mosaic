@@ -12,6 +12,7 @@
 #include <QStringList>
 #include <algorithm>
 
+#include "session/session_end.hpp"
 #include "session/session_name.hpp"
 
 namespace mosaic {
@@ -73,9 +74,16 @@ struct SessionInfo {
     QString name; // directory basename
     QString recordedBy;
     QDateTime startUtc;
-    int durationMs  = -1;
-    int cameraCount = 0;
-    int micCount    = 0;
+    int durationMs = -1;
+    // MOSAIC stopped without finishing this recording (crash, kill, power
+    // loss): its files end wherever that left them. False for sessions
+    // recorded before this was tracked — see session/session_end.hpp.
+    bool interrupted = false;
+    // Being recorded right now, here or on another machine sharing the
+    // folder: not finished, but not interrupted either.
+    bool recordingNow = false;
+    int cameraCount   = 0;
+    int micCount      = 0;
     QString mosaicVersion;
     QString videoCodec;
     QString audioCodec;
@@ -104,6 +112,7 @@ struct SessionInfo {
         info.path = QDir::cleanPath(dir);
         info.name = QDir(dir).dirName();
 
+        int recordedDurationMs = -1;
         QFile metaFile(dir + "/session_meta.json");
         if (metaFile.open(QIODevice::ReadOnly)) {
             const auto doc     = QJsonDocument::fromJson(metaFile.readAll());
@@ -118,6 +127,13 @@ struct SessionInfo {
             const auto rec   = root["recording"].toObject();
             info.videoCodec  = rec["video_codec"].toString();
             info.audioCodec  = rec["audio_codec"].toString();
+            const SessionEnd end =
+                session_end_state(root, read_heartbeat(dir), QDateTime::currentDateTimeUtc());
+            info.interrupted  = end == SessionEnd::Interrupted;
+            info.recordingNow = end == SessionEnd::Recording;
+            if (end == SessionEnd::Clean) {
+                recordedDurationMs = root["session_end"].toObject()["duration_ms"].toInt(-1);
+            }
         }
 
         // Video/audio recordings live under video/ and audio/ subfolders.
@@ -234,6 +250,13 @@ struct SessionInfo {
                     info.durationMs = static_cast<int>((maxMtime - startSec) * 1000);
                 }
             }
+        }
+
+        // The recorded duration, when the session says it: exact, unlike the
+        // file-time estimate above, which is out by however long the files
+        // took to close and by any later touch of a video file.
+        if (recordedDurationMs > 0) {
+            info.durationMs = recordedDurationMs;
         }
 
         info.load_annotations();

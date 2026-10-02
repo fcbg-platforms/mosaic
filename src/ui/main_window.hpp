@@ -100,6 +100,11 @@ class MainWindow : public QMainWindow {
     // claiming a mode that did not take effect.
     void set_interview_mode(bool on);
 
+    // Hands the interview camera's own reported maximum frame rate (for the
+    // crop just opened) to the monitor badge and the settings panel; clears
+    // both when interview mode is not open.
+    void publish_interview_rates();
+
     struct Impl;
     std::unique_ptr<Impl> d;
 };

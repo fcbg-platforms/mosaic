@@ -10,7 +10,9 @@
 #include <QJsonObject>
 #include <QJsonValue>
 #include <QTimer>
+#include <cmath>
 
+#include "session/session_end.hpp"
 #include "utils/logger.hpp"
 #include "utils/timestamp.hpp"
 
@@ -26,6 +28,8 @@ struct RecordManager::Impl {
     bool recording{false};
     int elapsedMs{0};
     int64_t startMs{0};
+    // Wall-clock ms of the last heartbeat written — see session/session_end.hpp.
+    int64_t lastHeartbeatMs{0};
     QString sessionPath;
     QTimer timer;
 
@@ -86,7 +90,7 @@ void RecordManager::write_session_meta() const {
             }
         }
         const QJsonObject calObj = cam.calibration.to_json();
-        cameras.append(QJsonObject{
+        QJsonObject entry{
             {"index", i},
             {"serial", cam.serialNumber},
             {"name", cam.friendlyName},
@@ -98,7 +102,19 @@ void RecordManager::write_session_meta() const {
             {"pixel_format", cam.pixelFormat},
             {"codec", d->settings.video.codec},
             {"calibration", calObj},
-        });
+        };
+        // "fps" is the rate asked for. This is what the camera said, as the
+        // recording started, it would deliver with its current settings — its own
+        // ResultingFrameRate, the lesser of the request and its limit. They
+        // differ whenever the crop or exposure caps the rate (interview mode
+        // asked 50 and ran at 36.7). Added only when the camera reported it.
+        if (d->videoMgr) {
+            const double reported = d->videoMgr->camera_max_fps(i);
+            if (reported > 0) {
+                entry.insert("camera_reported_fps", std::round(reported * 100.0) / 100.0);
+            }
+        }
+        cameras.append(entry);
     }
 
     // Microphones
@@ -150,6 +166,9 @@ void RecordManager::write_session_meta() const {
         {"session_start_utc", QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs)},
         {"session_start_elapsed_ns", elapsed_ns()},
         {"session_folder", d->sessionPath},
+        // null until stop() replaces it with the end time — a session that
+        // still says null never finished. See session/session_end.hpp.
+        {"session_end", QJsonValue::Null},
         {"cameras", cameras},
         {"microphones", mics},
         {"room", d->settings.room.to_json()},
@@ -268,6 +287,10 @@ bool RecordManager::start() {
     // 2. Write session metadata immediately so it exists even if recording fails.
     write_session_meta();
     write_session_notes();
+    // Beside the null session_end above: together they say "being recorded"
+    // rather than "never finished" to anything listing this folder meanwhile.
+    write_heartbeat(d->sessionPath, QDateTime::currentDateTimeUtc());
+    d->lastHeartbeatMs = QDateTime::currentMSecsSinceEpoch();
 
     // 3. Trigger CSV.
     if (d->settings.record.enableTrigger && d->triggerMgr) {
@@ -349,14 +372,30 @@ void RecordManager::stop() {
                  .arg(duration)
                  .arg(path));
 
+    // Only after every subsystem has stopped and finalized its files, and
+    // before recording_stopped: the session browser and health report that
+    // react to it must already see this session as finished.
+    if (!mark_session_ended(path, duration, QDateTime::currentDateTimeUtc())) {
+        log_warning(QString("[RecordManager] Could not record the end of the session in %1/"
+                            "session_meta.json — it will be listed as interrupted even though "
+                            "it stopped normally.")
+                        .arg(path));
+    }
+    remove_heartbeat(path);
+
     emit recording_stopped(path, duration);
 }
 
 // ── Timer tick ─────────────────────────────────────────────────────────────
 
 void RecordManager::tick() {
-    d->elapsedMs = static_cast<int>(QDateTime::currentMSecsSinceEpoch() - d->startMs);
+    const int64_t now = QDateTime::currentMSecsSinceEpoch();
+    d->elapsedMs      = static_cast<int>(now - d->startMs);
     emit elapsed_ms_changed(d->elapsedMs);
+    if (now - d->lastHeartbeatMs >= kHeartbeatIntervalMs) {
+        write_heartbeat(d->sessionPath, QDateTime::currentDateTimeUtc());
+        d->lastHeartbeatMs = now;
+    }
 }
 
 // ── Accessors ──────────────────────────────────────────────────────────────

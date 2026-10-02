@@ -5,11 +5,13 @@
 #include <QTimer>
 #include <QVariantList>
 #include <functional>
+#include <vector>
 
 #include "core/settings.hpp"
 #include "record/record_manager.hpp"
 #include "session/preflight.hpp"
 #include "session/session_name.hpp"
+#include "video/camera_health.hpp"
 #include "video/video_feed_provider.hpp"
 
 namespace mosaic {
@@ -29,6 +31,14 @@ class MonitorBridge : public QObject {
     // Per-camera counters: frameGens[i] increments only when camera i gets a new frame,
     // so each QML slot only reloads when its own camera produces new data.
     Q_PROPERTY(QVariantList frameGens READ frameGens NOTIFY frameGensChanged)
+    // Per-camera delivery health, one {"fps": double, "state": int} map per
+    // *configured* camera index (state = CameraHealth). Refreshed about once a
+    // second by MainWindow — see update_camera_health().
+    //
+    // Not derived from frameGens, however tempting: frameGens counts
+    // *throttled preview* frames, so a rate taken from it is a
+    // plausible-looking wrong number. This carries the grabber's real rate.
+    Q_PROPERTY(QVariantList cameraHealth READ cameraHealth NOTIFY cameraHealthChanged)
     // Seconds left before a pending recording actually starts; 0 when idle.
     Q_PROPERTY(int countdownSeconds READ countdownSeconds NOTIFY countdownSecondsChanged)
     // True from the moment Record is clicked until the recording is actually
@@ -57,6 +67,13 @@ class MonitorBridge : public QObject {
     // which takes a few seconds on real hardware; the toggle shows it and
     // refuses a second request meanwhile.
     Q_PROPERTY(bool interviewSwitching READ interviewSwitching NOTIFY interviewChanged)
+    // What the interview camera actually does, as opposed to interviewFps, the
+    // rate asked for — the badge showed "50 fps" while the camera ran at 36.7.
+    // interviewCameraMaxFps: the camera's own reported maximum for the crop it
+    // was opened with, known at once; interviewMeasuredFps: its measured rate,
+    // known a few seconds later. -1 when unknown.
+    Q_PROPERTY(double interviewCameraMaxFps READ interviewCameraMaxFps NOTIFY interviewChanged)
+    Q_PROPERTY(double interviewMeasuredFps READ interviewMeasuredFps NOTIFY interviewChanged)
 
     // ── Session identity ───────────────────────────────────────────────────
     //
@@ -97,6 +114,7 @@ class MonitorBridge : public QObject {
     [[nodiscard]] QString sessionPath() const;
     [[nodiscard]] int frameGen() const;
     [[nodiscard]] QVariantList frameGens() const;
+    [[nodiscard]] QVariantList cameraHealth() const;
     [[nodiscard]] int countdownSeconds() const;
     [[nodiscard]] bool startPending() const;
     [[nodiscard]] bool hidePreviews() const;
@@ -104,6 +122,8 @@ class MonitorBridge : public QObject {
     [[nodiscard]] int interviewCameraIndex() const;
     [[nodiscard]] double interviewFps() const;
     [[nodiscard]] bool interviewSwitching() const;
+    [[nodiscard]] double interviewCameraMaxFps() const;
+    [[nodiscard]] double interviewMeasuredFps() const;
     [[nodiscard]] QString subjectLabel() const;
     [[nodiscard]] QString sessionLabel() const;
     [[nodiscard]] QString taskLabel() const;
@@ -118,6 +138,21 @@ class MonitorBridge : public QObject {
 
     // Called by VideoSettingsW when cameras are added/removed
     void set_camera_count(int count);
+
+    // Publishes fresh per-camera delivery rates to QML.
+    //
+    // Pushed by MainWindow, which owns the VideoManager — this class holds no
+    // manager, and every other piece of live camera data reaches it the same
+    // way. `fps` and `running` are indexed by configured camera index.
+    // Classification happens here rather than at the call site so the chips
+    // and the log never disagree about what "stalled" means.
+    //
+    // During a recording, a camera *entering* Lagging or Stalled is logged
+    // once, and so is its recovery — only transitions, so a camera that stays
+    // behind for an hour costs one line, not 3600. That puts it in mosaic.log
+    // for the session, where the operator may not have been looking at the
+    // screen at the time.
+    void update_camera_health(const std::vector<double>& fps, const std::vector<bool>& running);
 
     // Called from MainWindow after the QML engine is set up
     void set_feed_provider(VideoFeedProvider* provider);
@@ -145,6 +180,10 @@ class MonitorBridge : public QObject {
 
     // Set by MainWindow around the close/reopen a switch needs.
     void set_interview_switching(bool switching);
+
+    // Set by MainWindow: the camera's reported maximum after each (re)open,
+    // and its measured rate as it arrives. -1 clears.
+    void set_interview_rates(double cameraMaxFps, double measuredFps);
 
     // Starts a recording on behalf of an external StartRecording trigger.
     //
@@ -215,6 +254,7 @@ class MonitorBridge : public QObject {
     void sessionPathChanged();
     void frameGenChanged();
     void frameGensChanged();
+    void cameraHealthChanged();
     void countdownSecondsChanged();
     void startPendingChanged();
     void hidePreviewsChanged();
@@ -280,15 +320,20 @@ class MonitorBridge : public QObject {
     QString m_sessionPath;
     VideoFeedProvider* m_feedProvider{nullptr};
     int m_frameGen{0};
-    QVariantList m_frameGens;          // per-camera generation counters
-    QTimer* m_countdownTimer{nullptr}; // repeating, 1 s; ticks the countdown down
-    int m_countdownSeconds{0};         // 0 = no countdown pending
-    bool m_startPending{false};        // click -> recording actually running
-    bool m_hidePreviews{true};         // cached mirror of the record setting
-    bool m_interviewMode{false};       // cached mirrors of VideoSettings::interview
+    QVariantList m_frameGens;               // per-camera generation counters
+    QVariantList m_cameraHealth;            // per-camera {fps, state}, see update_camera_health()
+    std::vector<CameraHealth> m_lastHealth; // previous verdicts, for transition logging
+    bool m_healthRecording{false};          // recording state at the previous tick
+    QTimer* m_countdownTimer{nullptr};      // repeating, 1 s; ticks the countdown down
+    int m_countdownSeconds{0};              // 0 = no countdown pending
+    bool m_startPending{false};             // click -> recording actually running
+    bool m_hidePreviews{true};              // cached mirror of the record setting
+    bool m_interviewMode{false};            // cached mirrors of VideoSettings::interview
     int m_interviewCameraIndex{0};
     double m_interviewFps{0.0};
     bool m_interviewSwitching{false};
+    double m_interviewCameraMaxFps{-1.0};
+    double m_interviewMeasuredFps{-1.0};
 
     QString m_subjectLabel;
     QString m_sessionLabel;
