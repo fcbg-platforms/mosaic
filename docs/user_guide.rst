@@ -19,6 +19,26 @@ Recording a session
 2. On the **Live** tab, confirm each configured camera's preview is live in
    the monitor grid, and adjust per-camera settings (exposure, gain, ROI,
    trigger mode) in the sidebar if needed.
+
+   **Check the frame-rate chips** in the header row, beside the camera count.
+   Each shows one camera's measured rate (``Cam 3  24.9``) and is coloured
+   only when that camera has fallen behind the others: amber below 70 % of
+   what the rest of the rig is managing, red below 40 %. A camera at a
+   fraction of its neighbours' rate is almost always GigE packet loss; check
+   its cable and network port *before* recording, because nothing recovers
+   those frames afterwards. Hover a chip for the explanation. A camera that
+   is not grabbing shows no chip.
+
+   The chips compare each camera against its peers, not against the
+   configured rate: the whole rig running below its configured rate together
+   is a setting to fix (the camera cards and the pre-flight check say so), not
+   one failing camera. The number is also *not* the ``coverage_pct`` in
+   ``sync_manifest.json``, which is computed after the fact against a master
+   clock and answers a different question.
+
+   While recording with previews hidden, the strip that replaces them shows
+   the same rates and colours. A camera that falls behind during a recording
+   is also written to the log, once, with its name.
 3. Fill in **Subject** above the Record button, and optionally **Session**
    and **Task**. These name the session folder in BIDS style — e.g.
    ``sub-P01_ses-pre_task-rest_run-01_20260906T143012`` — and the preview

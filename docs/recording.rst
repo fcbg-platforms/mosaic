@@ -400,9 +400,25 @@ A *real* problem looks nothing like that, and is easy to tell apart in
 ``mosaic.log``:
 
 - ``[VideoManager] Camera N: <ticks> action-command ticks fired so far but
-  only <captured> frames captured (<missing> missing) — this camera is
-  likely missing trigger broadcasts, not just corrupted frames.`` —
-  recurring every ~5s for the same camera, not a one-off.
+  only <captured> frames captured (<missing> missing); …`` — recurring every
+  ~5s for the same camera, not a one-off. ``N`` is the configured index (log
+  numbering, from 0). **Read the clause after the semicolon**: it names which
+  of two very different faults this is, by comparing the gap against the
+  camera's corrupted-frame counter since ticking started.
+
+  - *"…they never arrived at all and none were corrupted — this camera is
+    missing trigger broadcasts"* → the trigger path. Check the camera's
+    ``ActionDeviceKey``, its subnet, and the pacing margin
+    (``k_default_action_margin``).
+  - *"…N of them arrived corrupted (GigE packet loss)"* → the network. Check
+    the cable and network port, then bandwidth. Frames were captured and
+    destroyed in transit; the trigger is fine.
+  - Both can be named at once when both are material.
+
+The same fault shows live on the **Live** tab: see the frame-rate chips in
+:doc:`user_guide`. When a camera falls behind or stalls during a recording,
+``[Health] Camera N …`` (on-screen numbering, from 1) is logged once, and once
+again when it recovers.
 - ``[Camera N] <count> incomplete frame(s) in last 5 s (GigE packet loss —
   check NIC jumbo frames and switch bandwidth)`` — also recurring every ~5s.
 

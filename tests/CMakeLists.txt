@@ -46,6 +46,8 @@ add_executable(mosaic_tests
     test_dpapi_crypt.cpp
     test_analysis_manager.cpp
     test_session_health.cpp
+    test_camera_health.cpp
+    test_frame_shortfall.cpp
     test_session_name.cpp
     test_crash_safety.cpp
     test_time_axis.cpp
@@ -61,6 +63,7 @@ add_executable(mosaic_tests
     "${CMAKE_SOURCE_DIR}/src/ui/audio/speaker_palette.cpp"
     "${CMAKE_SOURCE_DIR}/src/ui/audio/spectrogram_colormap.cpp"
     "${CMAKE_SOURCE_DIR}/src/video/fps_readout.cpp"
+    "${CMAKE_SOURCE_DIR}/src/video/frame_shortfall.cpp"
     "${CMAKE_SOURCE_DIR}/src/video/gige_action_command.cpp"
     "${CMAKE_SOURCE_DIR}/src/calibration/rms_quality.cpp"
     "${CMAKE_SOURCE_DIR}/src/audio/audio_envelope.cpp"

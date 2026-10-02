@@ -15,6 +15,10 @@ Rectangle {
     readonly property int    frameGen:    typeof backend !== "undefined" ? backend.frameGen     : 0
     // Per-camera generation counters — only the relevant slot reloads its image.
     readonly property var    frameGens:   typeof backend !== "undefined" ? backend.frameGens    : []
+    // Per-camera {fps, state}, refreshed ~1 Hz by MainWindow's poll of
+    // VideoManager::camera_stats(). `state` is mosaic::CameraHealth:
+    // 0 Unknown, 1 Ok, 2 Lagging, 3 Stalled.
+    readonly property var    cameraHealth: typeof backend !== "undefined" ? backend.cameraHealth : []
     // Seconds left before recording starts; 0 when no countdown is pending.
     readonly property int    countdown:   typeof backend !== "undefined" ? backend.countdownSeconds : 0
     // True from the Record click until recording is actually live (or the
@@ -86,8 +90,11 @@ Rectangle {
 
     ColumnLayout {
         anchors.fill: parent
-        anchors.margins: 10
-        spacing: 8
+        // Tightened from 10/8. With six rows there are five gaps and two
+        // margins, so a couple of pixels off each is ~14px back to the video —
+        // free, because none of it was doing anything.
+        anchors.margins: 8
+        spacing: 6
 
         // ── Header row ─────────────────────────────────────────────────────
         RowLayout {
@@ -120,6 +127,82 @@ Rectangle {
                         : root.cameraCount + " cam" + (root.cameraCount !== 1 ? "s" : "")
                     color: root.interviewMode ? "#ddaa55" : "#6666aa"
                     font { pixelSize: 9; bold: true }
+                }
+            }
+
+            // ── Per-camera delivery health ─────────────────────────────
+            // In the header row, in space that was an empty spacer, so it
+            // costs no vertical room at all — the point of this screen is the
+            // video, and a health readout that shrank the previews to report
+            // on them would be self-defeating.
+            //
+            // Shows the measured frame rate, not a percentage. A percentage
+            // here would invite comparison with sync_manifest.json's
+            // coverage_pct, which is a different quantity computed a different
+            // way, and the same fault reads as two different numbers. See
+            // src/video/camera_health.hpp.
+            Repeater {
+                // The cameras this view is about (all of them, or the one in
+                // interview mode), by configured index.
+                model: root.liveCameras
+
+                delegate: Rectangle {
+                    id: healthChip
+
+                    required property int modelData
+
+                    readonly property var entry:
+                        (root.cameraHealth && healthChip.modelData < root.cameraHealth.length)
+                            ? root.cameraHealth[healthChip.modelData] : null
+                    // Defaults of 0 double as the "nothing known" case, which
+                    // is why the guard above can be this brief: state 0 is
+                    // CameraHealth::Unknown and hides the chip entirely.
+                    readonly property int  healthState: healthChip.entry ? healthChip.entry.state : 0
+                    readonly property real fps:         healthChip.entry ? healthChip.entry.fps   : 0
+
+                    // Nothing measured yet, or the camera is not grabbing:
+                    // stay silent rather than report a fault that isn't one.
+                    visible: healthChip.healthState !== 0
+
+                    implicitWidth: healthLabel.implicitWidth + 12
+                    height: 18
+                    radius: 9
+                    // Only ever coloured when something is actually wrong. A
+                    // healthy rig reads as a quiet row, which is what makes
+                    // amber worth looking at when it does appear.
+                    color: healthChip.healthState === 3 ? "#3a1414"
+                         : healthChip.healthState === 2 ? "#332813" : "#1a1a38"
+                    border.color: healthChip.healthState === 3 ? "#aa3333"
+                                : healthChip.healthState === 2 ? "#aa8833" : "#33335a"
+                    border.width: 1
+
+                    Label {
+                        id: healthLabel
+                        anchors.centerIn: parent
+                        // 1-based like every other camera label on screen ("Cam 3").
+                        text: "Cam " + (healthChip.modelData + 1) + "  " + healthChip.fps.toFixed(1)
+                        color: healthChip.healthState === 3 ? "#ff8888"
+                             : healthChip.healthState === 2 ? "#ffcc66" : "#6666aa"
+                        font { pixelSize: 9; bold: true }
+                    }
+
+                    ToolTip.visible: healthArea.containsMouse
+                    ToolTip.delay:   300
+                    ToolTip.text: healthChip.healthState === 3
+                        ? "Camera " + (healthChip.modelData + 1) + " is delivering far fewer frames than the " +
+                          "others (" + healthChip.fps.toFixed(1) + " fps). Usually GigE packet loss " +
+                          "— check its cable and network port before recording."
+                        : healthChip.healthState === 2
+                            ? "Camera " + (healthChip.modelData + 1) + " is behind the other cameras (" +
+                              healthChip.fps.toFixed(1) + " fps)."
+                            : "Camera " + (healthChip.modelData + 1) + ": " +
+                              healthChip.fps.toFixed(1) + " fps"
+
+                    MouseArea {
+                        id: healthArea
+                        anchors.fill: parent
+                        hoverEnabled: true
+                    }
                 }
             }
 
@@ -460,53 +543,18 @@ Rectangle {
 
     // ── Previews-hidden strip ──────────────────────────────────────────────
 
-    // Shown in the camera grid's place while previews are hidden. Deliberately
-    // reports only what can be stated honestly with the data QML already has:
-    // "camera N's frame counter is still advancing". Real capture fps is not
-    // shown — frameGens counts *throttled preview* frames, so deriving fps
-    // here would produce a plausible-looking wrong number; the Perf tab
-    // remains the place for the true per-camera rate.
+    // Shown in the camera grid's place while previews are hidden.
+    //
+    // Reads root.cameraHealth, the same source as the header-row chips, so the
+    // two can never disagree about whether a camera is delivering. This used to
+    // derive liveness in QML from frameGens deltas on its own 1 s timer and
+    // could only say "the counter is still advancing" — frameGens counts
+    // *throttled preview* frames, so a rate taken from it is a plausible-looking
+    // wrong number. cameraHealth carries the grabber's real measured rate, which
+    // is exactly what this strip wanted and could not have; the timer and the
+    // delta arithmetic are gone with it.
     component PreviewHiddenStrip : Item {
         id: stripRoot
-
-        // One entry per camera: true while its frame counter advanced during
-        // the last tick. Rebuilt wholesale by the timer below.
-        property var liveFlags: []
-        property var lastGens:  []
-
-        Timer {
-            interval: 1000
-            repeat:   true
-            running:  stripRoot.visible
-            // Prime the baseline on show, and seed every camera as live for
-            // the first tick. Optimistic on purpose: the previews were
-            // rendering a moment ago, so "delivering" is the honest prior —
-            // whereas defaulting to dead would flash every camera red for a
-            // full second at exactly the moment the operator loses the video
-            // and is watching this strip hardest. One stale-but-recently-true
-            // second beats a false alarm.
-            onRunningChanged: if (running) {
-                stripRoot.lastGens = (root.frameGens || []).slice()
-                let seed = []
-                for (let i = 0; i < root.liveCameras.length; ++i) seed.push(true)
-                stripRoot.liveFlags = seed
-            }
-            onTriggered: {
-                const now   = (root.frameGens || []).slice()
-                const prev  = stripRoot.lastGens || []
-                // One flag per entry of liveCameras, read at that camera's
-                // configured index in frameGens.
-                let flags = []
-                for (let i = 0; i < root.liveCameras.length; ++i) {
-                    const cam = root.liveCameras[i]
-                    const a = cam < now.length  ? now[cam]  : 0
-                    const b = cam < prev.length ? prev[cam] : 0
-                    flags.push(a > b)
-                }
-                stripRoot.liveFlags = flags
-                stripRoot.lastGens  = now
-            }
-        }
 
         Column {
             anchors.centerIn: parent
@@ -520,24 +568,54 @@ Rectangle {
                 font { pixelSize: 12; bold: true; letterSpacing: 1 }
             }
 
-            Flow {
+            // One row, always: the cameras are read side by side, and a Flow
+            // capped at 720 px wrapped the sixth chip onto a line of its own.
+            // When the window is too narrow for the row, it is scaled down to
+            // fit rather than wrapped — still one glance across.
+            Row {
+                id: stripRow
                 anchors.horizontalCenter: parent.horizontalCenter
-                width: Math.min(parent.width, 720)
                 spacing: 8
+                scale: implicitWidth > parent.width && implicitWidth > 0
+                       ? parent.width / implicitWidth : 1.0
+                transformOrigin: Item.Top
 
                 Repeater {
                     model: root.liveCameras
 
                     delegate: Rectangle {
-                        readonly property bool live:
-                            (stripRoot.liveFlags && index < stripRoot.liveFlags.length)
-                            ? stripRoot.liveFlags[index] : false
+                        id: stripChip
+
+                        // The camera's configured index — the model is
+                        // root.liveCameras, so in interview mode the one chip
+                        // here is Camera 3's, not position 0's.
+                        required property int modelData
+
+                        readonly property var entry:
+                            (root.cameraHealth && stripChip.modelData < root.cameraHealth.length)
+                                ? root.cameraHealth[stripChip.modelData] : null
+                        readonly property int healthState: stripChip.entry ? stripChip.entry.state : 0
+                        readonly property real fps:        stripChip.entry ? stripChip.entry.fps : 0
+                        // Ok or Lagging both mean frames are arriving, which is
+                        // what the pulse is reporting. Stalled and Unknown do not.
+                        readonly property bool live: stripChip.healthState === 1 ||
+                                                     stripChip.healthState === 2
 
                         width: chipRow.implicitWidth + 20
                         height: 26
                         radius: 13
                         color: "#131326"
-                        border.color: live ? "#2a4a38" : "#33223a"
+                        // Unknown (state 0) gets its own neutral colour rather
+                        // than falling through to the not-delivering one. It
+                        // means "no verdict available", not "dead": a rig with
+                        // a single open camera has no peers to judge it
+                        // against, and painting a perfectly healthy camera red
+                        // at the exact moment the operator loses the video is
+                        // the worst possible time to be wrong.
+                        border.color: stripChip.healthState === 3 ? "#aa3333"
+                                    : stripChip.healthState === 2 ? "#aa8833"
+                                    : stripChip.healthState === 0 ? "#2a2a4a"
+                                    : stripChip.live ? "#2a4a38" : "#33223a"
                         border.width: 1
 
                         Row {
@@ -548,7 +626,10 @@ Rectangle {
                             Rectangle {
                                 anchors.verticalCenter: parent.verticalCenter
                                 width: 7; height: 7; radius: 4
-                                color: live ? "#33cc66" : "#aa4444"
+                                color: stripChip.healthState === 3 ? "#ff5555"
+                                     : stripChip.healthState === 2 ? "#ddaa44"
+                                     : stripChip.healthState === 0 ? "#55557a"
+                                     : stripChip.live ? "#33cc66" : "#aa4444"
 
                                 // The pulse drives its own property rather than
                                 // `opacity` directly: an `Animation on opacity`
@@ -562,10 +643,10 @@ Rectangle {
                                 // binding below supplies the not-live value
                                 // anyway, so pulseT's resting value is moot.
                                 property real pulseT
-                                opacity: live ? pulseT : 1.0
+                                opacity: stripChip.live ? pulseT : 1.0
 
                                 SequentialAnimation on pulseT {
-                                    running: live
+                                    running: stripChip.live
                                     loops:   Animation.Infinite
                                     NumberAnimation { to: 0.4; duration: 700; easing.type: Easing.InOutSine }
                                     NumberAnimation { to: 1.0; duration: 700; easing.type: Easing.InOutSine }
@@ -574,8 +655,17 @@ Rectangle {
 
                             Label {
                                 anchors.verticalCenter: parent.verticalCenter
-                                text:  "Cam " + (modelData + 1)
-                                color: live ? "#88aaff" : "#886677"
+                                // The rate this strip could never show before.
+                                // While previews are hidden it is the only
+                                // number saying what the cameras are doing.
+                                text: "Cam " + (stripChip.modelData + 1) +
+                                      (stripChip.healthState === 0
+                                           ? ""
+                                           : "  —  " + stripChip.fps.toFixed(1) + " fps")
+                                color: stripChip.healthState === 3 ? "#ff8888"
+                                     : stripChip.healthState === 2 ? "#ffcc66"
+                                     : stripChip.healthState === 0 ? "#7070a0"
+                                     : stripChip.live ? "#88aaff" : "#886677"
                                 font { pixelSize: 11; bold: true }
                             }
                         }
@@ -688,15 +778,17 @@ Rectangle {
             anchors.margins: 8
             spacing: 6
 
-            Label {
-                text: "SESSION"
-                color: "#55557a"
-                font { pixelSize: 10; bold: true; letterSpacing: 2 }
-            }
-
             RowLayout {
                 Layout.fillWidth: true
                 spacing: 8
+
+                // Inline rather than on its own row: it labels the fields just
+                // as well from here and gives a whole line back to the video.
+                Label {
+                    text: "SESSION"
+                    color: "#55557a"
+                    font { pixelSize: 10; bold: true; letterSpacing: 2 }
+                }
 
                 IdentityField {
                     id: subjField
@@ -808,7 +900,10 @@ Rectangle {
 
     // ── Operator notes ─────────────────────────────────────────────────────
     component SessionNotesBox : Rectangle {
-        implicitHeight: 48
+        // 32, down from 48. Two lines of the 11px font rather than three —
+        // still enough to see what you are typing, and the box scrolls, so
+        // nothing is lost but empty space above the previews.
+        implicitHeight: 32
         color: "#09091a"
         border { color: notesInput.activeFocus ? "#4a4a90" : "#1e1e40"; width: 1 }
         radius: 4

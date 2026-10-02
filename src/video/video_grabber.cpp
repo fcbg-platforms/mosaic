@@ -68,9 +68,10 @@ struct VideoGrabber::Impl {
     // Set true only once run_pylon_loop() has actually reached Pylon's
     // StartGrabbing() call (or immediately in the stub loop, which has no
     // equivalent setup step) — NOT merely once start_grabbing() has
-    // returned, which only confirms QThread::start() scheduled the thread,
-    // not that Pylon is actually listening for triggers yet. Reset false at
-    // the start of every start_grabbing() call. See is_actually_grabbing().
+    // returned, which only confirms QThread::start() scheduled the thread.
+    // Means "the stream grabber is armed", not "frames are arriving" — it is
+    // stored before any frame has been received. Reset false at the start of
+    // every start_grabbing() call. See is_actually_grabbing().
     std::atomic<bool> actuallyGrabbing{false};
 
     // GigE Vision Action Command trigger state — see

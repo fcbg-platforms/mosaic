@@ -154,6 +154,12 @@ class VideoManager : public QObject {
     /// configured camera 2 "Cam 1" whenever an earlier camera failed to open.
     [[nodiscard]] int camera_config_index(int position) const;
 
+    /// camera_stats() for the camera at *configured* index `configIndex` — the
+    /// index QML tiles, frame_preview and apply_live_params() all use. Zeroed
+    /// (grabberRunning == false) when that camera is not open, which is the
+    /// honest answer rather than a gap.
+    [[nodiscard]] CameraStats camera_stats_for_config_index(int configIndex) const;
+
     /// The configured index of the camera open in interview mode, or -1 when
     /// the cameras were opened normally. Reflects what open() actually did,
     /// which can lag the settings: they change first, the reopen follows.

@@ -2,9 +2,12 @@
 
 #include <QDateTime>
 #include <QFile>
+#include <QVariantMap>
 #include <algorithm>
+#include <cmath>
 
 #include "utils/logger.hpp"
+#include "video/camera_label.hpp"
 
 namespace mosaic {
 
@@ -105,6 +108,7 @@ int MonitorBridge::cameraCount() const { return m_cameraCount; }
 QString MonitorBridge::sessionPath() const { return m_sessionPath; }
 int MonitorBridge::frameGen() const { return m_frameGen; }
 QVariantList MonitorBridge::frameGens() const { return m_frameGens; }
+QVariantList MonitorBridge::cameraHealth() const { return m_cameraHealth; }
 int MonitorBridge::countdownSeconds() const { return m_countdownSeconds; }
 bool MonitorBridge::startPending() const { return m_startPending; }
 bool MonitorBridge::hidePreviews() const { return m_hidePreviews; }
@@ -131,6 +135,89 @@ void MonitorBridge::set_interview_switching(bool switching) {
 void MonitorBridge::requestInterviewMode(bool on) {
     if (m_interviewSwitching || on == m_interviewMode) return;
     emit interviewModeRequested(on);
+}
+
+// ── Camera health ──────────────────────────────────────────────────────────
+
+void MonitorBridge::update_camera_health(const std::vector<double>& fps,
+                                         const std::vector<bool>& running) {
+    // Each camera is judged against the *others*, not a single shared median —
+    // see classify_cameras() for why that distinction is not cosmetic.
+    const std::vector<CameraHealth> states = classify_cameras(fps, running);
+
+    // Transitions worth a log line, only while recording: in preview the chips
+    // are the record, and a cable being reseated would otherwise fill the log.
+    const bool recording = m_rm && m_rm->is_recording();
+    // At the first tick of a recording, compare against "all fine" rather than
+    // against preview: a camera that was already behind when Record was
+    // clicked never *changes* state, and would otherwise go unlogged for the
+    // whole session — the case the log line exists for.
+    const bool recordingJustStarted = recording && !m_healthRecording;
+    m_healthRecording               = recording;
+    if (recording) {
+        for (std::size_t i = 0; i < states.size(); ++i) {
+            const CameraHealth before = recordingJustStarted      ? CameraHealth::Ok
+                                        : i < m_lastHealth.size() ? m_lastHealth[i]
+                                                                  : CameraHealth::Unknown;
+            const CameraHealth now    = states[i];
+            if (now == before) continue;
+            const QString name = camera_label(static_cast<int>(i));
+            if (now == CameraHealth::Stalled || now == CameraHealth::Lagging) {
+                // The baseline the verdict used: the *other* running cameras.
+                std::vector<double> peers;
+                for (std::size_t j = 0; j < fps.size(); ++j) {
+                    if (j != i && j < running.size() && running[j]) peers.push_back(fps[j]);
+                }
+                const double median = peer_median_fps(std::move(peers));
+                log_warning(QString("[Health] %1 is %2 (%3 fps; the other cameras ~%4 fps).")
+                                .arg(name)
+                                .arg(now == CameraHealth::Stalled
+                                         ? "delivering far fewer frames than the others"
+                                         : "falling behind the other cameras")
+                                .arg(fps[i], 0, 'f', 1)
+                                .arg(median, 0, 'f', 1));
+            } else if (before == CameraHealth::Stalled || before == CameraHealth::Lagging) {
+                if (now == CameraHealth::Ok) {
+                    log_info(QString("[Health] %1 is keeping up again (%2 fps).")
+                                 .arg(name)
+                                 .arg(fps[i], 0, 'f', 1));
+                } else {
+                    // Unknown: either its grab thread stopped — worse than
+                    // stalled, and the chip disappearing must not be the only
+                    // trace of it — or no other camera is running to compare
+                    // it with.
+                    const bool selfRunning = i < running.size() && running[i];
+                    log_warning(selfRunning
+                                    ? QString("[Health] %1 can no longer be compared: no other "
+                                              "camera is running.")
+                                          .arg(name)
+                                    : QString("[Health] %1 has stopped grabbing.").arg(name));
+                }
+            }
+        }
+    }
+    m_lastHealth = states;
+
+    QVariantList out;
+    out.reserve(static_cast<qsizetype>(fps.size()));
+    for (std::size_t i = 0; i < fps.size(); ++i) {
+        QVariantMap entry;
+        // Rounded to the one decimal the chip renders. Not cosmetic: the raw
+        // rate jitters every second, so comparing unrounded doubles below would
+        // differ on almost every tick and the republish guard would never fire.
+        entry["fps"]   = std::round(fps[i] * 10.0) / 10.0;
+        entry["state"] = static_cast<int>(states[i]);
+        out.append(entry);
+    }
+
+    // Only republish on a visible change. This runs once a second for the life
+    // of the app, and a QVariantList property change re-evaluates every binding
+    // that reads it.
+    if (out == m_cameraHealth) {
+        return;
+    }
+    m_cameraHealth = out;
+    emit cameraHealthChanged();
 }
 
 // ── Record settings mirror ─────────────────────────────────────────────────
@@ -484,9 +571,22 @@ void MonitorBridge::set_camera_count(int count) {
     if (m_cameraCount == count) return;
     m_cameraCount = count;
     m_frameGens.resize(count, 0);
+    // Rebuilt now rather than at the next poll a second from now: a removed
+    // camera must not keep a chip reporting its old rate, and a new one must
+    // not leave a hole. Real "unknown" entries, so every element is a map with
+    // the two keys QML reads.
+    QVariantList health;
+    health.reserve(count);
+    for (int i = 0; i < count; ++i) {
+        health.append(
+            QVariantMap{{"fps", 0.0}, {"state", static_cast<int>(CameraHealth::Unknown)}});
+    }
+    m_cameraHealth = health;
+    m_lastHealth.assign(static_cast<std::size_t>(std::max(0, count)), CameraHealth::Unknown);
     if (m_feedProvider) m_feedProvider->set_camera_count(count);
     emit cameraCountChanged();
     emit frameGensChanged();
+    emit cameraHealthChanged();
 }
 
 void MonitorBridge::set_feed_provider(VideoFeedProvider* provider) {
