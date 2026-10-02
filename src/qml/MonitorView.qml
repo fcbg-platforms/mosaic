@@ -28,6 +28,31 @@ Rectangle {
     // RecordSettings::hidePreviewsWhileRecording, mirrored by MonitorBridge.
     readonly property bool   hidePreviews: typeof backend !== "undefined" ? backend.hidePreviews : false
 
+    // ── Interview mode ─────────────────────────────────────────────────────
+    // One camera recorded, so one camera shown. cameraCount keeps meaning the
+    // configured count (see MonitorBridge): tiles are addressed by configured
+    // index, so interview mode picks *which* index to show instead.
+    readonly property bool   interviewMode:        typeof backend !== "undefined" ? backend.interviewMode        : false
+    readonly property int    interviewCameraIndex: typeof backend !== "undefined" ? backend.interviewCameraIndex : 0
+    readonly property real   interviewFps:         typeof backend !== "undefined" ? backend.interviewFps         : 0
+    readonly property bool   interviewSwitching:   typeof backend !== "undefined" ? backend.interviewSwitching   : false
+
+    // Configured indices of the cameras this view is about — the ones that can
+    // deliver frames. Empty while none are configured or a switch is reopening.
+    readonly property var liveCameras: {
+        if (root.interviewMode)
+            return root.interviewCameraIndex < root.cameraCount ? [root.interviewCameraIndex] : []
+        let all = []
+        for (let i = 0; i < root.cameraCount; ++i) all.push(i)
+        return all
+    }
+    // What the grid lays out: the live cameras, or one placeholder tile so the
+    // grid never collapses to nothing — labelled as the interview camera when
+    // that is what is coming back.
+    readonly property var shownCameras: root.liveCameras.length > 0
+        ? root.liveCameras
+        : [root.interviewMode ? root.interviewCameraIndex : 0]
+
     // ── Session identity ───────────────────────────────────────────────────
     // Who and what the next recording is of. Session and task are optional; a
     // subject is not — clicking Record without one opens a dialog asking for
@@ -55,7 +80,7 @@ Rectangle {
 
     // Column count for the camera grid — chosen to give the most square layout.
     readonly property int gridCols: {
-        const n = Math.max(1, root.cameraCount)
+        const n = Math.max(1, root.shownCameras.length)
         if (n === 1) return 1
         if (n <= 4) return 2
         if (n <= 6) return 3
@@ -83,20 +108,24 @@ Rectangle {
                 font { pixelSize: 10; bold: true; letterSpacing: 2 }
             }
 
-            // Camera count badge
+            // Camera count badge — in interview mode, which camera and at
+            // what rate, since that is what the operator needs to confirm.
             Rectangle {
                 visible: root.cameraCount > 0
                 width: camCountLabel.implicitWidth + 12
                 height: 18; radius: 9
-                color: "#1a1a38"
-                border.color: "#33335a"
+                color: root.interviewMode ? "#2a2110" : "#1a1a38"
+                border.color: root.interviewMode ? "#6a5220" : "#33335a"
                 border.width: 1
 
                 Label {
                     id: camCountLabel
                     anchors.centerIn: parent
-                    text: root.cameraCount + " cam" + (root.cameraCount !== 1 ? "s" : "")
-                    color: "#6666aa"
+                    text: root.interviewMode
+                        ? "Cam " + (root.interviewCameraIndex + 1) + " only · "
+                          + root.interviewFps.toFixed(0) + " fps"
+                        : root.cameraCount + " cam" + (root.cameraCount !== 1 ? "s" : "")
+                    color: root.interviewMode ? "#ddaa55" : "#6666aa"
                     font { pixelSize: 9; bold: true }
                 }
             }
@@ -113,16 +142,18 @@ Rectangle {
             // way, and the same fault reads as two different numbers. See
             // src/video/camera_health.hpp.
             Repeater {
-                model: Math.max(0, root.cameraCount)
+                // The cameras this view is about (all of them, or the one in
+                // interview mode), by configured index.
+                model: root.liveCameras
 
                 delegate: Rectangle {
                     id: healthChip
 
-                    required property int index
+                    required property int modelData
 
                     readonly property var entry:
-                        (root.cameraHealth && healthChip.index < root.cameraHealth.length)
-                            ? root.cameraHealth[healthChip.index] : null
+                        (root.cameraHealth && healthChip.modelData < root.cameraHealth.length)
+                            ? root.cameraHealth[healthChip.modelData] : null
                     // Defaults of 0 double as the "nothing known" case, which
                     // is why the guard above can be this brief: state 0 is
                     // CameraHealth::Unknown and hides the chip entirely.
@@ -149,7 +180,7 @@ Rectangle {
                         id: healthLabel
                         anchors.centerIn: parent
                         // 1-based like every other camera label on screen ("Cam 3").
-                        text: "Cam " + (healthChip.index + 1) + "  " + healthChip.fps.toFixed(1)
+                        text: "Cam " + (healthChip.modelData + 1) + "  " + healthChip.fps.toFixed(1)
                         color: healthChip.healthState === 3 ? "#ff8888"
                              : healthChip.healthState === 2 ? "#ffcc66" : "#6666aa"
                         font { pixelSize: 9; bold: true }
@@ -158,13 +189,13 @@ Rectangle {
                     ToolTip.visible: healthArea.containsMouse
                     ToolTip.delay:   300
                     ToolTip.text: healthChip.healthState === 3
-                        ? "Camera " + (healthChip.index + 1) + " is delivering far fewer frames than the " +
+                        ? "Camera " + (healthChip.modelData + 1) + " is delivering far fewer frames than the " +
                           "others (" + healthChip.fps.toFixed(1) + " fps). Usually GigE packet loss " +
                           "— check its cable and network port before recording."
                         : healthChip.healthState === 2
-                            ? "Camera " + (healthChip.index + 1) + " is behind the other cameras (" +
+                            ? "Camera " + (healthChip.modelData + 1) + " is behind the other cameras (" +
                               healthChip.fps.toFixed(1) + " fps)."
-                            : "Camera " + (healthChip.index + 1) + ": " +
+                            : "Camera " + (healthChip.modelData + 1) + ": " +
                               healthChip.fps.toFixed(1) + " fps"
 
                     MouseArea {
@@ -176,6 +207,15 @@ Rectangle {
             }
 
             Item { Layout.fillWidth: true }
+
+            Label {
+                visible: root.interviewSwitching
+                text: "reopening cameras…"
+                color: "#7878a0"
+                font { pixelSize: 10; italic: true }
+            }
+
+            ModeToggle {}
         }
 
         // ── Camera grid ────────────────────────────────────────────────────
@@ -189,13 +229,15 @@ Rectangle {
             columnSpacing: 6
 
             Repeater {
-                model: Math.max(1, root.cameraCount)
+                // Configured indices, not 0..n: in interview mode the one tile
+                // is camera 3's, and its feed URL and frame counter must say so.
+                model: root.shownCameras
 
                 delegate: CameraSlot {
                     Layout.fillWidth:  true
                     Layout.fillHeight: true
-                    cameraIndex: index
-                    hasCamera:   index < root.cameraCount
+                    cameraIndex: modelData
+                    hasCamera:   modelData < root.cameraCount
                     // Hiding the grid alone would still let the source binding
                     // re-evaluate on every frameGen tick and hit
                     // VideoFeedProvider::requestImage; this makes "hidden"
@@ -203,8 +245,8 @@ Rectangle {
                     previewActive: !root.previewsHidden
                     // Each slot tracks only its own camera's generation counter,
                     // so unrelated camera updates don't trigger a reload here.
-                    frameGen:    (root.frameGens && index < root.frameGens.length)
-                                 ? root.frameGens[index] : 0
+                    frameGen:    (root.frameGens && modelData < root.frameGens.length)
+                                 ? root.frameGens[modelData] : 0
                 }
             }
         }
@@ -532,16 +574,19 @@ Rectangle {
                 spacing: 8
 
                 Repeater {
-                    model: Math.max(0, root.cameraCount)
+                    model: root.liveCameras
 
                     delegate: Rectangle {
                         id: stripChip
 
-                        required property int index
+                        // The camera's configured index — the model is
+                        // root.liveCameras, so in interview mode the one chip
+                        // here is Camera 3's, not position 0's.
+                        required property int modelData
 
                         readonly property var entry:
-                            (root.cameraHealth && stripChip.index < root.cameraHealth.length)
-                                ? root.cameraHealth[stripChip.index] : null
+                            (root.cameraHealth && stripChip.modelData < root.cameraHealth.length)
+                                ? root.cameraHealth[stripChip.modelData] : null
                         readonly property int healthState: stripChip.entry ? stripChip.entry.state : 0
                         readonly property real fps:        stripChip.entry ? stripChip.entry.fps : 0
                         // Ok or Lagging both mean frames are arriving, which is
@@ -606,7 +651,7 @@ Rectangle {
                                 // The rate this strip could never show before.
                                 // While previews are hidden it is the only
                                 // number saying what the cameras are doing.
-                                text: "Cam " + (stripChip.index + 1) +
+                                text: "Cam " + (stripChip.modelData + 1) +
                                       (stripChip.healthState === 0
                                            ? ""
                                            : "  —  " + stripChip.fps.toFixed(1) + " fps")
@@ -627,6 +672,82 @@ Rectangle {
                 text: "No cameras configured"
                 color: "#33334a"
                 font { pixelSize: 11 }
+            }
+        }
+    }
+
+    // ── Room / Interview toggle ────────────────────────────────────────────
+    //
+    // Hand-drawn like every other control in this view (it uses no
+    // QtQuick.Controls buttons). Only *asks*: MainWindow reopens the cameras
+    // and may refuse, and the highlighted segment follows the backend's
+    // interviewMode, never the click — so a refused switch cannot leave it
+    // showing a mode that is not in effect. Locked while recording, during a
+    // pending start, and while a switch is still reopening the cameras.
+    component ModeToggle : Rectangle {
+        id: toggleRoot
+        readonly property bool locked: root.recording || root.startPending || root.interviewSwitching
+
+        implicitWidth:  segRow.implicitWidth + 6
+        implicitHeight: 22
+        radius: 11
+        color: "#12122a"
+        border { color: "#2a2a52"; width: 1 }
+        opacity: locked ? 0.55 : 1.0
+
+        HoverHandler { id: toggleHover }
+        ToolTip.visible: toggleHover.hovered
+        ToolTip.delay: 400
+        ToolTip.text: toggleRoot.locked
+            ? (root.interviewSwitching ? "Reopening the cameras…"
+                                       : "Locked while recording — switching reopens the cameras")
+            : "Room: every camera.  Interview: Cam " + (root.interviewCameraIndex + 1)
+              + " only, cropped, at " + root.interviewFps.toFixed(0)
+              + " fps (set up in Settings → Video)."
+
+        Row {
+            id: segRow
+            anchors.centerIn: parent
+            spacing: 2
+
+            Repeater {
+                model: [
+                    { label: "Room",                                              interview: false },
+                    { label: "Interview · Cam " + (root.interviewCameraIndex + 1), interview: true  }
+                ]
+
+                delegate: Rectangle {
+                    readonly property bool active: modelData.interview === root.interviewMode
+
+                    width:  segLabel.implicitWidth + 18
+                    height: 18
+                    radius: 9
+                    color: active
+                        ? (modelData.interview ? "#3a2a10" : "#1e2a50")
+                        : (segArea.containsMouse ? "#1c1c3a" : "transparent")
+                    border {
+                        color: active ? (modelData.interview ? "#aa7a22" : "#3a4a8a") : "transparent"
+                        width: 1
+                    }
+
+                    Label {
+                        id: segLabel
+                        anchors.centerIn: parent
+                        text:  modelData.label
+                        color: parent.active ? (modelData.interview ? "#ffcc66" : "#aabbff") : "#6a6a90"
+                        font { pixelSize: 10; bold: parent.active }
+                    }
+
+                    MouseArea {
+                        id: segArea
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        enabled: !toggleRoot.locked && !parent.active
+                        cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
+                        onClicked: if (typeof backend !== "undefined")
+                                       backend.requestInterviewMode(modelData.interview)
+                    }
+                }
             }
         }
     }

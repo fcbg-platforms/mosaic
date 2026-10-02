@@ -63,8 +63,21 @@ class SyncManifest {
 
     // ── Factory ───────────────────────────────────────────────────────────
     // Generate from timestamps_cam_N.csv files inside sessionPath.
-    // masterFps: the uniform output timeline rate (default 25 fps).
-    static SyncManifest generate(const QString& sessionPath, double masterFps = 25.0);
+    // masterFps: the uniform output timeline rate. 0 (the default) means
+    // "what this session was recorded at" — see default_master_fps().
+    static SyncManifest generate(const QString& sessionPath, double masterFps = 0.0);
+
+    // The master timeline rate for a session when none is given: the
+    // interview frame rate for an interview-mode session (session_meta.json's
+    // recording.mode / recording.interview_fps), 25 fps otherwise.
+    //
+    // Why not always 25: the timeline samples one frame per tick, so a 40 fps
+    // interview played or analysed on a 25 fps timeline silently skips a third
+    // of its frames — the frames the mode exists to capture. Why not the
+    // cameras' own rate in general: a whole-room session has always been 25,
+    // and changing that would re-time every existing manifest and every
+    // analysis built on one. A session with no or unreadable metadata gets 25.
+    static double default_master_fps(const QString& sessionPath);
 
     // Load existing sync_manifest.json from sessionPath.
     static SyncManifest load(const QString& sessionPath);

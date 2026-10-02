@@ -74,6 +74,26 @@ class MainWindow : public QMainWindow {
     // after RecordManager::recording_stopped fires — see build_status_bar().
     void show_session_health(const QString& sessionPath, int durationMs);
 
+    // Closes every camera and opens them again from the current settings —
+    // the one path for anything that changes which cameras are open or how
+    // (a camera added, Discover, interview mode switched or re-cropped).
+    //
+    // Never during a recording, or while one is about to start: close() ends
+    // a running recording's video while RecordManager still believes it is
+    // recording, which is what "+ Add camera" used to do mid-session. Such a
+    // request is remembered instead and carried out the moment the recording
+    // stops (or the pending start is abandoned). Requests arriving while a
+    // reopen is already in flight are coalesced into one more pass.
+    // `why` names the request in the log.
+    void reopen_cameras(const QString& why);
+
+    // Switches interview mode on or off, from the monitor's header toggle or
+    // the Video tab's checkbox. Refused while recording, while a start is
+    // pending, or while a previous switch is still reopening the cameras —
+    // and both controls are re-synced either way, so neither can keep
+    // claiming a mode that did not take effect.
+    void set_interview_mode(bool on);
+
     struct Impl;
     std::unique_ptr<Impl> d;
 };

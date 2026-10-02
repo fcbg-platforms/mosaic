@@ -14,6 +14,7 @@
 #include "utils/logger.hpp"
 #include "utils/ring_buffer.hpp"
 #include "utils/timestamp.hpp"
+#include "video/camera_label.hpp"
 #include "video/frame_shortfall.hpp"
 #include "video/gige_action_command.hpp"
 #include "video/video_encoder.hpp"
@@ -308,6 +309,24 @@ struct VideoManager::Impl {
     // handler.
     std::vector<VideoManager::RecordingCameraSnapshot> lastRecordingSnapshot;
     int64_t lastRecordingActionTicks = -1;
+
+    // ── Interview mode ────────────────────────────────────────────────────
+    // The settings object open() was given — an AppSettings member, alive for
+    // the app's lifetime. Needed by apply_live_params(), which is handed only
+    // an index but must rebuild interviewParams from the camera's own entry.
+    const VideoSettings* openedSettings{nullptr};
+    // What the interview camera's grabber is bound to while interview mode is
+    // open, null otherwise. A VideoGrabber keeps a `const CameraParameters&`
+    // for its whole lifetime (see VideoSettings::kMaxCameras), so the merged
+    // parameters cannot be a temporary; heap-held so the address survives any
+    // move of Impl's members. Reset only after the grabber bound to it is gone.
+    std::unique_ptr<CameraParameters> interviewParams;
+    int interviewIndex{-1};
+    // The interview settings open() used. Live edits rebuild interviewParams
+    // from this, not from openedSettings->interview: that can be edited and
+    // applied while a reopen is deferred, and those values must not leak into
+    // a camera still running the old crop and rate.
+    InterviewSettings openedInterview;
 };
 
 VideoManager::VideoManager(QObject* parent) : QObject(parent), d(std::make_unique<Impl>()) {}
@@ -321,6 +340,27 @@ VideoManager::~VideoManager() {
 
 int VideoManager::open(const VideoSettings& settings) {
     close();
+
+    // Interview mode opens one camera with its own crop and rate laid over
+    // that camera's configuration — see interview_camera_params(). The rest
+    // stay closed rather than open-but-idle: an idle open camera still holds
+    // its GigE link and its Pylon device, and would still be armed by
+    // start_preview().
+    d->openedSettings = &settings;
+    d->interviewIndex = settings.interview_active() ? settings.interview.cameraIndex : -1;
+    if (d->interviewIndex >= 0) {
+        d->openedInterview = settings.interview;
+        d->interviewParams = std::make_unique<CameraParameters>(interview_camera_params(
+            settings.cameras[static_cast<size_t>(d->interviewIndex)], settings.interview));
+        log_info(QString("[VideoManager] open: interview mode — %1 only, %2\xd7%3+%4+%5 @ %6 fps, "
+                         "free-running (no hardware trigger)")
+                     .arg(camera_label(d->interviewIndex))
+                     .arg(d->interviewParams->width)
+                     .arg(d->interviewParams->height)
+                     .arg(d->interviewParams->offsetX)
+                     .arg(d->interviewParams->offsetY)
+                     .arg(d->interviewParams->fps));
+    }
 
     // Guard against ambiguous camera identity: VideoGrabber attaches to a
     // device by serial number, falling back to Pylon's "first device found"
@@ -349,9 +389,21 @@ int VideoManager::open(const VideoSettings& settings) {
     d->units.reserve(settings.cameras.size());
 
     for (int i = 0; i < static_cast<int>(settings.cameras.size()); ++i) {
-        const auto& cam = settings.cameras[static_cast<size_t>(i)];
+        // `continue` rather than filtering the list: unit.configIndex must
+        // stay the camera's configured index, which names its files.
+        if (d->interviewIndex >= 0 && i != d->interviewIndex) {
+            continue;
+        }
+        const auto& cam =
+            d->interviewIndex >= 0 ? *d->interviewParams : settings.cameras[static_cast<size_t>(i)];
 
-        if (!cam.serialNumber.isEmpty() && duplicateSerials.contains(cam.serialNumber)) {
+        // A shared serial only matters when two grabbers could attach to the
+        // one device, which cannot happen with one camera opened. An empty
+        // serial still does: "first device found" is then any camera in the
+        // room, so the guard below stays as it was.
+        const bool singleCamera = d->interviewIndex >= 0;
+        if (!singleCamera && !cam.serialNumber.isEmpty() &&
+            duplicateSerials.contains(cam.serialNumber)) {
             log_error(QString("[VideoManager] open: cam %1 serial '%2' is used by more than "
                               "one configured camera — skipping to avoid two grabbers "
                               "attaching to the same physical device. Fix the serial numbers "
@@ -418,7 +470,7 @@ int VideoManager::open(const VideoSettings& settings) {
     d->cameraCount = opened;
     log_info(QString("[VideoManager] %1 of %2 camera(s) opened.")
                  .arg(opened)
-                 .arg(settings.cameras.size()));
+                 .arg(d->interviewIndex >= 0 ? 1 : static_cast<int>(settings.cameras.size())));
     return opened;
 }
 
@@ -461,6 +513,10 @@ void VideoManager::close() {
     log_info("[VideoManager] close: clearing units");
     d->units.clear();
     d->cameraCount = 0;
+    // Only now: the interview grabber held a reference to these until the
+    // units.clear() above destroyed it.
+    d->interviewParams.reset();
+    d->interviewIndex = -1;
     log_info("[VideoManager] close: done");
 }
 
@@ -508,10 +564,16 @@ void VideoManager::start(const QString& sessionDir, const QString& videoBasename
         // in d->units — those diverge as soon as any earlier camera fails
         // to open, and pairing positionally here would silently apply the
         // wrong camera's width/height/fps and write to the wrong filename.
-        const int i     = unit.configIndex;
-        const auto& cam = (i < static_cast<int>(settings.cameras.size()))
+        const int i = unit.configIndex;
+        // The parameters this camera was opened with — the interview overlay,
+        // not the room configuration, when interview mode is open. Read from
+        // what open() bound rather than re-derived from `settings`, so the
+        // encoder can never disagree with the grabber about the rate or crop.
+        const CameraParameters fallback{};
+        const auto& cam = (i == d->interviewIndex && d->interviewParams) ? *d->interviewParams
+                          : (i < static_cast<int>(settings.cameras.size()))
                               ? settings.cameras[static_cast<size_t>(i)]
-                              : CameraParameters{};
+                              : fallback;
 
         const QString suffix    = QString("_%1").arg(i);
         const QString videoPath = sessionDir + "/" + videoBasename + suffix + ".mp4";
@@ -528,9 +590,13 @@ void VideoManager::start(const QString& sessionDir, const QString& videoBasename
         cfg.preset        = settings.preset;
         cfg.bitrate       = settings.bitrate;
         cfg.crf           = settings.crf;
-        cfg.width         = cam.width;
-        cfg.height        = cam.height;
-        cfg.fps           = cam.fps;
+        // Sized from what the camera actually delivers when it was read back:
+        // a camera that adjusted the requested crop to its own step would
+        // otherwise hand the encoder frames of a different size than it was
+        // built for. See VideoGrabber::frame_width().
+        cfg.width  = unit.grabber->frame_width() > 0 ? unit.grabber->frame_width() : cam.width;
+        cfg.height = unit.grabber->frame_height() > 0 ? unit.grabber->frame_height() : cam.height;
+        cfg.fps    = cam.fps;
 
         unit.encoder = std::make_unique<VideoEncoder>(cfg, *unit.buffer);
 
@@ -631,6 +697,16 @@ void VideoManager::clear_recording_snapshot() {
 }
 
 void VideoManager::apply_live_params(int configIndex) {
+    // The interview grabber reads a merged copy, not cameras[configIndex], so
+    // an edit made on that camera's card must be merged in again before the
+    // grabber re-applies, or the card would appear to do nothing. Done here,
+    // on the GUI thread, before the grabber is told to re-read: the same
+    // ordering every other camera's live edit already relies on.
+    if (configIndex == d->interviewIndex && d->interviewParams && d->openedSettings &&
+        configIndex < static_cast<int>(d->openedSettings->cameras.size())) {
+        *d->interviewParams = interview_camera_params(
+            d->openedSettings->cameras[static_cast<size_t>(configIndex)], d->openedInterview);
+    }
     for (auto& unit : d->units) {
         if (unit.configIndex == configIndex && unit.grabber) {
             unit.grabber->apply_live_params();
@@ -839,6 +915,25 @@ VideoManager::CameraStats VideoManager::camera_stats_for_config_index(int config
         }
     }
     return {}; // configured but not open — grabberRunning stays false
+}
+
+int VideoManager::interview_camera_index() const { return d->interviewIndex; }
+
+std::optional<VideoManager::OpenedGeometry> VideoManager::opened_geometry(int configIndex) const {
+    for (const auto& unit : d->units) {
+        if (unit.configIndex == configIndex && unit.grabber) {
+            OpenedGeometry g;
+            g.width   = unit.grabber->frame_width();
+            g.height  = unit.grabber->frame_height();
+            g.offsetX = unit.grabber->frame_offset_x();
+            g.offsetY = unit.grabber->frame_offset_y();
+            if (g.width <= 0 || g.height <= 0) {
+                return std::nullopt;
+            }
+            return g;
+        }
+    }
+    return std::nullopt;
 }
 
 int VideoManager::camera_config_index(int position) const {

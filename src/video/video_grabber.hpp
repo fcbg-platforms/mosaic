@@ -136,6 +136,19 @@ class VideoGrabber : public QThread {
     // threaded through start_preview() (which doesn't take one).
     [[nodiscard]] double configured_fps() const;
 
+    // The frame size this camera actually delivers, read back from its
+    // Width/Height nodes once open() has configured them. -1 before open(), in
+    // stub builds, or when the read failed — callers fall back to the
+    // configured size. Differs from CameraParameters::width/height whenever
+    // the camera adjusted a requested ROI to its own range or step, which is
+    // why VideoManager sizes the encoder from this: an encoder told 1280 rows
+    // reading frames that have 1276 reads past the end of every frame.
+    [[nodiscard]] int frame_width() const;
+    [[nodiscard]] int frame_height() const;
+    // Same, for the ROI offsets the camera actually applied. -1 when unknown.
+    [[nodiscard]] int frame_offset_x() const;
+    [[nodiscard]] int frame_offset_y() const;
+
     // The camera's real, measured ResultingFrameRate — refreshed at open()
     // time, after every apply_live_params() call, and periodically (every
     // ~2s) while grabbing (see refresh_achievable_fps()), so it keeps

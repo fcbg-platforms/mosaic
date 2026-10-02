@@ -20,6 +20,7 @@ MonitorBridge::MonitorBridge(RecordManager* recordMgr, const VideoSettings& vide
       m_cameraCount(static_cast<int>(videoSettings.cameras.size())),
       m_hidePreviews(recordSettings.hidePreviewsWhileRecording) {
     m_frameGens.resize(m_cameraCount, 0);
+    refresh_video_settings();
 
     // Prefill from the last recording. Running one participant through several
     // tasks is the normal case, so retyping the subject every run is friction
@@ -111,6 +112,30 @@ QVariantList MonitorBridge::cameraHealth() const { return m_cameraHealth; }
 int MonitorBridge::countdownSeconds() const { return m_countdownSeconds; }
 bool MonitorBridge::startPending() const { return m_startPending; }
 bool MonitorBridge::hidePreviews() const { return m_hidePreviews; }
+bool MonitorBridge::interviewMode() const { return m_interviewMode; }
+int MonitorBridge::interviewCameraIndex() const { return m_interviewCameraIndex; }
+double MonitorBridge::interviewFps() const { return m_interviewFps; }
+bool MonitorBridge::interviewSwitching() const { return m_interviewSwitching; }
+
+// ── Video settings mirror ──────────────────────────────────────────────────
+
+void MonitorBridge::refresh_video_settings() {
+    m_interviewMode        = m_videoSettings.interview_active();
+    m_interviewCameraIndex = m_videoSettings.interview.cameraIndex;
+    m_interviewFps         = m_videoSettings.interview.fps;
+    emit interviewChanged();
+}
+
+void MonitorBridge::set_interview_switching(bool switching) {
+    if (switching == m_interviewSwitching) return;
+    m_interviewSwitching = switching;
+    emit interviewChanged();
+}
+
+void MonitorBridge::requestInterviewMode(bool on) {
+    if (m_interviewSwitching || on == m_interviewMode) return;
+    emit interviewModeRequested(on);
+}
 
 // ── Camera health ──────────────────────────────────────────────────────────
 
