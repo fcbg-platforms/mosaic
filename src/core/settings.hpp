@@ -415,6 +415,12 @@ struct RecordSettings {
     // see that every camera is delivering frames.
     bool hidePreviewsWhileRecording = true;
 
+    // Check the rig when Record is clicked — cameras open, delivering and at
+    // rate, Action1 sync, microphones present, disk space — and show anything
+    // wrong in the naming dialog with a "Record anyway" choice. See
+    // session/preflight.hpp. Never applies to trigger-started recordings.
+    bool runPreflightChecks = true;
+
     // Upper bound for startDelaySec, shared by the settings UI's spinbox and
     // MonitorBridge's clamp so the two can't disagree.
     static constexpr int kMaxStartDelaySec = 10;

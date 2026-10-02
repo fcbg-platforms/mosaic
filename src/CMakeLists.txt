@@ -197,6 +197,8 @@ qt_add_executable(mosaic MACOSX_BUNDLE
     session/session_end.hpp
     session/session_end.cpp
     session/session_health.cpp
+    session/preflight.hpp
+    session/preflight.cpp
     session/session_name.hpp
     session/session_name.cpp
     ui/session/session_browser_w.hpp

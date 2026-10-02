@@ -87,6 +87,13 @@ class RecordManager : public QObject {
     /// @returns The identity that will be applied to the next start().
     [[nodiscard]] SessionIdentity session_identity() const;
 
+    /// Pre-flight findings the operator chose to record despite (see
+    /// session/preflight.hpp). Written into the next session's
+    /// session_meta.json as "preflight_warnings" and logged, then cleared, so
+    /// a later trigger-started recording never inherits them. Empty = nothing
+    /// was overridden. Ignored while recording.
+    void set_preflight_warnings(const QStringList& warnings);
+
     /// @brief Ends the current session.
     ///
     /// Stops video → audio → triggers in reverse order, then emits

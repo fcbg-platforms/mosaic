@@ -6,6 +6,7 @@
 #include "audio/audio_manager.hpp"
 #include "core/settings.hpp"
 #include "record/record_manager.hpp"
+#include "session/preflight.hpp"
 #include "trigger/trigger_manager.hpp"
 #include "video/video_manager.hpp"
 
@@ -73,6 +74,11 @@ class MainWindow : public QMainWindow {
     // and shows it in a new, non-modal SessionHealthDialog. Called right
     // after RecordManager::recording_stopped fires — see build_status_bar().
     void show_session_health(const QString& sessionPath, int durationMs);
+
+    // Checks the rig as it is right now — cameras, sync, microphones, disk —
+    // for the pre-flight check MonitorBridge runs when Record is clicked.
+    // Gathers plain data from the managers; evaluate_preflight() decides.
+    [[nodiscard]] PreflightReport run_preflight() const;
 
     // Closes every camera and opens them again from the current settings —
     // the one path for anything that changes which cameras are open or how

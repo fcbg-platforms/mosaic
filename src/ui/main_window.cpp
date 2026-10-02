@@ -7,6 +7,7 @@
 #include <QDesktopServices>
 #include <QDir>
 #include <QFileInfo>
+#include <QHash>
 #include <QLabel>
 #include <QMenuBar>
 #include <QMessageBox>
@@ -325,6 +326,7 @@ void MainWindow::build_central_widget() {
     // Application::shutdown().
     connect(recordSettingsW, &RecordSettingsW::settings_changed, d->bridge,
             &MonitorBridge::refresh_record_settings);
+    d->bridge->set_preflight_provider([this] { return run_preflight(); });
 
     // Session-details prompt. Owned here rather than in MonitorBridge because
     // the bridge is a plain QObject with no widget parent — pulling QtWidgets
@@ -357,7 +359,7 @@ void MainWindow::build_central_widget() {
                                                rec.directory, QDateTime::currentDateTime(),
                                                rec.addTimestamp ? rec.timestampFormat : QString());
                     },
-                    this);
+                    d->bridge->last_preflight(), this);
                 if (dlg.exec() != QDialog::Accepted) {
                     return false;
                 }
@@ -916,6 +918,99 @@ void MainWindow::show_session_health(const QString& sessionPath, int durationMs)
 
     auto* dlg = new SessionHealthDialog(report, this);
     dlg->show();
+}
+
+// ── Pre-flight check ───────────────────────────────────────────────────────
+
+PreflightReport MainWindow::run_preflight() const {
+    const auto& video  = d->settings.video;
+    const auto& record = d->settings.record;
+    const auto& audio  = d->settings.audio;
+
+    PreflightInput in;
+    in.videoEnabled = record.enableVideo;
+    in.audioEnabled = record.enableAudio;
+    in.directory    = record.directory;
+
+    // Cameras: the ones this session will record — every configured camera,
+    // or only the interview camera in interview mode, whose other cameras are
+    // closed on purpose and must not read as "not open". Matched against what
+    // is open by configured index — camera_stats() and
+    // camera_action_command_ready() take a position in the *opened* list,
+    // which differs from the configured index as soon as any camera failed to
+    // open (same reconciliation as show_session_health()).
+    int openedCount = 0;
+    if (in.videoEnabled) {
+        QHash<int, int> positionOf;
+        if (d->videoMgr) {
+            for (int p = 0; p < d->videoMgr->camera_count(); ++p) {
+                positionOf.insert(d->videoMgr->camera_config_index(p), p);
+            }
+        }
+        for (const int i : video.recorded_camera_indices()) {
+            // What the camera runs with: in interview mode its own crop and
+            // rate, free-running — judging it by the room settings would
+            // report "not synchronised" for a camera that is meant not to be.
+            const CameraParameters cfg =
+                video.interview_active()
+                    ? interview_camera_params(video.cameras[static_cast<size_t>(i)],
+                                              video.interview)
+                    : video.cameras[static_cast<size_t>(i)];
+            PreflightCamera cam;
+            cam.configIndex   = i;
+            cam.configuredFps = cfg.fps;
+            cam.fixedRate     = cfg.specifyFps;
+            cam.wantsAction1  = cfg.hwTriggerEnabled && cfg.hwTriggerSource == "Action1";
+            const auto it     = positionOf.constFind(i);
+            if (it != positionOf.constEnd()) {
+                const auto stats   = d->videoMgr->camera_stats(*it);
+                cam.opened         = true;
+                cam.grabberRunning = stats.grabberRunning;
+                // Frame timestamps are on the elapsed_ns() clock, so "now" is too.
+                if (stats.lastFrameElapsedNs >= 0) {
+                    cam.lastFrameAgeSec =
+                        static_cast<double>(elapsed_ns() - stats.lastFrameElapsedNs) / 1e9;
+                }
+                cam.achievableFps = stats.achievableFps;
+                cam.configuredFps = stats.configuredFps > 0.0 ? stats.configuredFps : cfg.fps;
+                cam.action1Ready  = d->videoMgr->camera_action_command_ready(*it);
+                ++openedCount;
+            }
+            in.cameras.push_back(cam);
+        }
+    }
+
+    // Microphones: a configured device that is not present would be replaced
+    // by the default input without a word (AudioRecorder's find_device()).
+    // An empty device id *means* the default input, so it is never missing.
+    if (in.audioEnabled) {
+        in.configuredMics = static_cast<int>(audio.microphones.size());
+        QSet<QByteArray> present;
+        for (const auto& dev : AudioManager::available_inputs()) {
+            present.insert(dev.id());
+        }
+        for (const auto& mic : audio.microphones) {
+            if (!mic.deviceId.isEmpty() && !present.contains(mic.deviceId.toLatin1())) {
+                in.missingMics << (mic.friendlyName.isEmpty() ? mic.deviceId : mic.friendlyName);
+            }
+        }
+    }
+
+    // Disk: what the cameras that will actually record write, plus audio.
+    // libx264 encodes at constant quality, so its rate is not a setting — the
+    // bitrate field stands in for it and the figure is worded as rough.
+    in.freeBytes   = free_bytes_for(record.directory);
+    in.rateIsRough = in.videoEnabled && video.codec == "libx264";
+    in.bytesPerSec = estimate_recording_bytes_per_sec(in.videoEnabled ? openedCount : 0,
+                                                      video.bitrate, 0, 0, 0, audio.codec);
+    if (in.audioEnabled) {
+        for (const auto& mic : audio.microphones) {
+            in.bytesPerSec += estimate_recording_bytes_per_sec(0, 0, 1, mic.sampleRate,
+                                                               mic.channels, audio.codec);
+        }
+    }
+
+    return evaluate_preflight(in);
 }
 
 // ── Camera reopen / interview mode ─────────────────────────────────────────
