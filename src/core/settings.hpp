@@ -138,6 +138,57 @@ struct CameraParameters {
     [[nodiscard]] static std::optional<CameraParameters> from_json(const QJsonObject&);
 };
 
+// ── Interview mode ─────────────────────────────────────────────────────────
+// A session that records one camera only — the one facing the subject — at a
+// higher frame rate than a whole-room session allows.
+//
+// Only what differs from that camera's normal configuration lives here: the
+// crop, the rate, and the exposure ceiling the rate needs. Everything else
+// (serial, white balance, gain, calibration, ...) is read from
+// VideoSettings::cameras[cameraIndex], so the camera card stays the one place
+// that camera is tuned, and the room configuration is never touched — switching
+// back is lossless. See interview_camera_params().
+struct InterviewSettings {
+    bool enabled = false;
+    // Configured index of the camera to record, as in VideoSettings::cameras.
+    // 2 is "Camera 3", the one facing the subject's chair in room 11.
+    int cameraIndex = 2;
+
+    // Region of interest. A crop is what buys the frame rate: this camera
+    // reads its sensor row by row and sends 2 bytes per pixel over a
+    // gigabit link, so both the sensor readout and the link scale with the
+    // pixel count. The default is the centre 1280×720 of the 1920×1080 frame.
+    int width   = 1280;
+    int height  = 720;
+    int offsetX = 320;
+    int offsetY = 180;
+
+    double fps = 40.0;
+
+    // The auto-exposure ceiling for this mode. Must be at most 1e6/fps or the
+    // camera cannot reach `fps` in dim light — see fps_readout.hpp. 20 ms
+    // allows 50 fps; the room default (40 ms) would cap this mode at 25.
+    double exposureAutoUpperUs = 20000.0;
+
+    [[nodiscard]] QJsonObject to_json() const;
+    [[nodiscard]] static InterviewSettings from_json(const QJsonObject&);
+};
+
+/// The parameters the interview camera is opened with: `source` (that camera's
+/// normal configuration) with the interview crop, rate and exposure ceiling
+/// laid over it, and hardware triggering off.
+///
+/// Triggering is off because it exists to line several cameras up with each
+/// other; with one camera there is nothing to line up, and an Action Command
+/// ticker would only pace this camera at 85% of its own measured rate (see
+/// k_default_action_margin). Free-running at AcquisitionFrameRate is exactly
+/// what a single camera wants. Hardware timestamps are unaffected — chunk mode
+/// is configured independently of triggering.
+///
+/// Pure and QtCore-only, so mosaic_tests covers it.
+[[nodiscard]] CameraParameters interview_camera_params(const CameraParameters& source,
+                                                       const InterviewSettings& interview);
+
 // ── Video ──────────────────────────────────────────────────────────────────
 struct VideoSettings {
     /// The auto-exposure upper limit every camera shipped with before it was
@@ -191,6 +242,20 @@ struct VideoSettings {
 
     // Per-camera configurations (one entry per added camera)
     std::vector<CameraParameters> cameras;
+
+    InterviewSettings interview;
+
+    /// True when interview mode is on *and* names a configured camera. A
+    /// persisted cameraIndex can outlive the camera it pointed at (settings
+    /// copied to a rig with fewer cameras); recording "only camera 3" there
+    /// would record nothing, so an out-of-range index means the normal mode.
+    [[nodiscard]] bool interview_active() const;
+
+    /// Configured indices of the cameras a session records: just the
+    /// interview camera in interview mode, every configured camera otherwise.
+    /// What session_meta.json lists and what the health report expects to
+    /// have opened — so an interview session is not graded "5 cameras failed".
+    [[nodiscard]] std::vector<int> recorded_camera_indices() const;
 
     [[nodiscard]] QJsonObject to_json() const;
     [[nodiscard]] static std::optional<VideoSettings> from_json(const QJsonObject&);
