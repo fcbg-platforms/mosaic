@@ -224,6 +224,7 @@ void VideoSettingsW::build_interview_section(QVBoxLayout* parent) {
     d->interviewEnabled = new QCheckBox("Interview mode on");
     d->interviewStatus  = new QLabel;
     d->interviewStatus->setProperty("role", "muted");
+    d->interviewStatus->setWordWrap(true);
     toggleRow->addWidget(d->interviewEnabled);
     toggleRow->addStretch();
     toggleRow->addWidget(d->interviewStatus);
@@ -301,12 +302,18 @@ void VideoSettingsW::build_interview_section(QVBoxLayout* parent) {
         "The longest exposure auto exposure may choose in this mode. A frame cannot be "
         "exposed for longer than the gap between frames, so the higher the frame rate, "
         "the lower this must be — at the cost of a darker image in dim light.");
-    auto* upperRow           = new QHBoxLayout;
+    auto* upperRow = new QHBoxLayout;
+    upperRow->addWidget(d->interviewUpper);
+    upperRow->addStretch();
+    form->addRow("Exposure limit:", upperRow);
+    // On its own full-width line under the field, wrapping: beside the spin
+    // box it ran off the edge of the settings panel (at most 520 px wide) and
+    // could only be read by dragging the panel wider.
     d->interviewExposureHint = new QLabel;
     d->interviewExposureHint->setProperty("role", "muted");
-    upperRow->addWidget(d->interviewUpper);
-    upperRow->addWidget(d->interviewExposureHint, 1);
-    form->addRow("Exposure limit:", upperRow);
+    d->interviewExposureHint->setWordWrap(true);
+    d->interviewExposureHint->setTextFormat(Qt::RichText);
+    form->addRow(d->interviewExposureHint);
 
     lay->addLayout(form);
 

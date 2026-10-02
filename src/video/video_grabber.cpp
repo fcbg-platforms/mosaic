@@ -121,6 +121,10 @@ struct VideoGrabber::Impl {
     // warm-up has passed — it is shown as "the camera's limit for this crop"
     // straight after a change, and refined by the measured rate later.
     double openMaxFps = -1.0;
+    // Last exposure/gain logged by log_exposure_if_changed() — grab thread
+    // only (refresh_achievable_fps() runs there after open()), so plain values.
+    double loggedExposureUs = -1.0;
+    double loggedGain       = -1.0;
 
     // The camera's real ResultingFrameRate. Atomic, unlike most of Impl:
     // refresh_achievable_fps() writes it from open() on the main thread *and*
@@ -815,6 +819,37 @@ void VideoGrabber::apply_image_params() {
         }
     });
 
+    // Start auto exposure inside its limits. The limits only bound what auto
+    // exposure *chooses*; they do not move an exposure already outside them.
+    // And "Once" stops as soon as the image reaches its target brightness —
+    // so with a bright scene it stopped immediately and left the exposure
+    // where it was. Measured on room 11 (2026-10-02): limit 1000 µs, exposure
+    // stayed at 19985 µs through two reopens (costing 49 fps instead of 51.6),
+    // then dropped to 1015 µs on a third. Moving the current exposure into the
+    // limits first makes the limit hold from the first open.
+    if (d->params.exposureAuto != "Off") {
+        try_set("ExposureIntoAutoLimits", [&] {
+            CFloatParameter exposure(cam, float_node_name(cam, "ExposureTime", "ExposureTimeAbs"));
+            const double upper  = d->params.exposureAutoUpperUs;
+            const double lower  = std::min(d->params.exposureAutoLowerUs, upper);
+            const double now    = exposure.GetValue();
+            const double target = std::clamp(now, lower, upper);
+            if (target != now) {
+                // ExposureTime is writable only with auto exposure off; it is
+                // set back to the configured mode just below.
+                CEnumParameter(cam, "ExposureAuto").SetValue("Off");
+                exposure.SetValue(std::clamp(target, exposure.GetMin(), exposure.GetMax()));
+                log_info(QString("[Camera %1] Exposure %2 us was outside the auto limits "
+                                 "(%3-%4 us) — starting auto exposure from %5 us.")
+                             .arg(d->cameraIndex)
+                             .arg(now, 0, 'f', 0)
+                             .arg(lower, 0, 'f', 0)
+                             .arg(upper, 0, 'f', 0)
+                             .arg(target, 0, 'f', 0));
+            }
+        });
+    }
+
     try_set("ExposureAuto", [&] {
         CEnumParameter(cam, "ExposureAuto").SetValue(d->params.exposureAuto.toStdString().c_str());
     });
@@ -985,6 +1020,38 @@ void VideoGrabber::refresh_achievable_fps() {
         return;
     }
     d->resultingFps.store(rfps); // see achievable_fps()
+
+    // What auto exposure and auto gain actually settled on. Logged because
+    // they compensate for each other: cap the exposure and auto gain raises
+    // the gain to reach the same target brightness, so the image looks
+    // unchanged (only noisier) and an exposure limit appears to "do nothing".
+    // Only when a value moves by more than 5%, so a settled camera logs once.
+    {
+        const double exposureUs = safe_f_fallback("ExposureTime", "ExposureTimeAbs");
+        double gain             = safe_f_fallback("Gain", "GainAbs");
+        bool gainIsRaw          = false;
+        if (gain < 0.0) {
+            try {
+                gain = static_cast<double>(Pylon::CIntegerParameter(cam, "GainRaw").GetValue());
+                gainIsRaw = true;
+            } catch (...) {
+                gain = -1.0;
+            }
+        }
+        const auto moved = [](double was, double now) {
+            return now >= 0.0 && (was < 0.0 || std::abs(now - was) > 0.05 * std::max(1.0, was));
+        };
+        if (moved(d->loggedExposureUs, exposureUs) || moved(d->loggedGain, gain)) {
+            d->loggedExposureUs = exposureUs;
+            d->loggedGain       = gain;
+            log_info(QString("[Camera %1] Auto settled: exposure %2 us (limit %3 us), gain %4%5")
+                         .arg(d->cameraIndex)
+                         .arg(exposureUs, 0, 'f', 0)
+                         .arg(d->params.exposureAutoUpperUs, 0, 'f', 0)
+                         .arg(gain, 0, 'f', gainIsRaw ? 0 : 2)
+                         .arg(gainIsRaw ? " (raw)" : " dB"));
+        }
+    }
 
     // Only announce a genuine change: this runs every ~2s per camera, and a
     // stable camera's reading jitters in the third decimal place, which would
