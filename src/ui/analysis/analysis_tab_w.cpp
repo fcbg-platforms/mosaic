@@ -2485,11 +2485,17 @@ void AnalysisTabW::rebuild_session_list() {
     int selectRow = -1;
     for (int i = 0; i < d->sessions.size(); ++i) {
         const auto& s = d->sessions[i];
-        auto* item    = new QListWidgetItem(
-            QString("%1  (%2 cam, %3)").arg(s.name).arg(s.cameraCount).arg(s.format_duration()));
+        auto* item    = new QListWidgetItem(QString("%1  (%2 cam, %3)%4")
+                                                .arg(s.name)
+                                                .arg(s.cameraCount)
+                                                .arg(s.format_duration())
+                                                .arg(s.interrupted    ? "  · interrupted"
+                                                     : s.recordingNow ? "  · recording"
+                                                                      : ""));
         // The delegate elides to fit the pane, so the untruncated name has to
         // be reachable somewhere.
-        item->setToolTip(s.name);
+        item->setToolTip(s.interrupted ? s.name + "\n\n" + QString::fromUtf8(kInterruptedSessionTip)
+                                       : s.name);
         d->sessionList->addItem(item);
         if (s.path == selected) {
             selectRow = i;
