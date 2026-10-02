@@ -64,7 +64,26 @@ int64_t SyncManifest::session_start_wall_ns(const QString& sessionPath) {
 
 // ── generate ─────────────────────────────────────────────────────────────
 
+double SyncManifest::default_master_fps(const QString& sessionPath) {
+    constexpr double kRoomFps = 25.0;
+    QFile f(sessionPath + "/session_meta.json");
+    if (!f.open(QIODevice::ReadOnly)) {
+        return kRoomFps;
+    }
+    const QJsonObject rec = QJsonDocument::fromJson(f.readAll()).object()["recording"].toObject();
+    if (rec["mode"].toString() != QLatin1String("interview")) {
+        return kRoomFps;
+    }
+    const double fps = rec["interview_fps"].toDouble(0.0);
+    // A rate this code would divide by must be sane; anything else falls back
+    // rather than producing an empty or absurdly dense timeline.
+    return (fps > 0.0 && fps <= 1000.0) ? fps : kRoomFps;
+}
+
 SyncManifest SyncManifest::generate(const QString& sessionPath, double masterFps) {
+    if (!(masterFps > 0.0)) {
+        masterFps = default_master_fps(sessionPath);
+    }
     SyncManifest m;
     m.masterFps_ = masterFps;
     m.stepNs_    = static_cast<int64_t>(1e9 / masterFps + 0.5);

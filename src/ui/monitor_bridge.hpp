@@ -44,6 +44,20 @@ class MonitorBridge : public QObject {
     // to the setting without reaching into AppSettings itself.
     Q_PROPERTY(bool hidePreviews READ hidePreviews NOTIFY hidePreviewsChanged)
 
+    // ── Interview mode ─────────────────────────────────────────────────────
+    // Mirrors of VideoSettings::interview, refreshed by refresh_video_settings()
+    // after every switch. cameraCount deliberately keeps meaning "configured
+    // cameras" in interview mode too: tiles are addressed by configured index
+    // (the videofeed URL, frameGens[]), so the view picks which index to show
+    // rather than the count shrinking under it — see MonitorView.qml.
+    Q_PROPERTY(bool interviewMode READ interviewMode NOTIFY interviewChanged)
+    Q_PROPERTY(int interviewCameraIndex READ interviewCameraIndex NOTIFY interviewChanged)
+    Q_PROPERTY(double interviewFps READ interviewFps NOTIFY interviewChanged)
+    // True while the cameras are being closed and reopened for a switch,
+    // which takes a few seconds on real hardware; the toggle shows it and
+    // refuses a second request meanwhile.
+    Q_PROPERTY(bool interviewSwitching READ interviewSwitching NOTIFY interviewChanged)
+
     // ── Session identity ───────────────────────────────────────────────────
     //
     // Who and what the next recording is of. A subject is required to record by
@@ -86,6 +100,10 @@ class MonitorBridge : public QObject {
     [[nodiscard]] int countdownSeconds() const;
     [[nodiscard]] bool startPending() const;
     [[nodiscard]] bool hidePreviews() const;
+    [[nodiscard]] bool interviewMode() const;
+    [[nodiscard]] int interviewCameraIndex() const;
+    [[nodiscard]] double interviewFps() const;
+    [[nodiscard]] bool interviewSwitching() const;
     [[nodiscard]] QString subjectLabel() const;
     [[nodiscard]] QString sessionLabel() const;
     [[nodiscard]] QString taskLabel() const;
@@ -119,6 +137,14 @@ class MonitorBridge : public QObject {
     // The report behind the confirmation now being asked for (see
     // identityConfirmationNeeded). Empty when checks are off or all passed.
     [[nodiscard]] const PreflightReport& last_preflight() const;
+
+    // Re-reads VideoSettings::interview. Called by MainWindow once a mode
+    // switch has been applied (or refused), never on raw edits in the
+    // settings tab: the monitor shows the mode that is open, not one staged.
+    void refresh_video_settings();
+
+    // Set by MainWindow around the close/reopen a switch needs.
+    void set_interview_switching(bool switching);
 
     // Starts a recording on behalf of an external StartRecording trigger.
     //
@@ -174,6 +200,11 @@ class MonitorBridge : public QObject {
     // Clears subject/session/task/notes.
     Q_INVOKABLE void clearIdentity();
 
+    // The header toggle. Only asks: MainWindow owns the camera reopen and
+    // refuses while a recording runs or is about to start. Ignored while a
+    // switch is already in flight.
+    Q_INVOKABLE void requestInterviewMode(bool on);
+
     // Connected to VideoManager::frame_preview (already on main thread via queued)
     void on_frame_preview(int cameraIndex, QImage frame);
 
@@ -189,6 +220,11 @@ class MonitorBridge : public QObject {
     void hidePreviewsChanged();
     void identityChanged();
     void notesChanged();
+    void interviewChanged();
+
+    // See requestInterviewMode(). Connected queued by MainWindow, so the
+    // reopen never runs inside QML's delivery of the click that asked for it.
+    void interviewModeRequested(bool on);
 
     // This recording cannot start on what has been typed so far, or would
     // repeat a combination already on disk. Emitted *instead of* arming the
@@ -249,6 +285,10 @@ class MonitorBridge : public QObject {
     int m_countdownSeconds{0};         // 0 = no countdown pending
     bool m_startPending{false};        // click -> recording actually running
     bool m_hidePreviews{true};         // cached mirror of the record setting
+    bool m_interviewMode{false};       // cached mirrors of VideoSettings::interview
+    int m_interviewCameraIndex{0};
+    double m_interviewFps{0.0};
+    bool m_interviewSwitching{false};
 
     QString m_subjectLabel;
     QString m_sessionLabel;

@@ -60,10 +60,31 @@ RecordManager::~RecordManager() { stop(); }
 void RecordManager::write_session_meta() const {
     const QString path = d->sessionPath + "/session_meta.json";
 
-    // Cameras
+    // Cameras — the ones this session records, as they were opened. In
+    // interview mode that is one camera, with the interview crop and rate:
+    // listing the whole room would have the Analysis session list call a
+    // one-camera recording "6 cam", and would record a resolution and rate
+    // the video does not have. "index" stays the configured index, which is
+    // what every reader matches on.
+    const auto& video    = d->settings.video;
+    const bool interview = video.interview_active();
     QJsonArray cameras;
-    for (int i = 0; i < static_cast<int>(d->settings.video.cameras.size()); ++i) {
-        const auto& cam          = d->settings.video.cameras[static_cast<size_t>(i)];
+    for (const int i : video.recorded_camera_indices()) {
+        CameraParameters cam =
+            interview
+                ? interview_camera_params(video.cameras[static_cast<size_t>(i)], video.interview)
+                : video.cameras[static_cast<size_t>(i)];
+        // What the camera really delivers, when known: it rounds a requested
+        // crop to its own step and range, and the video is encoded at the
+        // read-back size (see VideoManager::start()).
+        if (d->videoMgr) {
+            if (const auto g = d->videoMgr->opened_geometry(i)) {
+                cam.width  = g->width;
+                cam.height = g->height;
+                if (g->offsetX >= 0) cam.offsetX = g->offsetX;
+                if (g->offsetY >= 0) cam.offsetY = g->offsetY;
+            }
+        }
         const QJsonObject calObj = cam.calibration.to_json();
         cameras.append(QJsonObject{
             {"index", i},
@@ -72,6 +93,8 @@ void RecordManager::write_session_meta() const {
             {"width", cam.width},
             {"height", cam.height},
             {"fps", cam.fps},
+            {"offset_x", cam.offsetX},
+            {"offset_y", cam.offsetY},
             {"pixel_format", cam.pixelFormat},
             {"codec", d->settings.video.codec},
             {"calibration", calObj},
@@ -103,6 +126,23 @@ void RecordManager::write_session_meta() const {
         ports.append(QJsonObject{{"port_address", p.portAddress}});
     }
 
+    // "room" (every configured camera) or "interview" (one camera, see
+    // InterviewSettings). Additive — absent in older sessions, which readers
+    // treat as "room". SyncManifest::default_master_fps() reads the mode and
+    // rate to put the session on a timeline at its own frame rate.
+    QJsonObject recording{
+        {"video_enabled", d->settings.record.enableVideo},
+        {"audio_enabled", d->settings.record.enableAudio},
+        {"trigger_enabled", d->settings.record.enableTrigger},
+        {"video_codec", d->settings.video.codec},
+        {"audio_codec", d->settings.audio.codec},
+        {"mode", interview ? "interview" : "room"},
+    };
+    if (interview) {
+        recording.insert("interview_camera", video.interview.cameraIndex);
+        recording.insert("interview_fps", video.interview.fps);
+    }
+
     QJsonObject root{
         {"schema", "mosaic-session-v1"},
         {"mosaic_version", QCoreApplication::applicationVersion()},
@@ -118,14 +158,7 @@ void RecordManager::write_session_meta() const {
              {"keyboard", keys},
              {"parallel_ports", ports},
          }},
-        {"recording",
-         QJsonObject{
-             {"video_enabled", d->settings.record.enableVideo},
-             {"audio_enabled", d->settings.record.enableAudio},
-             {"trigger_enabled", d->settings.record.enableTrigger},
-             {"video_codec", d->settings.video.codec},
-             {"audio_codec", d->settings.audio.codec},
-         }},
+        {"recording", recording},
     };
 
     // Added only when the operator actually labelled the recording, so an

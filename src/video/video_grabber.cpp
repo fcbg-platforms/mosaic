@@ -107,6 +107,15 @@ struct VideoGrabber::Impl {
     // run_pylon_loop() — QThread::start() establishes the happens-before edge.
     int64_t tickFreqHz = 0;
 
+    // The frame size the camera actually delivers, read back from Width/Height
+    // at the end of open() — -1 until then, or if the read failed. Same
+    // write-in-open()-before-the-thread-starts reasoning as tickFreqHz. See
+    // frame_width().
+    int frameWidth   = -1;
+    int frameHeight  = -1;
+    int frameOffsetX = -1;
+    int frameOffsetY = -1;
+
     // The camera's real ResultingFrameRate. Atomic, unlike most of Impl:
     // refresh_achievable_fps() writes it from open() on the main thread *and*
     // from the grab thread (both the post-live-apply branch and the ~2s
@@ -265,10 +274,46 @@ bool VideoGrabber::open() {
             }
         };
 
-        try_set("Width", [&] { CIntegerParameter(cam, "Width").SetValue(d->params.width); });
-        try_set("Height", [&] { CIntegerParameter(cam, "Height").SetValue(d->params.height); });
-        try_set("OffsetX", [&] { CIntegerParameter(cam, "OffsetX").SetValue(d->params.offsetX); });
-        try_set("OffsetY", [&] { CIntegerParameter(cam, "OffsetY").SetValue(d->params.offsetY); });
+        // Region of interest. Offsets go to zero first, then the size, then
+        // the offsets — not size-then-offset. A camera bounds Width by
+        // (sensor width - OffsetX), so narrowing to a crop and later widening
+        // again had the wider Width rejected against the old, still-applied
+        // offset; the camera silently kept the crop while the encoder was
+        // configured for the full frame. Interview mode switches between a
+        // crop and the full frame on every toggle, which made that the normal
+        // path rather than a corner case.
+        //
+        // Each value is clamped to the node's range and rounded down to its
+        // increment (this generation wants multiples of 4 or 8), and any
+        // adjustment is logged: a silently different crop is the same failure
+        // class as the silently ignored pixel format.
+        auto write_roi = [&](const char* name, int64_t want) {
+            try_set(name, [&] {
+                CIntegerParameter p(cam, name);
+                const int64_t lo  = p.GetMin();
+                const int64_t inc = std::max<int64_t>(1, p.GetInc());
+                int64_t v         = std::clamp(want, lo, p.GetMax());
+                v                 = lo + ((v - lo) / inc) * inc;
+                if (v != want) {
+                    log_warning(QString("[Camera %1] %2 %3 is not one this camera accepts "
+                                        "(range %4-%5, step %6); using %7.")
+                                    .arg(idx)
+                                    .arg(name)
+                                    .arg(want)
+                                    .arg(lo)
+                                    .arg(p.GetMax())
+                                    .arg(inc)
+                                    .arg(v));
+                }
+                p.SetValue(v);
+            });
+        };
+        try_set("OffsetX", [&] { CIntegerParameter(cam, "OffsetX").SetValue(0); });
+        try_set("OffsetY", [&] { CIntegerParameter(cam, "OffsetY").SetValue(0); });
+        write_roi("Width", d->params.width);
+        write_roi("Height", d->params.height);
+        write_roi("OffsetX", d->params.offsetX);
+        write_roi("OffsetY", d->params.offsetY);
         try_set("ReverseX",
                 [&] { CBooleanParameter(cam, "ReverseX").SetValue(d->params.reverseX); });
         try_set("ReverseY",
@@ -620,6 +665,29 @@ bool VideoGrabber::open() {
         const double fps = d->params.specifyFps
                                ? d->params.fps
                                : Pylon::CFloatParameter(cam, "ResultingFrameRate").GetValue();
+        d->frameWidth    = w;
+        d->frameHeight   = h;
+        try {
+            d->frameOffsetX = static_cast<int>(Pylon::CIntegerParameter(cam, "OffsetX").GetValue());
+            d->frameOffsetY = static_cast<int>(Pylon::CIntegerParameter(cam, "OffsetY").GetValue());
+        } catch (...) {
+            // Offsets are informational (session metadata); the size, which
+            // the encoder needs, was read above.
+            d->frameOffsetX = -1;
+            d->frameOffsetY = -1;
+        }
+        if (w != d->params.width || h != d->params.height) {
+            // Not fatal — VideoManager::start() sizes the encoder from what is
+            // read back here, not from the settings — but the recording will
+            // not have the dimensions the operator asked for, so say so.
+            log_warning(QString("[Camera %1] Delivers %2\xd7%3, not the configured %4\xd7%5 — "
+                                "recording at the camera's size.")
+                            .arg(d->cameraIndex)
+                            .arg(w)
+                            .arg(h)
+                            .arg(d->params.width)
+                            .arg(d->params.height));
+        }
         log_info(QString("[Camera %1] Opened: %2\xd7%3 @ %4 fps (serial: %5)")
                      .arg(d->cameraIndex)
                      .arg(w)
@@ -1365,6 +1433,10 @@ uint32_t VideoGrabber::action_device_key() const { return d->actionDeviceKey; }
 QString VideoGrabber::action_broadcast_address() const { return d->actionBroadcastAddress; }
 
 double VideoGrabber::configured_fps() const { return d->params.fps; }
+int VideoGrabber::frame_width() const { return d->frameWidth; }
+int VideoGrabber::frame_height() const { return d->frameHeight; }
+int VideoGrabber::frame_offset_x() const { return d->frameOffsetX; }
+int VideoGrabber::frame_offset_y() const { return d->frameOffsetY; }
 double VideoGrabber::achievable_fps() const { return d->resultingFps; }
 
 } // namespace mosaic

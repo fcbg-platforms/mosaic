@@ -117,6 +117,11 @@ struct MainWindow::Impl {
     QTimer* liveApplyDebounce = nullptr;
     QSet<int> pendingLiveApplyIndices;
 
+    // See reopen_cameras(). Pending: a reopen was asked for while it could not
+    // run. In flight: between close() and the deferred open() completing.
+    bool reopenPending  = false;
+    bool reopenInFlight = false;
+
     explicit Impl(AppSettings& s, const QString& user, bool admin, const QStringList& otherDirs,
                   TriggerManager* tm, AudioManager* am, VideoManager* vm, RecordManager* rm,
                   AnalysisManager* anlm)
@@ -425,36 +430,41 @@ void MainWindow::build_central_widget() {
     //      the count-0 change (delegates torn down cleanly) before open() blocks.
     //   4. open() + set_camera_count(opened) — bring up the new camera set and
     //      restore the slot count only after hardware is ready.
-    connect(videoSettingsW, &VideoSettingsW::cameras_list_changed, this, [this] {
-        if (!d->videoMgr) return;
-        log_info(QString("[Main] cameras_list_changed: hiding display (%1 → 0 cameras)")
-                     .arg(d->settings.video.cameras.size()));
-        d->bridge->set_camera_count(0);
-        log_info("[Main] cameras_list_changed: closing cameras");
-        d->videoMgr->close();
-        log_info("[Main] cameras_list_changed: close done, deferring open");
-        QTimer::singleShot(0, this, [this] {
-            log_info("[Main] cameras_list_changed: opening cameras");
-            const int opened = d->videoMgr->open(d->settings.video);
-            log_info(QString("[Main] cameras_list_changed: open done (%1 opened)").arg(opened));
-            // Size the monitor for every *configured* slot, not just the
-            // ones that opened successfully. Each VideoGrabber keeps its
-            // original config-array position as its cameraIndex (used for
-            // video_N.mp4/timestamps_camN.csv naming) even when an earlier
-            // camera in the list fails to open — so if the monitor were
-            // sized to the opened count instead, a later camera's real
-            // cameraIndex could fall outside the tile range the QML
-            // Repeater creates, silently hiding its feed behind an
-            // unrelated tile while the failed camera's rightful tile sits
-            // on an uninitialized placeholder.
-            d->bridge->set_camera_count(static_cast<int>(d->settings.video.cameras.size()));
-            if (opened > 0) {
-                d->videoMgr->start_preview();
-                log_info("[Main] cameras_list_changed: preview started");
-            }
-            log_info("[Main] cameras_list_changed: handler done");
-        });
-        log_info("[Main] cameras_list_changed: timer scheduled, outer handler returning");
+    connect(videoSettingsW, &VideoSettingsW::cameras_list_changed, this,
+            [this] { reopen_cameras("camera list changed"); });
+
+    // Interview mode: the header toggle and the Video tab's checkbox both ask,
+    // MainWindow decides. Queued from the bridge so the reopen never runs
+    // inside QML's delivery of the click that asked for it.
+    connect(
+        d->bridge, &MonitorBridge::interviewModeRequested, this,
+        [this](bool on) { set_interview_mode(on); }, Qt::QueuedConnection);
+    connect(videoSettingsW, &VideoSettingsW::interview_mode_requested, this,
+            [this](bool on) { set_interview_mode(on); });
+    // A new crop/rate/camera only needs the hardware touched if interview
+    // mode is what is open; otherwise it simply waits for the next switch.
+    connect(videoSettingsW, &VideoSettingsW::interview_settings_applied, this, [this] {
+        if (d->settings.video.interview_active() ||
+            (d->videoMgr && d->videoMgr->interview_camera_index() >= 0)) {
+            reopen_cameras("interview settings applied");
+        }
+    });
+    // A reopen deferred because Record had been clicked runs as soon as that
+    // start is abandoned — not only once a recording that never began "stops".
+    //
+    // The interview section locks from the click, not from recording_started:
+    // an Apply during the countdown would otherwise rewrite the settings that
+    // session_meta.json, the health report and the master timeline are built
+    // from, while the camera records with the old ones.
+    connect(d->bridge, &MonitorBridge::startPendingChanged, this, [this] {
+        if (d->videoSettingsW) {
+            d->videoSettingsW->set_recording_locked(d->bridge->startPending() ||
+                                                    (d->recordMgr && d->recordMgr->is_recording()));
+        }
+        if (d->reopenPending && !d->bridge->startPending() &&
+            !(d->recordMgr && d->recordMgr->is_recording())) {
+            QTimer::singleShot(0, this, [this] { reopen_cameras("deferred request"); });
+        }
     });
 
     // A single camera's own parameters changed (exposure/gain/gamma/black
@@ -699,6 +709,7 @@ void MainWindow::build_status_bar() {
                 [this](const QString& /*path*/) {
                     if (d->videoSettingsW) {
                         d->videoSettingsW->set_discover_enabled(false);
+                        d->videoSettingsW->set_recording_locked(true);
                     }
                     // A session can end without VideoManager::stop() ever
                     // running (video disabled, or no camera open), which would
@@ -718,6 +729,18 @@ void MainWindow::build_status_bar() {
                     // are genuinely no cameras open at all.
                     if (d->videoSettingsW && d->videoMgr) {
                         d->videoSettingsW->set_discover_enabled(d->videoMgr->camera_count() == 0);
+                    }
+                    if (d->videoSettingsW) {
+                        d->videoSettingsW->set_recording_locked(false);
+                    }
+                    // Deferred, not inline: Application's own handler restarts
+                    // the preview, and show_session_health() reads this
+                    // recording's snapshot — both must see the cameras that
+                    // recorded, so the reopen runs once every handler is done.
+                    if (d->reopenPending) {
+                        QTimer::singleShot(0, this, [this] {
+                            reopen_cameras("deferred until recording stopped");
+                        });
                     }
                 });
         connect(
@@ -821,8 +844,12 @@ void MainWindow::show_session_health(const QString& sessionPath, int durationMs)
     // disabled, every configured camera would otherwise be reported as
     // "not opened" and graded Poor, turning a perfectly successful
     // audio-only recording into a wall of red.
+    //
+    // Only the cameras this session was meant to record: in interview mode the
+    // other cameras are closed on purpose, and listing them as failures would
+    // grade every interview Poor.
     if (d->settings.record.enableVideo) {
-        for (int i = 0; i < static_cast<int>(configured.size()); ++i) {
+        for (const int i : d->settings.video.recorded_camera_indices()) {
             if (seen.contains(i)) {
                 continue;
             }
@@ -857,11 +884,13 @@ PreflightReport MainWindow::run_preflight() const {
     in.audioEnabled = record.enableAudio;
     in.directory    = record.directory;
 
-    // Cameras: every configured one, matched against what is open by its
-    // configured index — camera_stats() and camera_action_command_ready()
-    // take a position in the *opened* list, which differs from the configured
-    // index as soon as any camera failed to open (same reconciliation as
-    // show_session_health()).
+    // Cameras: the ones this session will record — every configured camera,
+    // or only the interview camera in interview mode, whose other cameras are
+    // closed on purpose and must not read as "not open". Matched against what
+    // is open by configured index — camera_stats() and
+    // camera_action_command_ready() take a position in the *opened* list,
+    // which differs from the configured index as soon as any camera failed to
+    // open (same reconciliation as show_session_health()).
     int openedCount = 0;
     if (in.videoEnabled) {
         QHash<int, int> positionOf;
@@ -870,8 +899,15 @@ PreflightReport MainWindow::run_preflight() const {
                 positionOf.insert(d->videoMgr->camera_config_index(p), p);
             }
         }
-        for (int i = 0; i < static_cast<int>(video.cameras.size()); ++i) {
-            const auto& cfg = video.cameras[static_cast<size_t>(i)];
+        for (const int i : video.recorded_camera_indices()) {
+            // What the camera runs with: in interview mode its own crop and
+            // rate, free-running — judging it by the room settings would
+            // report "not synchronised" for a camera that is meant not to be.
+            const CameraParameters cfg =
+                video.interview_active()
+                    ? interview_camera_params(video.cameras[static_cast<size_t>(i)],
+                                              video.interview)
+                    : video.cameras[static_cast<size_t>(i)];
             PreflightCamera cam;
             cam.configIndex   = i;
             cam.configuredFps = cfg.fps;
@@ -927,6 +963,111 @@ PreflightReport MainWindow::run_preflight() const {
     }
 
     return evaluate_preflight(in);
+}
+
+// ── Camera reopen / interview mode ─────────────────────────────────────────
+
+void MainWindow::reopen_cameras(const QString& why) {
+    if (!d->videoMgr || !d->bridge) return;
+    if (d->reopenInFlight) {
+        d->reopenPending = true; // one more pass once this one lands
+        return;
+    }
+    if ((d->recordMgr && d->recordMgr->is_recording()) || d->bridge->startPending()) {
+        d->reopenPending = true;
+        log_warning(QString("[Main] %1 — the cameras are not reopened during a recording "
+                            "(that would end its video). They will reopen when it stops.")
+                        .arg(why));
+        return;
+    }
+    d->reopenPending  = false;
+    d->reopenInFlight = true;
+    d->bridge->set_interview_switching(true);
+
+    // Sequence:
+    //   1. set_camera_count(0) — QML immediately hides every camera delegate.
+    //      This must happen BEFORE close() so the render thread never tries to
+    //      sync a scenegraph that is removing a live, actively-rendering slot.
+    //   2. close() — stops grabbers, closes Pylon devices, drains queued events.
+    //   3. singleShot(0) — gives the event loop one pass so QML can fully process
+    //      the count-0 change (delegates torn down cleanly) before open() blocks.
+    //   4. open() + set_camera_count(configured) — bring up the new camera set
+    //      and restore the slot count only after hardware is ready.
+    log_info(QString("[Main] reopen (%1): hiding display (%2 → 0 cameras)")
+                 .arg(why)
+                 .arg(d->settings.video.cameras.size()));
+    d->bridge->set_camera_count(0);
+    d->videoMgr->close();
+    QTimer::singleShot(0, this, [this, why] {
+        const int opened = d->videoMgr->open(d->settings.video);
+        log_info(QString("[Main] reopen (%1): %2 camera(s) opened").arg(why).arg(opened));
+        // Size the monitor for every *configured* slot, not just the
+        // ones that opened successfully. Each VideoGrabber keeps its
+        // original config-array position as its cameraIndex (used for
+        // video_N.mp4/timestamps_camN.csv naming) even when an earlier
+        // camera in the list fails to open — so if the monitor were
+        // sized to the opened count instead, a later camera's real
+        // cameraIndex could fall outside the tile range the QML
+        // Repeater creates, silently hiding its feed behind an
+        // unrelated tile while the failed camera's rightful tile sits
+        // on an uninitialized placeholder. Interview mode relies on the
+        // same: its one tile is addressed by its configured index.
+        d->bridge->set_camera_count(static_cast<int>(d->settings.video.cameras.size()));
+        if (opened > 0) {
+            d->videoMgr->start_preview();
+        }
+        d->bridge->refresh_video_settings();
+        d->bridge->set_interview_switching(false);
+        if (d->videoSettingsW) {
+            d->videoSettingsW->sync_interview_from_settings();
+        }
+        d->reopenInFlight = false;
+        if (d->reopenPending) {
+            QTimer::singleShot(0, this, [this] { reopen_cameras("coalesced request"); });
+        }
+    });
+}
+
+void MainWindow::set_interview_mode(bool on) {
+    auto& interview   = d->settings.video.interview;
+    const auto resync = [this] {
+        if (d->bridge) d->bridge->refresh_video_settings();
+        if (d->videoSettingsW) d->videoSettingsW->sync_interview_from_settings();
+    };
+
+    QString refusal;
+    if ((d->recordMgr && d->recordMgr->is_recording()) ||
+        (d->bridge && d->bridge->startPending())) {
+        refusal = "a recording is running or about to start";
+    } else if (d->reopenInFlight) {
+        refusal = "the cameras are still reopening from the previous change";
+    } else if (on &&
+               (interview.cameraIndex < 0 ||
+                interview.cameraIndex >= static_cast<int>(d->settings.video.cameras.size()))) {
+        refusal = QString("%1 is not a configured camera")
+                      .arg(mosaic::camera_label(interview.cameraIndex));
+    }
+    if (!refusal.isEmpty()) {
+        log_warning(QString("[Main] Interview mode not switched %1: %2.")
+                        .arg(on ? "on" : "off")
+                        .arg(refusal));
+        resync();
+        return;
+    }
+    if (interview.enabled == on && d->settings.video.interview_active() == on) {
+        resync();
+        return;
+    }
+
+    interview.enabled = on;
+    log_info(on ? QString("[Main] Interview mode on — recording %1 only, %2\xd7%3 @ %4 fps.")
+                      .arg(mosaic::camera_label(interview.cameraIndex))
+                      .arg(interview.width)
+                      .arg(interview.height)
+                      .arg(interview.fps)
+                : QString("[Main] Interview mode off — recording every camera."));
+    resync();
+    reopen_cameras(on ? "interview mode on" : "interview mode off");
 }
 
 // ── Close ──────────────────────────────────────────────────────────────────

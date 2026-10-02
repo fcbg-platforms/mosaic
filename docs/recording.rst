@@ -196,8 +196,20 @@ succeeds later.  Fields:
      "trigger_sources": {
        "keyboard":       [ { "name": "Event A", "key_seq": "F1" } ],
        "parallel_ports": [ { "port_address": "0xAEFC" } ]
+     },
+     "recording": {
+       "video_enabled": true, "audio_enabled": true, "trigger_enabled": true,
+       "video_codec": "h264_nvenc", "audio_codec": "pcm_s16le",
+       "mode": "room"
      }
    }
+
+``cameras`` lists the cameras the session *recorded*, with the parameters they
+were opened with, each under its configured ``index``. ``recording.mode`` is
+``"room"`` or ``"interview"``; an interview session also carries
+``interview_camera`` (configured index) and ``interview_fps``, and its
+``cameras`` array holds that one camera with the interview crop and rate. Older
+sessions have no ``mode`` and are room sessions. See :ref:`interview mode`.
 
 Timestamp files
 ---------------
