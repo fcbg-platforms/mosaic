@@ -128,15 +128,6 @@ struct CameraParameters {
     // camera's slice of the shared budget without touching recording at all.
     bool liveAnalysisEnabled = true;
 
-    // Delay this camera's frame transmission by (index × 5 ms) so six cameras
-    // do not all burst onto the NIC card at once (GevSCFTD, see
-    // VideoGrabber::open()). Runtime only — not persisted: false only for the
-    // single camera of interview mode, where there is nothing to stagger
-    // against. Measured on room 11 (2026-10-02): Camera 3 reported a maximum
-    // of 36.7 fps at 1280×720 and 43.6 at 1280×540 — a fixed ~10 ms per frame
-    // plus 0.024 ms per row, and 10 ms is exactly its delay (index 2 × 5 ms).
-    bool staggerTransmission = true;
-
     // Test pattern — shown in monitor when no real camera is connected
     QString testPattern = "Off"; // "Off" | "ColorBars" | "Horizontal" | "Vertical"
 
