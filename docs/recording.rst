@@ -180,7 +180,10 @@ succeeds later.  Fields:
    }
 
 ``cameras`` lists the cameras the session *recorded*, with the parameters they
-were opened with, each under its configured ``index``. ``recording.mode`` is
+were opened with, each under its configured ``index``. ``fps`` is the rate
+asked for. ``camera_reported_fps``, when present, is what the camera said at
+the start it would deliver with those settings, which is lower whenever the
+crop or exposure caps the rate. Interview mode once asked 50 and ran at 36.7. ``recording.mode`` is
 ``"room"`` or ``"interview"``; an interview session also carries
 ``interview_camera`` (configured index) and ``interview_fps``, and its
 ``cameras`` array holds that one camera with the interview crop and rate. Older

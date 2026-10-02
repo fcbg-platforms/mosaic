@@ -51,6 +51,12 @@ class VideoSettingsW : public QWidget {
     // used says so earlier than a refusal in the log.
     void set_recording_locked(bool locked);
 
+    // The interview camera's own reported maximum frame rate for the crop it
+    // was last opened with (-1 = unknown / not open). Shown at once, before
+    // any measurement, with a "Use N fps" button when the rate asked for is
+    // more than the camera can do.
+    void set_interview_camera_max_fps(double fps);
+
    signals:
     void settings_changed();
     // Fired only when cameras are added or removed (not on per-camera param changes).

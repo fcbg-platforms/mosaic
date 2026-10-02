@@ -116,6 +116,8 @@ bool MonitorBridge::interviewMode() const { return m_interviewMode; }
 int MonitorBridge::interviewCameraIndex() const { return m_interviewCameraIndex; }
 double MonitorBridge::interviewFps() const { return m_interviewFps; }
 bool MonitorBridge::interviewSwitching() const { return m_interviewSwitching; }
+double MonitorBridge::interviewCameraMaxFps() const { return m_interviewCameraMaxFps; }
+double MonitorBridge::interviewMeasuredFps() const { return m_interviewMeasuredFps; }
 
 // ── Video settings mirror ──────────────────────────────────────────────────
 
@@ -123,6 +125,17 @@ void MonitorBridge::refresh_video_settings() {
     m_interviewMode        = m_videoSettings.interview_active();
     m_interviewCameraIndex = m_videoSettings.interview.cameraIndex;
     m_interviewFps         = m_videoSettings.interview.fps;
+    emit interviewChanged();
+}
+
+void MonitorBridge::set_interview_rates(double cameraMaxFps, double measuredFps) {
+    // Rounded to what the badge shows, so a reading that jitters in the third
+    // decimal does not repaint the header every couple of seconds.
+    const double maxR  = cameraMaxFps > 0 ? std::round(cameraMaxFps * 10.0) / 10.0 : -1.0;
+    const double measR = measuredFps > 0 ? std::round(measuredFps * 10.0) / 10.0 : -1.0;
+    if (maxR == m_interviewCameraMaxFps && measR == m_interviewMeasuredFps) return;
+    m_interviewCameraMaxFps = maxR;
+    m_interviewMeasuredFps  = measR;
     emit interviewChanged();
 }
 

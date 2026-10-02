@@ -10,6 +10,7 @@
 #include <QJsonObject>
 #include <QJsonValue>
 #include <QTimer>
+#include <cmath>
 
 #include "session/session_end.hpp"
 #include "utils/logger.hpp"
@@ -86,7 +87,7 @@ void RecordManager::write_session_meta() const {
             }
         }
         const QJsonObject calObj = cam.calibration.to_json();
-        cameras.append(QJsonObject{
+        QJsonObject entry{
             {"index", i},
             {"serial", cam.serialNumber},
             {"name", cam.friendlyName},
@@ -98,7 +99,19 @@ void RecordManager::write_session_meta() const {
             {"pixel_format", cam.pixelFormat},
             {"codec", d->settings.video.codec},
             {"calibration", calObj},
-        });
+        };
+        // "fps" is the rate asked for. This is what the camera said, as the
+        // recording started, it would deliver with its current settings — its own
+        // ResultingFrameRate, the lesser of the request and its limit. They
+        // differ whenever the crop or exposure caps the rate (interview mode
+        // asked 50 and ran at 36.7). Added only when the camera reported it.
+        if (d->videoMgr) {
+            const double reported = d->videoMgr->camera_max_fps(i);
+            if (reported > 0) {
+                entry.insert("camera_reported_fps", std::round(reported * 100.0) / 100.0);
+            }
+        }
+        cameras.append(entry);
     }
 
     // Microphones

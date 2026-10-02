@@ -919,6 +919,19 @@ VideoManager::CameraStats VideoManager::camera_stats_for_config_index(int config
 
 int VideoManager::interview_camera_index() const { return d->interviewIndex; }
 
+double VideoManager::camera_max_fps(int configIndex) const {
+    for (const auto& unit : d->units) {
+        if (unit.configIndex == configIndex && unit.grabber) {
+            // The camera's current figure once it has one — refreshed while
+            // grabbing and after live edits (exposure) — else what it said at
+            // open, which is all there is straight after a reopen.
+            const double current = unit.grabber->achievable_fps();
+            return current > 0 ? current : unit.grabber->camera_max_fps();
+        }
+    }
+    return -1.0;
+}
+
 std::optional<VideoManager::OpenedGeometry> VideoManager::opened_geometry(int configIndex) const {
     for (const auto& unit : d->units) {
         if (unit.configIndex == configIndex && unit.grabber) {

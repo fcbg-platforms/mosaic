@@ -145,6 +145,13 @@ class VideoGrabber : public QThread {
     // reading frames that have 1276 reads past the end of every frame.
     [[nodiscard]] int frame_width() const;
     [[nodiscard]] int frame_height() const;
+
+    // The camera's own ResultingFrameRate read at the end of open(): the most
+    // it says it can deliver with the settings just applied (crop, exposure,
+    // transmission delay). Available immediately, unlike achievable_fps(),
+    // which waits for a warm-up; may differ from it once auto exposure
+    // settles. -1 when unavailable (stub builds, node missing).
+    [[nodiscard]] double camera_max_fps() const;
     // Same, for the ROI offsets the camera actually applied. -1 when unknown.
     [[nodiscard]] int frame_offset_x() const;
     [[nodiscard]] int frame_offset_y() const;
