@@ -111,6 +111,20 @@ TEST(RecordPersistence, HandEditedIdentityIsSanitizedOnLoad) {
     EXPECT_EQ(loaded->lastIdentity.task, "rest");
 }
 
+// ── Frame Sync Repair after each recording ─────────────────────────────────
+
+TEST(RecordPersistence, AutoSyncRepairDefaultsOnAndCanBeTurnedOff) {
+    const auto legacy = RecordSettings::from_json(legacy_record_settings());
+    ASSERT_TRUE(legacy.has_value());
+    EXPECT_TRUE(legacy->autoSyncRepair);
+
+    RecordSettings s;
+    s.autoSyncRepair  = false;
+    const auto parsed = RecordSettings::from_json(s.to_json());
+    ASSERT_TRUE(parsed.has_value());
+    EXPECT_FALSE(parsed->autoSyncRepair);
+}
+
 // ── Pre-flight checks ──────────────────────────────────────────────────────
 
 // On for anyone upgrading: the checks only ever add a dialog when something is

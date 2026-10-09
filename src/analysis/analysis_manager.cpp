@@ -1,5 +1,12 @@
 #include "analysis/analysis_manager.hpp"
 
+#if defined(Q_OS_WIN)
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h> // BELOW_NORMAL_PRIORITY_CLASS
+#endif
+
 #include <QCoreApplication>
 #include <QDir>
 #include <QFileInfo>
@@ -58,8 +65,9 @@ bool sync_manifest_is_stale(const QString& sessionPath) {
 } // namespace
 
 struct AnalysisManager::Impl {
-    bool autoAnalyze = false;
-    QString pythonPath; // empty = auto-detect
+    bool autoAnalyze  = false;
+    bool launchesHeld = false; // see set_launches_held()
+    QString pythonPath;        // empty = auto-detect
     QString model = "yolov8n-pose.pt";
     int frameSkip = 1;
 
@@ -250,10 +258,11 @@ void AnalysisManager::run_sync_repair(const QString& sessionPath, double masterF
 void AnalysisManager::enqueue_or_launch(const QString& sessionPath, const QString& scriptRelPath,
                                         const QStringList& args, const QProcessEnvironment& env) {
     const Job job{sessionPath, scriptRelPath, args, env};
-    if (is_running()) {
+    if (is_running() || d->launchesHeld) {
         d->queue.enqueue(job);
-        log_info(
-            QString("[AnalysisManager] Queued session: %1 (%2)").arg(sessionPath, scriptRelPath));
+        log_info(QString("[AnalysisManager] Queued session: %1 (%2)%3")
+                     .arg(sessionPath, scriptRelPath,
+                          d->launchesHeld ? " — starts when the recording stops" : ""));
         return;
     }
 
@@ -357,6 +366,14 @@ void AnalysisManager::launch(const QString& sessionPath, const QString& scriptRe
     }
     d->process->setProcessEnvironment(fullEnv);
 
+#if defined(Q_OS_WIN)
+    // Below-normal priority: an analysis can still be running when the next
+    // recording starts (set_launches_held() only stops *new* runs), and the
+    // capture threads must win any contention for the CPU.
+    d->process->setCreateProcessArgumentsModifier(
+        [](QProcess::CreateProcessArguments* a) { a->flags |= BELOW_NORMAL_PRIORITY_CLASS; });
+#endif
+
     connect(d->process, &QProcess::readyReadStandardOutput, this,
             &AnalysisManager::on_stdout_ready);
     connect(d->process, &QProcess::readyReadStandardError, this, &AnalysisManager::on_stderr_ready);
@@ -430,12 +447,23 @@ void AnalysisManager::on_process_finished(int exitCode, int exitStatus) {
     }
 
     // Process any queued jobs, each with the script/args that were built at
-    // enqueue time (not whatever is current now).
-    if (!d->queue.isEmpty()) {
+    // enqueue time (not whatever is current now) — unless a recording has
+    // started meanwhile, in which case they wait for it (set_launches_held()).
+    if (!d->queue.isEmpty() && !d->launchesHeld) {
         const Job job = d->queue.dequeue();
         launch(job.sessionPath, job.scriptRelPath, job.args, job.env);
     }
 }
+
+void AnalysisManager::set_launches_held(bool held) {
+    d->launchesHeld = held;
+    if (!held && !is_running() && !d->queue.isEmpty()) {
+        const Job job = d->queue.dequeue();
+        launch(job.sessionPath, job.scriptRelPath, job.args, job.env);
+    }
+}
+
+bool AnalysisManager::launches_held() const { return d->launchesHeld; }
 
 // ── Path discovery ─────────────────────────────────────────────────────────
 

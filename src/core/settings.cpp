@@ -504,6 +504,7 @@ QJsonObject RecordSettings::to_json() const {
         {"enable_trigger", enableTrigger},
         {"start_delay_sec", startDelaySec},
         {"hide_previews_while_recording", hidePreviewsWhileRecording},
+        {"auto_sync_repair", autoSyncRepair},
         {"run_preflight_checks", runPreflightChecks},
         {"last_identity", lastIdentity.to_json()},
     };
@@ -530,6 +531,8 @@ std::optional<RecordSettings> RecordSettings::from_json(const QJsonObject& o) {
     if (o.contains("hide_previews_while_recording"))
         s.hidePreviewsWhileRecording =
             o["hide_previews_while_recording"].toBool(s.hidePreviewsWhileRecording);
+    if (o.contains("auto_sync_repair"))
+        s.autoSyncRepair = o["auto_sync_repair"].toBool(s.autoSyncRepair);
     if (o.contains("run_preflight_checks"))
         s.runPreflightChecks = o["run_preflight_checks"].toBool(s.runPreflightChecks);
     // from_json re-sanitizes every label, which matters here: settings.json is
