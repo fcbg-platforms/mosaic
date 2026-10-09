@@ -2,6 +2,8 @@
 #include <QDateTime>
 #include <QJsonObject>
 #include <QString>
+#include <cstdint>
+#include <vector>
 
 namespace mosaic {
 
@@ -66,15 +68,39 @@ inline constexpr const char* kInterruptedSessionTip =
     "Its files end where that happened; the last couple of seconds may be missing, and the "
     "cameras' videos and timestamp files may end a second or two apart.";
 
+/// What one camera actually recorded, measured from the frames written to its
+/// video file (VideoManager::RecordingCameraSnapshot).
+struct RecordedCamera {
+    int index              = 0; ///< configured index, as in "cameras"[].index
+    int64_t frames         = 0;
+    int64_t firstElapsedNs = -1; ///< -1 when no frame was written
+    int64_t lastElapsedNs  = -1;
+};
+
+/// The rate a camera's video really has: frame intervals over the time from
+/// its first frame to its last, so a camera that started late or stopped
+/// early is judged on the time it was recording, not on the session's length.
+/// A gap (a camera that dropped out and came back) lowers it, as it should.
+/// -1 when it cannot be known: fewer than two frames, or no time between them.
+[[nodiscard]] double achieved_fps(int64_t frames, int64_t firstElapsedNs, int64_t lastElapsedNs);
+
 /// Records a normal stop in `sessionPath`/session_meta.json: sets
 /// "session_end" to {"utc", "duration_ms", "ended_cleanly": true}, keeping
 /// every other field as it was.
+///
+/// Each of `cameras` is added to the "cameras" entry with the same index as
+/// "frames_recorded", "recorded_seconds" (first frame to last) and
+/// "achieved_fps" (see achieved_fps(); left out when unknown). "fps" says what
+/// was asked for and "camera_reported_fps" what the camera promised at the
+/// start; this is what the video holds. A configured camera with no entry
+/// (never opened) gets none of these keys.
 ///
 /// Written through QSaveFile, so the file is either the old one or the new
 /// one — a crash or full disk partway through can never leave a truncated
 /// session_meta.json, which would lose the session's identity and camera list
 /// along with the end marker. Returns false (and leaves the file untouched) if
 /// it cannot be read, parsed or replaced.
-bool mark_session_ended(const QString& sessionPath, qint64 durationMs, const QDateTime& endUtc);
+bool mark_session_ended(const QString& sessionPath, qint64 durationMs, const QDateTime& endUtc,
+                        const std::vector<RecordedCamera>& cameras = {});
 
 } // namespace mosaic

@@ -194,7 +194,7 @@ html_theme_options = {
         "image_light": "_static/logo-light.svg",
         "image_dark": "_static/logo-dark.svg",
         "text": "MOSAIC",
-        "alt_text": "MOSAIC — Multi-camera Observatory for Social & Activity Interaction Capture",
+        "alt_text": "MOSAIC: Multi-camera Observatory for Social & Activity Interaction Capture",
     },
     "navbar_align": "left",
     "show_nav_level": 2,

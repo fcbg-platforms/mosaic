@@ -102,6 +102,20 @@ TEST(Preflight, ACameraWhoseFramesStoppedFails) {
     EXPECT_FALSE(evaluate_preflight(in).needs_attention());
 }
 
+// A camera being reconnected has no fresh frame either, but "stopped
+// delivering ... its video would stop there" is no longer true: it resumes
+// into the same video once it is back. Say what is actually happening.
+TEST(Preflight, ACameraThatDroppedOutSaysItIsReconnecting) {
+    PreflightInput in             = healthy_rig();
+    in.cameras[2].reconnecting    = true;
+    in.cameras[2].lastFrameAgeSec = -1.0; // preview restarted while it was away
+    const PreflightReport r       = evaluate_preflight(in);
+    EXPECT_EQ(r.worst(), PreflightLevel::Fail);
+    EXPECT_TRUE(has_title(r, "Camera 3 has dropped out"));
+    EXPECT_FALSE(has_title(r, "Camera 3 is not delivering frames"));
+    EXPECT_TRUE(has_title(r, "5 cameras ready"));
+}
+
 // Without a pinned rate the camera runs as fast as it can, and the fps field
 // is unused — it must not produce a warning on every click.
 TEST(Preflight, ACameraWithoutAFixedRateIsNeverBelowIt) {

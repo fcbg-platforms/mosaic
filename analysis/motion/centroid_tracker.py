@@ -387,7 +387,7 @@ def draw_tracks(
     Parameters
     ----------
     frame : numpy.ndarray
-        BGR frame; not modified — a copy is drawn on and returned.
+        BGR frame; not modified. A copy is drawn on and returned.
     tracks : list of Track
         Tracks to draw, e.g. from :meth:`CentroidTracker.update`.
     trail_length : int, default 30

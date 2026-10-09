@@ -6,16 +6,16 @@ C++ API Reference
    :depth: 2
 
 MOSAIC's C++ layer owns the UI, hardware I/O (cameras, microphones, trigger
-lines), and orchestration — starting/stopping recordings, launching Python
-analysis subprocesses, and rendering results. The heavy lifting for machine
+lines), and orchestration (starting/stopping recordings, launching Python
+analysis subprocesses, and rendering results). The heavy lifting for machine
 learning and signal processing lives in the separate ``analysis/`` Python
 project (see :doc:`analysis_api`) instead. The bridge between the two is a
-small family of **result classes** — plain C++ structures that parse the
+small family of **result classes**: plain C++ structures that parse the
 JSON a Python plugin wrote and expose it to Qt for drawing overlays and
 charts; see :ref:`cpp-api-results` below.
 
 This page is a curated, hand-grouped tour of the classes you're actually
-likely to want — organized by subsystem, each with a one-sentence
+likely to want, organized by subsystem, each with a one-sentence
 description. For the full, alphabetical, auto-generated listing of every
 documented class, struct, function, and file (useful for exhaustive
 browsing or following a specific cross-reference), see
@@ -74,7 +74,7 @@ browsing or following a specific cross-reference), see
       :link: cpp-api-results
       :link-type: ref
 
-      The Python ↔ C++ bridge — one loader class per analysis plugin's
+      The Python ↔ C++ bridge: one loader class per analysis plugin's
       JSON output.
 
 .. _cpp-api-core:
@@ -89,7 +89,7 @@ Core & Application
    * - Class
      - What it does
    * - :cpp:class:`mosaic::Application`
-     - Top-level application object — owns and wires together every
+     - Top-level application object. Owns and wires together every
        subsystem manager (video, audio, trigger, record, analysis) at
        startup.
    * - :cpp:class:`mosaic::ProfileManager`
@@ -110,7 +110,7 @@ Recording
    * - Class
      - What it does
    * - :cpp:class:`mosaic::RecordManager`
-     - Central coordinator for a recording session — creates the session
+     - Central coordinator for a recording session. Creates the session
        folder, writes ``session_meta.json`` immediately on start, and
        starts/stops the trigger, audio, and video pipelines in the
        correct order. See :doc:`recording`.
@@ -145,8 +145,8 @@ Video
        stub when no camera hardware is enabled) and pushes them into a
        shared ring buffer.
    * - :cpp:class:`mosaic::VideoEncoder`
-     - Consumes frames from a ring buffer and encodes them to an MP4 file
-       — NVENC, VideoToolbox, or a ``libx264`` software fallback depending
+     - Consumes frames from a ring buffer and encodes them to an MP4 file:
+       NVENC, VideoToolbox, or a ``libx264`` software fallback depending
        on what's available at compile time.
    * - :cpp:class:`mosaic::VideoFeedProvider`
      - ``QQuickImageProvider`` that serves the latest live camera frame to
@@ -192,7 +192,7 @@ Calibration & Room
        pipeline using OpenCV. See :doc:`calibration`.
    * - :cpp:class:`mosaic::RoomCalibrationManager`
      - Solves multi-camera extrinsic ("room") calibration from a shared
-       ChArUco board seen by several cameras at once — see
+       ChArUco board seen by several cameras at once; see
        :doc:`math/room_calibration` for the underlying pose-graph math.
 
 .. _cpp-api-trigger:
@@ -207,7 +207,7 @@ Trigger & Sync
    * - Class
      - What it does
    * - :cpp:class:`mosaic::TriggerManager`
-     - Central trigger coordinator — aggregates events from every
+     - Central trigger coordinator. Aggregates events from every
        configured trigger source and logs them.
    * - :cpp:class:`mosaic::TriggerRecorder`
      - Writes :cpp:struct:`~mosaic::TriggerEvent`\ s to ``trigger.csv``
@@ -255,7 +255,7 @@ Analysis orchestration
 
 .. _cpp-api-results:
 
-Analysis result types — the Python ↔ C++ bridge
+Analysis result types: the Python ↔ C++ bridge
 -----------------------------------------------------
 
 Every post-hoc Analysis-tab plugin follows the same shape: a Python script
@@ -305,8 +305,8 @@ Full generated API index
 -----------------------------
 
 The curated tour above covers the classes you're most likely to look for.
-For everything else — every documented function, struct, enum, and
-header, browsable alphabetically or by file — see the full
+For everything else (every documented function, struct, enum, and
+header, browsable alphabetically or by file), see the full
 Doxygen/Breathe/Exhale-generated reference:
 
 .. grid:: 1
@@ -318,7 +318,7 @@ Doxygen/Breathe/Exhale-generated reference:
 
       Every documented C++ entity in ``src/`` (excluding the Qt/QML UI
       layer), auto-generated from source on every build. Regenerates from
-      scratch each time — never hand-edited.
+      scratch each time and is never hand-edited.
 
 .. toctree::
    :hidden:

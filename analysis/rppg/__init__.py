@@ -1,6 +1,6 @@
 """Face-ROI extraction, classical signal-combination algorithms (Green/
 CHROM/POS), and Welch-periodogram heart-rate estimation for MOSAIC's
-Remote Heart Rate (rPPG) analysis plugin — EXPERIMENTAL, research-grade
+Remote Heart Rate (rPPG) analysis plugin. EXPERIMENTAL, research-grade
 only, not a medical device."""
 
 from .algorithms import BACKENDS, chrom_signal, green_signal, normalize_channels, pos_signal

@@ -236,3 +236,60 @@ TEST(CrashSafety, MarkingRefusesAnUnreadableMetaAndLeavesItAlone) {
     EXPECT_FALSE(mark_session_ended(dir.path(), 1, QDateTime::currentDateTimeUtc()));
     EXPECT_EQ(read_all(path), QByteArray("{ not json"));
 }
+
+// ── What each camera achieved ───────────────────────────────────────────────
+
+TEST(AchievedFps, IsFrameIntervalsOverTheTimeBetweenFirstAndLastFrame) {
+    // 21 frames, 20 intervals, over 1 s: 20 fps, not 21.
+    EXPECT_DOUBLE_EQ(achieved_fps(21, 5'000'000'000, 6'000'000'000), 20.0);
+    // 1501 frames over 60 s at the rig's ~25 fps.
+    EXPECT_DOUBLE_EQ(achieved_fps(1501, 0, 60'000'000'000), 25.0);
+}
+
+TEST(AchievedFps, IsUnknownWithoutTwoFramesOrAnySpan) {
+    EXPECT_LT(achieved_fps(0, -1, -1), 0.0);
+    EXPECT_LT(achieved_fps(1, 100, 100), 0.0);
+    EXPECT_LT(achieved_fps(5, 100, 100), 0.0); // no time between them
+    EXPECT_LT(achieved_fps(5, -1, 100), 0.0);  // no first frame time
+}
+
+TEST(CrashSafety, MarkingAddsWhatEachCameraRecordedToItsEntry) {
+    QTemporaryDir dir;
+    ASSERT_TRUE(dir.isValid());
+    QJsonArray cams;
+    for (const int i : {0, 2, 5}) {
+        cams.append(QJsonObject{{"index", i}, {"fps", 25.0}, {"serial", QString("S%1").arg(i)}});
+    }
+    write_json(dir.filePath("session_meta.json"), QJsonObject{{"cameras", cams}});
+
+    // Camera 3 (index 2) ran slow; camera 6 (index 5) wrote a single frame;
+    // camera 1 (index 0) is fine. Index 4 is not in the file and is ignored.
+    const std::vector<RecordedCamera> recorded{
+        {0, 1501, 1'000'000'000, 61'000'000'000},
+        {2, 601, 1'000'000'000, 61'000'000'000},
+        {5, 1, 2'000'000'000, 2'000'000'000},
+        {4, 99, 0, 1'000'000'000},
+    };
+    ASSERT_TRUE(mark_session_ended(dir.path(), 60'000, QDateTime::currentDateTimeUtc(), recorded));
+
+    const QJsonArray after = read_json(dir.filePath("session_meta.json"))["cameras"].toArray();
+    ASSERT_EQ(after.size(), 3);
+    const QJsonObject c0 = after[0].toObject();
+    EXPECT_EQ(c0["frames_recorded"].toInteger(), 1501);
+    EXPECT_DOUBLE_EQ(c0["achieved_fps"].toDouble(), 25.0);
+    EXPECT_DOUBLE_EQ(c0["recorded_seconds"].toDouble(), 60.0);
+    EXPECT_EQ(c0["serial"].toString(), "S0"); // the rest of the entry is kept
+    EXPECT_DOUBLE_EQ(after[1].toObject()["achieved_fps"].toDouble(), 10.0);
+    const QJsonObject c5 = after[2].toObject();
+    EXPECT_EQ(c5["frames_recorded"].toInteger(), 1);
+    EXPECT_FALSE(c5.contains("achieved_fps")); // unknown is left out, not 0
+}
+
+TEST(CrashSafety, MarkingWithoutCameraResultsLeavesTheEntriesAlone) {
+    QTemporaryDir dir;
+    ASSERT_TRUE(dir.isValid());
+    const QJsonObject start{{"cameras", QJsonArray{QJsonObject{{"index", 0}, {"fps", 25.0}}}}};
+    write_json(dir.filePath("session_meta.json"), start);
+    ASSERT_TRUE(mark_session_ended(dir.path(), 1, QDateTime::currentDateTimeUtc()));
+    EXPECT_EQ(read_json(dir.filePath("session_meta.json"))["cameras"], start["cameras"]);
+}

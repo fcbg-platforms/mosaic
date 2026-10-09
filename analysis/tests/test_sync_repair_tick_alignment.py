@@ -15,6 +15,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from sync_repair.tick_alignment import (
     TickCamera,
     build_tick_plan,
+    clock_segments,
     gap_ranges,
     subtract_exposure,
 )
@@ -417,3 +418,106 @@ def test_exposure_is_used_only_when_every_camera_reports_it():
     patchy.exposure_ns[:10] = 0
     _, used = subtract_exposure([with_exp, patchy])
     assert not used
+
+
+# ── Cameras that drop out and come back ──────────────────────────────────────
+
+
+def _reconnected_camera(index, tick_times, before, after, *, clock_restarts, jitter=None):
+    """A camera that answered the ticks in `before`, dropped out, and answered
+    the ticks in `after` once reconnected. frame_id keeps counting across the
+    gap (the grabber reopens in place). With `clock_restarts`, its hardware
+    clock starts again from near zero, as when the camera lost power."""
+    a = _camera(index, tick_times, before, jitter=jitter)
+    b = _camera(index, tick_times, after, jitter=jitter, seed=99)
+    if clock_restarts:
+        b.hw_ns = b.hw_ns - b.hw_ns[0] + 5_000_000  # 5 ms after boot
+    return TickCamera(
+        index=index,
+        frame_ids=np.arange(1, len(before) + len(after) + 1, dtype=np.int64),
+        elapsed_ns=np.concatenate((a.elapsed_ns, b.elapsed_ns)),
+        hw_ns=np.concatenate((a.hw_ns, b.hw_ns)),
+    )
+
+
+def test_clock_segments_split_where_the_camera_clock_restarts_or_jumps():
+    host = np.arange(10, dtype=np.int64) * PERIOD
+    hw = host + 3_000_000_000
+    assert clock_segments(hw, host).tolist() == [0] * 10
+    restarted = hw.copy()
+    restarted[6:] = host[6:] - host[6] + 1_000  # back to near zero
+    assert clock_segments(restarted, host).tolist() == [0] * 6 + [1] * 4
+    jumped = hw.copy()
+    jumped[3:] += 60_000_000_000  # a minute ahead of the host
+    assert clock_segments(jumped, host).tolist() == [0] * 3 + [1] * 7
+
+
+def test_a_reconnected_camera_whose_clock_restarted_lands_on_the_right_ticks():
+    # Unplugged at tick 150, back at tick 300, its clock restarted from zero.
+    # One line through both stretches would place every frame after the gap
+    # hundreds of ticks off (or before the start of the recording).
+    ticks = _ticks(500)
+    back = list(range(150)) + list(range(300, 500))
+    cams = [_camera(0, ticks, range(500), jitter=3_000_000)]
+    cams.append(
+        _reconnected_camera(
+            1, ticks, range(150), range(300, 500), clock_restarts=True, jitter=3_000_000
+        )
+    )
+    plan = build_tick_plan(ticks, cams)
+    assert plan.total_ticks == 500
+    assert _real_ticks(plan, 1) == back
+    assert gap_ranges(plan.cameras[1].missing) == [(150, 299)]
+    assert plan.cameras[1].method == "trigger_ticks:hw_timestamp"
+    assert not plan.cameras[1].uncertain
+    assert not plan.cameras[0].missing.any()
+
+
+def test_a_reconnected_camera_whose_clock_kept_running_needs_no_split():
+    ticks = _ticks(500)
+    cams = [
+        _camera(0, ticks, range(500)),
+        _reconnected_camera(1, ticks, range(150), range(300, 500), clock_restarts=False),
+    ]
+    plan = build_tick_plan(ticks, cams)
+    assert gap_ranges(plan.cameras[1].missing) == [(150, 299)]
+    assert _real_ticks(plan, 1) == list(range(150)) + list(range(300, 500))
+
+
+def test_a_single_frame_between_two_clock_restarts_is_placed_by_arrival():
+    # A camera that came back, delivered one frame, and dropped again: that
+    # frame's stretch has no line of its own, and must still land correctly.
+    ticks = _ticks(400)
+    lone = _camera(1, ticks, [200], seed=7)
+    lone.hw_ns = np.array([12_345], dtype=np.int64)
+    a = _camera(1, ticks, range(100))
+    b = _camera(1, ticks, range(300, 400), seed=3)
+    b.hw_ns = b.hw_ns - b.hw_ns[0] + 1_000
+    cam1 = TickCamera(
+        index=1,
+        frame_ids=np.arange(1, 202, dtype=np.int64),
+        elapsed_ns=np.concatenate((a.elapsed_ns, lone.elapsed_ns, b.elapsed_ns)),
+        hw_ns=np.concatenate((a.hw_ns, lone.hw_ns, b.hw_ns)),
+    )
+    plan = build_tick_plan(ticks, [_camera(0, ticks, range(400)), cam1])
+    assert _real_ticks(plan, 1) == list(range(100)) + [200] + list(range(300, 400))
+
+
+def test_stretches_with_a_latency_near_half_a_period_stay_on_one_grid():
+    # The phase of each clock stretch is only known modulo a period. With a
+    # latency right at half a period, a millisecond either way wraps one
+    # stretch's phase to -P/2 and the other's to +P/2: without lining the
+    # stretches up, everything after the reconnect sat one tick off.
+    ticks = _ticks(400)
+    half = PERIOD // 2
+    a = _camera(1, ticks, range(150), latency=half + 1_000_000)
+    b = _camera(1, ticks, range(250, 400), latency=half - 1_000_000)
+    b.hw_ns = b.hw_ns - b.hw_ns[0] + 5_000_000
+    cam1 = TickCamera(
+        index=1,
+        frame_ids=np.arange(1, 301, dtype=np.int64),
+        elapsed_ns=np.concatenate((a.elapsed_ns, b.elapsed_ns)),
+        hw_ns=np.concatenate((a.hw_ns, b.hw_ns)),
+    )
+    plan = build_tick_plan(ticks, [_camera(0, ticks, range(400), latency=half), cam1])
+    assert _real_ticks(plan, 1) == list(range(150)) + list(range(250, 400))

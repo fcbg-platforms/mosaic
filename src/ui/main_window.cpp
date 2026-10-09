@@ -966,6 +966,7 @@ PreflightReport MainWindow::run_preflight() const {
                 const auto stats   = d->videoMgr->camera_stats(*it);
                 cam.opened         = true;
                 cam.grabberRunning = stats.grabberRunning;
+                cam.reconnecting   = stats.reconnecting;
                 // Frame timestamps are on the elapsed_ns() clock, so "now" is too.
                 if (stats.lastFrameElapsedNs >= 0) {
                     cam.lastFrameAgeSec =

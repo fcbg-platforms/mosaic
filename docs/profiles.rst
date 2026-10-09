@@ -24,7 +24,7 @@ Each profile gets:
 
    The password protects against *accidental* profile switching, not
    adversarial access.  Do not rely on MOSAIC profiles to protect sensitive
-   participant data — apply OS-level access controls for that.
+   participant data; apply OS-level access controls for that.
 
 Storage layout
 --------------
@@ -68,7 +68,7 @@ Beyond isolated *settings*, each profile also gets its own isolated
 **recordings** folder: ``recordings/<username>/`` (resolved relative to
 wherever the app is running from), seeded automatically the first time a
 brand-new profile logs in. This is a real filesystem boundary, not just a
-display filter — see :doc:`recording`'s session-layout section for the
+display filter; see :doc:`recording`'s session-layout section for the
 full folder tree.
 
 .. list-table::
@@ -81,8 +81,8 @@ full folder tree.
        (``Role::User``)
      - Session Browser and Analysis tab show only that profile's own
        ``recordings/<username>/`` sessions. The Record Settings
-       recording-directory field is **read-only** — shown, but not
-       editable — precisely so it can't be pointed at another profile's
+       recording-directory field is **read-only** (shown, but not
+       editable), precisely so it can't be pointed at another profile's
        folder.
    * - **Admin**
        (``Role::Admin``)
@@ -98,8 +98,8 @@ full folder tree.
    after this feature was added, MOSAIC scans the legacy flat
    ``recordings/`` root (the shared location every profile used before
    per-user folders existed) for loose session folders and moves each one
-   into ``recordings/<recorded_by>/`` — matched by that session's own
-   ``recorded_by`` field in ``session_meta.json`` — or into
+   into ``recordings/<recorded_by>/`` (matched by that session's own
+   ``recorded_by`` field in ``session_meta.json``) or into
    ``recordings/_unassigned/`` if ``recorded_by`` is empty or doesn't
    match any known profile. This runs silently at startup and is
    naturally idempotent (nothing is left loose in the flat root after the
@@ -113,9 +113,9 @@ Creating a profile
 2. In the login dialog, click the **＋ New profile** chip.
 3. Enter:
 
-   - **Username** — 3–32 characters, lowercase ``[a-z0-9_]``.
-   - **Group name** — displayed in the avatar chip and in ``session_meta.json``.
-   - **Password** (optional) — leave blank for an open profile.
+   - **Username**: 3–32 characters, lowercase ``[a-z0-9_]``.
+   - **Group name**: displayed in the avatar chip and in ``session_meta.json``.
+   - **Password** (optional): leave blank for an open profile.
 
 4. Click **Create profile**.  MOSAIC logs you in immediately and creates the
    profile directory.
@@ -132,8 +132,8 @@ settings.
 .. tip::
 
    The current profile is always shown in the bottom-right corner of the
-   status bar as a ``👤 @username`` chip, and in the window title bar as
-   ``MOSAIC — @username``.
+   status bar as a ``👤 @username`` chip, and in the window title bar after
+   the app's name.
 
 API usage
 ---------

@@ -35,7 +35,7 @@ def camera_ray_from_pose(
     translation : numpy.ndarray
         Length-3 head-pose translation, camera-local, mm.
     gaze_dx, gaze_dy : float
-        2D iris-offset heuristic, each in ``[-1, 1]`` — same convention
+        2D iris-offset heuristic, each in ``[-1, 1]``, same convention
         as ``python/pose/gaze_estimator.py``'s ``GazeResult``.
     eye_origin_model_mm : numpy.ndarray
         Length-3 eye-center point in the generic face model's own
@@ -48,7 +48,7 @@ def camera_ray_from_pose(
     Returns
     -------
     tuple of (numpy.ndarray, numpy.ndarray)
-        ``(origin, direction)`` — the ray's origin (mm) and unit
+        ``(origin, direction)``: the ray's origin (mm) and unit
         direction, both in the **camera's local** coordinate frame.
         ``gaze_dx = gaze_dy = 0`` returns the head's own forward
         direction, unperturbed.
@@ -56,10 +56,10 @@ def camera_ray_from_pose(
     Notes
     -----
     The direction composes the head's own forward axis (+Z of the face
-    model, metric — solved via ``cv2.solvePnP`` against the camera's real
+    model, metric, solved via ``cv2.solvePnP`` against the camera's real
     intrinsics) with a small eye-in-socket yaw/pitch perturbation derived
     from ``gaze_dx``/``gaze_dy``. This deliberately does not claim true
-    stereo eye depth (unobservable from monocular iris landmarks) — it
+    stereo eye depth (unobservable from monocular iris landmarks); it
     only separates "which way is the head pointing" (metric, solved) from
     "which way are the eyes rotated within it" (heuristic, bounded by
     ``max_eye_yaw_deg``/``max_eye_pitch_deg``), which is strictly more
@@ -102,13 +102,13 @@ def transform_ray_to_room(
         Ray unit direction, camera-local.
     extrinsic_rt : array_like
         This camera's extrinsic pose: a flat length-16 sequence or a 4x4
-        ``numpy.ndarray`` (row-major — see the module docstring's
+        ``numpy.ndarray`` (row-major; see the module docstring's
         convention note).
 
     Returns
     -------
     tuple of (numpy.ndarray, numpy.ndarray)
-        ``(origin_room, direction_room)`` — the same ray, in room
+        ``(origin_room, direction_room)``: the same ray, in room
         coordinates.
     """
     m = np.asarray(extrinsic_rt, dtype=np.float64).reshape(4, 4)
@@ -133,12 +133,12 @@ def closest_point_of_rays(origins, directions) -> tuple[np.ndarray, float]:
         One ray origin per contributing camera, room coordinates, mm.
     directions : sequence of array_like
         One ray direction per contributing camera (need not be
-        pre-normalized — renormalized internally), room coordinates.
+        pre-normalized; renormalized internally), room coordinates.
 
     Returns
     -------
     tuple of (numpy.ndarray, float)
-        ``(point, residual_rms)`` — the fused 3D point and the RMS
+        ``(point, residual_rms)``: the fused 3D point and the RMS
         perpendicular distance from it to each contributing ray (always
         ``0.0`` for a single ray, which trivially "fuses" to a point on
         itself).
@@ -149,8 +149,8 @@ def closest_point_of_rays(origins, directions) -> tuple[np.ndarray, float]:
     :math:`\\sum_i \\lVert (I - d_i d_i^\\mathsf{T})(x - o_i) \\rVert^2`,
     i.e. the point whose summed squared perpendicular distance to every
     ray is smallest. Falls back to a pseudo-inverse (rather than raising)
-    when the accumulated normal matrix is near-singular — e.g. all rays
-    nearly parallel — so a genuinely degenerate configuration still
+    when the accumulated normal matrix is near-singular (e.g. all rays
+    nearly parallel), so a genuinely degenerate configuration still
     returns a best-effort point; the resulting (large) ``residual_rms``
     is what should flag it as untrustworthy to a caller, not an
     exception. See :doc:`/math/gaze_fusion` for the full derivation.
@@ -195,7 +195,7 @@ def ray_plane_intersection(origin, direction, plane_point, plane_normal, eps: fl
     plane_point : array_like
         Any point on the plane, room coordinates, mm.
     plane_normal : array_like
-        Plane normal (need not be pre-normalized — renormalized
+        Plane normal (need not be pre-normalized; renormalized
         internally).
     eps : float, default 1e-9
         Below this, ``direction`` is treated as parallel to the plane.
@@ -206,7 +206,7 @@ def ray_plane_intersection(origin, direction, plane_point, plane_normal, eps: fl
         The 3D point where the ray (``origin + t*direction``, ``t >= 0``)
         intersects the plane, or ``None`` if the ray is (near-)parallel
         to the plane or the intersection lies behind the ray's origin
-        (``t < 0`` — gaze pointing away from the surface). See
+        (``t < 0``: gaze pointing away from the surface). See
         :doc:`/math/gaze_fusion` for the derivation.
     """
     origin = np.asarray(origin, dtype=np.float64)

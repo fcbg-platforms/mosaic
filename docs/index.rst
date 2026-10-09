@@ -107,9 +107,9 @@ MOSAIC Documentation
       :link-type: doc
       :class-card: sd-border-0
 
-      The ``analysis/`` project's importable library surface — Pose, Face
+      The ``analysis/`` project's importable library surface (Pose, Face
       Masking, Diarization, Expression (incl. py-feat), Gaze Fusion, Motion,
-      3D Pose Reconstruction, and Remote Heart Rate — with full
+      3D Pose Reconstruction, and Remote Heart Rate), with full
       numpydoc-rendered signatures.
 
    .. grid-item-card:: ∑  Mathematical background
@@ -151,7 +151,7 @@ Key capabilities
        ``wall_ns``; written to ``timestamps_camN.csv`` alongside the MP4.
 
    * - **Trigger logging**
-     - Keyboard bindings, serial bytes, parallel-port TTL edges — all written
+     - Keyboard bindings, serial bytes, parallel-port TTL edges, all written
        to a CSV with nanosecond resolution, on the same clock as camera frames.
 
    * - **EEG/trigger frame sync**
@@ -167,7 +167,7 @@ Key capabilities
      - Pose, Face Masking, Speaker Diarization, Facial Expression (3
        backends incl. real FACS Action Units via py-feat), Multi-Camera
        Gaze Fusion, Motion Tracking, 3D Pose Reconstruction, and an
-       experimental Remote Heart Rate (rPPG) estimator — see
+       experimental Remote Heart Rate (rPPG) estimator; see
        :doc:`user_guide`.
 
    * - **Live dashboard**

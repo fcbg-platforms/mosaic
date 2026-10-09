@@ -67,7 +67,7 @@ FERPLUS_LABELS: list[str] = [
 
 
 class FerPlusClassifier:
-    """Microsoft FER+ ONNX model backend — 8-category emotion classification.
+    """Microsoft FER+ ONNX model backend: 8-category emotion classification.
 
     Downloads and sha256-verifies ``emotion-ferplus-8.onnx`` to ``models/``
     on first use (see :func:`_ensure_download_verified`).
@@ -99,7 +99,7 @@ class FerPlusClassifier:
         Returns
         -------
         tuple of (str, float)
-            ``(label, score)`` — ``label`` is one of :data:`FERPLUS_LABELS`,
+            ``(label, score)``, where ``label`` is one of :data:`FERPLUS_LABELS`,
             ``score`` the softmax probability of that label.
         """
         gray = cv2.cvtColor(face_crop_bgr, cv2.COLOR_BGR2GRAY)

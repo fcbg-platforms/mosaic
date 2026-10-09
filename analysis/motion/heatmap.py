@@ -204,7 +204,7 @@ def generate_velocity_histogram(
         Destination PNG/PDF path.
     mm_per_px : float, default 1.0
         Only used to pick the x-axis unit label (``"mm/s"`` if not
-        ``1.0``, else ``"px/frame"``) — velocities themselves must
+        ``1.0``, else ``"px/frame"``); velocities themselves must
         already be pre-scaled by the caller.
     title : str, default "Velocity Distribution"
         Plot title.

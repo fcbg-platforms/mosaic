@@ -42,12 +42,12 @@ class CameraGeom:
     dist_coeffs : numpy.ndarray
         OpenCV distortion coefficients, reshaped to a flat vector.
     extrinsic_rt : numpy.ndarray
-        Row-major rigid transform, reshaped to ``(4, 4)`` —
+        Row-major rigid transform, reshaped to ``(4, 4)``:
         room-from-camera (``point_room = R @ point_camera + t``), matching
         ``CalibrationData::extrinsicRt`` exactly (see
         :doc:`/math/room_calibration`).
     camera_from_room : numpy.ndarray
-        Computed automatically as ``invert_rt(extrinsic_rt)`` — the inverse
+        Computed automatically as ``invert_rt(extrinsic_rt)``: the inverse
         transform every projection in this module actually uses.
     """
 
@@ -71,7 +71,7 @@ def invert_rt(m: np.ndarray) -> np.ndarray:
     ----------
     m : array_like
         A row-major rigid transform, as a ``(4, 4)`` matrix or a flat
-        length-16 array — ``[R | t]`` with the bottom row implicitly
+        length-16 array: ``[R | t]`` with the bottom row implicitly
         ``[0, 0, 0, 1]``.
 
     Returns
@@ -82,7 +82,7 @@ def invert_rt(m: np.ndarray) -> np.ndarray:
     Notes
     -----
     Must stay mathematically identical to ``room_frame::invert()``
-    (``src/calibration/room_frame_solver.cpp``) — Python cannot call the
+    (``src/calibration/room_frame_solver.cpp``). Python cannot call the
     C++ function directly, so this is a small, deliberate reimplementation
     of the exact same formula. See :doc:`/math/pose3d_reconstruction` for
     the room-frame convention this assumes.
@@ -116,7 +116,7 @@ def normalize_point(uv_px, cam: CameraGeom) -> np.ndarray:
 
     Notes
     -----
-    Uses :func:`cv2.undistortPoints` with no ``P=`` argument — ``K`` is
+    Uses :func:`cv2.undistortPoints` with no ``P=`` argument: ``K`` is
     deliberately left out of the result, since :func:`triangulate_point_dlt`
     only ever consumes already-normalized points and its projection
     matrices (see :func:`projection_matrix`) carry no ``K`` term either.
@@ -137,7 +137,7 @@ def projection_matrix(cam: CameraGeom) -> np.ndarray:
     Returns
     -------
     numpy.ndarray
-        ``P = camera_from_room[:3, :4]``, shape ``(3, 4)`` — no ``K`` term,
+        ``P = camera_from_room[:3, :4]``, shape ``(3, 4)``, with no ``K`` term,
         matching :func:`normalize_point`'s already-``K``-free output, so the
         two combine directly in :func:`triangulate_point_dlt`.
     """
@@ -171,7 +171,7 @@ def triangulate_point_dlt(points_normalized, projection_matrices) -> np.ndarray 
     ``(2N, 4)`` system; the 3D point is the right-singular-vector for the
     smallest singular value, dehomogenized. Requires at least 2 views.
     Returns ``None`` on too few views, a failed SVD, or a degenerate
-    (near-zero homogeneous coordinate) solution — never a fabricated point.
+    (near-zero homogeneous coordinate) solution, never a fabricated point.
     See :doc:`/math/pose3d_reconstruction` for the full derivation.
     """
     if len(points_normalized) < 2 or len(points_normalized) != len(projection_matrices):
@@ -202,7 +202,7 @@ def project_point_px(point_room, cam: CameraGeom) -> np.ndarray:
     point_room : array_like
         A 3D point in room space (mm), shape ``(3,)``.
     cam : CameraGeom
-        The camera to project through — its **real** (distorted)
+        The camera to project through. Its **real** (distorted)
         intrinsics are used, not the K-free normalized-coordinate space
         the rest of this module operates in.
 
@@ -249,7 +249,7 @@ def reproject_error_px(point_room, cam: CameraGeom, pixel_observed) -> float:
     -------
     float
         Euclidean pixel distance between the reprojected point and
-        `pixel_observed` — an interpretable, distortion-aware quality
+        `pixel_observed`: an interpretable, distortion-aware quality
         metric, consistent with ``RoomCalibrationManager``'s own
         extrinsic-solve reprojection-RMS report (see
         :doc:`/math/room_calibration`).
@@ -268,7 +268,7 @@ class TriangulationResult:
     point_room : numpy.ndarray
         The triangulated 3D point in room space (mm), shape ``(3,)``.
     used_views : list of int
-        Camera indices that actually contributed to `point_room` — after
+        Camera indices that actually contributed to `point_room`, after
         visibility filtering and, if a re-triangulation happened, after
         outlier rejection too.
     per_view_error_px : dict of int to float
@@ -289,7 +289,7 @@ def triangulate_with_rejection(
     Parameters
     ----------
     observations : dict of int to tuple
-        ``{cam_idx: (pixel_uv, visibility)}`` — one observation per camera
+        ``{cam_idx: (pixel_uv, visibility)}``: one observation per camera
         that detected this keypoint at all, regardless of confidence.
     cameras : dict of int to CameraGeom
         Every calibrated camera available for this session, keyed by index.
@@ -305,7 +305,7 @@ def triangulate_with_rejection(
     TriangulationResult or None
         ``None`` if fewer than 2 views survive visibility filtering, the
         initial triangulation fails, or fewer than 2 views survive outlier
-        rejection — never a fabricated point.
+        rejection, never a fabricated point.
 
     Notes
     -----
@@ -313,7 +313,7 @@ def triangulate_with_rejection(
     triangulates via :func:`normalize_point` + :func:`triangulate_point_dlt`,
     then drops any view whose real reprojection error exceeds
     `max_reprojection_error_px` and re-triangulates **once** from the
-    remainder — no iterative chase, matching ``pose_kinematics.cpp``'s
+    remainder, with no iterative chase, matching ``pose_kinematics.cpp``'s
     "skip, don't fabricate" discipline (see :doc:`/math/pose_kinematics`).
     """
     visible = {

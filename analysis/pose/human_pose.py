@@ -55,7 +55,7 @@ def resolve_subject_ids(track_ids: list[int | None] | None, detection_count: int
     Returns
     -------
     list of int
-        A tracker id (always >= 1) is used as-is — it means "the same physical
+        A tracker id (always >= 1) is used as-is: it means "the same physical
         person" across frames, which is the entire point. Anything else falls
         back to ``-(i + 1)``: negative marks "not tracked in this frame", and
         it stays distinct per detection so two untracked people never collapse
@@ -102,7 +102,7 @@ class HumanPoseEstimator:
         YOLOv8 model variant. Downloaded automatically from the
         Ultralytics CDN on first use (~4-87 MB).
     device : str or None, default None
-        Inference device — ``"cpu"``, ``"cuda:0"``, ``"mps"`` (Apple
+        Inference device: ``"cpu"``, ``"cuda:0"``, ``"mps"`` (Apple
         Silicon). ``None`` auto-detects (prefers CUDA → MPS → CPU).
     conf_threshold : float, default 0.40
         Minimum detection confidence to include a subject.
@@ -143,7 +143,7 @@ class HumanPoseEstimator:
 
         MUST be called at every video boundary. :meth:`infer` passes
         ``persist=True``, and ultralytics' own "switched videos" auto-reset
-        never fires for us — it is short-circuited by ``persist=True``, and in
+        never fires for us. It is short-circuited by ``persist=True``, and in
         any case keys off the source path, which is constant for the in-memory
         ndarray frames we pass. Without this, ``run_pose.py``'s session mode
         (one estimator threaded through every camera's video) would hand

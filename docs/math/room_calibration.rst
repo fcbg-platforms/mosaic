@@ -17,7 +17,7 @@ The problem
 
 Given a set of Basler cameras, each already intrinsically calibrated
 (:doc:`/calibration`), the goal is to find every camera's **extrinsic**
-pose — its position and orientation relative to one shared "room" origin —
+pose (its position and orientation relative to one shared "room" origin),
 so gaze rays, or any other per-camera 3D signal, from different cameras
 can be combined in one coordinate system (see :doc:`gaze_fusion`).
 
@@ -37,7 +37,7 @@ averaging into one. Averaging **translations** is a plain arithmetic
 mean, :math:`\bar t = \frac{1}{K}\sum_k t_k`. Averaging **rotations** is
 not as simple, because unit quaternions double-cover :math:`SO(3)`: the
 map from the unit quaternion :math:`q` to the rotation it represents is
-2-to-1 — both :math:`q` and :math:`-q` represent the *exact same*
+2-to-1: both :math:`q` and :math:`-q` represent the *exact same*
 rotation. A naive arithmetic mean of quaternions sampled around one
 physical orientation can therefore inadvertently sum quaternions from
 opposite hemispheres of that double cover and partially cancel toward
@@ -80,8 +80,8 @@ renormalized:
 
    :eq:`quat-mean` is a **sign-aligned renormalized mean**, not the exact
    chordal/Karcher mean of :math:`SO(3)`. It's only a valid approximation
-   of that true mean when the input rotations are already close together
-   — which holds here specifically because the samples being averaged are
+   of that true mean when the input rotations are already close together,
+   which holds here specifically because the samples being averaged are
    repeated shots of the same *static* rig, not an arbitrary set of
    rotations. This is a deliberate, documented trade-off, not a claim of
    general correctness.
@@ -96,7 +96,7 @@ Pose-graph resolution (BFS)
 With one averaged relative pose available for every camera *pair* that
 shared at least one shot, the remaining step is to compose these into one
 consistent pose per camera, relative to a single reference camera (camera
-0, which is always the identity transform — see the :doc:`index`'s
+0, which is always the identity transform; see the :doc:`index`'s
 shared-conventions table).
 
 Let :math:`T_{\text{cam} \to \text{room}}` denote the transform that
@@ -119,7 +119,7 @@ by :math:`(T_{\text{board}\to\text{child}}^{(k)})^{-1}` (i.e.
 :math:`T_{\text{child}\to\text{board}}^{(k)}`), then from the board's frame
 to the parent camera's frame by :math:`T_{\text{board}\to\text{parent}}^{(k)}`,
 then from the parent camera's frame to the room frame by
-:math:`T_{\text{parent}\to\text{room}}` — which is exactly
+:math:`T_{\text{parent}\to\text{room}}`, which is exactly
 :math:`T_{\text{child}\to\text{room}}`.
 
 Every shared shot between the same camera pair produces one such candidate
@@ -127,8 +127,8 @@ via :eq:`bfs-composition`; these are combined with the quaternion-mean
 :eq:`quat-mean` above into a single edge pose. Starting from the reference
 camera (identity), a breadth-first traversal of the shared-shot graph
 propagates a resolved pose outward to every reachable camera. A camera
-with **no** shot-chain back to the reference camera — e.g. it never shared
-a simultaneous board view with anything already resolved — is reported
+with **no** shot-chain back to the reference camera (e.g. it never shared
+a simultaneous board view with anything already resolved) is reported
 **unresolved** rather than silently assigned a meaningless identity pose,
 so the calibration UI can flag it and ask for more overlapping shots.
 
@@ -154,7 +154,7 @@ Practical recommendations
 
    .. grid-item-card:: 🎯  Aim for a well-connected shot graph
 
-      Every camera needs *some* path of shared shots back to camera 0 —
+      Every camera needs *some* path of shared shots back to camera 0,
       not necessarily direct. Move the board through overlapping pairs of
       camera fields of view deliberately, not just wherever's convenient;
       a camera left unresolved contributes nothing to any downstream 3D
@@ -163,7 +163,7 @@ Practical recommendations
    .. grid-item-card:: 🔢  More shots per pair, not just more pairs
 
       Multiple shared shots between the same camera pair feed
-      :eq:`quat-mean`'s averaging step directly — a pair with only one
+      :eq:`quat-mean`'s averaging step directly; a pair with only one
       shared shot has no noise-averaging benefit at all. A handful of
       varied-angle shots per overlapping pair meaningfully improves that
       pair's resolved relative pose over a single shot.
@@ -171,7 +171,7 @@ Practical recommendations
    .. grid-item-card:: 📏  Check the reprojection RMS, not just "resolved"
 
       A camera reporting "resolved" with a poor reprojection RMS still
-      silently degrades every downstream 3D computation through it — treat
+      silently degrades every downstream 3D computation through it. Treat
       a high RMS the same as an unresolved camera and recapture that
       camera's shots with more care (steadier board, less motion blur,
       better lighting) rather than accepting a technically-non-null but
@@ -180,7 +180,7 @@ Practical recommendations
    .. grid-item-card:: 🧊  Why this rig can't move afterward
 
       The averaged extrinsics describe the cameras' positions *at
-      calibration time*. Any physical camera move — even a small bump —
+      calibration time*. Any physical camera move, even a small bump,
       invalidates every pose computed from it, silently, with no runtime
       check catching the mismatch. Recalibrate after any physical rig
       change, not just when results start looking wrong.

@@ -7,13 +7,13 @@ Python Analysis API
 
 The ``analysis/`` folder is a separate, ``uv``-managed Python project
 (``analysis/pyproject.toml``) from the live-acquisition ``python/``
-project — see :doc:`architecture`. It contains eight independent offline
+project (see :doc:`architecture`). It contains eight independent offline
 Analysis-tab plugins, each with a ``run_<plugin>.py`` CLI wrapper
 (:doc:`user_guide` covers running them from the app), plus a ninth
 supporting package (:ref:`analysis-api-transcribe`) used by the
 **Real-time** tab's live captions, not by any post-hoc plugin. This page
 documents each package's importable **library** surface, not the CLI
-argument parsing — see each subsection's linked math page for the
+argument parsing; see each subsection's linked math page for the
 algorithm behind its output.
 
 .. grid:: 2 2 3 3
@@ -23,7 +23,7 @@ algorithm behind its output.
       :link: analysis-api-pose
       :link-type: ref
 
-      2D COCO keypoints via YOLOv8-pose — the foundational signal every
+      2D COCO keypoints via YOLOv8-pose: the foundational signal every
       derived plugin below builds on.
 
    .. grid-item-card:: 🫥 Face Masking
@@ -118,7 +118,7 @@ speed/acceleration, and the 3D Pose Reconstruction plugin below.
    :members:
 
 See :doc:`math/pose_kinematics` for the Speed/Acceleration math applied to
-this plugin's output (implemented in C++, not here — see
+this plugin's output (implemented in C++, not here; see
 :cpp:func:`mosaic::compute_kinematics`).
 
 .. tip::
@@ -135,7 +135,7 @@ Face Masking
 ----------------
 
 Anonymizes a session's videos by detecting and blurring/boxing faces,
-writing the result into a sibling ``anonymized/`` folder — the originals
+writing the result into a sibling ``anonymized/`` folder; the originals
 are never touched. Three interchangeable detector backends
 (:class:`~facemask.MediaPipeFaceDetector`, default;
 :class:`~facemask.YoloFaceDetector`; :class:`~facemask.OpenCVDnnFaceDetector`,
@@ -153,7 +153,7 @@ YuNet) share one ``detect() -> list[Box]`` interface.
    :no-members:
 
 ``facemask.Box`` is a plain type alias, ``tuple[float, float, float, float]``
-(``x1, y1, x2, y2`` pixel coordinates) — the shape every detector's
+(``x1, y1, x2, y2`` pixel coordinates): the shape every detector's
 ``detect()`` and both geometry functions below use.
 
 .. autosummary::
@@ -195,13 +195,13 @@ Speaker Diarization
 Transcribes each microphone's audio with faster-whisper, diarizes speaker
 turns with pyannote.audio, then assigns each transcript segment to
 whichever diarization turn overlaps it most
-(:func:`~diarize.assign_speakers`) — the standard WhisperX-style recipe.
+(:func:`~diarize.assign_speakers`), the standard WhisperX-style recipe.
 Diarization is optional: without a Hugging Face token, transcription still
 runs and every segment's speaker is left ``None``.
 
 .. important::
 
-   pyannote's diarization models are **gated** on Hugging Face — you must
+   pyannote's diarization models are **gated** on Hugging Face: you must
    accept both ``pyannote/speaker-diarization-3.1`` and
    ``pyannote/segmentation-3.0``'s terms of use and generate an access
    token before diarization (not just transcription) will work. See
@@ -288,7 +288,7 @@ Unit intensities (see the dedicated subsection below).
    :value: ["Neutral", "Happy", "Sad", "Surprised", "Angry", "Disgusted", "Fearful"]
 
    The 7 basic-emotion categories the heuristic backend classifies into,
-   in argmax tie-break order (``"Neutral"`` listed first — see
+   in argmax tie-break order (``"Neutral"`` listed first; see
    :func:`~expression.classify_expression`'s Notes).
 
 .. py:data:: expression.CATEGORY_WEIGHTS
@@ -296,7 +296,7 @@ Unit intensities (see the dedicated subsection below).
 
    ``{category: {blendshape_name: weight}}``. Weighted MEAN (not sum) is
    taken per category at classification time, so a category listing 6
-   blendshapes isn't unfairly favored over one listing 2 — every
+   blendshapes isn't unfairly favored over one listing 2: every
    category's score stays comparable in ``[0, 1]`` regardless of how many
    shapes it references.
 
@@ -325,10 +325,10 @@ Unit intensities (see the dedicated subsection below).
 
    Official FER+ label order (index 0-7). Verified against both the
    ``onnx/models`` model card and the upstream FERPlus training repo's CSV
-   column order — see the module's own docstring for the two-source
+   column order. See the module's own docstring for the two-source
    cross-check this pinned down.
 
-**py-feat backend** (:mod:`expression.pyfeat`) — the third, most detailed
+**py-feat backend** (:mod:`expression.pyfeat`): the third, most detailed
 backend: real FACS Action Units, not just a dominant-emotion label.
 
 .. autoclass:: expression.pyfeat.PyFeatClassifier
@@ -348,7 +348,7 @@ backend: real FACS Action Units, not just a dominant-emotion label.
 
    ``import feat`` unconditionally pulls in ``torchcodec`` at module load
    time, which needs a torchcodec-compatible FFmpeg (versions 4–8, a
-   shared/DLL build) discoverable on ``PATH`` at runtime — even though
+   shared/DLL build) discoverable on ``PATH`` at runtime, even though
    this backend never touches video I/O. See the module's own docstring
    and :doc:`math/facial_expression`'s recommendations for the full
    diagnosis if this backend fails to construct.
@@ -421,7 +421,7 @@ nearest-centroid tracking across frames (:class:`~pose3d.PersonTracker3D`).
 
    Needs the Pose plugin to have already been run on at least 2 cameras in
    the session (for the 2D keypoints) **and** room/extrinsic calibration
-   to have been solved (:doc:`math/room_calibration`) — running this
+   to have been solved (:doc:`math/room_calibration`). Running this
    plugin against a session missing either prerequisite fails with a
    clear error rather than a fabricated result.
 
@@ -490,7 +490,7 @@ Remote Heart Rate (rPPG)
 
 .. important::
 
-   **EXPERIMENTAL** — research-grade heart-rate estimate only, not a
+   **EXPERIMENTAL**: research-grade heart-rate estimate only, not a
    medical device, not clinically validated. See
    :doc:`math/remote_heart_rate` for the full accuracy discussion before
    relying on any output.
@@ -498,10 +498,10 @@ Remote Heart Rate (rPPG)
 Extracts a forehead/cheek skin-color signal per frame
 (:class:`~rppg.MediaPipeFaceRoiExtractor`), combines its RGB channels into
 one pulse signal via a selectable backend (naive Green, or the more
-motion-robust CHROM/POS chrominance methods — POS is the default), then
+motion-robust CHROM/POS chrominance methods; POS is the default), then
 bandpass-filters and Welch-periodogram-analyzes each sliding time window
 to estimate BPM and a pulse-SNR quality score. Deliberately offers **no**
-frame-skip option, unlike every sibling plugin — skipping frames would
+frame-skip option, unlike every sibling plugin: skipping frames would
 downsample the pulse signal itself below what Nyquist needs for the
 physiological frequency band.
 
@@ -546,7 +546,7 @@ physiological frequency band.
 .. py:data:: rppg.BACKENDS
    :type: dict[str, typing.Callable]
 
-   ``{"green": green_signal, "chrom": chrom_signal, "pos": pos_signal}`` —
+   ``{"green": green_signal, "chrom": chrom_signal, "pos": pos_signal}``:
    the backend-name → pure-function dispatch table ``run_rppg.py``'s
    ``--backend`` argument resolves against.
 
@@ -563,10 +563,10 @@ See :doc:`math/remote_heart_rate`.
 Motion Tracking
 --------------------
 
-Run from the Session Browser, not a live Analysis-tab plugin — see
-:doc:`user_guide`. Background-subtraction blob detection
+Run from the Session Browser, not a live Analysis-tab plugin (see
+:doc:`user_guide`). Background-subtraction blob detection
 (:class:`~motion.CentroidTracker`) plus greedy nearest-centroid tracking
-across frames, independent of the Pose plugin's keypoint-based approach —
+across frames, independent of the Pose plugin's keypoint-based approach;
 see :doc:`math/motion_tracking` for an explicit contrast between the two.
 
 .. code-block:: python
@@ -610,7 +610,7 @@ See :doc:`math/motion_tracking`.
 Live Transcription (Real-time tab)
 ----------------------------------------
 
-Not a post-hoc Analysis-tab plugin — this package backs the **Real-time**
+Not a post-hoc Analysis-tab plugin: this package backs the **Real-time**
 tab's live-captions panel (``analysis/run_live_transcribe.py``, a
 persistent subprocess started by :cpp:class:`mosaic::TranscriptWorker`; see
 :doc:`user_guide`). Documented here because it's real, importable,
@@ -651,13 +651,13 @@ session, get a result file" shape every plugin above does.
 
 **Trailing-margin confirmation.** Whisper (``tiny`` model, by default) is
 re-run over the *entire* rolling audio buffer on every pass rather than
-incrementally. A segment is confirmed — final, never revised again — once
+incrementally. A segment is confirmed (final, never revised again) once
 its end lies at least ``TRAILING_MARGIN_SEC`` before the buffer's current
 end, giving it a margin of trailing audio context on both the previous
 pass and this one; everything after that point is "tentative" text,
 replaced wholesale each pass. Confirmed audio is then trimmed off the
 buffer's front so growth stays bounded. This intentionally skips more
 elaborate cross-pass textual-agreement ("LocalAgreement-n") policies some
-streaming-ASR projects use — VAD-anchored segment boundaries are already
+streaming-ASR projects use. VAD-anchored segment boundaries are already
 stable in practice for the confirmed prefix, and the simpler rule is
 sufficient for a ``tiny``-model live-captions v1.
