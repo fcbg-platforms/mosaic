@@ -132,6 +132,7 @@ class VideoManager : public QObject {
         int64_t framesDropped      = 0;   ///< Frames lost to ring-buffer overflow.
         int ringFillPct            = 0;   ///< Ring buffer fill level, 0–100.
         bool grabberRunning        = false;
+        bool reconnecting          = false; ///< VideoGrabber::is_reconnecting().
         int64_t lastFrameElapsedNs = -1; ///< elapsed_ns() of the most recent frame, -1 if none yet.
         double configuredFps       = 0.0; ///< VideoGrabber::configured_fps().
         double achievableFps = -1.0; ///< VideoGrabber::achievable_fps(), -1 = not yet measured.
