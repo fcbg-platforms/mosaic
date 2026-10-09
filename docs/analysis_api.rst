@@ -73,6 +73,13 @@ algorithm behind its output.
       Blinks, Duchenne smiles, brow raises, expressivity, nods and shakes
       from one camera's video.
 
+   .. grid-item-card:: 👀 Eye Contact
+      :link: analysis-api-eye-contact
+      :link-type: ref
+
+      Looking at the partner or away, while speaking or listening, from one
+      camera's gaze.
+
    .. grid-item-card:: 💬 Conversation Timing
       :link: analysis-api-conversation
       :link-type: ref
@@ -714,6 +721,59 @@ supplies the per-frame measurements. See :doc:`math/face_dynamics`.
    :members: measure, close
 
 .. autofunction:: face_dynamics.extract.head_angles
+
+.. _analysis-api-eye-contact:
+
+Eye Contact
+-----------
+
+Gaze per frame from one camera with the 3D gaze plugin's eyeball model
+(:class:`~eye_contact.gaze.GazeModel`), the partner's direction as the mode of
+the gaze, a contact cone from the gaze spread, look-aways, and their timing
+against speaking, listening and turns (:mod:`eye_contact.metrics`). See
+:doc:`math/eye_contact`.
+
+.. code-block:: python
+
+   from eye_contact import metrics as ec
+
+   yaw0, pitch0 = ec.find_mode(yaw[listening], pitch[listening])
+   offsets = ec.angle_between(ec.to_direction(yaw, pitch), ec.to_direction(yaw0, pitch0))
+   radius, sigma, share = ec.contact_radius(offsets[listening])
+   state = ec.contact_states(offsets, radius, times_s)    # 1, 0 or nan per frame
+   looks = ec.aversions(state, times_s, yaw, pitch, yaw0, pitch0)
+
+.. automodule:: eye_contact
+   :no-members:
+
+.. autosummary::
+   :nosignatures:
+
+   gaze.GazeModel
+   gaze.gaze_angles
+   metrics.find_mode
+   metrics.contact_radius
+   metrics.contact_states
+   metrics.aversions
+   metrics.turn_patterns
+   metrics.summarise
+
+.. autoclass:: eye_contact.gaze.GazeModel
+   :members: gaze
+
+.. autofunction:: eye_contact.gaze.gaze_angles
+
+.. autofunction:: eye_contact.metrics.find_mode
+
+.. autofunction:: eye_contact.metrics.contact_radius
+
+.. autofunction:: eye_contact.metrics.contact_states
+
+.. autofunction:: eye_contact.metrics.aversions
+
+.. autofunction:: eye_contact.metrics.turn_patterns
+
+.. autofunction:: eye_contact.metrics.summarise
 
 .. _analysis-api-conversation:
 

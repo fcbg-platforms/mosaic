@@ -172,6 +172,9 @@ class SessionRow : public QWidget {
         if (m_info.hasConversation) {
             drawBadge("TURNS", QColor("#1a1a0a"), QColor("#d8c050"));
         }
+        if (m_info.hasEyeContact) {
+            drawBadge("EYE CONTACT", QColor("#0a2a1a"), QColor("#44dd99"));
+        }
         if (m_info.hasSyncRepair) {
             drawBadge("SYNCED", QColor("#0a241c"), QColor("#2ecc9a"));
         }

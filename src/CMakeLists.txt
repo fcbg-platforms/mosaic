@@ -51,6 +51,8 @@ qt_add_executable(mosaic MACOSX_BUNDLE
     analysis/face_dynamics_result.cpp
     analysis/conversation_result.hpp
     analysis/conversation_result.cpp
+    analysis/eye_contact_result.hpp
+    analysis/eye_contact_result.cpp
     analysis/sync_repair_result.hpp
     analysis/sync_repair_result.cpp
     analysis/nearest_by_key.hpp

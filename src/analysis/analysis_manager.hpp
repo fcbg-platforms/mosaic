@@ -301,6 +301,17 @@ class AnalysisManager : public QObject {
     void run_conversation_analysis(const QString& sessionPath, bool useDiarization,
                                    bool annotatedVideo);
 
+    /// @brief Eye Contact: how much of the time the face on each camera looks
+    /// at its conversation partner, and when and where it looks away
+    /// (analysis/run_eye_contact.py, output in the session's eye_contact/).
+    ///
+    /// @param sessionPath    Absolute path to the recorded session directory.
+    /// @param target         "auto" (the partner is found from the gaze) or
+    ///                       "camera" (the partner is the camera).
+    /// @param annotatedVideo Also write a video with the gaze drawn on it.
+    void run_eye_contact_analysis(const QString& sessionPath, const QString& target,
+                                  bool annotatedVideo);
+
     /// @brief Produces per-camera "repaired" copies with EQUALIZED frame
     /// counts, aligned to a shared master tick grid, filling small
     /// per-camera frame-count mismatches (GVSP packet loss / trigger

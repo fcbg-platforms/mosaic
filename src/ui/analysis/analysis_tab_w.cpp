@@ -54,6 +54,7 @@
 #include "analysis/conversation_result.hpp"
 #include "analysis/dyadic_kinematics.hpp"
 #include "analysis/expression_result.hpp"
+#include "analysis/eye_contact_result.hpp"
 #include "analysis/face_dynamics_result.hpp"
 #include "analysis/gaze2d_result.hpp"
 #include "analysis/gaze_fusion_result.hpp"
@@ -876,6 +877,8 @@ struct AnalysisTabW::Impl {
     QCheckBox* faceDynVideoCheck             = nullptr; // face_dynamics
     QCheckBox* convDiarizationCheck          = nullptr; // conversation
     QCheckBox* convVideoCheck                = nullptr; // conversation
+    QComboBox* eyeTargetCombo                = nullptr; // eye_contact
+    QCheckBox* eyeVideoCheck                 = nullptr; // eye_contact
     QDoubleSpinBox* syncRepairMasterFpsSpin  = nullptr; // sync_repair — 0.0 = "Auto"
 
     QPushButton* runBtn = nullptr;
@@ -1018,6 +1021,10 @@ struct AnalysisTabW::Impl {
     QComboBox* convMetricCombo    = nullptr; // conversation only
     QLabel* convStatsLbl          = nullptr; // conversation only
     QPushButton* exportConvBtn    = nullptr; // conversation only
+    QWidget* eyeRowW              = nullptr; // eye_contact only
+    QComboBox* eyeMetricCombo     = nullptr; // eye_contact only
+    QLabel* eyeStatsLbl           = nullptr; // eye_contact only
+    QPushButton* exportEyeBtn     = nullptr; // eye_contact only
 
     // Frame Sync Repair view controls — mirrors triggerSyncRowW's shape
     // (a per-camera table, not the usual chart+overlay — this plugin's
@@ -1068,6 +1075,7 @@ struct AnalysisTabW::Impl {
     Gaze2dResult currentGaze2dResult;        // gaze2d only
     FaceDynamicsResult currentFaceDynResult; // face_dynamics only
     ConversationResult currentConversation;  // conversation only
+    EyeContactResult currentEyeContact;      // eye_contact only
     SyncRepairResult currentSyncRepair;      // sync_repair only
 
     // AnalysisManager is a single shared instance (also used by
@@ -1121,6 +1129,7 @@ struct AnalysisTabW::Impl {
         currentGaze2dResult     = Gaze2dResult();
         currentFaceDynResult    = FaceDynamicsResult();
         currentConversation     = ConversationResult();
+        currentEyeContact       = EyeContactResult();
         currentSyncRepair       = SyncRepairResult();
         currentVoice            = VoiceResult();
     }
@@ -1815,6 +1824,28 @@ void AnalysisTabW::build_ui() {
     convCtlLay->addStretch(1);
     add_plugin_page("conversation", convPage);
 
+    // Eye Contact: where the partner is, and the annotated video.
+    auto* eyePage   = new QWidget;
+    auto* eyeCtlLay = new QHBoxLayout(eyePage);
+    eyeCtlLay->setContentsMargins(0, 0, 0, 0);
+    d->eyeTargetCombo = new QComboBox;
+    d->eyeTargetCombo->addItem("Partner: found from gaze", "auto");
+    d->eyeTargetCombo->addItem("Partner: the camera", "camera");
+    d->eyeTargetCombo->setToolTip(
+        "Found from gaze: the partner is where this person's gaze clusters while "
+        "listening (or overall, without Conversation Timing); constant errors of the gaze "
+        "estimate cancel. The camera: for a remote interview, or an interviewer sitting right "
+        "beside the camera; a fixed 8 degree cone, and gaze errors do not cancel.");
+    eyeCtlLay->addWidget(d->eyeTargetCombo);
+    d->eyeVideoCheck = new QCheckBox("Annotated video");
+    d->eyeVideoCheck->setChecked(true);
+    d->eyeVideoCheck->setToolTip(
+        "Also write a copy of each video with the gaze arrow, the eye contact state and "
+        "a map of the gaze around the partner.");
+    eyeCtlLay->addWidget(d->eyeVideoCheck);
+    eyeCtlLay->addStretch(1);
+    add_plugin_page("eye_contact", eyePage);
+
     // ── Frame Sync Repair controls page ─────────────────────────────────
     auto* syncRepairPage   = new QWidget;
     auto* syncRepairCtlLay = new QHBoxLayout(syncRepairPage);
@@ -2477,6 +2508,29 @@ void AnalysisTabW::build_ui() {
     d->convRowW->setVisible(false); // shown only for the conversation plugin
     rightLay->addWidget(d->convRowW);
 
+    // Eye Contact row: chart choice, numbers, look-aways CSV export.
+    d->eyeRowW      = new QWidget;
+    auto* eyeRowLay = new QHBoxLayout(d->eyeRowW);
+    eyeRowLay->setContentsMargins(0, 0, 0, 0);
+    d->eyeMetricCombo = new QComboBox;
+    d->eyeMetricCombo->addItem("Eye contact", "contact");
+    d->eyeMetricCombo->addItem("Angle from partner (deg)", "offset");
+    d->eyeMetricCombo->addItem("Gaze yaw (deg)", "yaw");
+    d->eyeMetricCombo->addItem("Gaze pitch (deg)", "pitch");
+    connect(d->eyeMetricCombo, &QComboBox::currentIndexChanged, this,
+            &AnalysisTabW::update_eye_contact_view);
+    eyeRowLay->addWidget(new QLabel("Metric:"));
+    eyeRowLay->addWidget(d->eyeMetricCombo);
+    d->eyeStatsLbl = new QLabel;
+    d->eyeStatsLbl->setStyleSheet("color:#7070a0; font-size:11px;");
+    d->eyeStatsLbl->setWordWrap(true);
+    eyeRowLay->addWidget(d->eyeStatsLbl, 1);
+    d->exportEyeBtn = new QPushButton("Export look-aways CSV");
+    connect(d->exportEyeBtn, &QPushButton::clicked, this, &AnalysisTabW::export_eye_contact_csv);
+    eyeRowLay->addWidget(d->exportEyeBtn);
+    d->eyeRowW->setVisible(false); // shown only for the eye_contact plugin
+    rightLay->addWidget(d->eyeRowW);
+
     // ── Frame Sync Repair view controls: stats readout + CSV export.
     //    sync_repair only. syncRepairTable itself lives in resultsSplitter
     //    below (own-container row here just holds the stats/export line,
@@ -2769,6 +2823,7 @@ void AnalysisTabW::select_plugin(const QString& pluginId) {
     const bool isGaze2d      = is_gaze2d_plugin();
     const bool isFaceDyn     = is_face_dynamics_plugin();
     const bool isConv        = is_conversation_plugin();
+    const bool isEye         = is_eye_contact_plugin();
     const bool isSyncRepair  = is_sync_repair_plugin();
     // A depth model selected within the Pose plugin produces a colorized
     // video, not keypoints — the keypoint/chart controls below need to stay
@@ -2798,7 +2853,7 @@ void AnalysisTabW::select_plugin(const QString& pluginId) {
     // series — pose3d's own room-view/2D-overlay results view never needed
     // it before Dyad Analysis was added.
     set_visible_animated(d->chart, isPoseKeypoints || isExpression || isRppg || isGaze2d ||
-                                       isPose3D || isFaceDyn || isConv);
+                                       isPose3D || isFaceDyn || isConv || isEye);
     set_visible_animated(d->kinematicsRowW, isPoseKeypoints);
     // subjectPickerRowW's own further narrowing (hidden when the session has
     // <=1 detected subject) happens inside rebuild_subject_chips(), called
@@ -2819,10 +2874,11 @@ void AnalysisTabW::select_plugin(const QString& pluginId) {
     set_visible_animated(d->gaze2dRowW, isGaze2d);
     set_visible_animated(d->faceDynRowW, isFaceDyn);
     set_visible_animated(d->convRowW, isConv);
+    set_visible_animated(d->eyeRowW, isEye);
     set_visible_animated(d->syncRepairRowW, isSyncRepair);
     set_visible_animated(d->syncRepairTable, isSyncRepair);
     set_visible_animated(d->openFolderBtn, isFaceMask || is_pose_depth_selected() || isSyncRepair ||
-                                               isGazeFusion || isFaceDyn || isConv);
+                                               isGazeFusion || isFaceDyn || isConv || isEye);
     set_visible_animated(d->sourceRowW, !isDiarize);
     set_visible_animated(d->micRowW, isDiarize);
     set_visible_animated(d->transcriptTable, isDiarize);
@@ -2945,6 +3001,10 @@ PluginRunState AnalysisTabW::run_state_for(const QString& pluginId) const {
     if (pluginId == "gaze2d") {
         return per_input(info->videoFiles,
                          [this](const QString& v) { return gaze2d_json_path_for(v); });
+    }
+    if (pluginId == "eye_contact") {
+        return per_input(info->videoFiles,
+                         [this](const QString& v) { return eye_contact_json_path_for(v); });
     }
     if (pluginId == "conversation") {
         return per_input(info->videoFiles,
@@ -3069,6 +3129,11 @@ QString AnalysisTabW::rppg_json_path_for(const QString& videoRelPath) const {
            d->rppgBackendCombo->currentData().toString() + ".rppg.json";
 }
 
+QString AnalysisTabW::eye_contact_json_path_for(const QString& videoRelPath) const {
+    // analysis/run_eye_contact.py writes into the session's eye_contact/.
+    return "eye_contact/" + QFileInfo(videoRelPath).completeBaseName() + ".eye_contact.json";
+}
+
 QString AnalysisTabW::conversation_json_path_for(const QString& videoRelPath) const {
     // analysis/run_conversation.py writes into the session's conversation/.
     return "conversation/" + QFileInfo(videoRelPath).completeBaseName() + ".conversation.json";
@@ -3113,6 +3178,8 @@ bool AnalysisTabW::is_trigger_sync_plugin() const { return d->currentPlugin == "
 bool AnalysisTabW::is_rppg_plugin() const { return d->currentPlugin == "rppg"; }
 
 bool AnalysisTabW::is_gaze2d_plugin() const { return d->currentPlugin == "gaze2d"; }
+
+bool AnalysisTabW::is_eye_contact_plugin() const { return d->currentPlugin == "eye_contact"; }
 
 bool AnalysisTabW::is_conversation_plugin() const { return d->currentPlugin == "conversation"; }
 
@@ -3447,6 +3514,7 @@ void AnalysisTabW::reload_current_camera_result() {
         update_gaze2d_view();
         update_face_dynamics_view();
         update_conversation_view();
+        update_eye_contact_view();
         return;
     }
 
@@ -3605,6 +3673,34 @@ void AnalysisTabW::reload_current_camera_result() {
                 "2D Gaze ran, but no face was detected in this camera's "
                 "footage — try a different camera, or check its framing/lighting.");
             d->statusLbl->setStyleSheet("color:#ddaa33; font-size:15px; font-weight:600;");
+        }
+        return;
+    }
+
+    if (is_eye_contact_plugin()) {
+        const QString jsonAbs = info->path + "/" + eye_contact_json_path_for(videoRel);
+        d->currentEyeContact =
+            QFileInfo::exists(jsonAbs) ? EyeContactResult::load(jsonAbs) : EyeContactResult();
+        const QString annotated = d->currentEyeContact.annotated_video();
+        const bool hasAnnotated =
+            !annotated.isEmpty() && QFileInfo::exists(info->path + "/" + annotated);
+        d->player->set_video(hasAnnotated ? info->path + "/" + annotated : videoAbs);
+        d->player->set_pose_result(PoseAnalysisResult());
+        d->openFolderBtn->setEnabled(d->currentEyeContact.is_valid());
+
+        update_eye_contact_view();
+
+        if (!d->currentEyeContact.is_valid() || d->currentEyeContact.frames().isEmpty()) {
+            d->statusLbl->setText("No analysis yet for this camera — click Run.");
+            d->statusLbl->setStyleSheet("color:#6060a0; font-size:15px; font-weight:600;");
+        } else if (!d->currentEyeContact.summary().eyeContactPct) {
+            d->statusLbl->setText(
+                "Eye Contact ran, but no gaze could be measured in this camera's footage — "
+                "the face and its eyes must be visible.");
+            d->statusLbl->setStyleSheet("color:#ddaa33; font-size:15px; font-weight:600;");
+        } else if (hasAnnotated) {
+            d->statusLbl->setText("Showing the annotated video.");
+            d->statusLbl->setStyleSheet("color:#44cc66; font-size:15px; font-weight:600;");
         }
         return;
     }
@@ -4930,6 +5026,92 @@ void AnalysisTabW::export_gaze2d_csv() {
     });
 }
 
+void AnalysisTabW::update_eye_contact_view() {
+    const auto& r = d->currentEyeContact;
+    if (!r.is_valid() || r.frames().isEmpty()) {
+        d->chart->set_single_series({}, "Eye contact");
+        d->chart->set_title("No analysis yet");
+        d->eyeStatsLbl->clear();
+        d->chart->set_playhead_ms(d->player->position_ms());
+        return;
+    }
+    const int64_t t0     = r.frames().first().timestampMs;
+    const QString metric = d->eyeMetricCombo->currentData().toString();
+    QVector<QPointF> pts;
+    pts.reserve(r.frames().size());
+    for (const auto& f : r.frames()) {
+        double v = std::numeric_limits<double>::quiet_NaN();
+        if (metric == "contact") {
+            v = f.contact < 0 ? v : static_cast<double>(f.contact);
+        } else if (metric == "offset") {
+            v = f.offsetDeg;
+        } else if (metric == "yaw") {
+            v = f.gazeYaw;
+        } else {
+            v = f.gazePitch;
+        }
+        if (std::isfinite(v)) {
+            pts << QPointF(static_cast<double>(f.timestampMs - t0), v);
+        }
+    }
+    const QString label = d->eyeMetricCombo->currentText();
+    d->chart->set_single_series(pts, label, QString(),
+                                static_cast<double>(r.frames().last().timestampMs - t0));
+    d->chart->set_title("Eye Contact — " + label);
+    d->chart->set_playhead_ms(d->player->position_ms());
+
+    const EyeContactSummary& s = r.summary();
+    auto pct                   = [](const std::optional<double>& v) {
+        return v ? QString("%1%").arg(*v, 0, 'f', 0) : QString("–");
+    };
+    QStringList parts;
+    parts << QString("eye contact %1").arg(pct(s.eyeContactPct));
+    if (s.listeningPct || s.speakingPct) {
+        parts << QString("listening %1, speaking %2").arg(pct(s.listeningPct), pct(s.speakingPct));
+    }
+    parts << QString("%1 look-aways (%2/min, median %3 s: %4 up, %5 down, %6 left, %7 right)")
+                 .arg(s.aversions)
+                 .arg(s.aversionsPerMin ? QString::number(*s.aversionsPerMin, 'f', 1) : "–")
+                 .arg(s.aversionMedianS ? QString::number(*s.aversionMedianS, 'f', 1) : "–")
+                 .arg(s.up)
+                 .arg(s.down)
+                 .arg(s.left)
+                 .arg(s.right);
+    if (s.subjectTurns > 0) {
+        parts << QString("answers: %1 start looking away, %2 end looking back")
+                     .arg(pct(s.turnStartAversionPct), pct(s.turnEndContactPct));
+    }
+    if (r.target_yaw() && r.target_pitch() && r.radius_deg()) {
+        parts << QString("partner at %1°, %2° (%3, cone %4°)")
+                     .arg(*r.target_yaw(), 0, 'f', 0)
+                     .arg(*r.target_pitch(), 0, 'f', 0)
+                     .arg(r.target_method() == "camera"   ? "the camera"
+                          : r.target_method() == "manual" ? "given"
+                                                          : "found from gaze")
+                     .arg(*r.radius_deg(), 0, 'f', 0);
+    }
+    d->eyeStatsLbl->setText(parts.join("  ·  "));
+}
+
+void AnalysisTabW::export_eye_contact_csv() {
+    const auto* info = d->current_session();
+    const auto& r    = d->currentEyeContact;
+    if (!info || !r.is_valid()) {
+        return;
+    }
+    const QString stem      = QFileInfo(r.source_video()).completeBaseName();
+    const QString suggested = info->path + "/" + stem + "_look_aways.csv";
+    const int64_t t0        = r.frames().isEmpty() ? 0 : r.frames().first().timestampMs;
+    export_csv(this, "Export look-aways", suggested, [&](QTextStream& ts) {
+        ts << "start_s,end_s,duration_ms,offset_deg,direction\n";
+        for (const auto& a : r.aversions()) {
+            ts << QString::number((a.startMs - t0) / 1000.0, 'f', 3) << ","
+               << QString::number((a.endMs - t0) / 1000.0, 'f', 3) << "," << a.durationMs << ","
+               << QString::number(a.offsetDeg, 'f', 1) << "," << a.direction << "\n";
+        }
+    });
+}
+
 void AnalysisTabW::update_conversation_view() {
     const auto& r = d->currentConversation;
     if (!r.is_valid()) {
@@ -5409,6 +5591,10 @@ void AnalysisTabW::run_analysis() {
     } else if (plugin == "gaze2d") {
         d->analysisMgr->run_gaze2d_analysis(
             d->currentSessionPath, d->gaze2dMinConfidenceSpin->value(), d->gaze2dSkipSpin->value());
+    } else if (plugin == "eye_contact") {
+        d->analysisMgr->run_eye_contact_analysis(d->currentSessionPath,
+                                                 d->eyeTargetCombo->currentData().toString(),
+                                                 d->eyeVideoCheck->isChecked());
     } else if (plugin == "conversation") {
         d->analysisMgr->run_conversation_analysis(d->currentSessionPath,
                                                   d->convDiarizationCheck->isChecked(),
@@ -5444,6 +5630,8 @@ void AnalysisTabW::open_output_folder() {
         folder = "face_dynamics";
     } else if (is_conversation_plugin()) {
         folder = "conversation";
+    } else if (is_eye_contact_plugin()) {
+        folder = "eye_contact";
     }
     QDesktopServices::openUrl(QUrl::fromLocalFile(info->path + "/" + folder));
 }
