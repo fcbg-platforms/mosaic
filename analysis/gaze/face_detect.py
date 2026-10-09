@@ -168,6 +168,11 @@ def landmarker_path() -> Path:
     return _download(MODELS_DIR / "face_landmarker.task", LANDMARKER_URL)
 
 
+def yunet_path() -> Path:
+    """The YuNet face detector, downloaded on first use."""
+    return _download(MODELS_DIR / "face_detection_yunet_2023mar.onnx", YUNET_URL, YUNET_SHA256)
+
+
 class FaceFinder:
     """YuNet + FaceLandmarker on crops (see the module docstring).
 
@@ -191,9 +196,8 @@ class FaceFinder:
         self._mp = mp
         self._ids = np.asarray(ids, dtype=np.int64)
         self._max_faces = max_faces
-        yunet = _download(MODELS_DIR / "face_detection_yunet_2023mar.onnx", YUNET_URL, YUNET_SHA256)
         self._detector = cv2.FaceDetectorYN_create(
-            str(yunet), "", (320, 320), score_threshold=min_score
+            str(yunet_path()), "", (320, 320), score_threshold=min_score
         )
         self._size = None
         options = mp_vision.FaceLandmarkerOptions(

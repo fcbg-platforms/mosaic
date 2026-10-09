@@ -95,6 +95,7 @@ struct SessionInfo {
     bool hasSkeleton3D     = false;
     bool hasRppg           = false;
     bool hasGaze2d         = false;
+    bool hasFaceDynamics   = false;
     bool hasSyncRepair     = false;
     QStringList videoFiles;
     QStringList audioFiles;
@@ -233,6 +234,12 @@ struct SessionInfo {
         info.hasSyncRepair =
             QFileInfo::exists(dir + "/synced/sync_repair.json") &&
             !QDir(dir + "/synced").entryList({"video_*.mp4"}, QDir::Files).isEmpty();
+
+        // face_dynamics/ holds annotated video copies, so like synced/ it is
+        // not scanned by classify() (it would add them to videoFiles).
+        info.hasFaceDynamics = !QDir(dir + "/face_dynamics")
+                                    .entryList({"*.face_dynamics.json"}, QDir::Files)
+                                    .isEmpty();
 
         // Approximate duration: video file mtime vs session start
         if (info.startUtc.isValid()) {

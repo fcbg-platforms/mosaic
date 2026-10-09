@@ -80,6 +80,9 @@ struct AnalysisPluginDesc {
          AnalysisPluginCategory::FaceGaze},
         {"gaze2d", "2D Gaze", "Per-face gaze direction in image space. No calibration needed.",
          AnalysisPluginCategory::FaceGaze},
+        {"face_dynamics", "Face Dynamics",
+         "Blinks, smiles, brow raises, nods. Best in interview mode.",
+         AnalysisPluginCategory::FaceGaze},
         {"sync_repair", "Frame Sync Repair", "Equalizes camera frame counts into synced/.",
          AnalysisPluginCategory::DataPrep},
     };

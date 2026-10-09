@@ -66,6 +66,13 @@ algorithm behind its output.
 
       Camera-based pulse-rate estimation (rPPG). **Experimental.**
 
+   .. grid-item-card:: 😉 Face Dynamics
+      :link: analysis-api-face-dynamics
+      :link-type: ref
+
+      Blinks, Duchenne smiles, brow raises, expressivity, nods and shakes
+      from one camera's video.
+
    .. grid-item-card:: 🐭 Motion Tracking
       :link: analysis-api-motion
       :link-type: ref
@@ -631,6 +638,75 @@ physiological frequency band.
 .. autofunction:: rppg.median_smooth
 
 See :doc:`math/remote_heart_rate`.
+
+.. _analysis-api-face-dynamics:
+
+Face Dynamics
+-------------
+
+Counts what a face does: blinks and long closures from the eye aspect ratio
+normalised by the person's own open-eye baseline, smiles (and Duchenne
+smiles) and brow raises from MediaPipe blendshapes, an expressivity index,
+and head nods and shakes from the head-pose angles. The rules are pure numpy
+(:mod:`face_dynamics.metrics`); :class:`~face_dynamics.extract.FaceTracker`
+supplies the per-frame measurements. See :doc:`math/face_dynamics`.
+
+.. code-block:: python
+
+   from face_dynamics import metrics as fm
+
+   open_l = fm.openness(ear_left, times_s)          # ~1 open, 0 closed
+   open_r = fm.openness(ear_right, times_s)
+   events = fm.detect_blinks(open_l, open_r, times_s)
+   events += fm.detect_expression_events(blendshapes, times_s)
+   events += fm.detect_head_gestures(fm.smooth(yaw, times_s), fm.smooth(pitch, times_s), times_s)
+
+.. automodule:: face_dynamics
+   :no-members:
+
+.. autosummary::
+   :nosignatures:
+
+   metrics.eye_aspect_ratio
+   metrics.openness
+   metrics.detect_blinks
+   metrics.perclos
+   metrics.detect_expression_events
+   metrics.expressivity
+   metrics.detect_head_gestures
+   metrics.smooth
+   metrics.angular_speed
+   metrics.summarise
+   extract.FaceTracker
+   extract.head_angles
+
+.. autoclass:: face_dynamics.metrics.Event
+   :members:
+
+.. autofunction:: face_dynamics.metrics.eye_aspect_ratio
+
+.. autofunction:: face_dynamics.metrics.openness
+
+.. autofunction:: face_dynamics.metrics.detect_blinks
+
+.. autofunction:: face_dynamics.metrics.perclos
+
+.. autofunction:: face_dynamics.metrics.detect_expression_events
+
+.. autofunction:: face_dynamics.metrics.expressivity
+
+.. autofunction:: face_dynamics.metrics.detect_head_gestures
+
+.. autofunction:: face_dynamics.metrics.smooth
+
+.. autofunction:: face_dynamics.metrics.angular_speed
+
+.. autofunction:: face_dynamics.metrics.summarise
+
+.. autoclass:: face_dynamics.extract.FaceTracker
+   :members: measure, close
+
+.. autofunction:: face_dynamics.extract.head_angles
 
 .. _analysis-api-motion:
 
