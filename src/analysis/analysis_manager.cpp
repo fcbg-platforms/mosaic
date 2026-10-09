@@ -156,17 +156,22 @@ void AnalysisManager::run_expression_analysis(const QString& sessionPath, const 
 }
 
 void AnalysisManager::run_gaze_fusion(const QString& sessionPath, int minCameras,
-                                      double minConfidence, int frameSkip) {
+                                      double minConfidence, int frameSkip, int maxSubjects) {
+    // Still generated: the script prefers synced/ (Frame Sync Repair) but
+    // falls back to the raw videos aligned by this manifest.
     if (sync_manifest_is_stale(sessionPath)) {
         SyncManifest::generate(sessionPath).save(sessionPath);
     }
 
-    const QStringList args = {
+    QStringList args = {
         "--session",        sessionPath,
         "--min-cameras",    QString::number(qMax(1, minCameras)),
         "--min-confidence", QString::number(minConfidence),
         "--skip",           QString::number(qMax(1, frameSkip)),
     };
+    if (maxSubjects > 0) {
+        args << "--subjects" << QString::number(maxSubjects);
+    }
     // No secrets involved, unlike run_diarization()'s hfToken.
     enqueue_or_launch(sessionPath, "analysis/run_gaze_fusion.py", args, {});
 }

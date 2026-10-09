@@ -105,6 +105,18 @@ class RoomCalibrationManager {
                                          std::array<double, 3>& outPoint,
                                          std::array<double, 3>& outNormal) const;
 
+    /// The board's rectangle from a (shot, camera) pair, in room coordinates:
+    /// a gaze target region placed by holding the board on (and centred on)
+    /// the target. The board's origin is its corner, so the centre is that
+    /// corner plus half the board along both of its axes; uAxis runs along
+    /// its columns, and width/height are the board's printed size. Same
+    /// preconditions and return value as use_shot_as_plane().
+    [[nodiscard]] bool use_shot_as_region(int shotIndex, int cameraIndex,
+                                          std::array<double, 3>& outCentre,
+                                          std::array<double, 3>& outNormal,
+                                          std::array<double, 3>& outUAxis, double& outWidth,
+                                          double& outHeight) const;
+
    private:
     struct Impl;
     std::unique_ptr<Impl> d;

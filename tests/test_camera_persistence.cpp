@@ -145,3 +145,49 @@ TEST(LegacyExposureLimit, LoadingAloneDoesNotMigrate) {
     ASSERT_TRUE(loaded.has_value());
     EXPECT_DOUBLE_EQ(loaded->video.cameras[0].exposureAutoUpperUs, 50000.0);
 }
+
+// Gaze target regions travel with the room settings (and so into every
+// session's metadata); one without a name or a size is dropped on load
+// rather than kept as an invisible target.
+TEST(RoomPersistence, GazeRegionsRoundTripAndInvalidOnesAreDropped) {
+    mosaic::RoomSettings room;
+    mosaic::GazeRegion screen;
+    screen.name   = "screen";
+    screen.centre = {10.0, -200.0, 1800.0};
+    screen.normal = {0.0, 0.0, -1.0};
+    screen.uAxis  = {1.0, 0.0, 0.0};
+    screen.width  = 600.0;
+    screen.height = 340.0;
+    room.regions.push_back(screen);
+    mosaic::GazeRegion unnamed = screen;
+    unnamed.name               = "";
+    room.regions.push_back(unnamed);
+
+    const auto loaded = mosaic::RoomSettings::from_json(room.to_json());
+    ASSERT_TRUE(loaded.has_value());
+    ASSERT_EQ(loaded->regions.size(), 1);
+    EXPECT_EQ(loaded->regions[0].name, "screen");
+    EXPECT_DOUBLE_EQ(loaded->regions[0].centre[1], -200.0);
+    EXPECT_DOUBLE_EQ(loaded->regions[0].normal[2], -1.0);
+    EXPECT_DOUBLE_EQ(loaded->regions[0].height, 340.0);
+}
+
+// The calibrated image's size and crop survive a save; settings from before
+// they were recorded load as unknown (-1), never as a full-frame 0 offset.
+TEST(CalibrationPersistence, ImageSizeAndCropRoundTripAndDefaultToUnknown) {
+    mosaic::CalibrationData cal;
+    cal.calibrated    = true;
+    cal.imageWidth    = 1280;
+    cal.imageHeight   = 540;
+    cal.imageOffsetX  = 320;
+    cal.imageOffsetY  = 270;
+    const auto loaded = mosaic::CalibrationData::from_json(cal.to_json());
+    ASSERT_TRUE(loaded.has_value());
+    EXPECT_EQ(loaded->imageWidth, 1280);
+    EXPECT_EQ(loaded->imageOffsetY, 270);
+
+    const auto legacy = mosaic::CalibrationData::from_json(QJsonObject{{"calibrated", true}});
+    ASSERT_TRUE(legacy.has_value());
+    EXPECT_EQ(legacy->imageWidth, -1);
+    EXPECT_EQ(legacy->imageOffsetX, -1);
+}

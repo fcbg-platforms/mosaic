@@ -639,26 +639,50 @@ sitting alongside **Live**. The workflow is always the same shape:
 
    .. tab-item:: Multi-Camera Gaze Fusion
 
-      **What it does**: estimates each camera's 3D gaze ray for the subject,
-      then triangulates a single fused ray (and, if the room's target plane
-      is defined, a target point on that plane) across every camera that saw
-      the subject at that instant. Needs
-      :ref:`room (extrinsic) calibration <room-extrinsic-calibration>`
-      to be completed first; without it, camera positions aren't known in a
-      shared room frame and fusion can't run.
+      **What it does**: finds where every person in the room looks, in 3D,
+      using every calibrated camera that sees them: at whom (and whether
+      they look at each other), at which named region (a screen, a toy), at
+      the calibrated plane, or simply at which point. It needs each camera's
+      intrinsic calibration, and
+      :ref:`room (extrinsic) calibration <room-extrinsic-calibration>` to
+      combine cameras. It works best on a session that has been through
+      Frame Sync Repair (its ``synced/`` videos), and uses the raw videos
+      otherwise.
 
-      **Controls**: minimum-cameras-to-triangulate (default 2; below this,
-      individual per-camera rays are still recorded, just no fused
-      point), minimum detection confidence, and a frame-skip spinbox.
+      **Controls**:
 
-      **Reading the output**: a top-down 3D room view shows each camera's
-      position, the defined target plane, the fused ray, and the individual
-      per-camera rays (thin, for visually checking triangulation spread).
-      The selected camera's video also overlays a face box + gaze-direction
-      arrow. Stats show frame count, % triangulated, average residual, and %
-      with a valid target point. See :doc:`math/gaze_fusion` for the
-      triangulation math and :doc:`math/room_calibration` for how camera
-      positions are solved.
+      - **min cams**: cameras that must see a person before their gaze is
+        reported (default 1).
+      - **min conf**: face detector threshold.
+      - **skip**: analyse every Nth frame (default 2; the videos still show
+        every frame).
+      - **subjects**: how many people to keep (auto keeps everyone seen for
+        at least a second).
+
+      **Reading the output**:
+
+      - The camera video plays with every person's face box, name, gaze ray,
+        gaze point, a short trail, and what they look at (``S1 -> S2``,
+        ``S1 <-> S2`` when they look at each other). These annotated videos
+        are rendered by the analysis into the session's ``gaze_fusion/``
+        folder; **Open output folder** shows them, with a top-down room
+        video and a heat map per person.
+      - The room view beside it shows the room from above: cameras, named
+        regions, every person and their gaze, and below it what each one
+        looks at right now.
+      - The stats line gives, per person, how much of the time a gaze was
+        found and what they looked at most, plus the share of time with
+        mutual gaze.
+      - **Export CSV** writes one row per frame and person.
+
+      To name people (``S1`` becomes ``Child``) or add regions after
+      recording, put a ``gaze_targets.json`` in the session folder (see
+      :ref:`analysis-api-gaze`) and run again: the cached face landmarks
+      make that take seconds.
+
+      See :doc:`math/gaze_fusion` for the method, its accuracy and its
+      limits, and :doc:`math/room_calibration` for how camera positions are
+      solved.
 
    .. tab-item:: 3D Pose Reconstruction
 

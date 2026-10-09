@@ -4,19 +4,14 @@ Analysis-tab plugin (analysis/run_gaze2d.py).
 
 Reuses the exact iris-centre-offset-from-eye-socket-centre heuristic
 already running live in the Real-time tab (python/pose/gaze_estimator.py's
-GazeEstimator.estimate()) and in the Multi-Camera Gaze Fusion plugin
-(analysis/gaze/estimator.py's _iris_offset()) — this is deliberately a
-THIRD copy of that same heuristic, not a shared import, matching this
-project's own already-documented cross-project/cross-plugin boundary rule
-(see analysis/gaze/estimator.py's own module docstring for the full
-rationale: python/ and analysis/ are separate uv projects with
-independent dependency trees, and reaching across plugin folders within
-analysis/ itself is avoided the same way for consistency).
+GazeEstimator.estimate()). This is a copy of that heuristic, not a shared
+import: python/ and analysis/ are separate uv projects with independent
+dependency trees.
 
-Unlike analysis/gaze/estimator.py (needs a camera's real intrinsics for
-cv2.solvePnP, to produce a metric 3D gaze RAY) or analysis/run_gaze_fusion.py
-(needs room extrinsics too, to fuse rays across cameras), this module needs
-NO calibration data at all — it produces the same normalized [-1, 1]
+Unlike the Multi-Camera Gaze Fusion plugin (analysis/run_gaze_fusion.py,
+the analysis/gaze package), which needs each camera's intrinsics for a
+metric head pose and an eyeball model, and room calibration to combine
+cameras, this module needs NO calibration data at all — it produces the same normalized [-1, 1]
 gaze_dx/gaze_dy heuristic the live path already does, per camera, per
 frame. This is what makes the plugin built on top of it "calibration-free":
 no intrinsic or room/extrinsic calibration step is a prerequisite.
@@ -39,8 +34,8 @@ _MEDIAPIPE_MODEL_URL = (
 
 # ── Landmark indices ─────────────────────────────────────────────────────
 # Same MediaPipe FaceLandmarker 478-point mesh python/pose/gaze_estimator.py
-# and analysis/gaze/estimator.py both use for this identical heuristic;
-# duplicated rather than imported (see module docstring).
+# uses for this identical heuristic; duplicated rather than imported (see
+# module docstring).
 _LEFT_IRIS_CENTER, _RIGHT_IRIS_CENTER = 468, 473
 _LEFT_EYE_OUTER, _LEFT_EYE_INNER = 33, 133
 _LEFT_EYE_TOP, _LEFT_EYE_BOTTOM = 159, 145
@@ -160,13 +155,9 @@ def compute_iris_offset(landmarks) -> tuple[float, float] | tuple[None, None]:
     Notes
     -----
     Identical heuristic to ``python/pose/gaze_estimator.py``'s
-    ``GazeEstimator.estimate()`` and ``analysis/gaze/estimator.py``'s
-    ``_iris_offset()`` — iris-centre offset from eye-socket centre,
-    normalised by eye width, averaged across both eyes. Pulled out as a
-    real, non-underscore-prefixed, directly testable function (unlike its
-    two siblings, which keep this private) specifically because neither of
-    those two existing copies has ever had a dedicated unit test despite
-    being duplicated twice already — see
+    ``GazeEstimator.estimate()``: iris-centre offset from eye-socket centre,
+    normalised by eye width, averaged across both eyes. A public,
+    directly testable function (the live copy keeps it private); see
     analysis/tests/test_gaze2d_estimator.py.
     """
     li_x, li_y = landmarks[_LEFT_IRIS_CENTER].x, landmarks[_LEFT_IRIS_CENTER].y

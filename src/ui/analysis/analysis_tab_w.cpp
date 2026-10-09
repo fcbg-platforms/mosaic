@@ -816,6 +816,7 @@ struct AnalysisTabW::Impl {
     QSpinBox* minCamerasSpin                 = nullptr; // gaze_fusion
     QDoubleSpinBox* gazeMinConfidenceSpin    = nullptr; // gaze_fusion
     QSpinBox* gazeSkipSpin                   = nullptr; // gaze_fusion
+    QSpinBox* gazeSubjectsSpin               = nullptr; // gaze_fusion
     QSpinBox* pose3dMinCamerasSpin           = nullptr; // pose3d
     QDoubleSpinBox* maxReprojectionErrorSpin = nullptr; // pose3d
     QSpinBox* pose3dSkipSpin                 = nullptr; // pose3d
@@ -1527,25 +1528,39 @@ void AnalysisTabW::build_ui() {
 
     d->minCamerasSpin = new QSpinBox;
     d->minCamerasSpin->setRange(1, 6);
-    d->minCamerasSpin->setValue(2);
+    d->minCamerasSpin->setValue(1);
     d->minCamerasSpin->setPrefix("min cams ");
     d->minCamerasSpin->setToolTip(
-        "Minimum simultaneous cameras required to compute a target point on the room "
-        "plane. Rays from fewer cameras are still recorded, just without a target point.");
+        "Cameras that must see a subject before their gaze is reported. 1 uses any "
+        "camera; more cameras give a more reliable gaze where they are available.");
     gazeFusionCtlLay->addWidget(d->minCamerasSpin);
 
     d->gazeMinConfidenceSpin = new QDoubleSpinBox;
     d->gazeMinConfidenceSpin->setRange(0.1, 1.0);
     d->gazeMinConfidenceSpin->setSingleStep(0.05);
-    d->gazeMinConfidenceSpin->setValue(0.5);
+    d->gazeMinConfidenceSpin->setValue(0.6);
     d->gazeMinConfidenceSpin->setPrefix("min conf ");
+    d->gazeMinConfidenceSpin->setToolTip("Face detector confidence threshold.");
     gazeFusionCtlLay->addWidget(d->gazeMinConfidenceSpin);
 
     d->gazeSkipSpin = new QSpinBox;
     d->gazeSkipSpin->setRange(1, 30);
-    d->gazeSkipSpin->setValue(1);
+    d->gazeSkipSpin->setValue(2);
     d->gazeSkipSpin->setPrefix("skip ");
+    d->gazeSkipSpin->setToolTip(
+        "Analyse every Nth frame. The videos still show every frame, holding the last "
+        "estimate in between. 2 halves the time with little loss.");
     gazeFusionCtlLay->addWidget(d->gazeSkipSpin);
+
+    d->gazeSubjectsSpin = new QSpinBox;
+    d->gazeSubjectsSpin->setRange(0, 6);
+    d->gazeSubjectsSpin->setValue(0);
+    d->gazeSubjectsSpin->setPrefix("subjects ");
+    d->gazeSubjectsSpin->setSpecialValueText("subjects auto");
+    d->gazeSubjectsSpin->setToolTip(
+        "How many people to report. Auto keeps everyone seen for at least a second; "
+        "a number keeps only the people seen the longest.");
+    gazeFusionCtlLay->addWidget(d->gazeSubjectsSpin);
     add_plugin_page("gaze_fusion", gazeFusionPage);
 
     // ── 3D Pose Reconstruction controls page ────────────────────────────
@@ -2644,7 +2659,8 @@ void AnalysisTabW::select_plugin(const QString& pluginId) {
     set_visible_animated(d->gaze2dRowW, isGaze2d);
     set_visible_animated(d->syncRepairRowW, isSyncRepair);
     set_visible_animated(d->syncRepairTable, isSyncRepair);
-    set_visible_animated(d->openFolderBtn, isFaceMask || is_pose_depth_selected() || isSyncRepair);
+    set_visible_animated(d->openFolderBtn,
+                         isFaceMask || is_pose_depth_selected() || isSyncRepair || isGazeFusion);
     set_visible_animated(d->sourceRowW, !isDiarize);
     set_visible_animated(d->micRowW, isDiarize);
     set_visible_animated(d->transcriptTable, isDiarize);
@@ -2947,15 +2963,33 @@ void AnalysisTabW::reload_current_camera_result() {
         d->roomView->set_result(d->currentGazeFusion);
 
         if (d->cameraCombo->currentIndex() >= 0) {
-            const QString videoRel = d->cameraCombo->currentData().toString();
-            d->player->set_video(info->path + "/" + videoRel);
-            d->player->set_gaze_result(d->currentGazeFusion, combo_camera_index(d->cameraCombo));
+            const int camIdx        = combo_camera_index(d->cameraCombo);
+            const QString annotated = d->currentGazeFusion.annotated_video(camIdx);
+            if (!annotated.isEmpty() && QFileInfo::exists(info->path + "/" + annotated)) {
+                // The annotated video already shows each subject's gaze ray,
+                // point and target, drawn by the script with the calibration;
+                // a live overlay on top would draw everything twice.
+                d->player->set_video(info->path + "/" + annotated);
+                d->player->set_pose_result(PoseAnalysisResult());
+            } else {
+                // No rendered video (or an older result): the analysed video
+                // with box-and-label overlays. v2 results are on synced/'s
+                // frame timeline, so play that copy when the result used it.
+                const QString videoRel  = d->cameraCombo->currentData().toString();
+                const QString syncedRel = "synced/" + QFileInfo(videoRel).fileName();
+                const bool useSynced    = d->currentGazeFusion.schema_version() >= 2 &&
+                                       d->currentGazeFusion.source_videos().contains(syncedRel) &&
+                                       QFileInfo::exists(info->path + "/" + syncedRel);
+                d->player->set_video(info->path + "/" + (useSynced ? syncedRel : videoRel));
+                d->player->set_gaze_result(d->currentGazeFusion, camIdx);
+            }
         } else {
             d->player->set_video(QString());
             d->player->set_pose_result(d->currentResult);
         }
 
         update_gaze_view();
+        d->openFolderBtn->setEnabled(QFileInfo(info->path + "/gaze_fusion").isDir());
 
         if (!d->currentGazeFusion.is_valid()) {
             d->statusLbl->setText("No gaze fusion result yet for this session — click Run.");
@@ -4033,36 +4067,60 @@ void AnalysisTabW::update_gaze_view() {
         return;
     }
 
-    const auto& frames = d->currentGazeFusion.frames();
-    int nTriangulated = 0, nWithTarget = 0;
-    double residualSum = 0.0;
-    int residualCount  = 0;
-    for (const auto& f : frames) {
-        if (f.isTriangulated) {
-            ++nTriangulated;
-            if (f.residualRmsMm >= 0.0) {
-                residualSum += f.residualRmsMm;
-                ++residualCount;
+    // Per subject: share of analysed ticks with a gaze, and the target looked
+    // at longest. Plus mutual gaze, the social measure this exists for.
+    const auto& result = d->currentGazeFusion;
+    const auto& frames = result.frames();
+    QStringList parts;
+    for (const auto& id : result.subject_ids()) {
+        int withGaze = 0;
+        QMap<QString, int> targets;
+        for (const auto& f : frames) {
+            const GazeSubjectSample* s = f.subject(id);
+            if (s && s->hasDirection) {
+                ++withGaze;
+                if (!s->targetLabel.isEmpty() && s->targetLabel != QLatin1String("none")) {
+                    ++targets[s->targetLabel];
+                }
             }
         }
-        if (f.hasTarget) {
-            ++nWithTarget;
+        QString top;
+        int best = 0;
+        for (auto it = targets.cbegin(); it != targets.cend(); ++it) {
+            if (it.value() > best) {
+                best = it.value();
+                top  = it.key();
+            }
+        }
+        QString part = QString("%1: gaze %2%")
+                           .arg(result.subject_name(id))
+                           .arg(100.0 * withGaze / frames.size(), 0, 'f', 0);
+        if (!top.isEmpty()) {
+            part += QString(", mostly at %1 (%2%)")
+                        .arg(top)
+                        .arg(100.0 * best / frames.size(), 0, 'f', 0);
+        }
+        parts << part;
+    }
+    int mutualTicks = 0;
+    for (const auto& f : frames) {
+        for (const auto& s : f.subjects) {
+            if (s.mutual) {
+                ++mutualTicks;
+                break;
+            }
         }
     }
-
-    // "Triangulated" always means >=2 contributing cameras (the mathematical
-    // minimum closest_point_of_rays() needs) — a fixed threshold in
-    // run_gaze_fusion.py, independent of "min cams". The "min cams" spinbox
-    // only gates the separately-reported target-point ("% with a valid
-    // target" below); don't conflate the two in this label.
-    const double avgResidual = residualCount > 0 ? residualSum / residualCount : 0.0;
-    d->gazeStatsLbl->setText(
-        QString("%1 frame(s)  ·  %2% triangulated (≥2 cams)  ·  avg residual %3 mm  ·  "
-                "%4% with a valid target")
-            .arg(frames.size())
-            .arg(100.0 * nTriangulated / frames.size(), 0, 'f', 0)
-            .arg(avgResidual, 0, 'f', 1)
-            .arg(100.0 * nWithTarget / frames.size(), 0, 'f', 0));
+    if (parts.isEmpty()) {
+        parts << "nobody seen long enough";
+    }
+    const QString sep = QStringLiteral("  ") + QChar(0x00b7) + QStringLiteral("  ");
+    QString text      = QString("%1 frame(s)").arg(frames.size()) + sep + parts.join(sep);
+    if (result.subject_ids().size() >= 2) {
+        text +=
+            sep + QString("mutual gaze %1%").arg(100.0 * mutualTicks / frames.size(), 0, 'f', 0);
+    }
+    d->gazeStatsLbl->setText(text);
 }
 
 void AnalysisTabW::export_gaze_csv() {
@@ -4074,22 +4132,36 @@ void AnalysisTabW::export_gaze_csv() {
     const QString suggested = info->path + "/gaze_fusion.csv";
 
     export_csv(this, "Export Gaze Fusion", suggested, [&](QTextStream& ts) {
-        ts << "# subject_id is not tracked across frames — treat subject 0 as one "
-              "continuous face only for single-face sessions\n";
-        ts << "tick,timestamp_ns,num_cameras,is_triangulated,"
-              "fused_origin_x,fused_origin_y,fused_origin_z,"
-              "fused_direction_x,fused_direction_y,fused_direction_z,"
-              "residual_rms_mm,target_x,target_y,target_z\n";
+        ts << "tick,timestamp_ns,video_frame_index,subject,"
+              "origin_x_mm,origin_y_mm,origin_z_mm,dir_x,dir_y,dir_z,"
+              "point_x_mm,point_y_mm,point_z_mm,target_type,target,mutual,"
+              "confidence,uncertainty_deg,n_cameras\n";
+        // Names come from users (gaze_targets.json, region names): quote
+        // any that hold a comma or quote, as CSV readers expect.
+        auto text = [](const QString& v) {
+            if (!v.contains(',') && !v.contains('"') && !v.contains('\n')) {
+                return v;
+            }
+            return QString("\"%1\"").arg(QString(v).replace("\"", "\"\""));
+        };
+        auto num = [](bool ok, double v, int decimals) {
+            return ok ? QString::number(v, 'f', decimals) : QString();
+        };
         for (const auto& f : d->currentGazeFusion.frames()) {
-            ts << f.tick << "," << f.timestampNs << "," << f.numCameras << ","
-               << (f.isTriangulated ? "1" : "0") << "," << f.fusedOriginRoom[0] << ","
-               << f.fusedOriginRoom[1] << "," << f.fusedOriginRoom[2] << ","
-               << f.fusedDirectionRoom[0] << "," << f.fusedDirectionRoom[1] << ","
-               << f.fusedDirectionRoom[2] << ","
-               << (f.residualRmsMm >= 0.0 ? QString::number(f.residualRmsMm) : QString()) << ","
-               << (f.hasTarget ? QString::number(f.targetPointRoom[0]) : QString()) << ","
-               << (f.hasTarget ? QString::number(f.targetPointRoom[1]) : QString()) << ","
-               << (f.hasTarget ? QString::number(f.targetPointRoom[2]) : QString()) << "\n";
+            for (const auto& s : f.subjects) {
+                ts << f.tick << "," << f.timestampNs << "," << f.videoFrameIndex << ","
+                   << text(s.name) << "," << num(true, s.origin[0], 1) << ","
+                   << num(true, s.origin[1], 1) << "," << num(true, s.origin[2], 1) << ","
+                   << num(s.hasDirection, s.direction[0], 5) << ","
+                   << num(s.hasDirection, s.direction[1], 5) << ","
+                   << num(s.hasDirection, s.direction[2], 5) << ","
+                   << num(s.hasPoint, s.point[0], 1) << "," << num(s.hasPoint, s.point[1], 1) << ","
+                   << num(s.hasPoint, s.point[2], 1) << "," << s.targetType << ","
+                   << text(s.targetLabel) << "," << (s.mutual ? "true" : "false") << ","
+                   << num(true, s.confidence, 3) << ","
+                   << num(s.uncertaintyDeg >= 0.0, s.uncertaintyDeg, 2) << "," << s.numCameras
+                   << "\n";
+            }
         }
     });
 }
@@ -4862,8 +4934,8 @@ void AnalysisTabW::run_analysis() {
             d->maxFacesSpin->value(), d->minConfidenceSpin->value(), d->exprSkipSpin->value());
     } else if (plugin == "gaze_fusion") {
         d->analysisMgr->run_gaze_fusion(d->currentSessionPath, d->minCamerasSpin->value(),
-                                        d->gazeMinConfidenceSpin->value(),
-                                        d->gazeSkipSpin->value());
+                                        d->gazeMinConfidenceSpin->value(), d->gazeSkipSpin->value(),
+                                        d->gazeSubjectsSpin->value());
     } else if (plugin == "pose3d") {
         d->analysisMgr->run_pose3d_reconstruction(
             d->currentSessionPath, d->pose3dMinCamerasSpin->value(),
@@ -4898,6 +4970,8 @@ void AnalysisTabW::open_output_folder() {
         folder = "depth";
     } else if (is_sync_repair_plugin()) {
         folder = "synced";
+    } else if (is_gaze_fusion_plugin()) {
+        folder = "gaze_fusion";
     }
     QDesktopServices::openUrl(QUrl::fromLocalFile(info->path + "/" + folder));
 }

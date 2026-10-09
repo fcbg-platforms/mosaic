@@ -360,49 +360,123 @@ See :doc:`math/facial_expression`.
 Multi-Camera Gaze Fusion
 ------------------------------
 
-For each camera that sees a face, solves a real (not weak-perspective) 3D
-head pose via ``cv2.solvePnP``, perturbs it by a small iris-offset
-heuristic into one camera-local gaze ray, transforms every contributing
-camera's ray into shared room coordinates, and triangulates them into one
-fused ray and (if a target plane is calibrated) a target point.
+Where every subject looks, in 3D, across all calibrated cameras: whose face,
+which named region, which point on the calibrated plane, or which point in
+space. Faces are found with YuNet and landmarked by MediaPipe on crops; head
+pose is metric (MediaPipe's canonical face against the real calibration,
+fitted jointly across cameras with a per-subject face scale); a geometric
+eyeball model turns each iris into an eye rotation; every camera's view of
+each eye is fused robustly; subjects are tracked and named; gaze is
+smoothed without lag and cast against the targets. See
+:doc:`math/gaze_fusion` for the method and its limits.
+
+.. code-block:: text
+
+   python run_gaze_fusion.py --session DIR [--skip 2] [--subjects N]
+                             [--min-cameras 1] [--min-confidence 0.6]
+                             [--camera N] [--raw] [--no-render] [--refresh]
+
+``--camera N`` uses one camera on its own (no room calibration needed);
+``--raw`` ignores ``synced/``; ``--refresh`` ignores the landmark cache.
+
+**Outputs.**
+
+.. list-table::
+   :header-rows: 1
+   :widths: 40 60
+
+   * - File
+     - Contents
+   * - ``gaze_fusion.json``
+     - Schema ``mosaic-gaze-fusion-v2``, read by the Analysis tab. Top level:
+       ``source`` (``synced`` or ``raw``), ``fps``, ``analysed_every``,
+       ``subjects`` (``id``, ``name``, ``face_scale``), ``regions``,
+       ``plane``, ``cameras``, ``annotated_videos``. Per analysed tick in
+       ``frames``: ``tick``, ``timestamp_ns``, ``video_frame_index`` and per
+       subject ``origin``, ``direction``, ``point`` (mm, room frame),
+       ``target`` (``type``, ``label``, ``subject``, ``distance_mm``),
+       ``mutual``, ``confidence``, ``uncertainty_deg``, ``n_cameras`` and
+       ``per_camera`` (``camera``, ``face_box_px``, ``direction``,
+       ``weight``).
+   * - ``gaze_fusion/gaze_fusion.csv``
+     - One row per analysed tick and subject, the same values flat.
+   * - ``gaze_fusion/summary.json``
+     - Per subject: seconds seen, seconds with a gaze, and seconds looking
+       at each target; mutual gaze per pair.
+   * - ``gaze_fusion/video_N.gaze.mp4``
+     - Each camera's video (frame *k* = tick *k*) with every subject's face
+       box, name, projected gaze ray, gaze point, a 1.5 s trail and their
+       target (``S1 -> S2``, ``S1 <-> S2`` for mutual gaze).
+   * - ``gaze_fusion/room_topdown.mp4``
+     - The room from above: cameras, regions, subjects, gaze rays and a
+       heat layer of gaze points that builds up over the recording.
+   * - ``gaze_fusion/heatmap_<subject>.png``
+     - Where each subject's gaze landed, from above.
+   * - ``gaze_fusion/landmarks_camN.npz``
+     - Cached landmarks, so a re-run with the same settings skips face
+       finding (renaming subjects or editing regions then takes seconds).
+
+**Targets.** The plane and named regions come from the room calibration
+snapshotted in ``session_meta.json``. An optional ``gaze_targets.json`` in
+the session folder overrides the regions and renames subjects:
+
+.. code-block:: json
+
+   {
+     "subjects": {"S1": "Child", "S2": "Parent"},
+     "regions": [
+       {"name": "screen", "centre": [0, -200, 1800], "normal": [0, 0, -1],
+        "u_axis": [1, 0, 0], "width": 600, "height": 340}
+     ]
+   }
 
 .. code-block:: python
 
-   from gaze import transform_ray_to_room, closest_point_of_rays
+   import json
 
-   rays_room = [transform_ray_to_room(origin, direction, cam.extrinsic_rt)
-                for origin, direction, cam in per_camera_rays]
-   origins, directions = zip(*rays_room)
-   fused_point, residual_rms = closest_point_of_rays(origins, directions)
+   data = json.load(open("gaze_fusion.json"))
+   for frame in data["frames"]:
+       for s in frame["subjects"]:
+           if s["mutual"]:
+               print(frame["timestamp_ns"], s["name"], "and", s["target"]["label"])
 
 .. automodule:: gaze
    :no-members:
 
-.. autosummary::
-   :nosignatures:
-
-   camera_ray_from_pose
-   transform_ray_to_room
-   closest_point_of_rays
-   ray_plane_intersection
-   MediaPipeGazeEstimator3D
-
-.. autofunction:: gaze.camera_ray_from_pose
-
-.. autofunction:: gaze.transform_ray_to_room
-
-.. autofunction:: gaze.closest_point_of_rays
-
-.. autofunction:: gaze.ray_plane_intersection
-
-.. autoclass:: gaze.MediaPipeGazeEstimator3D
+.. automodule:: gaze.ray_math
    :members:
 
-.. autoclass:: gaze.FaceGazeSample
+.. automodule:: gaze.canonical
+   :members: CanonicalFace, load_canonical_face, parse_geometry_metadata
+
+.. automodule:: gaze.face_detect
+   :members: FaceFinder, FaceLandmarks, landmark_ids, square_crop, cut_crop, crop_to_frame
+
+.. automodule:: gaze.head_pose
    :members:
 
-See :doc:`math/gaze_fusion` and :doc:`math/room_calibration` (this plugin
-consumes the room/extrinsic calibration solved there).
+.. automodule:: gaze.eye_model
+   :members: estimate_eye, iris_on_sphere, visual_axis, limit_eye_rotation, eye_openness, eyeball_centre_head, EyeEstimate
+
+.. automodule:: gaze.fusion
+   :members: GazeRig, FaceObs, Entry, assign_subjects, apply_subject_scale, drop_duplicates, finalize
+
+.. automodule:: gaze.filters
+   :members:
+
+.. automodule:: gaze.targets
+   :members: Region, TargetHit, cast_gaze, apply_min_dwell
+
+.. automodule:: gaze.timeline
+   :members:
+
+.. automodule:: gaze.io_v2
+   :members: load_targets, write_results, write_csv, summarise
+
+.. automodule:: gaze.render
+   :members: RenderData, SubjectTrack, build_render_data, render_camera_video, render_topdown, write_heatmaps
+
+See :doc:`math/room_calibration` for the room calibration this plugin uses.
 
 .. _analysis-api-pose3d:
 

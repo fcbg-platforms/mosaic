@@ -380,4 +380,34 @@ bool RoomCalibrationManager::use_shot_as_plane(int shotIndex, int cameraIndex,
     return true;
 }
 
+bool RoomCalibrationManager::use_shot_as_region(int shotIndex, int cameraIndex,
+                                                std::array<double, 3>& outCentre,
+                                                std::array<double, 3>& outNormal,
+                                                std::array<double, 3>& outUAxis, double& outWidth,
+                                                double& outHeight) const {
+    std::array<double, 3> corner{};
+    if (!use_shot_as_plane(shotIndex, cameraIndex, corner, outNormal)) {
+        return false;
+    }
+    const Shot& shot = d->shots[static_cast<size_t>(shotIndex)];
+    for (const auto& cam : shot.cameras) {
+        if (cam.cameraIndex != cameraIndex) {
+            continue;
+        }
+        const Mat4 boardToRoom = room_frame::compose(extrinsic_for(cameraIndex), cam.boardToCam);
+        const std::array<double, 3> u = {boardToRoom[0], boardToRoom[4], boardToRoom[8]};
+        const std::array<double, 3> v = {boardToRoom[1], boardToRoom[5], boardToRoom[9]};
+        outWidth                      = d->board.cols * d->board.squareLengthMm;
+        outHeight                     = d->board.rows * d->board.squareLengthMm;
+        for (int k = 0; k < 3; ++k) {
+            outCentre[static_cast<size_t>(k)] = corner[static_cast<size_t>(k)] +
+                                                u[static_cast<size_t>(k)] * outWidth / 2.0 +
+                                                v[static_cast<size_t>(k)] * outHeight / 2.0;
+        }
+        outUAxis = u;
+        return true;
+    }
+    return false;
+}
+
 } // namespace mosaic

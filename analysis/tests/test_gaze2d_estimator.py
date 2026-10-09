@@ -2,10 +2,8 @@
 Pure-logic tests for gaze2d/estimator.py's compute_iris_offset()/
 gaze_on_target() — no mediapipe/cv2 import required.
 
-Neither of this heuristic's two other existing copies
-(python/pose/gaze_estimator.py's GazeEstimator.estimate(),
-analysis/gaze/estimator.py's _iris_offset()) has ever had a dedicated unit
-test despite being duplicated twice already — this is the first real test
+The heuristic's other copy (python/pose/gaze_estimator.py's
+GazeEstimator.estimate()) has no dedicated unit test — this is the first real test
 of the actual math, made possible here specifically because
 compute_iris_offset() is pulled out as a non-underscore-prefixed, directly
 testable function taking a plain list of (x, y)-like objects, no

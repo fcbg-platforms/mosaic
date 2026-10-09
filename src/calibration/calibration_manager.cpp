@@ -162,8 +162,10 @@ void CalibrationManager::calibrate() {
         emit calibration_progress(90);
 
         CalibrationData result;
-        result.calibrated = true;
-        result.rmsError   = rms;
+        result.calibrated  = true;
+        result.rmsError    = rms;
+        result.imageWidth  = d->imageSize.width;
+        result.imageHeight = d->imageSize.height;
         for (int row = 0; row < 3; ++row) {
             for (int col = 0; col < 3; ++col) {
                 result.cameraMatrix[static_cast<size_t>(row * 3 + col)] =
