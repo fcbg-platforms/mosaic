@@ -260,9 +260,9 @@ Each camera produces a ``timestamps_camN.csv`` alongside its ``video_N.mp4``, bo
 
 .. code-block:: text
 
-   frame_id,elapsed_ns,wall_ns,hw_timestamp_ns
-   1,1234567,1717506725000000000,88123456000
-   2,1267890,1717506725033333333,88156789000
+   frame_id,elapsed_ns,wall_ns,hw_timestamp_ns,exposure_us
+   1,1234567,1717506725000000000,88123456000,9985.0
+   2,1267890,1717506725033333333,88156789000,10020.0
    ...
 
 - **``frame_id``** — monotonic counter starting at 1, resets each session.
@@ -277,6 +277,13 @@ Each camera produces a ``timestamps_camN.csv`` alongside its ``video_N.mp4``, bo
   directly comparable across cameras unless they were driven by a shared
   trigger source during acquisition (see :ref:`synchronization` for when
   that's the case).
+- **``exposure_us``**: how long this frame was exposed, in microseconds, as
+  the camera reports it with the frame (its ``ExposureTime`` chunk). With auto
+  exposure this is what the camera actually used, which changes from frame to
+  frame, not the setting. Empty if the camera does not report it, and absent
+  in recordings made before it was added. Frame Sync Repair subtracts it from
+  the arrival time: a camera exposing longer delivers each frame later, and
+  without the correction a 30 ms difference reads as a different trigger.
 
 .. note::
 

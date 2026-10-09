@@ -12,7 +12,12 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from sync_repair.tick_alignment import TickCamera, build_tick_plan, gap_ranges
+from sync_repair.tick_alignment import (
+    TickCamera,
+    build_tick_plan,
+    gap_ranges,
+    subtract_exposure,
+)
 
 PERIOD = 40_000_000  # 25 fps
 LATENCY = 45_000_000  # trigger -> arrival; longer than a period on purpose
@@ -340,3 +345,75 @@ def test_a_camera_that_joins_much_later_is_missing_until_it_arrives():
     late = plan.cameras[1]
     assert late.joined_late_at == 120
     assert late.missing[:120].all() and not late.missing[120:].any()
+
+
+# ── Per-frame exposure ───────────────────────────────────────────────────────
+
+
+def _exposed(cam, exposure_ns):
+    """`cam` with each frame arriving `exposure_ns` later (an array or one
+    value), and that exposure recorded."""
+    exp = np.broadcast_to(np.asarray(exposure_ns, dtype=np.int64), cam.elapsed_ns.shape).copy()
+    return TickCamera(
+        index=cam.index,
+        frame_ids=cam.frame_ids,
+        elapsed_ns=cam.elapsed_ns + exp,
+        hw_ns=cam.hw_ns,
+        exposure_ns=exp,
+    )
+
+
+def test_a_camera_exposing_longer_is_not_moved_to_another_tick():
+    # Same trigger, camera 1 exposing 30 ms longer: without the exposure its
+    # latency reads 30 ms later, three quarters of a period, and anchoring
+    # shifted it a whole tick.
+    ticks = _ticks(200)
+    cams = [
+        _exposed(_camera(0, ticks, range(200)), 2_000_000),
+        _exposed(_camera(1, ticks, range(200)), 32_000_000),
+    ]
+    plan = build_tick_plan(ticks, cams)
+    assert plan.exposure_corrected
+    assert plan.total_ticks == 200
+    assert _real_ticks(plan, 1) == list(range(200))
+    assert not plan.cameras[1].uncertain
+
+    # The same rig with the exposure column missing: the shift this fixes.
+    bare = [TickCamera(c.index, c.frame_ids, c.elapsed_ns, c.hw_ns) for c in cams]
+    plan = build_tick_plan(ticks, bare)
+    assert not plan.exposure_corrected
+    assert _real_ticks(plan, 1) != list(range(200))
+
+
+def test_auto_exposure_changing_during_the_recording_moves_no_frame():
+    # Exposure ramping from 2 to 30 ms as the light changes, with jitter.
+    ticks = _ticks(400)
+    ramp = np.linspace(2_000_000, 30_000_000, 400).astype(np.int64)
+    cams = [
+        _exposed(_camera(0, ticks, range(400), jitter=2_000_000), 5_000_000),
+        _exposed(_camera(1, ticks, range(400), jitter=2_000_000), ramp),
+    ]
+    plan = build_tick_plan(ticks, cams)
+    assert plan.exposure_corrected
+    assert _real_ticks(plan, 1) == list(range(400))
+    assert not plan.cameras[1].missing.any()
+
+
+def test_exposure_is_used_only_when_every_camera_reports_it():
+    ticks = _ticks(50)
+    with_exp = _exposed(_camera(0, ticks, range(50)), 4_000_000)
+    without = _camera(1, ticks, range(50))
+    _, used = subtract_exposure([with_exp, without])
+    assert not used
+
+    # A few frames without one take the camera's median.
+    patchy = _exposed(_camera(1, ticks, range(50)), 4_000_000)
+    patchy.exposure_ns[[3, 17]] = 0
+    out, used = subtract_exposure([with_exp, patchy])
+    assert used
+    assert np.array_equal(out[1].elapsed_ns, patchy.elapsed_ns - 4_000_000)
+
+    # Too many without: not used.
+    patchy.exposure_ns[:10] = 0
+    _, used = subtract_exposure([with_exp, patchy])
+    assert not used

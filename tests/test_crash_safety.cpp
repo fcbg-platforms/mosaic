@@ -106,7 +106,7 @@ TEST(CrashSafety, TimestampRowsReachTheFileWhileStillOpen) {
     const QList<QByteArray> lines = read_all(path).replace("\r\n", "\n").split('\n');
     // header + 50 rows + the empty string after the final newline
     ASSERT_EQ(lines.size(), 52);
-    EXPECT_EQ(lines.front(), "frame_id,elapsed_ns,wall_ns,hw_timestamp_ns");
+    EXPECT_EQ(lines.front(), "frame_id,elapsed_ns,wall_ns,hw_timestamp_ns,exposure_us");
     EXPECT_TRUE(lines[50].startsWith("50,"));
     w.stop();
 }
@@ -122,9 +122,31 @@ TEST(CrashSafety, TimestampRowsAreFlushedOnceTheIntervalPasses) {
     QThread::msleep(1100);
     w.write(2, 2, 2, 0); // this write crosses the interval and flushes both
     const QByteArray onDisk = read_all(path).replace("\r\n", "\n");
-    EXPECT_TRUE(onDisk.contains("\n1,1,1,0\n"));
-    EXPECT_TRUE(onDisk.contains("\n2,2,2,0\n"));
+    EXPECT_TRUE(onDisk.contains("\n1,1,1,0,\n"));
+    EXPECT_TRUE(onDisk.contains("\n2,2,2,0,\n"));
     w.stop();
+}
+
+// The exposure column: the frame's own exposure in µs, fixed notation even
+// for a long exposure, and empty (not 0 or -1) when the camera did not say.
+TEST(FrameTimestamps, ExposureIsWrittenInMicrosecondsOrLeftEmpty) {
+    QTemporaryDir dir;
+    ASSERT_TRUE(dir.isValid());
+    const QString path = dir.filePath("timestamps_cam2.csv");
+
+    FrameTimestampWriter w;
+    w.set_flush_interval_ms(0);
+    ASSERT_TRUE(w.start(path));
+    w.write(1, 10, 20, 30, 19998.75);
+    w.write(2, 11, 21, 31, 1'000'000.0); // a 1 s exposure
+    w.write(3, 12, 22, 32);              // unknown
+    w.stop();
+
+    const QList<QByteArray> lines = read_all(path).replace("\r\n", "\n").split('\n');
+    ASSERT_GE(lines.size(), 4);
+    EXPECT_EQ(lines[1], "1,10,20,30,19998.8");
+    EXPECT_EQ(lines[2], "2,11,21,31,1000000.0");
+    EXPECT_EQ(lines[3], "3,12,22,32,");
 }
 
 // ── Session end marker ─────────────────────────────────────────────────────

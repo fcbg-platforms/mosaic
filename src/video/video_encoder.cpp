@@ -86,7 +86,7 @@ void VideoEncoder::run_stub_loop() {
             continue;
         }
         d->tsWriter.write(frame->frameId, frame->elapsedNs, frame->wallClockNs,
-                          frame->hwTimestampNs);
+                          frame->hwTimestampNs, frame->exposureUs);
         d->encCount.fetch_add(1);
     }
 
@@ -94,7 +94,7 @@ void VideoEncoder::run_stub_loop() {
     std::shared_ptr<VideoFrame> frame;
     while (d->frameBuffer.pop(frame)) {
         d->tsWriter.write(frame->frameId, frame->elapsedNs, frame->wallClockNs,
-                          frame->hwTimestampNs);
+                          frame->hwTimestampNs, frame->exposureUs);
         d->encCount.fetch_add(1);
     }
 
@@ -391,7 +391,7 @@ void VideoEncoder::run_ffmpeg_loop() {
         encode_frame(avFrame);
 
         d->tsWriter.write(frame->frameId, frame->elapsedNs, frame->wallClockNs,
-                          frame->hwTimestampNs);
+                          frame->hwTimestampNs, frame->exposureUs);
         d->encCount.fetch_add(1);
     }
 
@@ -410,7 +410,7 @@ void VideoEncoder::run_ffmpeg_loop() {
             avFrame->pts = (frame->elapsedNs - startNs) / 1'000'000;
             encode_frame(avFrame);
             d->tsWriter.write(frame->frameId, frame->elapsedNs, frame->wallClockNs,
-                              frame->hwTimestampNs);
+                              frame->hwTimestampNs, frame->exposureUs);
             d->encCount.fetch_add(1);
         }
     }
