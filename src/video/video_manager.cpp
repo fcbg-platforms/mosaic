@@ -708,6 +708,7 @@ void VideoManager::stop() {
             unit.encoder->stop_encoding();
         }
     }
+    QSet<int> unfinishedEncoders; // config indices whose encoder outlived the wait
     // Wait for all threads to exit. A timed-out wait matters for the snapshot
     // below: an encoder still draining reports fewer framesEncoded than were
     // grabbed, which would otherwise be read as ground truth.
@@ -718,6 +719,7 @@ void VideoManager::stop() {
                             .arg(unit.configIndex));
         }
         if (unit.encoder && !unit.encoder->wait(10000)) {
+            unfinishedEncoders.insert(unit.configIndex);
             log_warning(QString("[VideoManager] Camera %1 encoder did not finish draining within "
                                 "10s — framesEncoded may under-report.")
                             .arg(unit.configIndex));
@@ -746,6 +748,11 @@ void VideoManager::stop() {
         snap.achievableFps      = unit.grabber->achievable_fps();
         snap.actionCommandReady = unit.grabber->action_command_ready();
         snap.framesEncoded      = unit.encoder ? unit.encoder->frames_encoded() : 0;
+        snap.encoderFinished    = !unfinishedEncoders.contains(unit.configIndex);
+        if (unit.encoder) {
+            snap.firstFrameElapsedNs = unit.encoder->first_frame_elapsed_ns();
+            snap.lastFrameElapsedNs  = unit.encoder->last_frame_elapsed_ns();
+        }
         d->lastRecordingSnapshot.push_back(snap);
     }
     // stop_action_ticker() above already latched the ticker's own count into

@@ -29,6 +29,17 @@ struct VideoEncoder::Impl {
     std::atomic<bool> stopFlag{false};
     std::atomic<int64_t> encCount{0};
     std::atomic<int64_t> dropCount{0};
+    // elapsed_ns() of the first and last frame written, -1 before the first.
+    // See first_frame_elapsed_ns().
+    std::atomic<int64_t> firstNs{-1};
+    std::atomic<int64_t> lastNs{-1};
+
+    // One frame written: counted, and its time kept for the achieved rate.
+    void count_frame(int64_t elapsedNs) {
+        if (firstNs.load() < 0) firstNs.store(elapsedNs);
+        lastNs.store(elapsedNs);
+        encCount.fetch_add(1);
+    }
 
     explicit Impl(const Config& c, RingBuffer<std::shared_ptr<VideoFrame>>& buf)
         : cfg(c), frameBuffer(buf) {}
@@ -47,6 +58,8 @@ void VideoEncoder::start_encoding() {
     d->stopFlag.store(false);
     d->encCount.store(0);
     d->dropCount.store(0);
+    d->firstNs.store(-1);
+    d->lastNs.store(-1);
     QThread::start();
 }
 
@@ -54,6 +67,8 @@ void VideoEncoder::stop_encoding() { d->stopFlag.store(true); }
 
 int64_t VideoEncoder::frames_encoded() const { return d->encCount.load(); }
 int64_t VideoEncoder::frames_dropped() const { return d->dropCount.load(); }
+int64_t VideoEncoder::first_frame_elapsed_ns() const { return d->firstNs.load(); }
+int64_t VideoEncoder::last_frame_elapsed_ns() const { return d->lastNs.load(); }
 
 // ── Run ────────────────────────────────────────────────────────────────────
 
@@ -87,7 +102,7 @@ void VideoEncoder::run_stub_loop() {
         }
         d->tsWriter.write(frame->frameId, frame->elapsedNs, frame->wallClockNs,
                           frame->hwTimestampNs);
-        d->encCount.fetch_add(1);
+        d->count_frame(frame->elapsedNs);
     }
 
     // Drain remaining frames.
@@ -95,7 +110,7 @@ void VideoEncoder::run_stub_loop() {
     while (d->frameBuffer.pop(frame)) {
         d->tsWriter.write(frame->frameId, frame->elapsedNs, frame->wallClockNs,
                           frame->hwTimestampNs);
-        d->encCount.fetch_add(1);
+        d->count_frame(frame->elapsedNs);
     }
 
     d->tsWriter.stop();
@@ -392,7 +407,7 @@ void VideoEncoder::run_ffmpeg_loop() {
 
         d->tsWriter.write(frame->frameId, frame->elapsedNs, frame->wallClockNs,
                           frame->hwTimestampNs);
-        d->encCount.fetch_add(1);
+        d->count_frame(frame->elapsedNs);
     }
 
     // Drain remaining buffered frames.
@@ -411,7 +426,7 @@ void VideoEncoder::run_ffmpeg_loop() {
             encode_frame(avFrame);
             d->tsWriter.write(frame->frameId, frame->elapsedNs, frame->wallClockNs,
                               frame->hwTimestampNs);
-            d->encCount.fetch_add(1);
+            d->count_frame(frame->elapsedNs);
         }
     }
 
