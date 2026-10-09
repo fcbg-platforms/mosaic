@@ -96,6 +96,7 @@ struct SessionInfo {
     bool hasRppg           = false;
     bool hasGaze2d         = false;
     bool hasFaceDynamics   = false;
+    bool hasConversation   = false;
     bool hasSyncRepair     = false;
     QStringList videoFiles;
     QStringList audioFiles;
@@ -235,8 +236,11 @@ struct SessionInfo {
             QFileInfo::exists(dir + "/synced/sync_repair.json") &&
             !QDir(dir + "/synced").entryList({"video_*.mp4"}, QDir::Files).isEmpty();
 
-        // face_dynamics/ holds annotated video copies, so like synced/ it is
-        // not scanned by classify() (it would add them to videoFiles).
+        // face_dynamics/ and conversation/ hold annotated video copies, so
+        // like synced/ they are not scanned by classify() (it would add them
+        // to videoFiles).
+        info.hasConversation =
+            !QDir(dir + "/conversation").entryList({"*.conversation.json"}, QDir::Files).isEmpty();
         info.hasFaceDynamics = !QDir(dir + "/face_dynamics")
                                     .entryList({"*.face_dynamics.json"}, QDir::Files)
                                     .isEmpty();

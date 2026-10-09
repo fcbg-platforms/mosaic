@@ -290,6 +290,17 @@ class AnalysisManager : public QObject {
     void run_face_dynamics_analysis(const QString& sessionPath, double minConfidence,
                                     bool annotatedVideo);
 
+    /// @brief Conversation Timing: who speaks when, turns, response times
+    /// (floor transfer offsets), pauses, overlaps and backchannels, from the
+    /// session's audio and each camera's view of a face, written to the
+    /// session's conversation/ folder (analysis/run_conversation.py).
+    ///
+    /// @param sessionPath     Absolute path to the recorded session directory.
+    /// @param useDiarization  Use Speaker Diarization's labels when present.
+    /// @param annotatedVideo  Also write a video showing who is speaking.
+    void run_conversation_analysis(const QString& sessionPath, bool useDiarization,
+                                   bool annotatedVideo);
+
     /// @brief Produces per-camera "repaired" copies with EQUALIZED frame
     /// counts, aligned to a shared master tick grid, filling small
     /// per-camera frame-count mismatches (GVSP packet loss / trigger

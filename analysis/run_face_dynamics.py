@@ -412,7 +412,15 @@ def render_video(
 
     def text(img, s, org, color, size=0.6, thick=1):
         fg = max(1, int(round(thick * scale)))
-        cv2.putText(img, s, org, font, size * scale, (0, 0, 0), fg + 2, cv2.LINE_AA)
+        (tw, th), base = cv2.getTextSize(s, font, size * scale, fg)
+        x, y = org
+        # A darkened box behind the text: an outline drawn thicker than
+        # the text is also wider (Hershey glyphs advance with thickness).
+        pad = max(2, int(3 * scale))
+        y0, y1 = max(0, y - th - pad), min(img.shape[0], y + base + pad)
+        x0, x1 = max(0, x - pad), min(img.shape[1], x + tw + pad)
+        box = img[y0:y1, x0:x1]
+        box[:] = (box * 0.35).astype(img.dtype)
         cv2.putText(img, s, org, font, size * scale, color, fg, cv2.LINE_AA)
 
     ok_all = False

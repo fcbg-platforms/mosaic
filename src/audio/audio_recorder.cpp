@@ -5,6 +5,7 @@
 
 #include "audio/audio_envelope.hpp"
 #include "utils/logger.hpp"
+#include "utils/timestamp.hpp"
 
 namespace mosaic {
 
@@ -137,6 +138,16 @@ bool AudioRecorder::start(const QString& filePath) {
         return false;
     }
 
+    if (!m_monitorOnly) {
+        m_bytesWritten = 0;
+        if (!m_timing.open(AudioTimingLog::path_for(filePath))) {
+            // Not fatal: the audio itself records fine; analysis then places
+            // it on the video clock less precisely.
+            log_warning(QString("[AudioRecorder] Cannot create %1")
+                            .arg(AudioTimingLog::path_for(filePath)));
+        }
+    }
+
     connect(m_ioDevice, &QIODevice::readyRead, this, &AudioRecorder::on_data_ready);
 
     log_info(QString("[AudioRecorder] Started: '%1' → %2")
@@ -151,6 +162,7 @@ void AudioRecorder::stop() {
     }
     m_ioDevice = nullptr;
     m_writer.close();
+    m_timing.close();
 }
 
 // ── Audio data ─────────────────────────────────────────────────────────────
@@ -169,7 +181,17 @@ void AudioRecorder::on_data_ready() {
         data = convert_int32_to_int16(data.constData(), data.size());
     }
 
-    if (!m_monitorOnly) m_writer.write(data.constData(), data.size());
+    if (!m_monitorOnly) {
+        m_writer.write(data.constData(), data.size());
+        // After the write: the clock reading is when the last of these
+        // samples had arrived (never before it was recorded).
+        // Bytes, not frames, are summed: a buffer that ends mid-frame would
+        // otherwise lose its partial frame from the count for good.
+        m_bytesWritten += data.size();
+        if (m_channels > 0) {
+            m_timing.record(m_bytesWritten / (2 * m_channels), elapsed_ns());
+        }
+    }
 
     emit raw_pcm_ready(data, m_sampleRate, m_channels);
 

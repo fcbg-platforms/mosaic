@@ -49,6 +49,8 @@ qt_add_executable(mosaic MACOSX_BUNDLE
     analysis/gaze2d_result.cpp
     analysis/face_dynamics_result.hpp
     analysis/face_dynamics_result.cpp
+    analysis/conversation_result.hpp
+    analysis/conversation_result.cpp
     analysis/sync_repair_result.hpp
     analysis/sync_repair_result.cpp
     analysis/nearest_by_key.hpp
@@ -148,6 +150,8 @@ qt_add_executable(mosaic MACOSX_BUNDLE
     audio/audio_envelope.cpp
     audio/audio_recorder.hpp
     audio/audio_recorder.cpp
+    audio/audio_timing_log.hpp
+    audio/audio_timing_log.cpp
     audio/audio_manager.hpp
     audio/audio_manager.cpp
 

@@ -104,6 +104,13 @@ conventions, matching
       Baseline-normalised blinks, Duchenne smiles, expressivity, and nods
       and shakes from a zig-zag filter.
 
+   .. grid-item-card:: 💬 Conversation Timing
+      :link: conversation_timing
+      :link-type: doc
+
+      Audio on the video clock, mouth-based speaker attribution, and floor
+      transfer offsets, pauses, overlaps and backchannels.
+
 .. toctree::
    :hidden:
 
@@ -117,3 +124,4 @@ conventions, matching
    pose3d_reconstruction
    remote_heart_rate
    face_dynamics
+   conversation_timing
