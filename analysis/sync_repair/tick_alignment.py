@@ -38,6 +38,12 @@ How a frame finds its tick
    configured cameras, so every camera is shifted by whole ticks until its
    median latency matches the reference camera's (the one with most frames).
    A residual over a third of a period is reported as ``uncertain``.
+
+   **Exposure.** Arrival also waits for the exposure itself, which auto
+   exposure varies per camera (up to ~23 ms apart on the rig) and per frame.
+   When every camera's timestamps file carries each frame's exposure
+   (``exposure_us``), it is subtracted from the arrival time before any of
+   this, leaving a latency that really is near-identical across cameras.
 3. **Absolute anchor.** The readiness barrier arms every camera before tick 0
    is fired, so the earliest camera's first frame answers tick 0. Everyone is
    shifted together to make that so.
@@ -47,7 +53,7 @@ Pure: numpy only, no files, no OpenCV — run_sync_repair.py does the I/O.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 import numpy as np
 
@@ -64,6 +70,12 @@ UNCERTAIN_FRACTION = 1.0 / 3.0
 #: (2026-10-02): one camera unplugged and lost for good cost five healthy
 #: cameras the last 27 s of a 44 s recording.
 DROPOUT_TOLERANCE_S = 2.0
+
+#: A camera's per-frame exposure is used only when at least this share of its
+#: frames report one (the rest take its median); otherwise no camera is
+#: corrected, since correcting some and not others would skew the latency
+#: comparison more than it helps.
+EXPOSURE_MIN_SHARE = 0.9
 
 #: Between two consecutive frames of one camera, a hardware-clock step that
 #: differs from the host-clock step by more than this means the camera's clock
@@ -88,6 +100,9 @@ class TickCamera:
     frame_ids: np.ndarray  # int64
     elapsed_ns: np.ndarray  # int64, host arrival time
     hw_ns: np.ndarray  # int64, camera clock; 0 = unavailable
+    # int64, each frame's exposure time in ns; 0 = unavailable. None for
+    # recordings made before timestamps files carried it.
+    exposure_ns: np.ndarray | None = None
 
 
 @dataclass
@@ -101,6 +116,7 @@ class CameraPlan:
     lead_in_trimmed: int = 0  # this camera's frames before the window
     tail_trimmed: int = 0  # ... and after it
     uncertain: bool = False
+    # Trigger to arrival, less the exposure when the plan subtracted it.
     median_latency_ms: float | None = None
     # Output index where this camera first delivers, when it joined later than
     # DROPOUT_TOLERANCE_S after the others (missing before it); else None.
@@ -119,6 +135,8 @@ class TickPlan:
     max_tick_rate_fps: float
     duration_ms: float  # real time from the first output tick to one period past the last
     cameras: dict[int, CameraPlan] = field(default_factory=dict)
+    # Whether each frame's exposure was subtracted from its arrival time.
+    exposure_corrected: bool = False
 
 
 # ── Tick lookup ──────────────────────────────────────────────────────────────
@@ -263,6 +281,24 @@ def grid_positions(
     return by_hw, "trigger_ticks:hw_timestamp"
 
 
+def subtract_exposure(cameras: list[TickCamera]) -> tuple[list[TickCamera], bool]:
+    """Each camera with its exposure taken off every frame's arrival time, and
+    True; or the cameras unchanged and False, unless every camera reports an
+    exposure for at least EXPOSURE_MIN_SHARE of its frames. A frame without
+    one takes its camera's median."""
+    out: list[TickCamera] = []
+    for cam in cameras:
+        exp = cam.exposure_ns
+        if exp is None or len(exp) != len(cam.elapsed_ns) or len(exp) == 0:
+            return cameras, False
+        known = exp > 0
+        if known.mean() < EXPOSURE_MIN_SHARE:
+            return cameras, False
+        filled = np.where(known, exp, int(np.median(exp[known])))
+        out.append(replace(cam, elapsed_ns=cam.elapsed_ns - filled.astype(np.int64)))
+    return out, True
+
+
 def _latencies(tick_times: np.ndarray, elapsed: np.ndarray, ticks: np.ndarray) -> np.ndarray:
     return elapsed.astype(np.float64) - _tick_time(tick_times, ticks)
 
@@ -283,6 +319,7 @@ def build_tick_plan(tick_times_ns: np.ndarray, cameras: list[TickCamera]) -> Tic
     usable = [c for c in cameras if len(c.frame_ids) >= 2]
     if len(tick_times) < 2 or not usable:
         return None
+    usable, exposure_corrected = subtract_exposure(usable)
     period = float(np.median(np.diff(tick_times)))
     if not period > 0:
         return None
@@ -343,6 +380,7 @@ def build_tick_plan(tick_times_ns: np.ndarray, cameras: list[TickCamera]) -> Tic
         min_tick_rate_fps=rmin,
         max_tick_rate_fps=rmax,
         duration_ms=span_ms,
+        exposure_corrected=exposure_corrected,
     )
     for cam in usable:
         ticks, method, lat = placed[cam.index]

@@ -279,9 +279,9 @@ Each camera produces a ``timestamps_camN.csv`` alongside its ``video_N.mp4``, bo
 
 .. code-block:: text
 
-   frame_id,elapsed_ns,wall_ns,hw_timestamp_ns
-   1,1234567,1717506725000000000,88123456000
-   2,1267890,1717506725033333333,88156789000
+   frame_id,elapsed_ns,wall_ns,hw_timestamp_ns,exposure_us
+   1,1234567,1717506725000000000,88123456000,9985.0
+   2,1267890,1717506725033333333,88156789000,10020.0
    ...
 
 - **``frame_id``**: monotonic counter starting at 1, resets each session.
@@ -296,6 +296,13 @@ Each camera produces a ``timestamps_camN.csv`` alongside its ``video_N.mp4``, bo
   directly comparable across cameras unless they were driven by a shared
   trigger source during acquisition (see :ref:`synchronization` for when
   that's the case).
+- **``exposure_us``**: how long this frame was exposed, in microseconds, as
+  the camera reports it with the frame (its ``ExposureTime`` chunk). With auto
+  exposure this is what the camera actually used, which changes from frame to
+  frame, not the setting. Empty if the camera does not report it, and absent
+  in recordings made before it was added. Frame Sync Repair subtracts it from
+  the arrival time: a camera exposing longer delivers each frame later, and
+  without the correction a 30 ms difference reads as a different trigger.
 
 .. note::
 
@@ -333,9 +340,15 @@ camera's own hardware clock is mapped onto the host clock by a robust
 straight-line fit over the whole recording, which absorbs clock drift and
 ignores host stalls and corrupt timestamps. Each frame then lands on a tick on
 its own merits, so a glitch moves at most that one frame. A frame without a
-hardware timestamp is placed by its arrival time. Cameras are lined up with
-each other by their trigger-to-arrival latency, which is near-identical across
-identically set up cameras. The earliest camera's first frame answers tick 0,
+hardware timestamp is placed by its arrival time. A camera that dropped out
+and reconnected may come back with its clock restarted; its frames are split
+where the clock jumps, and each stretch gets its own fit. Cameras are lined up
+with each other by their trigger-to-arrival latency, which is near-identical
+across identically set up cameras once each frame's own exposure time (the
+``exposure_us`` column) is taken off its arrival: a camera exposing 30 ms
+longer delivers 30 ms later, which at 25 fps would otherwise read as the next
+trigger. ``sync_repair.json`` says whether that correction was applied
+(``exposure_corrected``). The earliest camera's first frame answers tick 0,
 because every camera is armed before the first trigger.
 
 The trigger rate can change during a recording: the ticker re-paces itself as

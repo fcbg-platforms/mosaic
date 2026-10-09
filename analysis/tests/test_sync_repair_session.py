@@ -38,8 +38,14 @@ def _write_video(path: Path, n: int, shade: int) -> None:
 
 
 def _make_session(
-    tmp_path: Path, answered: dict[int, list[int]], n_ticks: int, with_tick_log: bool = True
+    tmp_path: Path,
+    answered: dict[int, list[int]],
+    n_ticks: int,
+    with_tick_log: bool = True,
+    exposure_us: dict[int, float] | None = None,
 ) -> Path:
+    """A recorded session. With `exposure_us`, every camera's timestamps file
+    has the exposure column, and each frame arrives that much later."""
     session = tmp_path / "sub-01_run-01"
     video = session / "video"
     video.mkdir(parents=True)
@@ -48,9 +54,15 @@ def _make_session(
         _write_video(video / f"video_{cam}.mp4", len(ks), shade=40 + 30 * cam)
         with (video / f"timestamps_cam{cam}.csv").open("w", newline="") as f:
             w = csv.writer(f)
-            w.writerow(["frame_id", "elapsed_ns", "wall_ns", "hw_timestamp_ns"])
+            header = ["frame_id", "elapsed_ns", "wall_ns", "hw_timestamp_ns"]
+            w.writerow(header + (["exposure_us"] if exposure_us else []))
             for j, k in enumerate(ks):
-                w.writerow([j + 1, ticks[k] + LATENCY, 0, ticks[k] + 5_000_000_000 * (cam + 1)])
+                hw = ticks[k] + 5_000_000_000 * (cam + 1)
+                if exposure_us:
+                    exp = exposure_us[cam]
+                    w.writerow([j + 1, ticks[k] + LATENCY + int(exp * 1000), 0, hw, exp])
+                else:
+                    w.writerow([j + 1, ticks[k] + LATENCY, 0, hw])
     if with_tick_log:
         with (video / "action_ticks.csv").open("w", newline="") as f:
             w = csv.writer(f)
@@ -95,6 +107,7 @@ def test_trigger_aligned_session_has_equal_counts_and_tagged_gaps(tmp_path):
     synced = session / "synced"
     report = json.loads((synced / "sync_repair.json").read_text())
     assert report["alignment"] == "trigger_ticks"
+    assert report["exposure_corrected"] is False  # files without exposure_us
     assert report["first_tick"] == 4
     assert report["total_ticks"] == 56
     assert abs(report["tick_rate_fps"] - 25.0) < 1e-6
@@ -119,6 +132,24 @@ def test_trigger_aligned_session_has_equal_counts_and_tagged_gaps(tmp_path):
         rows = list(csv.DictReader(f))
     assert rows[16]["missing"] == "true" and rows[16]["tick"] == "20"
     assert rows[15]["missing"] == "false"
+
+
+def test_per_frame_exposure_keeps_cameras_on_the_same_tick(tmp_path):
+    # Two cameras on the same trigger, one exposing 30 ms longer (auto
+    # exposure in a darker corner): its frames arrive 30 ms later. At 40 ms
+    # per tick that reads as a different tick unless the exposure is taken
+    # off, which put that camera one frame off the other.
+    answered = {0: list(range(60)), 1: list(range(60))}
+    session = _make_session(tmp_path, answered, 60, exposure_us={0: 2000.0, 1: 32000.0})
+    run_sync_repair.process_session(session, 0.0)
+
+    report = json.loads((session / "synced" / "sync_repair.json").read_text())
+    assert report["exposure_corrected"] is True
+    assert report["total_ticks"] == 60
+    for cam in report["cameras"]:
+        assert cam["missing_frame_count"] == 0
+        assert cam["lead_in_trimmed"] == 0 and cam["tail_trimmed"] == 0
+        assert not cam["alignment_uncertain"]
 
 
 def test_session_without_a_tick_log_falls_back_to_arrival_time(tmp_path):

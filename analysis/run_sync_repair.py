@@ -56,7 +56,12 @@ from sync_repair.alignment import (
     compute_master_fps,
 )
 from sync_repair.marker import mark_missing
-from sync_repair.tick_alignment import TickCamera, build_tick_plan, gap_ranges
+from sync_repair.tick_alignment import (
+    EXPOSURE_MIN_SHARE,
+    TickCamera,
+    build_tick_plan,
+    gap_ranges,
+)
 
 _MAX_GAPS_LISTED = 100  # per camera in sync_repair.json; the total is always given
 
@@ -169,9 +174,10 @@ def discover_cameras(session_dir: Path) -> list[DiscoveredCamera]:
 
 def _read_camera_frames(
     csv_path: Path, camera_index: int
-) -> tuple[CameraFrames, dict[int, int], np.ndarray]:
+) -> tuple[CameraFrames, dict[int, int], np.ndarray, np.ndarray]:
     """Returns (CameraFrames for alignment, frame_id -> CSV row ordinal
-    map). A row's ordinal position (0-based enumerate order over the file)
+    map, hardware timestamps, exposures in ns; 0 = unavailable in both).
+    A row's ordinal position (0-based enumerate order over the file)
     is what maps 1:1 onto the source mp4's frame sequence — NOT the
     frame_id value itself, which can in principle have gaps (VideoGrabber
     assigns frame_id before the ring-buffer push, so a dropped frame
@@ -180,6 +186,7 @@ def _read_camera_frames(
     frame_ids: list[int] = []
     elapsed_ns: list[int] = []
     hw_ns: list[int] = []
+    exposure_ns: list[int] = []
     ordinal_map: dict[int, int] = {}
     with csv_path.open(newline="") as f:
         for ordinal, row in enumerate(csv.DictReader(f)):
@@ -193,9 +200,15 @@ def _read_camera_frames(
                 hw = int(row.get("hw_timestamp_ns") or 0)
             except (ValueError, TypeError):
                 hw = 0
+            # Likewise exposure (µs, empty when the camera did not report it).
+            try:
+                exp = round(float(row.get("exposure_us") or 0) * 1000)
+            except (ValueError, TypeError, OverflowError):  # "inf" overflows round()
+                exp = 0
             frame_ids.append(fid)
             elapsed_ns.append(ens)
             hw_ns.append(hw)
+            exposure_ns.append(max(exp, 0))
             ordinal_map[fid] = ordinal
     return (
         CameraFrames(
@@ -205,6 +218,7 @@ def _read_camera_frames(
         ),
         ordinal_map,
         np.array(hw_ns, dtype=np.int64),
+        np.array(exposure_ns, dtype=np.int64),
     )
 
 
@@ -421,12 +435,14 @@ def process_session(session_dir: Path, master_fps_arg: float) -> None:
 
     cam_frames: dict[int, CameraFrames] = {}
     hw_by_camera: dict[int, np.ndarray] = {}
+    exposure_by_camera: dict[int, np.ndarray] = {}
     ordinal_maps: dict[int, dict[int, int]] = {}
     source_counts: dict[int, int] = {}
     for d in present:
-        cf, om, hw = _read_camera_frames(d.csv_path, d.index)
+        cf, om, hw, exp = _read_camera_frames(d.csv_path, d.index)
         cam_frames[d.index] = cf
         hw_by_camera[d.index] = hw
+        exposure_by_camera[d.index] = exp
         ordinal_maps[d.index] = om
         source_counts[d.index] = len(cf.frame_ids)
         if len(cf.frame_ids) == 0:
@@ -464,6 +480,7 @@ def process_session(session_dir: Path, master_fps_arg: float) -> None:
                 frame_ids=cam_frames[i].frame_ids,
                 elapsed_ns=cam_frames[i].elapsed_ns,
                 hw_ns=hw_by_camera[i],
+                exposure_ns=exposure_by_camera[i],
             )
             for i in sorted(cam_frames)
             if i in group
@@ -486,6 +503,16 @@ def process_session(session_dir: Path, master_fps_arg: float) -> None:
             c.median_latency_ms for c in plan.cameras.values() if c.median_latency_ms is not None
         ]
         typical_latency_ns = float(np.median(latencies)) * 1e6 if latencies else 0.0
+        # When the plan took each frame's exposure off, those latencies leave
+        # it out: a free-running camera below is then matched on its arrival
+        # times less its *own* exposure, or, if it reports none, with the
+        # triggered cameras' typical exposure added back to the latency.
+        group_exposure_ns = 0.0
+        if plan.exposure_corrected:
+            exposures = np.concatenate([exposure_by_camera[i] for i in plan.cameras])
+            exposures = exposures[exposures > 0]
+            if len(exposures):
+                group_exposure_ns = float(np.median(exposures))
         for i, cam in plan.cameras.items():
             per_camera[i] = {
                 "frame_ids": cam.frame_ids,
@@ -512,12 +539,21 @@ def process_session(session_dir: Path, master_fps_arg: float) -> None:
                 if i in group
                 else None
             )
+            arrival = cf.elapsed_ns
+            latency_ns = typical_latency_ns
+            if plan.exposure_corrected:
+                own = exposure_by_camera[i]
+                if len(own) and (own > 0).mean() >= EXPOSURE_MIN_SHARE:
+                    fill = np.where(own > 0, own, int(np.median(own[own > 0])))
+                    arrival = cf.elapsed_ns - fill
+                else:
+                    latency_ns += group_exposure_ns
             ids = np.empty(total_ticks, dtype=np.int64)
             ptr = 0
             for out in range(total_ticks):
-                target = float(window_times[out]) + typical_latency_ns
-                while ptr + 1 < len(cf.elapsed_ns) and abs(cf.elapsed_ns[ptr + 1] - target) < abs(
-                    cf.elapsed_ns[ptr] - target
+                target = float(window_times[out]) + latency_ns
+                while ptr + 1 < len(arrival) and abs(arrival[ptr + 1] - target) < abs(
+                    arrival[ptr] - target
                 ):
                     ptr += 1
                 ids[out] = cf.frame_ids[ptr]
@@ -702,6 +738,10 @@ def process_session(session_dir: Path, master_fps_arg: float) -> None:
         "max_tick_rate_fps": plan.max_tick_rate_fps if plan is not None else None,
         "first_tick": first_tick,
         "total_ticks": total_ticks,
+        # Whether each frame's own exposure was taken off its arrival time
+        # before placing it on a tick (needs exposure_us in every camera's
+        # timestamps file). Latencies are then trigger-to-arrival less it.
+        "exposure_corrected": plan.exposure_corrected if plan is not None else False,
         # The real span of the recording on trigger ticks, not frames / rate,
         # which is off whenever the tick rate changed during it.
         "duration_ms": round(plan.duration_ms)

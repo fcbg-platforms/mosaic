@@ -150,7 +150,7 @@ A recording session creates the following files:
        │   └── audio_0.wav          <span class="mosaic-tree-comment"># one per microphone</span>
        └── video/
            ├── video_0.mp4          <span class="mosaic-tree-comment"># one per camera</span>
-           └── timestamps_cam0.csv  <span class="mosaic-tree-comment"># frame_id, elapsed_ns, wall_ns, hw_timestamp_ns (per camera)</span></div>
+           └── timestamps_cam0.csv  <span class="mosaic-tree-comment"># frame_id, elapsed_ns, wall_ns, hw_timestamp_ns, exposure_us (per camera)</span></div>
 
 Settings persistence
 --------------------

@@ -6,11 +6,13 @@
 namespace mosaic {
 
 // Writes one CSV row per grabbed frame:
-//   frame_id, elapsed_ns, wall_ns, hw_timestamp_ns
+//   frame_id, elapsed_ns, wall_ns, hw_timestamp_ns, exposure_us
 //
 // hw_timestamp_ns is the camera's own hardware chunk timestamp (0 if
 // unavailable) — see VideoFrame::hwTimestampNs for what it can and cannot
-// be used for.
+// be used for. exposure_us is the frame's own exposure time from the camera's
+// ExposureTime chunk, empty when unavailable; added last, so readers that
+// take columns by position or by name both keep working.
 //
 // Thread-safe: write() is called from the grabber thread while the main
 // thread may call is_open() / frames_written() concurrently.
@@ -35,7 +37,9 @@ class FrameTimestampWriter {
     [[nodiscard]] bool start(const QString& path);
 
     // Appends one row. Thread-safe.
-    void write(int64_t frameId, int64_t elapsedNs, int64_t wallNs, int64_t hwTimestampNs);
+    // exposureUs < 0 writes an empty exposure_us field (unknown).
+    void write(int64_t frameId, int64_t elapsedNs, int64_t wallNs, int64_t hwTimestampNs,
+               double exposureUs = -1.0);
 
     // Flushes and closes the file.
     void stop();

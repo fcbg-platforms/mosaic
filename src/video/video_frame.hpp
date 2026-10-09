@@ -41,6 +41,10 @@ struct VideoFrame {
     int64_t elapsedNs     = 0; ///< elapsed_ns() at grab time — steady_clock.
     int64_t wallClockNs   = 0; ///< wall_clock_ns() at grab time — system_clock.
     int64_t hwTimestampNs = 0; ///< Camera-hardware chunk timestamp, ns. 0 if unavailable.
+    /// This frame's exposure time in µs, from the camera's ExposureTime chunk:
+    /// what auto exposure actually used for it, not the setting. -1 if
+    /// unavailable.
+    double exposureUs = -1.0;
 
     int width  = 0; ///< Frame width in pixels.
     int height = 0; ///< Frame height in pixels.

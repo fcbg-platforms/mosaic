@@ -37,7 +37,7 @@ bool FrameTimestampWriter::start(const QString& path) {
     }
 
     d->stream.setDevice(&d->file);
-    d->stream << "frame_id,elapsed_ns,wall_ns,hw_timestamp_ns\n";
+    d->stream << "frame_id,elapsed_ns,wall_ns,hw_timestamp_ns,exposure_us\n";
     d->stream.flush();
     d->sinceFlush.start();
     d->count.store(0, std::memory_order_relaxed);
@@ -46,10 +46,14 @@ bool FrameTimestampWriter::start(const QString& path) {
 }
 
 void FrameTimestampWriter::write(int64_t frameId, int64_t elapsedNs, int64_t wallNs,
-                                 int64_t hwTimestampNs) {
+                                 int64_t hwTimestampNs, double exposureUs) {
     QMutexLocker lock(&d->mutex);
     if (!d->open) return;
-    d->stream << frameId << ',' << elapsedNs << ',' << wallNs << ',' << hwTimestampNs << '\n';
+    d->stream << frameId << ',' << elapsedNs << ',' << wallNs << ',' << hwTimestampNs << ',';
+    // Fixed notation: QTextStream's default would write a 1 s exposure as
+    // "1e+06".
+    if (exposureUs >= 0.0) d->stream << QString::number(exposureUs, 'f', 1);
+    d->stream << '\n';
     d->count.fetch_add(1, std::memory_order_relaxed);
     // QTextStream::flush() also flushes the QFile underneath, so the rows
     // reach the OS — which keeps them through a crash of this process.

@@ -593,6 +593,16 @@ bool VideoGrabber::open() {
             CEnumParameter(cam, "ChunkSelector").SetValue("Timestamp");
             CBooleanParameter(cam, "ChunkEnable").SetValue(true);
         });
+        // And each frame's own exposure time. With auto exposure it changes
+        // from frame to frame, and it is part of the delay between a trigger
+        // and the frame arriving: Frame Sync Repair subtracts it so cameras
+        // exposing for different times still line up on the right tick.
+        // Separate from the timestamp chunk, so a firmware without it keeps
+        // the timestamps; exposure_us is then left empty.
+        try_set("ChunkExposureTime", [&] {
+            CEnumParameter(cam, "ChunkSelector").SetValue("ExposureTime");
+            CBooleanParameter(cam, "ChunkEnable").SetValue(true);
+        });
 
         // 1500-byte packets: safe default that works regardless of whether
         // jumbo frames are usable end-to-end. Tried raising this to 8192 on
@@ -1445,6 +1455,18 @@ bool VideoGrabber::grab_until_stopped() {
                     // Chunk data unavailable for this frame — leave hwTsNs at 0.
                 }
             }
+            // The frame's exposure chunk, µs. Checked for rather than read
+            // and caught: on a firmware without it this runs for every frame.
+            double exposureUs = -1.0;
+            try {
+                auto& chunkNodeMap = result->GetChunkDataNodeMap();
+                auto* node         = chunkNodeMap.GetNode("ChunkExposureTime");
+                if (node != nullptr && GenApi::IsReadable(node)) {
+                    exposureUs = Pylon::CFloatParameter(node).GetValue();
+                }
+            } catch (const Pylon::GenericException&) {
+                // Unavailable for this frame: left unknown.
+            }
 
             // Convert from the camera's native pixel format (BayerRG, YUV, Mono, …)
             // to BGR8packed so the QImage and VideoFrame always carry BGR data.
@@ -1470,6 +1492,7 @@ bool VideoGrabber::grab_until_stopped() {
             frame->elapsedNs     = tsNs;
             frame->wallClockNs   = wallNs;
             frame->hwTimestampNs = hwTsNs;
+            frame->exposureUs    = exposureUs;
             frame->width         = w;
             frame->height        = h;
             frame->stride        = static_cast<int>(stride);

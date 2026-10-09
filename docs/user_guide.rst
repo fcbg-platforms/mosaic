@@ -292,8 +292,10 @@ Troubleshooting acquisition
        If it stays behind while the others keep up, it is that camera's link.
    * - "Camera N is not open" in the pre-flight dialog
      - Check its cable and power, then reopen the cameras from
-       **Settings → Video**. An unplugged camera only comes back when the
-       cameras are reopened.
+       **Settings → Video**. That is only needed for a camera that failed to
+       open. One that was running and dropped out (a pulled cable) reconnects
+       by itself within a few seconds of coming back, even during a
+       recording; meanwhile the pre-flight dialog says it **has dropped out**.
    * - A camera's ``synced/`` video shows MISSING frames
      - Those triggers produced no frame from that camera. A few scattered
        ones point to its link; a long block means it dropped out.

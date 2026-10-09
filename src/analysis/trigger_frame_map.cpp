@@ -115,7 +115,7 @@ QVector<TriggerFrameMap::FrameTs> TriggerFrameMap::read_timestamps(const QString
         return out;
     }
     QTextStream ts(&f);
-    ts.readLine(); // skip header: frame_id,elapsed_ns,wall_ns,hw_timestamp_ns
+    ts.readLine(); // skip header: frame_id,elapsed_ns,wall_ns,hw_timestamp_ns[,exposure_us]
     while (!ts.atEnd()) {
         const QString line = ts.readLine().trimmed();
         if (line.isEmpty()) {
