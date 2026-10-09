@@ -128,6 +128,8 @@ class AnalysisTabW : public QWidget {
     void export_rppg_csv();
     void update_gaze2d_view();
     void export_gaze2d_csv();
+    void update_face_dynamics_view();
+    void export_face_dynamics_csv();
     void update_sync_repair_view();
     void export_sync_repair_csv();
     [[nodiscard]] bool is_pose_plugin() const;
@@ -139,6 +141,7 @@ class AnalysisTabW : public QWidget {
     [[nodiscard]] bool is_trigger_sync_plugin() const;
     [[nodiscard]] bool is_rppg_plugin() const;
     [[nodiscard]] bool is_gaze2d_plugin() const;
+    [[nodiscard]] bool is_face_dynamics_plugin() const;
     [[nodiscard]] bool is_sync_repair_plugin() const;
     [[nodiscard]] bool is_pose_depth_selected() const;
     [[nodiscard]] QString slug_for_model(const QString& modelId) const;
@@ -153,6 +156,7 @@ class AnalysisTabW : public QWidget {
     [[nodiscard]] QString expression_json_path_for(const QString& videoRelPath) const;
     [[nodiscard]] QString rppg_json_path_for(const QString& videoRelPath) const;
     [[nodiscard]] QString gaze2d_json_path_for(const QString& videoRelPath) const;
+    [[nodiscard]] QString face_dynamics_json_path_for(const QString& videoRelPath) const;
     [[nodiscard]] QString synced_video_path_for(const QString& videoRelPath) const;
 
     /// Whether `pluginId`'s output already exists for the selected session,

@@ -53,6 +53,7 @@
 #include "analysis/analysis_plugins.hpp"
 #include "analysis/dyadic_kinematics.hpp"
 #include "analysis/expression_result.hpp"
+#include "analysis/face_dynamics_result.hpp"
 #include "analysis/gaze2d_result.hpp"
 #include "analysis/gaze_fusion_result.hpp"
 #include "analysis/pose_analysis_result.hpp"
@@ -823,12 +824,14 @@ struct AnalysisTabW::Impl {
     QSpinBox* pose3dSmoothingWindowSpin      = nullptr; // pose3d
     QCheckBox* showSmoothedCheck = nullptr; // pose3d — room view only, see set_show_smoothed()
     QComboBox* rppgBackendCombo  = nullptr; // rppg
-    QDoubleSpinBox* rppgWindowSecSpin       = nullptr; // rppg
-    QDoubleSpinBox* rppgHopSecSpin          = nullptr; // rppg
-    QSpinBox* rppgSmoothingSpin             = nullptr; // rppg
-    QDoubleSpinBox* gaze2dMinConfidenceSpin = nullptr; // gaze2d
-    QSpinBox* gaze2dSkipSpin                = nullptr; // gaze2d
-    QDoubleSpinBox* syncRepairMasterFpsSpin = nullptr; // sync_repair — 0.0 = "Auto"
+    QDoubleSpinBox* rppgWindowSecSpin        = nullptr; // rppg
+    QDoubleSpinBox* rppgHopSecSpin           = nullptr; // rppg
+    QSpinBox* rppgSmoothingSpin              = nullptr; // rppg
+    QDoubleSpinBox* gaze2dMinConfidenceSpin  = nullptr; // gaze2d
+    QSpinBox* gaze2dSkipSpin                 = nullptr; // gaze2d
+    QDoubleSpinBox* faceDynMinConfidenceSpin = nullptr; // face_dynamics
+    QCheckBox* faceDynVideoCheck             = nullptr; // face_dynamics
+    QDoubleSpinBox* syncRepairMasterFpsSpin  = nullptr; // sync_repair — 0.0 = "Auto"
 
     QPushButton* runBtn = nullptr;
     QLabel* statusLbl   = nullptr;
@@ -958,10 +961,14 @@ struct AnalysisTabW::Impl {
     // pose kinematics' own Position/Speed/Acceleration combo — this
     // plugin gets its own separate combo (gaze2dMetricCombo) since its
     // metric choices (dx/dy/magnitude) are a different vocabulary.
-    QWidget* gaze2dRowW          = nullptr; // gaze2d only
-    QComboBox* gaze2dMetricCombo = nullptr; // gaze2d only — dx / dy / magnitude
-    QLabel* gaze2dStatsLbl       = nullptr; // gaze2d only
-    QPushButton* exportGaze2dBtn = nullptr; // gaze2d only
+    QWidget* gaze2dRowW           = nullptr; // gaze2d only
+    QComboBox* gaze2dMetricCombo  = nullptr; // gaze2d only — dx / dy / magnitude
+    QLabel* gaze2dStatsLbl        = nullptr; // gaze2d only
+    QPushButton* exportGaze2dBtn  = nullptr; // gaze2d only
+    QWidget* faceDynRowW          = nullptr; // face_dynamics only
+    QComboBox* faceDynMetricCombo = nullptr; // face_dynamics only
+    QLabel* faceDynStatsLbl       = nullptr; // face_dynamics only
+    QPushButton* exportFaceDynBtn = nullptr; // face_dynamics only
 
     // Frame Sync Repair view controls — mirrors triggerSyncRowW's shape
     // (a per-camera table, not the usual chart+overlay — this plugin's
@@ -1007,10 +1014,11 @@ struct AnalysisTabW::Impl {
     Skeleton3DResult currentSkeleton3D;       // pose3d only
     DyadicKinematicsSeries currentDyad;       // pose3d only — derived from currentSkeleton3D +
                                         // the selected Track A/B pair, see update_dyadic_view()
-    TriggerFrameMap currentTriggerFrameMap; // trigger_sync only
-    RppgResult currentRppgResult;           // rppg only
-    Gaze2dResult currentGaze2dResult;       // gaze2d only
-    SyncRepairResult currentSyncRepair;     // sync_repair only
+    TriggerFrameMap currentTriggerFrameMap;  // trigger_sync only
+    RppgResult currentRppgResult;            // rppg only
+    Gaze2dResult currentGaze2dResult;        // gaze2d only
+    FaceDynamicsResult currentFaceDynResult; // face_dynamics only
+    SyncRepairResult currentSyncRepair;      // sync_repair only
 
     // AnalysisManager is a single shared instance (also used by
     // SessionBrowserW's "Run Pose" button and PerformanceMonitorW's
@@ -1061,6 +1069,7 @@ struct AnalysisTabW::Impl {
         currentTriggerFrameMap  = TriggerFrameMap();
         currentRppgResult       = RppgResult();
         currentGaze2dResult     = Gaze2dResult();
+        currentFaceDynResult    = FaceDynamicsResult();
         currentSyncRepair       = SyncRepairResult();
         currentVoice            = VoiceResult();
     }
@@ -1713,6 +1722,27 @@ void AnalysisTabW::build_ui() {
     gaze2dCtlLay->addWidget(d->gaze2dSkipSpin);
     add_plugin_page("gaze2d", gaze2dPage);
 
+    // Face Dynamics: no frame skip on purpose (a blink is only a few frames
+    // long; see analysis/run_face_dynamics.py).
+    auto* faceDynPage   = new QWidget;
+    auto* faceDynCtlLay = new QHBoxLayout(faceDynPage);
+    faceDynCtlLay->setContentsMargins(0, 0, 0, 0);
+
+    d->faceDynMinConfidenceSpin = new QDoubleSpinBox;
+    d->faceDynMinConfidenceSpin->setRange(0.1, 1.0);
+    d->faceDynMinConfidenceSpin->setSingleStep(0.05);
+    d->faceDynMinConfidenceSpin->setValue(0.5);
+    d->faceDynMinConfidenceSpin->setPrefix("min conf ");
+    faceDynCtlLay->addWidget(d->faceDynMinConfidenceSpin);
+
+    d->faceDynVideoCheck = new QCheckBox("Annotated video");
+    d->faceDynVideoCheck->setChecked(true);
+    d->faceDynVideoCheck->setToolTip(
+        "Also write a copy of each video with the eyes, lips, head direction and "
+        "the current blinks, smiles and nods drawn on it.");
+    faceDynCtlLay->addWidget(d->faceDynVideoCheck);
+    add_plugin_page("face_dynamics", faceDynPage);
+
     // ── Frame Sync Repair controls page ─────────────────────────────────
     auto* syncRepairPage   = new QWidget;
     auto* syncRepairCtlLay = new QHBoxLayout(syncRepairPage);
@@ -2319,6 +2349,39 @@ void AnalysisTabW::build_ui() {
     d->gaze2dRowW->setVisible(false); // shown only for the gaze2d plugin
     rightLay->addWidget(d->gaze2dRowW);
 
+    // Face Dynamics row: which signal the chart plots, the session numbers,
+    // and an events CSV export.
+    d->faceDynRowW      = new QWidget;
+    auto* faceDynRowLay = new QHBoxLayout(d->faceDynRowW);
+    faceDynRowLay->setContentsMargins(0, 0, 0, 0);
+
+    d->faceDynMetricCombo = new QComboBox;
+    d->faceDynMetricCombo->addItem("Eye openness", "openness");
+    d->faceDynMetricCombo->addItem("Smile", "smile");
+    d->faceDynMetricCombo->addItem("Brow raise", "brow");
+    d->faceDynMetricCombo->addItem("Expressivity", "expressivity");
+    d->faceDynMetricCombo->addItem("Head yaw (deg)", "yaw");
+    d->faceDynMetricCombo->addItem("Head pitch (deg)", "pitch");
+    d->faceDynMetricCombo->addItem("Head roll (deg)", "roll");
+    d->faceDynMetricCombo->addItem("Head speed (deg/s)", "speed");
+    connect(d->faceDynMetricCombo, &QComboBox::currentIndexChanged, this,
+            &AnalysisTabW::update_face_dynamics_view);
+    faceDynRowLay->addWidget(new QLabel("Metric:"));
+    faceDynRowLay->addWidget(d->faceDynMetricCombo);
+
+    d->faceDynStatsLbl = new QLabel;
+    d->faceDynStatsLbl->setStyleSheet("color:#7070a0; font-size:11px;");
+    d->faceDynStatsLbl->setWordWrap(true);
+    faceDynRowLay->addWidget(d->faceDynStatsLbl, 1);
+
+    d->exportFaceDynBtn = new QPushButton("Export events CSV");
+    connect(d->exportFaceDynBtn, &QPushButton::clicked, this,
+            &AnalysisTabW::export_face_dynamics_csv);
+    faceDynRowLay->addWidget(d->exportFaceDynBtn);
+
+    d->faceDynRowW->setVisible(false); // shown only for the face_dynamics plugin
+    rightLay->addWidget(d->faceDynRowW);
+
     // ── Frame Sync Repair view controls: stats readout + CSV export.
     //    sync_repair only. syncRepairTable itself lives in resultsSplitter
     //    below (own-container row here just holds the stats/export line,
@@ -2609,6 +2672,7 @@ void AnalysisTabW::select_plugin(const QString& pluginId) {
     const bool isTriggerSync = is_trigger_sync_plugin();
     const bool isRppg        = is_rppg_plugin();
     const bool isGaze2d      = is_gaze2d_plugin();
+    const bool isFaceDyn     = is_face_dynamics_plugin();
     const bool isSyncRepair  = is_sync_repair_plugin();
     // A depth model selected within the Pose plugin produces a colorized
     // video, not keypoints — the keypoint/chart controls below need to stay
@@ -2637,8 +2701,8 @@ void AnalysisTabW::select_plugin(const QString& pluginId) {
     // isPose3D included so the shared chart can show the Dyad Analysis
     // series — pose3d's own room-view/2D-overlay results view never needed
     // it before Dyad Analysis was added.
-    set_visible_animated(d->chart,
-                         isPoseKeypoints || isExpression || isRppg || isGaze2d || isPose3D);
+    set_visible_animated(
+        d->chart, isPoseKeypoints || isExpression || isRppg || isGaze2d || isPose3D || isFaceDyn);
     set_visible_animated(d->kinematicsRowW, isPoseKeypoints);
     // subjectPickerRowW's own further narrowing (hidden when the session has
     // <=1 detected subject) happens inside rebuild_subject_chips(), called
@@ -2657,10 +2721,11 @@ void AnalysisTabW::select_plugin(const QString& pluginId) {
     set_visible_animated(d->triggerSyncTable, isTriggerSync);
     set_visible_animated(d->rppgRowW, isRppg);
     set_visible_animated(d->gaze2dRowW, isGaze2d);
+    set_visible_animated(d->faceDynRowW, isFaceDyn);
     set_visible_animated(d->syncRepairRowW, isSyncRepair);
     set_visible_animated(d->syncRepairTable, isSyncRepair);
-    set_visible_animated(d->openFolderBtn,
-                         isFaceMask || is_pose_depth_selected() || isSyncRepair || isGazeFusion);
+    set_visible_animated(d->openFolderBtn, isFaceMask || is_pose_depth_selected() || isSyncRepair ||
+                                               isGazeFusion || isFaceDyn);
     set_visible_animated(d->sourceRowW, !isDiarize);
     set_visible_animated(d->micRowW, isDiarize);
     set_visible_animated(d->transcriptTable, isDiarize);
@@ -2784,6 +2849,10 @@ PluginRunState AnalysisTabW::run_state_for(const QString& pluginId) const {
         return per_input(info->videoFiles,
                          [this](const QString& v) { return gaze2d_json_path_for(v); });
     }
+    if (pluginId == "face_dynamics") {
+        return per_input(info->videoFiles,
+                         [this](const QString& v) { return face_dynamics_json_path_for(v); });
+    }
     if (pluginId == "face_mask") {
         return per_input(info->videoFiles,
                          [this](const QString& v) { return anonymized_video_path_for(v); });
@@ -2899,6 +2968,11 @@ QString AnalysisTabW::rppg_json_path_for(const QString& videoRelPath) const {
            d->rppgBackendCombo->currentData().toString() + ".rppg.json";
 }
 
+QString AnalysisTabW::face_dynamics_json_path_for(const QString& videoRelPath) const {
+    // analysis/run_face_dynamics.py writes into the session's face_dynamics/.
+    return "face_dynamics/" + QFileInfo(videoRelPath).completeBaseName() + ".face_dynamics.json";
+}
+
 QString AnalysisTabW::gaze2d_json_path_for(const QString& videoRelPath) const {
     // Own subfolder — mirrors pose_json_path_for()'s/expression_json_path_for()'s
     // exact convention, see analysis/run_gaze2d.py::process_session()'s
@@ -2933,6 +3007,8 @@ bool AnalysisTabW::is_trigger_sync_plugin() const { return d->currentPlugin == "
 bool AnalysisTabW::is_rppg_plugin() const { return d->currentPlugin == "rppg"; }
 
 bool AnalysisTabW::is_gaze2d_plugin() const { return d->currentPlugin == "gaze2d"; }
+
+bool AnalysisTabW::is_face_dynamics_plugin() const { return d->currentPlugin == "face_dynamics"; }
 
 bool AnalysisTabW::is_sync_repair_plugin() const { return d->currentPlugin == "sync_repair"; }
 
@@ -3261,6 +3337,7 @@ void AnalysisTabW::reload_current_camera_result() {
         update_expression_view();
         update_rppg_view();
         update_gaze2d_view();
+        update_face_dynamics_view();
         return;
     }
 
@@ -3419,6 +3496,37 @@ void AnalysisTabW::reload_current_camera_result() {
                 "2D Gaze ran, but no face was detected in this camera's "
                 "footage — try a different camera, or check its framing/lighting.");
             d->statusLbl->setStyleSheet("color:#ddaa33; font-size:15px; font-weight:600;");
+        }
+        return;
+    }
+
+    if (is_face_dynamics_plugin()) {
+        const QString jsonAbs = info->path + "/" + face_dynamics_json_path_for(videoRel);
+        d->currentFaceDynResult =
+            QFileInfo::exists(jsonAbs) ? FaceDynamicsResult::load(jsonAbs) : FaceDynamicsResult();
+        // The annotated video already shows everything measured, so it is
+        // played instead of the original whenever it exists. It has the
+        // same frames, so the chart's time axis lines up either way.
+        const QString annotated = d->currentFaceDynResult.annotated_video();
+        const bool hasAnnotated =
+            !annotated.isEmpty() && QFileInfo::exists(info->path + "/" + annotated);
+        d->player->set_video(hasAnnotated ? info->path + "/" + annotated : videoAbs);
+        d->player->set_pose_result(PoseAnalysisResult());
+        d->openFolderBtn->setEnabled(d->currentFaceDynResult.is_valid());
+
+        update_face_dynamics_view();
+
+        if (!d->currentFaceDynResult.is_valid() || d->currentFaceDynResult.frames().isEmpty()) {
+            d->statusLbl->setText("No analysis yet for this camera — click Run.");
+            d->statusLbl->setStyleSheet("color:#6060a0; font-size:15px; font-weight:600;");
+        } else if (d->currentFaceDynResult.summary().faceSeenPct <= 0.0) {
+            d->statusLbl->setText(
+                "Face Dynamics ran, but no face was found in this camera's footage — "
+                "try a different camera, or check its framing and lighting.");
+            d->statusLbl->setStyleSheet("color:#ddaa33; font-size:15px; font-weight:600;");
+        } else if (hasAnnotated) {
+            d->statusLbl->setText("Showing the annotated video.");
+            d->statusLbl->setStyleSheet("color:#44cc66; font-size:15px; font-weight:600;");
         }
         return;
     }
@@ -4682,6 +4790,100 @@ void AnalysisTabW::export_gaze2d_csv() {
     });
 }
 
+void AnalysisTabW::update_face_dynamics_view() {
+    const auto& result = d->currentFaceDynResult;
+    if (!result.is_valid() || result.frames().isEmpty()) {
+        d->chart->set_single_series({}, "Face");
+        d->chart->set_title("No analysis yet");
+        d->faceDynStatsLbl->clear();
+        d->chart->set_playhead_ms(d->player->position_ms());
+        return;
+    }
+
+    const QString metric = d->faceDynMetricCombo->currentData().toString();
+    // Timestamps are app-launch-relative; the chart and the player count
+    // from the video's first frame.
+    const int64_t t0 = result.frames().first().timestampMs;
+
+    QVector<QPointF> points;
+    points.reserve(result.frames().size());
+    for (const auto& f : result.frames()) {
+        if (!f.faceDetected) {
+            continue;
+        }
+        double value = 0.0;
+        if (metric == "openness") {
+            value = (f.opennessLeft + f.opennessRight) / 2.0;
+        } else if (metric == "smile") {
+            value = f.smile;
+        } else if (metric == "brow") {
+            value = f.browRaise;
+        } else if (metric == "expressivity") {
+            value = f.expressivity;
+        } else if (metric == "yaw") {
+            value = f.yaw;
+        } else if (metric == "pitch") {
+            value = f.pitch;
+        } else if (metric == "roll") {
+            value = f.roll;
+        } else {
+            value = f.headSpeed;
+        }
+        if (std::isfinite(value)) {
+            points.append(QPointF(static_cast<double>(f.timestampMs - t0), value));
+        }
+    }
+    const QString label      = d->faceDynMetricCombo->currentText();
+    const double lastFrameMs = static_cast<double>(result.frames().last().timestampMs - t0);
+    d->chart->set_single_series(points, label, QString(), lastFrameMs);
+    d->chart->set_title("Face Dynamics — " + label);
+    d->chart->set_playhead_ms(d->player->position_ms());
+
+    const FaceDynamicsSummary& s = result.summary();
+    auto num                     = [](const std::optional<double>& v, int decimals) {
+        return v ? QString::number(*v, 'f', decimals) : QString("–");
+    };
+    QStringList parts;
+    parts << QString("face %1%").arg(s.faceSeenPct, 0, 'f', 0);
+    parts << QString("%1 blinks (%2/min, median %3 ms)")
+                 .arg(s.blinks)
+                 .arg(num(s.blinksPerMinute, 1), num(s.medianBlinkMs, 0));
+    if (s.longClosures > 0) {
+        parts << QString("%1 long closures").arg(s.longClosures);
+    }
+    parts << QString("%1 smiles (%2 Duchenne, smiling %3%)")
+                 .arg(s.smiles)
+                 .arg(s.duchenneSmiles)
+                 .arg(num(s.smilingPct, 0));
+    parts << QString("%1 brow raises (%2 flashes)").arg(s.browRaises).arg(s.browFlashes);
+    parts << QString("%1 nods, %2 shakes").arg(s.nods).arg(s.shakes);
+    if (result.fps() > 0.0 && result.fps() < 30.0) {
+        parts << QString("%1 fps: blink durations are coarse").arg(result.fps(), 0, 'f', 0);
+    }
+    d->faceDynStatsLbl->setText(parts.join("  ·  "));
+}
+
+void AnalysisTabW::export_face_dynamics_csv() {
+    const auto* info   = d->current_session();
+    const auto& result = d->currentFaceDynResult;
+    if (!info || !result.is_valid()) {
+        return;
+    }
+    const QString stem      = QFileInfo(result.source_video()).completeBaseName();
+    const QString suggested = info->path + "/" + stem + "_face_events.csv";
+    const int64_t t0        = result.frames().isEmpty() ? 0 : result.frames().first().timestampMs;
+
+    export_csv(this, "Export Face Dynamics events", suggested, [&](QTextStream& ts) {
+        ts << "kind,start_s,end_s,duration_ms,peak,start_ms,end_ms\n";
+        for (const auto& e : result.events()) {
+            ts << e.kind << "," << QString::number((e.startMs - t0) / 1000.0, 'f', 3) << ","
+               << QString::number((e.endMs - t0) / 1000.0, 'f', 3) << ","
+               << QString::number(e.durationMs, 'f', 1) << "," << e.peak << "," << e.startMs << ","
+               << e.endMs << "\n";
+        }
+    });
+}
+
 void AnalysisTabW::update_sync_repair_view() {
     const auto& r = d->currentSyncRepair;
 
@@ -4949,6 +5151,10 @@ void AnalysisTabW::run_analysis() {
     } else if (plugin == "gaze2d") {
         d->analysisMgr->run_gaze2d_analysis(
             d->currentSessionPath, d->gaze2dMinConfidenceSpin->value(), d->gaze2dSkipSpin->value());
+    } else if (plugin == "face_dynamics") {
+        d->analysisMgr->run_face_dynamics_analysis(d->currentSessionPath,
+                                                   d->faceDynMinConfidenceSpin->value(),
+                                                   d->faceDynVideoCheck->isChecked());
     } else if (plugin == "sync_repair") {
         d->analysisMgr->run_sync_repair(d->currentSessionPath, d->syncRepairMasterFpsSpin->value());
     } else {
@@ -4972,6 +5178,8 @@ void AnalysisTabW::open_output_folder() {
         folder = "synced";
     } else if (is_gaze_fusion_plugin()) {
         folder = "gaze_fusion";
+    } else if (is_face_dynamics_plugin()) {
+        folder = "face_dynamics";
     }
     QDesktopServices::openUrl(QUrl::fromLocalFile(info->path + "/" + folder));
 }

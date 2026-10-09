@@ -97,6 +97,13 @@ conventions, matching
       Green/CHROM/POS pulse extraction and Welch-periodogram BPM
       estimation. **Experimental.**
 
+   .. grid-item-card:: 😉 Face Dynamics
+      :link: face_dynamics
+      :link-type: doc
+
+      Baseline-normalised blinks, Duchenne smiles, expressivity, and nods
+      and shakes from a zig-zag filter.
+
 .. toctree::
    :hidden:
 
@@ -109,3 +116,4 @@ conventions, matching
    motion_tracking
    pose3d_reconstruction
    remote_heart_rate
+   face_dynamics

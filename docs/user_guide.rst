@@ -380,7 +380,7 @@ For a selected session you can:
   - **SYNCED**: the equal-length videos in ``synced/`` exist.
   - **POSE**, **MOTION**, **TRANSCRIPT** (Speaker Diarization),
     **EXPRESSION**, **GAZE**, **3D POSE**, **HR** (Remote Heart Rate),
-    **GAZE 2D**: that analysis has been run. Face Masking has no badge of its
+    **GAZE 2D**, **FACE DYN**: that analysis has been run. Face Masking has no badge of its
     own; look for the session's ``anonymized/`` folder.
 
 .. note::
@@ -749,6 +749,34 @@ sitting alongside **Live**. The workflow is always the same shape:
       A window with insufficient face detection reports no BPM at all
       rather than a guessed one. This is expected on footage where the
       subject doesn't hold still facing the camera, not a bug.
+
+   .. tab-item:: Face Dynamics
+
+      **What it does**: counts what a face does over a recording: blinks
+      (with their length), long eye closures, smiles and which of them are
+      Duchenne smiles (the cheeks rise too), brow raises and quick brow
+      flashes, overall expressivity, and head nods and shakes. Made for
+      **interview mode** (one camera, a large face, about 50 fps); on room
+      cameras faces are small and the frame rate low, so blinks and nods
+      are rough there, and the log says so.
+
+      **Controls**: **min conf** (face detection threshold) and
+      **Annotated video** (also write a copy of each video with the
+      measurements drawn on it; on by default). There is no frame skip: a
+      blink is only a few frames long.
+
+      **Reading the output**: the annotated video plays when it exists. Eye
+      outlines turn red during a closure and the lips amber during a smile,
+      an arrow shows where the head points, the current events appear in
+      large type at the top right, and running counts at the top left. The
+      **Metric** dropdown picks what the chart plots (eye openness, smile,
+      brow raise, expressivity, head yaw, pitch, roll or speed). The stats
+      line gives blinks per minute and median blink length, smiles and
+      Duchenne smiles with the share of time spent smiling, brow raises and
+      flashes, and nods and shakes. **Export events CSV** saves one row per
+      event. The ``face_dynamics/`` folder (**Open output folder**) also
+      holds a per-frame CSV with all 52 blendshapes. See
+      :doc:`math/face_dynamics` for every rule and threshold.
 
    .. tab-item:: EEG/Trigger ↔ Frame Sync
 

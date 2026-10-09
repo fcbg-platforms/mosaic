@@ -279,6 +279,17 @@ class AnalysisManager : public QObject {
     /// @param frameSkip      Process every Nth frame (1 = every frame).
     void run_gaze2d_analysis(const QString& sessionPath, double minConfidence, int frameSkip);
 
+    /// @brief Face Dynamics: blinks, smiles, brow raises, expressivity and
+    /// head nods and shakes for each camera, written to the session's
+    /// face_dynamics/ folder (analysis/run_face_dynamics.py). Queues like
+    /// every other analysis. Single camera, so no sync manifest is needed.
+    ///
+    /// @param sessionPath    Absolute path to the recorded session directory.
+    /// @param minConfidence  Face detection and tracking threshold.
+    /// @param annotatedVideo Also write a video with the measurements drawn on it.
+    void run_face_dynamics_analysis(const QString& sessionPath, double minConfidence,
+                                    bool annotatedVideo);
+
     /// @brief Produces per-camera "repaired" copies with EQUALIZED frame
     /// counts, aligned to a shared master tick grid, filling small
     /// per-camera frame-count mismatches (GVSP packet loss / trigger

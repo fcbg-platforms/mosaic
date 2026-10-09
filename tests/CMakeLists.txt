@@ -38,6 +38,7 @@ add_executable(mosaic_tests
     test_skeleton3d_result.cpp
     test_rppg_result.cpp
     test_gaze2d_result.cpp
+    test_face_dynamics_result.cpp
     test_sync_repair_result.cpp
     test_audio_envelope.cpp
     test_audio_persistence.cpp
@@ -80,6 +81,7 @@ add_executable(mosaic_tests
     "${CMAKE_SOURCE_DIR}/src/analysis/skeleton3d_result.cpp"
     "${CMAKE_SOURCE_DIR}/src/analysis/rppg_result.cpp"
     "${CMAKE_SOURCE_DIR}/src/analysis/gaze2d_result.cpp"
+    "${CMAKE_SOURCE_DIR}/src/analysis/face_dynamics_result.cpp"
     "${CMAKE_SOURCE_DIR}/src/analysis/sync_repair_result.cpp"
     "${CMAKE_SOURCE_DIR}/src/analysis/pose_analysis_result.cpp"
     "${CMAKE_SOURCE_DIR}/src/analysis/pose_kinematics.cpp"

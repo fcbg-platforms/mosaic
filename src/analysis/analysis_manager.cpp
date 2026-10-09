@@ -246,6 +246,20 @@ void AnalysisManager::run_gaze2d_analysis(const QString& sessionPath, double min
     enqueue_or_launch(sessionPath, "analysis/run_gaze2d.py", args, {});
 }
 
+void AnalysisManager::run_face_dynamics_analysis(const QString& sessionPath, double minConfidence,
+                                                 bool annotatedVideo) {
+    QStringList args = {
+        "--session",
+        sessionPath,
+        "--min-confidence",
+        QString::number(minConfidence),
+    };
+    if (!annotatedVideo) {
+        args << "--no-video";
+    }
+    enqueue_or_launch(sessionPath, "analysis/run_face_dynamics.py", args, {});
+}
+
 void AnalysisManager::run_sync_repair(const QString& sessionPath, double masterFps) {
     const QStringList args = {
         "--session",
