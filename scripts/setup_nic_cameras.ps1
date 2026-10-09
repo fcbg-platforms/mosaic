@@ -7,6 +7,12 @@
     Each camera gets a dedicated 1 GbE port on its own subnet, eliminating the
     shared-switch bandwidth bottleneck (6 x ~52 MB/s > 125 MB/s).
 
+    That ~52 MB/s assumes 1920x1080 at one byte per pixel (Bayer) and 25 fps.
+    A two-byte format (YUV422) doubles it and a three-byte one (BGR8) triples
+    it, past what one gigabit link carries. Which format a camera really sends
+    is logged when MOSAIC opens it ("[Camera N] Pixel format ..."), with its
+    share of the link; the pixel format in the settings is only a request.
+
     *** ROOM-SPECIFIC — filled in for this PC via VideoGrabber::enumerate_devices() ***
     The $CameraMap table below is this room's confirmed NIC-to-camera-IP-to-serial
     mapping, captured by discovering all 6 physically-connected cameras. If this
@@ -22,8 +28,12 @@
     After running this script:
       1. Physically connect each camera to its assigned NIC port (see table).
       2. Open "Pylon IP Configurator" and assign each camera its static IP.
-      3. In each camera's settings, set PacketSize to 8192 bytes (once jumbo
-         frames are confirmed active post-reboot — see step 4 below).
+      3. Do NOT raise PacketSize. This step used to say 8192 bytes; MOSAIC
+         sets GevSCPSPacketSize to 1500 at every open, because 8192 was tested
+         on this hardware and was a severe regression (packet errors exceeded
+         received packets on every camera). Jumbo frames stay enabled on the
+         NICs below, but the camera stream deliberately does not use them.
+         See the GevSCPSPacketSize comment in src/video/video_grabber.cpp.
 #>
 
 # ── Room-specific camera map ────────────────────────────────────────────────

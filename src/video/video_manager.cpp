@@ -1039,10 +1039,11 @@ std::optional<VideoManager::OpenedGeometry> VideoManager::opened_geometry(int co
     for (const auto& unit : d->units) {
         if (unit.configIndex == configIndex && unit.grabber) {
             OpenedGeometry g;
-            g.width   = unit.grabber->frame_width();
-            g.height  = unit.grabber->frame_height();
-            g.offsetX = unit.grabber->frame_offset_x();
-            g.offsetY = unit.grabber->frame_offset_y();
+            g.width       = unit.grabber->frame_width();
+            g.height      = unit.grabber->frame_height();
+            g.offsetX     = unit.grabber->frame_offset_x();
+            g.offsetY     = unit.grabber->frame_offset_y();
+            g.pixelFormat = unit.grabber->pixel_format();
             if (g.width <= 0 || g.height <= 0) {
                 return std::nullopt;
             }

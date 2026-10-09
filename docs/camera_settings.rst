@@ -131,7 +131,12 @@ Image tab
    * - Pixel format
      - ``BGR8``
      - One of ``BGR8``, ``RGB8``, ``Mono8``, ``Mono12``, ``BayerRG8``,
-       ``BayerBG8``. Structural.
+       ``BayerBG8``. Structural. A request, not a guarantee: which formats
+       a camera accepts depends on its model. If it does not accept this
+       one, MOSAIC tries ``BGR8Packed``, ``BayerRG8`` and ``YCbCr422_8``,
+       and a camera that accepts none of them keeps the format it was in. The log says which format the camera really uses
+       when it opens (``[Camera N] Pixel format ...``), with what that costs
+       on its gigabit link, and ``session_meta.json`` records it.
    * - Specify frame rate
      - on
      - If off, the camera free-runs at whatever rate its current

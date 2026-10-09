@@ -16,6 +16,7 @@
 #include "utils/logger.hpp"
 #include "utils/timestamp.hpp"
 #include "video/camera_label.hpp"
+#include "video/gige_bandwidth.hpp"
 
 namespace mosaic {
 
@@ -81,13 +82,21 @@ void RecordManager::write_session_meta() const {
                 : video.cameras[static_cast<size_t>(i)];
         // What the camera really delivers, when known: it rounds a requested
         // crop to its own step and range, and the video is encoded at the
-        // read-back size (see VideoManager::start()).
+        // read-back size (see VideoManager::start()). Likewise the pixel
+        // format, which the camera may have rejected: "pixel_format" is only
+        // ever the format the camera reported, and the request is kept
+        // beside it. Unknown leaves "pixel_format" out rather than writing
+        // the request in its place, which is how a rejected BGR8 used to be
+        // recorded as fact.
+        const QString requestedFormat = cam.pixelFormat;
+        QString actualFormat;
         if (d->videoMgr) {
             if (const auto g = d->videoMgr->opened_geometry(i)) {
                 cam.width  = g->width;
                 cam.height = g->height;
                 if (g->offsetX >= 0) cam.offsetX = g->offsetX;
                 if (g->offsetY >= 0) cam.offsetY = g->offsetY;
+                actualFormat = g->pixelFormat;
             }
         }
         const QJsonObject calObj = cam.calibration.to_json();
@@ -100,10 +109,13 @@ void RecordManager::write_session_meta() const {
             {"fps", cam.fps},
             {"offset_x", cam.offsetX},
             {"offset_y", cam.offsetY},
-            {"pixel_format", cam.pixelFormat},
+            {"pixel_format_requested", requestedFormat},
             {"codec", d->settings.video.codec},
             {"calibration", calObj},
         };
+        if (!actualFormat.isEmpty()) {
+            entry.insert("pixel_format", actualFormat);
+        }
         // "fps" is the rate asked for. This is what the camera said, as the
         // recording started, it would deliver with its current settings — its own
         // ResultingFrameRate, the lesser of the request and its limit. They
@@ -113,6 +125,20 @@ void RecordManager::write_session_meta() const {
             const double reported = d->videoMgr->camera_max_fps(i);
             if (reported > 0) {
                 entry.insert("camera_reported_fps", std::round(reported * 100.0) / 100.0);
+            }
+            // What this stream costs on its gigabit link, in the format it
+            // really uses, at the same rate the open-time log line judges:
+            // the one asked for when fixed, else what the camera reported.
+            // Left out when the format is unknown, or not one gige_bandwidth
+            // knows the size of: a guessed figure would look real.
+            const double rate = cam.specifyFps ? cam.fps : reported;
+            const double bytesPerSec =
+                required_bytes_per_second(cam.width, cam.height, rate, actualFormat);
+            if (bytesPerSec > 0) {
+                entry.insert("link_mb_per_s", std::round(bytesPerSec / 1e5) / 10.0);
+                entry.insert(
+                    "link_utilisation",
+                    std::round(bytesPerSec / k_gige_line_rate_bytes_per_sec * 100.0) / 100.0);
             }
         }
         cameras.append(entry);

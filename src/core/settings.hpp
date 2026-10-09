@@ -65,7 +65,12 @@ struct CameraParameters {
     // rejects writes outright ("Node is not writable", every camera, every
     // session). Field kept so an already-persisted value round-trips
     // rather than silently vanishing on next save.
-    bool reverseY       = false;
+    bool reverseY = false;
+    // GenICam pixel format to request from the camera. Requested, not
+    // guaranteed: VideoGrabber tries this name, then a short fallback list,
+    // and a camera that accepts none of them keeps the format it was already
+    // in. VideoGrabber::pixel_format() is what the camera really uses, and is
+    // what session_meta.json records.
     QString pixelFormat = "BGR8";
     bool specifyFps     = true;
     double fps          = 25.0; // acA1920-25gc's max sustained rate
