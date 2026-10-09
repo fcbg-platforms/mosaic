@@ -94,8 +94,8 @@ conventions, matching
       :link: remote_heart_rate
       :link-type: doc
 
-      Green/CHROM/POS pulse extraction and Welch-periodogram BPM
-      estimation. **Experimental.**
+      Green/CHROM/POS pulse extraction, Welch-periodogram BPM, and beat
+      timing with split-face noise-corrected HRV. **Experimental.**
 
    .. grid-item-card:: 😉 Face Dynamics
       :link: face_dynamics

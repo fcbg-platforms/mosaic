@@ -751,6 +751,19 @@ sitting alongside **Live**. The workflow is always the same shape:
       rather than a guessed one. This is expected on footage where the
       subject doesn't hold still facing the camera, not a bug.
 
+      **Beats and heart-rate variability (HRV)**: the plugin also finds
+      every heartbeat and reports HRV: RMSSD, SDNN, pNN50 and LF/HF. The
+      chart dropdown switches between the windowed heart rate, the
+      beat-to-beat heart rate and RMSSD over a sliding minute. Camera
+      timing noise inflates HRV. The plugin measures that noise by finding
+      the beats separately in the two halves of the face, and the stats
+      line gives the noise-corrected RMSSD next to the raw one. HRV is not
+      reported below 25 fps (so not on room cameras), or with under a
+      minute of clean beats; the stats line says why. With
+      **Conversation Timing** run first it also gives the mean heart rate
+      while speaking and while listening. Interview mode at 50 fps with
+      even light gives the best results. See :doc:`math/remote_heart_rate`.
+
    .. tab-item:: Face Dynamics
 
       **What it does**: counts what a face does over a recording: blinks

@@ -33,6 +33,7 @@ from pathlib import Path
 
 import cv2
 import numpy as np
+from rppg import hrv
 from rppg.algorithms import BACKENDS
 from rppg.hr_estimation import bandpass_filter, estimate_hr_welch, median_smooth
 from rppg.roi import MediaPipeFaceRoiExtractor
@@ -211,6 +212,9 @@ def process_video(
     all_timestamps_ms: list[float] = []  # every processed frame, real or synthesized
     sample_timestamps_ms: list[float] = []  # only frames with a detected face
     sample_rgb: list[tuple[float, float, float]] = []
+    # Each half of the face separately (nan when a half was empty), for the
+    # beat-timing noise estimate in rppg.hrv.
+    sample_halves: list[tuple] = []
 
     # A real timestamps_camN.csv exists only inside a recorded session's
     # video/ folder — standalone --video mode (and any session missing the
@@ -249,6 +253,7 @@ def process_video(
             )
             sample_timestamps_ms.append(ts_ms)
             sample_rgb.append(sample.rgb_mean)
+            sample_halves.append(sample.rgb_halves or ((np.nan,) * 3, (np.nan,) * 3))
         else:
             frame_records.append(
                 {
@@ -283,9 +288,129 @@ def process_video(
     for w, s in zip(windows, smoothed, strict=False):
         w["smoothed_bpm"] = None if np.isnan(s) else round(float(s), 1)
 
+    try:
+        beat_doc = _beats_and_hrv(
+            video_path,
+            sample_timestamps_ms,
+            sample_rgb,
+            sample_halves,
+            all_timestamps_ms,
+            fps,
+            output_dir,
+        )
+    except Exception as exc:  # noqa: BLE001 - the windowed heart rate must still be written
+        print(f"[run_rppg] Beat/HRV analysis failed ({exc}); writing heart rate only.", flush=True)
+        beat_doc = {"hrv": None, "hrv_withheld": [f"beat analysis failed: {exc}"]}
+
     _write_results(
-        video_path, windows, frame_records, backend, window_sec, hop_sec, camera_index, output_dir
+        video_path,
+        windows,
+        frame_records,
+        backend,
+        window_sec,
+        hop_sec,
+        camera_index,
+        output_dir,
+        beat_doc,
     )
+
+
+def _frame_rate(all_ts_ms: list[float], fallback: float) -> float:
+    """The real frame rate, from the median interval between timestamps."""
+    if len(all_ts_ms) < 3:
+        return fallback
+    step = float(np.median(np.diff(np.asarray(all_ts_ms, dtype=np.float64))))
+    return 1000.0 / step if step > 0 else fallback
+
+
+def _conversation_states(session_dir: Path | None, video_path: Path):
+    """Speaking and listening intervals (elapsed ms) of the person on this
+    camera, from Conversation Timing's output, or ``None``."""
+    if session_dir is None:
+        return None
+    path = session_dir / "conversation" / f"{video_path.stem}.conversation.json"
+    if not path.exists():
+        return None
+    doc = json.loads(path.read_text(encoding="utf-8"))
+    spurts = doc.get("spurts", [])
+    return {
+        "speaking": [(x["start_ms"], x["end_ms"]) for x in spurts if x["speaker"] == "subject"],
+        "listening": [(x["start_ms"], x["end_ms"]) for x in spurts if x["speaker"] == "other"],
+    }
+
+
+def _beats_and_hrv(video_path, ts_ms, rgb, halves, all_ts_ms, fps, output_dir) -> dict:
+    """Beats, intervals, HRV and their windows (rppg.hrv), as JSON parts."""
+    if len(ts_ms) < 10:
+        return {"hrv": None, "hrv_withheld": ["no face found"]}
+    fs = _frame_rate(all_ts_ms, fps)
+    times_s = np.asarray(ts_ms, dtype=np.float64) / 1000.0
+    left = np.array([h[0] for h in halves], dtype=np.float64)
+    right = np.array([h[1] for h in halves], dtype=np.float64)
+    # The beat chain uses the equal-weight mean of the two halves, not the
+    # ROI's pixel mean: the split-face noise estimate assumes the whole is
+    # the average of the halves, and a turned head makes them unequal in
+    # size. Frames without both halves fall back to the pixel mean.
+    whole = np.asarray(rgb, dtype=np.float64)
+    both = np.all(np.isfinite(left), axis=1) & np.all(np.isfinite(right), axis=1)
+    whole = np.where(both[:, None], (left + right) / 2.0, whole)
+    r = hrv.analyse(times_s, whole, fs, halves=(left, right))
+    iv = r["ibi"]
+    print(
+        f"[run_rppg] Beats: {len(r['beats_s'])} found, {int(iv['nn'].sum())} clean intervals "
+        f"({r['nn_seconds']:.0f} s), {100 * r['artifact_share']:.0f}% artifacts; "
+        f"{r['timing_note']}",
+        flush=True,
+    )
+    if r["hrv"] is None:
+        print(f"[run_rppg] HRV not reported: {'; '.join(r['hrv_withheld'])}", flush=True)
+    else:
+        h = r["hrv"]
+        print(
+            f"[run_rppg] HRV: RMSSD {h.get('rmssd_ms')} ms (noise-corrected "
+            f"{h.get('rmssd_corrected_ms')}), SDNN {h.get('sdnn_ms')} ms, "
+            f"beat timing noise {h.get('timing_jitter_ms')} ms",
+            flush=True,
+        )
+    doc = {
+        "frame_rate": round(fs, 3),
+        "beats": [
+            {"t_ms": round(1000.0 * t, 1), "quality": round(float(q), 3)}
+            for t, q in zip(r["beats_s"], r["beat_quality"], strict=True)
+        ],
+        "intervals": [
+            {"t_ms": round(1000.0 * t, 1), "ibi_ms": round(1000.0 * v, 1), "nn": bool(n)}
+            for t, v, n in zip(iv["t_s"], iv["ibi_s"], iv["nn"], strict=True)
+        ],
+        "hrv": r["hrv"],
+        "hrv_withheld": r["hrv_withheld"],
+        "hrv_windows": [
+            {
+                "start_ms": round(1000.0 * w["start_s"]),
+                "end_ms": round(1000.0 * w["end_s"]),
+                "hr_bpm": w["hr_bpm"],
+                "rmssd_ms": w["rmssd_ms"],
+                "nn_count": w["nn_count"],
+            }
+            for w in r["windows"]
+        ],
+    }
+    states = _conversation_states(output_dir.parent if output_dir is not None else None, video_path)
+    if states is not None:
+        t_ms = 1000.0 * iv["t_s"]
+        nn = iv["nn"]
+        per = {}
+        for name, spans in states.items():
+            inside = np.zeros(t_ms.size, bool)
+            for a, b in spans:
+                inside |= (t_ms >= a) & (t_ms < b)
+            v = iv["ibi_s"][nn & inside]
+            per[name] = {
+                "beats": int(v.size),
+                "mean_hr_bpm": round(60.0 / float(v.mean()), 1) if v.size >= 10 else None,
+            }
+        doc["by_state"] = per
+    return doc
 
 
 def _compute_windows(
@@ -389,6 +514,7 @@ def _write_results(
     hop_sec: float,
     camera_index: int,
     output_dir: Path | None = None,
+    beat_doc: dict | None = None,
 ) -> None:
     if output_dir is not None:
         output_dir.mkdir(parents=True, exist_ok=True)
@@ -409,7 +535,7 @@ def _write_results(
     }
 
     doc = {
-        "schema": "mosaic-rppg-v1",
+        "schema": "mosaic-rppg-v2",
         "source_video": video_path.name,
         "backend": backend,
         "window_sec": window_sec,
@@ -418,6 +544,8 @@ def _write_results(
         "windows": windows,
         "frames": frames,
         "summary": summary,
+        # v2: beat-to-beat timing and heart-rate variability (rppg.hrv).
+        **(beat_doc or {}),
     }
     out_path.write_text(json.dumps(doc, indent=2))
     print(f"[run_rppg] Heart-rate data → {out_path}", flush=True)
