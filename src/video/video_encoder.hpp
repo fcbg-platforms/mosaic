@@ -46,6 +46,11 @@ class VideoEncoder : public QThread {
 
     [[nodiscard]] int64_t frames_encoded() const;
     [[nodiscard]] int64_t frames_dropped() const;
+    // elapsed_ns() of the first and of the last frame written to the file
+    // since start_encoding(), -1 before the first. With frames_encoded() they
+    // give the rate the video really has (see achieved_fps()).
+    [[nodiscard]] int64_t first_frame_elapsed_ns() const;
+    [[nodiscard]] int64_t last_frame_elapsed_ns() const;
 
    signals:
     void encoding_started(int cameraIndex);

@@ -190,7 +190,9 @@ succeeds later.  Fields:
          "width": 1920, "height": 1080, "fps": 30.0,
          "pixel_format": "BGR8",
          "codec": "h264_nvenc",
-         "calibration": { "calibrated": true, "rms_error": 0.312 }
+         "calibration": { "calibrated": true, "rms_error": 0.312 },
+         "camera_reported_fps": 30.0,
+         "frames_recorded": 18011, "recorded_seconds": 600.333, "achieved_fps": 30.0
        }
      ],
      "microphones": [
@@ -211,7 +213,23 @@ succeeds later.  Fields:
 were opened with, each under its configured ``index``. ``fps`` is the rate
 asked for. ``camera_reported_fps``, when present, is what the camera said at
 the start it would deliver with those settings, which is lower whenever the
-crop or exposure caps the rate. Interview mode once asked 50 and ran at 36.7. ``recording.mode`` is
+crop or exposure caps the rate. Interview mode once asked 50 and ran at 36.7.
+
+Three more keys are added to each camera when the recording stops, from the
+frames actually written to its video:
+
+- ``frames_recorded``: how many frames the video holds.
+- ``recorded_seconds``: the time from its first frame to its last (left out
+  when no frame was written).
+- ``achieved_fps``: the rate the video really has, ``(frames_recorded - 1) /
+  recorded_seconds``. Measured over the camera's own first-to-last span, so a
+  camera that started a moment late is not penalised for it; a gap in the
+  middle (a camera that dropped out and came back) does lower it. Left out
+  when it cannot be known (fewer than two frames).
+
+So ``fps`` is what was asked for, ``camera_reported_fps`` what the camera
+promised at the start, and ``achieved_fps`` what it delivered. A session that
+did not stop normally has none of the three. ``recording.mode`` is
 ``"room"`` or ``"interview"``; an interview session also carries
 ``interview_camera`` (configured index) and ``interview_fps``, and its
 ``cameras`` array holds that one camera with the interview crop and rate. Older
