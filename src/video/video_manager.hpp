@@ -132,6 +132,7 @@ class VideoManager : public QObject {
         int64_t framesDropped      = 0;   ///< Frames lost to ring-buffer overflow.
         int ringFillPct            = 0;   ///< Ring buffer fill level, 0–100.
         bool grabberRunning        = false;
+        bool reconnecting          = false; ///< VideoGrabber::is_reconnecting().
         int64_t lastFrameElapsedNs = -1; ///< elapsed_ns() of the most recent frame, -1 if none yet.
         double configuredFps       = 0.0; ///< VideoGrabber::configured_fps().
         double achievableFps = -1.0; ///< VideoGrabber::achievable_fps(), -1 = not yet measured.
@@ -234,6 +235,13 @@ class VideoManager : public QObject {
         double configuredFps     = 0.0;
         double achievableFps     = -1.0; ///< -1 = not measured
         bool actionCommandReady  = false;
+        /// elapsed_ns() of the first and last frame in the video file, -1 when
+        /// none was written. See VideoEncoder::first_frame_elapsed_ns().
+        int64_t firstFrameElapsedNs = -1;
+        int64_t lastFrameElapsedNs  = -1;
+        /// False when the encoder was still draining when stop() gave up
+        /// waiting: the counters above were read mid-write and are partial.
+        bool encoderFinished = true;
     };
 
     /// @returns One entry per camera that was actually open for the recording

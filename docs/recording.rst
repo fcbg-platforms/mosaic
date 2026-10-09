@@ -10,7 +10,7 @@ Starting a session
 
 A recording session is controlled by :cpp:class:`mosaic::RecordManager`.
 The simplest way to start one is via the **● Record** button in the QML
-monitor view or ``Ctrl+R`` — both call
+monitor view or ``Ctrl+R``; both call
 :cpp:func:`mosaic::MonitorBridge::startRecording`.
 
 Pre-flight check
@@ -59,7 +59,7 @@ What happens during ``start()``
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 1. **Session folder** is created, named with BIDS entities followed by a
-   timestamp — e.g.
+   timestamp, e.g.
    ``recordings/sub-P01_ses-pre_task-rest_run-01_20260906T143012/``.
 
    **A Subject is required to start a recording by hand.** Clicking Record
@@ -83,13 +83,13 @@ What happens during ``start()``
    The name is BIDS-*inspired*, not BIDS-valid: entities appear in canonical
    BIDS order (``sub``, ``ses``, ``task``, ``run``) with alphanumeric-only
    labels, but the trailing timestamp is not a BIDS entity. That is a
-   deliberate trade — it guarantees uniqueness and keeps folders sorting
+   deliberate trade: it guarantees uniqueness and keeps folders sorting
    chronologically in a file manager. Machine-readable identity is written
    into ``session_meta.json`` under ``bids``, so no tool ever needs to parse
    a directory name.
 
    ``run-NN`` counts repeats of the same subject/session/task and is
-   **one past the highest run already present**, never one past the count —
+   **one past the highest run already present**, never one past the count:
    deleting ``run-02`` will not cause its number to be reissued. The index
    shown in the monitor's preview line is advisory; ``RecordManager::start()``
    re-resolves it authoritatively for both the button and the trigger path, so
@@ -111,7 +111,7 @@ Session folder layout:
 .. code-block:: text
 
    recordings/
-   └── <username>/                        # per-profile — see :doc:`profiles`
+   └── <username>/                        # per-profile, see :doc:`profiles`
        └── sub-P01_ses-pre_task-rest_run-01_20260906T143012/
            ├── session_meta.json
            ├── notes.txt                          # operator's free-text note, if any
@@ -126,19 +126,19 @@ Session folder layout:
            │   ├── video_0.mp4
            │   └── timestamps_cam0.csv
            ├── pose/
-           │   └── video_0.<model-slug>.pose.json      # written by run_pose.py — filename is
+           │   └── video_0.<model-slug>.pose.json      # written by run_pose.py; filename is
            │                                            # model-namespaced, so running two
            │                                            # different models keeps both results
            ├── depth/
            │   └── video_0.<model-slug>.mp4             # a depth-task Pose model's colorized
-           │                                            # output — no keypoints/JSON, see the
+           │                                            # output: no keypoints/JSON, see the
            │                                            # note below
            ├── expression/
            │   └── video_0.expression.json    # written by run_expression.py, if run
            ├── rppg/
-           │   └── video_0.<backend>.rppg.json  # written by run_rppg.py, if run — EXPERIMENTAL
+           │   └── video_0.<backend>.rppg.json  # written by run_rppg.py, if run: EXPERIMENTAL
            └── anonymized/
-               └── video_0.mp4                 # written by run_face_mask.py, if run — never
+               └── video_0.mp4                 # written by run_face_mask.py, if run; never
                                                 # touches the original video/ files
 
 Media is split into ``audio/`` and ``video/`` subfolders so a session directory listing isn't
@@ -146,17 +146,17 @@ dominated by per-camera files; ``pose/``, ``depth/``, ``expression/``, and ``rpp
 their own plugin's per-camera output, kept out of ``video/`` rather than sitting alongside the
 source ``.mp4`` files; ``anonymized/`` holds Face Masking's output videos, named by region and backend (``video_0.body.mediapipe.mp4``) so runs covering different things don't overwrite each other; everything session-level
 (metadata, trigger log, sync manifest, cross-camera fusion results, annotations) stays at the
-session root. Recordings are also split **per profile** — see :doc:`profiles`'s recording-access-
+session root. Recordings are also split **per profile**; see :doc:`profiles`'s recording-access-
 control section for how a non-admin profile's sessions stay isolated from every other profile's.
 
 .. note::
 
    A Pose-plugin **depth model** (e.g. ``yolo26n-depth``) writes only a
-   colorized depth video to ``depth/`` — it produces no keypoints and
+   colorized depth video to ``depth/``; it produces no keypoints and
    therefore no ``.pose.json`` at all, since a depth-task model's output
    head has no boxes/keypoints to extract in the first place. Run Pose
-   twice on the same session — once with a regular pose model, once with a
-   depth model — to get both a ``pose/`` result and a ``depth/`` result;
+   twice on the same session (once with a regular pose model, once with a
+   depth model) to get both a ``pose/`` result and a ``depth/`` result;
    they coexist in separate subfolders.
 
 .. _session metadata:
@@ -190,7 +190,9 @@ succeeds later.  Fields:
          "width": 1920, "height": 1080, "fps": 30.0,
          "pixel_format": "BGR8",
          "codec": "h264_nvenc",
-         "calibration": { "calibrated": true, "rms_error": 0.312 }
+         "calibration": { "calibrated": true, "rms_error": 0.312 },
+         "camera_reported_fps": 30.0,
+         "frames_recorded": 18011, "recorded_seconds": 600.333, "achieved_fps": 30.0
        }
      ],
      "microphones": [
@@ -211,7 +213,23 @@ succeeds later.  Fields:
 were opened with, each under its configured ``index``. ``fps`` is the rate
 asked for. ``camera_reported_fps``, when present, is what the camera said at
 the start it would deliver with those settings, which is lower whenever the
-crop or exposure caps the rate. Interview mode once asked 50 and ran at 36.7. ``recording.mode`` is
+crop or exposure caps the rate. Interview mode once asked 50 and ran at 36.7.
+
+Three more keys are added to each camera when the recording stops, from the
+frames actually written to its video:
+
+- ``frames_recorded``: how many frames the video holds.
+- ``recorded_seconds``: the time from its first frame to its last (left out
+  when no frame was written).
+- ``achieved_fps``: the rate the video really has, ``(frames_recorded - 1) /
+  recorded_seconds``. Measured over the camera's own first-to-last span, so a
+  camera that started a moment late is not penalised for it; a gap in the
+  middle (a camera that dropped out and came back) does lower it. Left out
+  when it cannot be known (fewer than two frames).
+
+So ``fps`` is what was asked for, ``camera_reported_fps`` what the camera
+promised at the start, and ``achieved_fps`` what it delivered. A session that
+did not stop normally has none of the three. ``recording.mode`` is
 ``"room"`` or ``"interview"``; an interview session also carries
 ``interview_camera`` (configured index) and ``interview_fps``, and its
 ``cameras`` array holds that one camera with the interview crop and rate. Older
@@ -276,12 +294,12 @@ Each camera produces a ``timestamps_camN.csv`` alongside its ``video_N.mp4``, bo
    2,1267890,1717506725033333333,88156789000
    ...
 
-- **``frame_id``** — monotonic counter starting at 1, resets each session.
-- **``elapsed_ns``** — nanoseconds from ``steady_clock`` since application start.
+- **``frame_id``**: monotonic counter starting at 1, resets each session.
+- **``elapsed_ns``**: nanoseconds from ``steady_clock`` since application start.
   Use this for aligning video frames to trigger events (both use the same clock).
-- **``wall_ns``** — nanoseconds since Unix epoch (``system_clock``).
+- **``wall_ns``**: nanoseconds since Unix epoch (``system_clock``).
   Use this for absolute alignment to external recordings.
-- **``hw_timestamp_ns``** — the camera's own hardware timestamp (GigE Vision
+- **``hw_timestamp_ns``**: the camera's own hardware timestamp (GigE Vision
   ``GevTimestamp`` chunk, converted from device ticks to nanoseconds), if the
   connected camera and SDK support chunk data. ``0`` if unavailable. This is
   independent of host-side scheduling/network jitter, but is **not**
@@ -292,7 +310,7 @@ Each camera produces a ``timestamps_camN.csv`` alongside its ``video_N.mp4``, bo
 .. note::
 
    ``elapsed_ns`` and ``wall_ns`` are both stamped **at grab time** inside
-   the ``VideoGrabber`` thread — before the frame is handed to the encoder.
+   the ``VideoGrabber`` thread, before the frame is handed to the encoder.
    This gives the most accurate timestamp possible for each frame.
 
 Equal frame counts: ``synced/``
@@ -375,11 +393,11 @@ When a camera's *HW Trigger* tab (Video settings) has ``hwTriggerEnabled``
 on and ``hwTriggerSource`` set to ``"Action1"``, that camera is configured
 with ``TriggerSelector=FrameStart`` / ``TriggerMode=On`` / ``TriggerSource=
 Action1`` and waits for a GigE Vision Action Command broadcast before
-exposing each frame — it does not free-run. ``VideoManager`` arms every
+exposing each frame; it does not free-run. ``VideoManager`` arms every
 such camera (``start_grabbing()``) first, then a dedicated background
 thread (``ActionCommandTicker``) broadcasts one Action Command per frame,
 continuously, at a shared period derived from the *slowest* participating
-camera's own measured achievable frame rate — so no camera is ever driven
+camera's own measured achievable frame rate, so no camera is ever driven
 faster than it can sustain. Every Action1-armed camera therefore exposes
 each frame in response to the same broadcast, giving real acquisition-time
 simultaneity rather than an after-the-fact approximation.
@@ -387,9 +405,9 @@ simultaneity rather than an after-the-fact approximation.
 This is **per-camera, not all-or-nothing**: support is probed live each
 time a camera opens (some GigE firmware/node-map combinations don't expose
 the required ``ActionSelector``/``ActionDeviceKey``/``ActionGroupKey``/
-``ActionGroupMask`` nodes), and a camera that doesn't support it — or
+``ActionGroupMask`` nodes), and a camera that doesn't support it, or
 simply has ``hwTriggerSource`` set to something else (``Line1``,
-``Software``, plain free-run) — falls back to free-running independently,
+``Software``, plain free-run), falls back to free-running independently,
 exactly as described below, with zero effect on the other cameras. The HW
 Trigger tab shows a live "Action-command support: SUPPORTED / NOT
 supported" readout per camera so this never needs guessing.
@@ -397,8 +415,8 @@ supported" readout per camera so this never needs guessing.
 Practically: as of the room 11 camera fleet's current configuration, every
 camera defaults to ``hwTriggerEnabled=true`` / ``hwTriggerSource="Action1"``,
 so a normal recording session already gets real hardware-triggered
-simultaneity, not just the post-hoc alignment below — confirmed on real
-hardware, with all 6 cameras firing off the same continuous per-frame
+simultaneity, not just the post-hoc alignment below. This was confirmed on
+real hardware, with all 6 cameras firing off the same continuous per-frame
 broadcast and producing matching frame counts. Real GigE packet loss on a
 specific camera's link can still cause that one camera to miss some
 broadcasts (indistinguishable in effect from any other dropped-frame cause
@@ -413,9 +431,9 @@ builds a **post-hoc** alignment after recording, via
 
 1. It reads every camera's ``timestamps_camN.csv``, found by enumerating what
    is actually in the ``video/`` folder rather than by counting up from
-   ``cam0``. Each camera keeps its own number, so a session missing a camera —
-   one that failed to open, or a single-camera recording from any camera other
-   than 0 — still aligns, and ``index`` in ``sync_manifest.json`` always means
+   ``cam0``. Each camera keeps its own number, so a session missing a camera
+   (one that failed to open, or a single-camera recording from any camera
+   other than 0) still aligns, and ``index`` in ``sync_manifest.json`` always means
    the configured camera number.
 2. It finds the overlapping time window (on the shared ``elapsed_ns`` clock)
    across all cameras.
@@ -426,12 +444,12 @@ builds a **post-hoc** alignment after recording, via
    uses to play all cameras back in sync.
 
 This is what every analysis plugin that fuses across cameras (gaze fusion,
-3D pose reconstruction) actually reads — they consume the master-tick
+3D pose reconstruction) actually reads: they consume the master-tick
 timeline, not raw per-camera frame indices, so they benefit from tighter
 alignment when hardware triggering was active without needing to know
 whether it was. When hardware triggering was **not** active for a session,
 this layer is the *only* synchronization, and its quality is a
-playback-time property, not an acquisition-time guarantee — two cameras'
+playback-time property, not an acquisition-time guarantee: two cameras'
 frame N are not guaranteed to be the same physical instant, only mapped to
 the nearest common tick after the fact.
 
@@ -440,19 +458,19 @@ Why cameras end up with different frame counts
 
 A few causes, all independent of each other:
 
-- **Grabbers start sequentially, not simultaneously** — ``VideoManager::start()``
+- **Grabbers start sequentially, not simultaneously**: ``VideoManager::start()``
   prepares every camera's encoder first, then starts all grab threads
   back-to-back, so the very first frame time differs slightly per camera.
 - **A camera can fail to open** (duplicate/ambiguous serial number, or a
-  hardware/Pylon error) — ``VideoManager::open()`` simply skips it, leaving
+  hardware/Pylon error): ``VideoManager::open()`` simply skips it, leaving
   that camera with zero frames for the whole session while the others run
   fine.
-- **Per-camera ring-buffer overflow or GigE packet loss** — each camera has
+- **Per-camera ring-buffer overflow or GigE packet loss**: each camera has
   its own 128-slot ring buffer between the grab and encode threads; if the
   encoder falls behind (e.g. due to GigE packet loss / incomplete frames)
   that camera alone drops frames.
 - **The requested frame rate may not be achievable.** ``AcquisitionFrameRate``
-  is a *request* — Pylon accepts values the camera cannot actually sustain
+  is a *request*: Pylon accepts values the camera cannot actually sustain
   at the current exposure time / ROI / GigE bandwidth without raising an
   error, and simply under-delivers. Mosaic now logs a warning
   (``VideoGrabber::open()``) comparing the requested rate against
@@ -465,85 +483,86 @@ Why the per-camera frame rate is uniform, and only *transmission* is staggered
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 All cameras are configured to the *same* requested ``AcquisitionFrameRate``
-(each camera's own ``CameraParameters::fps``) — this is required for
+(each camera's own ``CameraParameters::fps``). This is required for
 :cpp:class:`mosaic::SyncManifest`'s uniform master-tick model to produce a
 meaningful alignment; per-camera frame *rates* are not staggered.
 
 What **is** staggered is each camera's GigE *packet transmission* timing
-(``GevSCFTD``, set to ``camera_index × 5 ms`` in ``VideoGrabber::open()``) —
-this only delays when a captured frame's packets go out on the wire, so that
+(``GevSCFTD``, set to ``camera_index × 5 ms`` in ``VideoGrabber::open()``).
+This only delays when a captured frame's packets go out on the wire, so that
 all 6 cameras don't burst onto the same network card simultaneously and
 saturate it. It has no effect on exposure timing or capture rate, and is
 unrelated to synchronization; it exists purely to reduce GigE packet loss.
 
 Frame-accurate simultaneous exposure across cameras is available today via
 the GigE Vision Action Command triggering described above (``hwTriggerSource
-= "Action1"``) — no physical trigger cable/genlock wiring is required, since
+= "Action1"``); no physical trigger cable/genlock wiring is required, since
 Action Commands travel over the existing camera network. A physical
 hardware-trigger-cable path (``Line1``/``Software`` sources, the camera's
 own ``TriggerMode``/``TriggerSource``/``TriggerDelay`` nodes) also exists in
 the *HW Trigger* tab for labs that do have a wired trigger signal, but it is
 not required for acquisition-time sync on this rig. True PTP-synchronized
 (sub-millisecond) scheduled triggering was investigated and found
-unsupported by this camera generation's firmware (no ``GevIEEE1588`` node)
-— Action Command triggering is the ceiling on this hardware, not an interim
+unsupported by this camera generation's firmware (no ``GevIEEE1588`` node).
+Action Command triggering is the ceiling on this hardware, not an interim
 step toward something tighter.
 
-Occasional missed frames are normal — telling jitter from a real problem
+Occasional missed frames are normal: telling jitter from a real problem
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Even with Action Command triggering active and every camera healthy, a
-long recording will very occasionally miss an isolated trigger — one
+long recording will very occasionally miss an isolated trigger: one
 camera skips a single frame (or a handful in a row) and picks the very
 next one up cleanly. On a real 30-minute, 5-camera room-11 session this
 showed up as 0–11 gaps of a few hundred milliseconds per camera out of
 23,000+ frames each (well under 0.05% of intervals), with every camera's
 total frame count within 0.3% of the others. **This is expected background
-jitter on any GigE Vision network — a brief switch/NIC hiccup that
-self-corrects on the next trigger — not a bug, and not something to chase.**
+jitter on any GigE Vision network (a brief switch/NIC hiccup that
+self-corrects on the next trigger), not a bug, and not something to chase.**
 
 A *real* problem looks nothing like that, and is easy to tell apart in
 ``mosaic.log``:
 
 - ``[VideoManager] Camera N: <ticks> action-command ticks fired so far but
-  only <captured> frames captured (<missing> missing); …`` — recurring every
+  only <captured> frames captured (<missing> missing); …``, recurring every
   ~5s for the same camera, not a one-off. ``N`` is the configured index (log
   numbering, from 0). **Read the clause after the semicolon**: it names which
   of two very different faults this is, by comparing the gap against the
   camera's corrupted-frame counter since ticking started.
 
-  - *"…they never arrived at all and none were corrupted — this camera is
-    missing trigger broadcasts"* → the trigger path. Check the camera's
+  - The line ends with *"…this camera is missing trigger broadcasts"*, and
+    says that none of the missing frames arrived corrupted: the trigger path. Check the camera's
     ``ActionDeviceKey``, its subnet, and the pacing margin
     (``k_default_action_margin``).
-  - *"…N of them arrived corrupted (GigE packet loss)"* → the network. Check
+  - It says *"…N of them arrived corrupted (GigE packet loss)"*: the network. Check
     the cable and network port, then bandwidth. Frames were captured and
     destroyed in transit; the trigger is fine.
   - Both can be named at once when both are material.
+
+- ``[Camera N] <count> incomplete frame(s) in last 5 s``, followed by a hint
+  about GigE packet loss, also recurring every ~5s.
 
 The same fault shows live on the **Live** tab: see the frame-rate chips in
 :doc:`user_guide`. When a camera falls behind or stalls during a recording,
 ``[Health] Camera N …`` (on-screen numbering, from 1) is logged once, and once
 again when it recovers.
-- ``[Camera N] <count> incomplete frame(s) in last 5 s (GigE packet loss —
-  check NIC jumbo frames and switch bandwidth)`` — also recurring every ~5s.
 
 Either warning showing up **repeatedly, for the same camera, session after
 session** points to a real physical fault on that camera's link (cable,
-connector, or NIC port) — confirmed on room 11's own hardware: one camera
-on a marginal link lost 15–85% of its frames with these exact warnings
+connector, or NIC port). This was confirmed on room 11's own hardware: one
+camera on a marginal link lost 15–85% of its frames with these exact warnings
 firing continuously, while the other 5 cameras on healthy links stayed
 within a fraction of a percent of each other. The fix in that case is
 physical (reseat, then swap the cable/connector if reseating doesn't
 hold), not a settings or code change. To check a session after the fact,
 compare each camera's ``timestamps_camN.csv`` line count against the
-others — healthy cameras land within roughly 1% of each other; a camera
+others. Healthy cameras land within roughly 1% of each other; a camera
 sitting far below the rest is the one to investigate.
 
 Trigger CSV
 -----------
 
-Every trigger event (keyboard, serial byte, parallel port edge — e.g. an EEG
+Every trigger event (keyboard, serial byte, parallel port edge, e.g. an EEG
 amplifier's trigger-out cable) is appended to ``trigger.csv``:
 
 .. code-block:: text
@@ -552,25 +571,25 @@ amplifier's trigger-out cable) is appended to ``trigger.csv``:
    1523.004,1523004112000,14:32:06.645,keyboard,Event A,0
    4910.331,4910331889000,14:32:09.032,parallel_port,D3_RISE,1
 
-- **``elapsed_ns``** — the raw, unmodified value from the same ``elapsed_ns()``
+- **``elapsed_ns``**: the raw, unmodified value from the same ``elapsed_ns()``
   origin as ``timestamps_camN.csv``'s own ``elapsed_ns`` column. **Use this
-  column** for any cross-file alignment — it needs no reconstruction.
-- **``elapsed_ms``** — recording-relative (zeroed when the recording started,
+  column** for any cross-file alignment; it needs no reconstruction.
+- **``elapsed_ms``**: recording-relative (zeroed when the recording started,
   not when the app launched). Convenient for skimming a session by eye, but
-  **not** safe to compare directly against ``timestamps_camN.csv`` — it uses
+  **not** safe to compare directly against ``timestamps_camN.csv``; it uses
   a different zero-point.
 
 .. note::
 
    Sessions recorded before Mosaic added the ``elapsed_ns`` column only have
    the older 5-column schema (no reliable cross-file alignment is possible
-   for those — the original zero-point offset was never persisted anywhere).
+   for those: the original zero-point offset was never persisted anywhere).
 
 Aligning streams in Python
 --------------------------
 
 The Analysis tab's **"EEG/Trigger ↔ Frame Sync"** plugin does this
-automatically — it resolves every trigger event to its nearest frame in
+automatically: it resolves every trigger event to its nearest frame in
 every camera, shows the result in a click-to-seek table, and exports it as
 CSV/JSON (:cpp:class:`mosaic::TriggerFrameMap`). The manual equivalent, for
 scripting against a session directly:
@@ -590,7 +609,7 @@ scripting against a session directly:
    triggers = pd.read_csv(session / "trigger.csv")
 
    # Align: find the nearest frame for each trigger, using the raw
-   # elapsed_ns column directly — no offset reconstruction needed, since
+   # elapsed_ns column directly: no offset reconstruction needed, since
    # both files share the same elapsed_ns() clock origin.
    def nearest_frame(elapsed_ns):
        idx = (frames["elapsed_ns"] - elapsed_ns).abs().idxmin()

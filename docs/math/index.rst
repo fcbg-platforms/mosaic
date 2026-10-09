@@ -6,7 +6,7 @@ Mathematical Background
    :depth: 1
 
 This section derives the math behind each analysis capability, alongside
-the code that implements it — for readers who want to know *why* an
+the code that implements it, for readers who want to know *why* an
 algorithm produces the numbers it does, not just *how* to call it. For the
 importable Python API itself, see :doc:`/analysis_api`; for how to run each
 plugin from the app, see :doc:`/user_guide`.

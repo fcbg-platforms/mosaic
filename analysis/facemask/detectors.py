@@ -45,7 +45,7 @@ class FaceDetector(Protocol):
 
     All three backends (:class:`MediaPipeFaceDetector`,
     :class:`YoloFaceDetector`, :class:`OpenCVDnnFaceDetector`) implement
-    this without inheriting from it — a plain ``duck-typing`` Protocol so
+    this without inheriting from it: a plain ``duck-typing`` Protocol so
     ``run_face_mask.py`` doesn't need to know which one is in use.
     """
 
@@ -209,7 +209,7 @@ class OpenCVDnnFaceDetector:
 
     Replaces an earlier Caffe-based res10 SSD detector, which broke outright
     once OpenCV 5.0 removed ``cv2.dnn.readNetFromCaffe`` (and every other
-    non-ONNX/TensorFlow DNN importer) — this project's
+    non-ONNX/TensorFlow DNN importer), and this project's
     ``opencv-python>=4.8`` constraint (``analysis/pyproject.toml``) has no
     upper bound, so a fresh ``uv sync`` now always resolves to 5.x. YuNet is
     OpenCV's own currently-maintained face-detection model

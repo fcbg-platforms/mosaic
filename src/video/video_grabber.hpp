@@ -98,6 +98,18 @@ class VideoGrabber : public QThread {
     [[nodiscard]] bool is_actually_grabbing() const;
 
     [[nodiscard]] bool is_open() const;
+
+    // True while the camera has dropped out mid-session (a pulled cable, a
+    // power cut) and the grab thread is trying to reopen it, every 2 s at
+    // first. The grabber stays running throughout, and once the camera is
+    // back it carries on into the same ring buffer, with frame_id continuing
+    // from where it stopped, so a recording's video and timestamps simply
+    // show a gap. Cleared by close().
+    [[nodiscard]] bool is_reconnecting() const;
+    // How many times the camera has come back after dropping out. Lets a
+    // periodic observer notice a dropout that started and ended between two
+    // of its looks, which is_reconnecting() alone would miss.
+    [[nodiscard]] int64_t reconnects() const;
     [[nodiscard]] int64_t frames_grabbed() const;
     [[nodiscard]] int64_t frames_dropped() const; // dropped due to full ring buffer
     [[nodiscard]] double current_fps() const;
@@ -256,6 +268,16 @@ class VideoGrabber : public QThread {
     // logs what this stream costs on a gigabit link, warning when it is near
     // or over the limit. Called once from open().
     void log_pixel_format_and_bandwidth(int width, int height);
+
+    // Pylon builds only (defined there; never called in stub builds).
+    // One stretch of grabbing, from StartGrabbing() until stop_grabbing() or
+    // a grab error. Returns true when it ended on an error (camera lost), not
+    // on request.
+    bool grab_until_stopped();
+    // Frees the lost device, then retries open() every retryS seconds until
+    // it succeeds (true) or the thread is asked to stop (false).
+    bool reconnect_after_loss(double retryS);
+    void release_device(bool quiet);
 
     struct Impl;
     std::unique_ptr<Impl> d;

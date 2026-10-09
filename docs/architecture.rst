@@ -130,7 +130,7 @@ Thread safety
 - ``FrameTimestampWriter::write()`` is mutex-protected (called from grabber thread,
   ``stop()`` from main thread).
 - ``Logger::log()`` is mutex-protected; the ``entry_added`` signal is emitted
-  from the calling thread — connect with ``Qt::QueuedConnection`` when the
+  from the calling thread; connect with ``Qt::QueuedConnection`` when the
   receiver lives on the main thread.
 
 Session output

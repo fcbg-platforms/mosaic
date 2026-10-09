@@ -173,11 +173,49 @@ jobs:
           modules: 'qtmultimedia qtserialport qtcharts'
           cache: true
 
-      - name: Setup vcpkg (with binary caching)
+      - name: Setup vcpkg
         if: steps.changed.outputs.has_files == 'true'
         uses: lukka/run-vcpkg@v11
         with:
           vcpkgJsonGlob: 'vcpkg.json'
+
+      # vcpkg binary cache. run-vcpkg@v11 points vcpkg at the `x-gha` backend,
+      # which vcpkg has since removed ("The 'x-gha' binary caching backend has
+      # been removed") — so nothing was cached, and every run of this job
+      # rebuilt ffmpeg (~26 min), OpenCV (~24 min), protobuf (~16 min) and x264
+      # (~4 min) from source: ~73 min per run, and exposed to any GitHub
+      # download hiccup along the way (several runs died on HTTP 504 fetching
+      # an OpenCV patch). The `files` backend writes one zip per package, keyed
+      # by vcpkg's own ABI hash (sources, compiler, triplet), into a folder
+      # that actions/cache persists between runs. The two Windows jobs build
+      # the same triplet with the same compiler, so they share it.
+      - name: Restore vcpkg binary cache
+        if: steps.changed.outputs.has_files == 'true'
+        id: vcpkg-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ runner.temp }}/vcpkg-bincache
+          key: vcpkg-bin-${{ runner.os }}-${{ hashFiles('vcpkg.json') }}-${{ github.run_id }}-${{ github.job }}
+          # Always a prefix match: any earlier cache is a good start, since
+          # vcpkg only reuses a package whose ABI hash still matches.
+          restore-keys: |
+            vcpkg-bin-${{ runner.os }}-${{ hashFiles('vcpkg.json') }}-
+            vcpkg-bin-${{ runner.os }}-
+
+      - name: Point vcpkg at the binary cache
+        if: steps.changed.outputs.has_files == 'true'
+        id: vcpkg-cache-before
+        shell: pwsh
+        # Written after run-vcpkg on purpose: that step sets
+        # VCPKG_BINARY_SOURCES to the removed x-gha backend, and a later
+        # GITHUB_ENV write wins for the steps that follow.
+        run: |
+          $dir = "${{ runner.temp }}/vcpkg-bincache"
+          New-Item -ItemType Directory -Force -Path $dir | Out-Null
+          "VCPKG_BINARY_SOURCES=clear;files,$dir,readwrite" >> $env:GITHUB_ENV
+          $n = (Get-ChildItem -Recurse -File $dir | Measure-Object).Count
+          "count=$n" >> $env:GITHUB_OUTPUT
+          Write-Host "vcpkg binary cache: $n package archive(s) restored"
 
       - name: Configure (Ninja + cl.exe, for compile_commands.json)
         if: steps.changed.outputs.has_files == 'true'
@@ -202,6 +240,27 @@ jobs:
           -DMOSAIC_BUILD_TESTS=ON
           -DMOSAIC_ENABLE_CAMERAS=OFF
           -DMOSAIC_ENABLE_FFMPEG=OFF
+
+      # Straight after Configure — vcpkg installs during it (manifest mode) —
+      # so a failing build or test afterwards cannot lose the packages.
+      # Saved only when vcpkg actually added packages — otherwise every run of
+      # every PR would upload an identical ~1 GB copy and push useful caches
+      # out of the 10 GB repository limit.
+      - name: Check whether vcpkg built anything new
+        if: steps.changed.outputs.has_files == 'true'
+        id: vcpkg-cache-after
+        shell: pwsh
+        run: |
+          $n = (Get-ChildItem -Recurse -File "${{ runner.temp }}/vcpkg-bincache" | Measure-Object).Count
+          "changed=$([int]($n -ne ${{ steps.vcpkg-cache-before.outputs.count }}))" >> $env:GITHUB_OUTPUT
+          Write-Host "vcpkg binary cache: $n package archive(s) now"
+
+      - name: Save vcpkg binary cache
+        if: ${{ steps.changed.outputs.has_files == 'true' && steps.vcpkg-cache-after.outputs.changed == '1' }}
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ runner.temp }}/vcpkg-bincache
+          key: ${{ steps.vcpkg-cache.outputs.cache-primary-key }}
 
       - name: Build (produces generated Qt moc/ui sources too)
         if: steps.changed.outputs.has_files == 'true'
@@ -285,10 +344,46 @@ jobs:
           modules: 'qtmultimedia qtserialport qtcharts'
           cache: true
 
-      - name: Setup vcpkg (with binary caching)
+      - name: Setup vcpkg
         uses: lukka/run-vcpkg@v11
         with:
           vcpkgJsonGlob: 'vcpkg.json'
+
+      # vcpkg binary cache. run-vcpkg@v11 points vcpkg at the `x-gha` backend,
+      # which vcpkg has since removed ("The 'x-gha' binary caching backend has
+      # been removed") — so nothing was cached, and every run of this job
+      # rebuilt ffmpeg (~26 min), OpenCV (~24 min), protobuf (~16 min) and x264
+      # (~4 min) from source: ~73 min per run, and exposed to any GitHub
+      # download hiccup along the way (several runs died on HTTP 504 fetching
+      # an OpenCV patch). The `files` backend writes one zip per package, keyed
+      # by vcpkg's own ABI hash (sources, compiler, triplet), into a folder
+      # that actions/cache persists between runs. The two Windows jobs build
+      # the same triplet with the same compiler, so they share it.
+      - name: Restore vcpkg binary cache
+        id: vcpkg-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ runner.temp }}/vcpkg-bincache
+          key: vcpkg-bin-${{ runner.os }}-${{ hashFiles('vcpkg.json') }}-${{ github.run_id }}-${{ github.job }}
+          # Always a prefix match: any earlier cache is a good start, since
+          # vcpkg only reuses a package whose ABI hash still matches.
+          restore-keys: |
+            vcpkg-bin-${{ runner.os }}-${{ hashFiles('vcpkg.json') }}-
+            vcpkg-bin-${{ runner.os }}-
+
+      - name: Point vcpkg at the binary cache
+        id: vcpkg-cache-before
+        shell: pwsh
+        # Written after run-vcpkg on purpose: that step sets
+        # VCPKG_BINARY_SOURCES to the removed x-gha backend, and a later
+        # GITHUB_ENV write wins for the steps that follow.
+        run: |
+          $dir = "${{ runner.temp }}/vcpkg-bincache"
+          New-Item -ItemType Directory -Force -Path $dir | Out-Null
+          "VCPKG_BINARY_SOURCES=clear;files,$dir,readwrite" >> $env:GITHUB_ENV
+          $n = (Get-ChildItem -Recurse -File $dir | Measure-Object).Count
+          "count=$n" >> $env:GITHUB_OUTPUT
+          Write-Host "vcpkg binary cache: $n package archive(s) restored"
 
       - name: Configure
         shell: pwsh
@@ -298,6 +393,26 @@ jobs:
           -DMOSAIC_BUILD_TESTS=ON
           -DMOSAIC_ENABLE_CAMERAS=OFF
           -DMOSAIC_ENABLE_FFMPEG=OFF
+
+      # Straight after Configure — vcpkg installs during it (manifest mode) —
+      # so a failing build or test afterwards cannot lose the packages.
+      # Saved only when vcpkg actually added packages — otherwise every run of
+      # every PR would upload an identical ~1 GB copy and push useful caches
+      # out of the 10 GB repository limit.
+      - name: Check whether vcpkg built anything new
+        id: vcpkg-cache-after
+        shell: pwsh
+        run: |
+          $n = (Get-ChildItem -Recurse -File "${{ runner.temp }}/vcpkg-bincache" | Measure-Object).Count
+          "changed=$([int]($n -ne ${{ steps.vcpkg-cache-before.outputs.count }}))" >> $env:GITHUB_OUTPUT
+          Write-Host "vcpkg binary cache: $n package archive(s) now"
+
+      - name: Save vcpkg binary cache
+        if: ${{ steps.vcpkg-cache-after.outputs.changed == '1' }}
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ runner.temp }}/vcpkg-bincache
+          key: ${{ steps.vcpkg-cache.outputs.cache-primary-key }}
 
       - name: Build
         run: cmake --build build --config Release --parallel

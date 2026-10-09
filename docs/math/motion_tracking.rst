@@ -6,7 +6,7 @@ Motion Tracking
    :depth: 2
 
 Implemented in :mod:`motion.centroid_tracker` (detection + tracking) and
-:mod:`motion.heatmap` (visualization, no additional math) — see
+:mod:`motion.heatmap` (visualization, no additional math); see
 :doc:`/analysis_api` for the full API reference. Run from the Session
 Browser, not a live Analysis-tab plugin (see :doc:`/user_guide`).
 
@@ -15,7 +15,7 @@ Centroid extraction
 
 After MOG2 background subtraction and morphological clean-up (see the
 module docstring's full 7-step pipeline), each foreground contour's
-centroid is computed from its image moments — the standard
+centroid is computed from its image moments using the standard
 area-weighted-average formula:
 
 .. math::
@@ -50,12 +50,12 @@ detections left unmatched become new tracks (subject to the optional
 
    Greedy assignment is simpler than an optimal solver and works well when
    animals are well-separated relative to their frame-to-frame movement,
-   but — unlike a globally-optimal assignment — it can occasionally pick a
+   but, unlike a globally-optimal assignment, it can occasionally pick a
    locally-best pairing that isn't the best *overall* pairing when two
    tracks' plausible matches overlap. This is a deliberate simplicity
    trade-off, not an oversight.
 
-Velocity — a simpler estimate than pose kinematics
+Velocity: a simpler estimate than pose kinematics
 --------------------------------------------------------
 
 :meth:`~motion.centroid_tracker.Track.velocity_mm_per_s` converts the
@@ -70,7 +70,7 @@ elapsed time:
 Contrast this with :doc:`pose_kinematics`, which uses each sample's *real*
 timestamp delta specifically to stay correct across detection gaps. Motion
 tracking's simpler fixed-fps estimate is a deliberate, lower-overhead
-choice for this plugin — not a bug, but worth knowing if comparing speed
+choice for this plugin, not a bug, but worth knowing if comparing speed
 figures between the two plugins.
 
 Practical recommendations
@@ -82,7 +82,7 @@ Practical recommendations
    .. grid-item-card:: 🎥  A static, uncluttered background helps most
 
       MOG2 background subtraction assumes the background is genuinely
-      static — camera shake, lighting flicker, or moving background
+      static: camera shake, lighting flicker, or moving background
       objects (a door, another person passing through) all produce
       spurious foreground blobs that can be mistaken for tracked subjects.
       A well-framed, stable shot does more for tracking quality than any
@@ -99,13 +99,13 @@ Practical recommendations
    .. grid-item-card:: 🔢  Set ``n_animals`` when the count is known
 
       Capping the expected subject count prevents spurious background
-      noise from spawning phantom tracks — set it whenever the true
+      noise from spawning phantom tracks; set it whenever the true
       number of tracked subjects in the session is known in advance.
 
    .. grid-item-card:: 📐  Prefer real Speed/Acceleration for a single tracked person
 
       If a session has exactly one subject and precise kinematics matter,
       :doc:`pose_kinematics`'s gap-tolerant, real-timestamp-based
-      Speed/Acceleration is the more accurate choice — Motion tracking's
+      Speed/Acceleration is the more accurate choice. Motion tracking's
       fixed-fps velocity estimate is better suited to multi-subject
       centroid tracking than to precise single-subject kinematics.

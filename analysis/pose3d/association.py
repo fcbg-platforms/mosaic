@@ -51,7 +51,7 @@ def pairwise_cost(
     """Average 2-view reprojection error (px) across every keypoint index
     visible (>=min_visibility) in BOTH a and b. inf if fewer than
     min_shared_keypoints such indices exist, or if 2-view triangulation
-    fails for a majority of them (a near-parallel/degenerate configuration —
+    fails for a majority of them (a near-parallel/degenerate configuration:
     not evidence of a real match either way, so treated as "can't assess",
     not "definitely different people")."""
     n = min(len(a.visibilities), len(b.visibilities))
@@ -93,7 +93,7 @@ def match_camera_pair(
     min_shared_keypoints: int = 4,
 ):
     """Hungarian-assigns obs_a<->obs_b by pairwise_cost(), then discards any
-    assigned pair whose cost exceeds max_pair_cost_px — Hungarian minimizes
+    assigned pair whose cost exceeds max_pair_cost_px. Hungarian minimizes
     TOTAL cost but doesn't itself refuse an individually-bad pair when one
     side has more/fewer detections than the other, so this threshold is the
     actual "not obviously the same person" gate. Returns
@@ -148,16 +148,16 @@ def cluster_people(
     observations, cameras, max_pair_cost_px: float = 20.0, min_shared_keypoints: int = 4
 ):
     """observations: {camera_index: [PersonObservation, ...]}. Runs
-    match_camera_pair() over EVERY camera pair (not just adjacent ones — a
+    match_camera_pair() over EVERY camera pair (not just adjacent ones: a
     room-scale rig may have non-adjacent pairs with better mutual
     visibility than adjacent ones), unions accepted matches via union-find
     over (camera_index, person_index) nodes, and returns one cluster (list
     of (camera_index, person_index)) per connected component spanning
     >=2 distinct cameras. Singleton (1-camera, unmatched) clusters are
-    dropped — a single view can't be triangulated.
+    dropped, since a single view can't be triangulated.
 
     Known limitation, not fixed here: any single accepted pairwise match
-    unions its two nodes regardless of how many OTHER camera pairs agree —
+    unions its two nodes regardless of how many OTHER camera pairs agree:
     with only 2 cameras total, two genuinely different people can (rarely)
     still pass max_pair_cost_px if their rays happen to nearly cross by
     coincidence (2 independent rays in 3D always have SOME closest point;
@@ -165,7 +165,7 @@ def cluster_people(
     the way a 3rd independent view's disagreement could). Rooms with 3+
     calibrated cameras are far less exposed to this, since a false-positive
     2-camera pairing only survives into the union if no other accepted pair
-    disagrees — but it is not structurally impossible even then. A cost
+    disagrees, but it is not structurally impossible even then. A cost
     threshold tuned tighter than the default (max_pair_cost_px) is the
     practical mitigation; a full multi-pair consistency vote is future work."""
     uf = _UnionFind()

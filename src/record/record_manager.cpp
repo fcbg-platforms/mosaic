@@ -15,6 +15,7 @@
 #include "session/session_end.hpp"
 #include "utils/logger.hpp"
 #include "utils/timestamp.hpp"
+#include "video/camera_label.hpp"
 #include "video/gige_bandwidth.hpp"
 
 namespace mosaic {
@@ -342,6 +343,12 @@ bool RecordManager::start() {
     }
 
     // 5. Video recording — written under sessionPath/video/, same rationale.
+    // The previous recording's per-camera results go first: stop() writes
+    // them into this session's metadata, and if this session's video never
+    // starts they must not be the last recording's.
+    if (d->videoMgr) {
+        d->videoMgr->clear_recording_snapshot();
+    }
     if (d->settings.record.enableVideo && d->videoMgr) {
         const QString videoDir = d->sessionPath + "/video";
         if (!QDir().mkpath(videoDir)) {
@@ -401,7 +408,33 @@ void RecordManager::stop() {
     // Only after every subsystem has stopped and finalized its files, and
     // before recording_stopped: the session browser and health report that
     // react to it must already see this session as finished.
-    if (!mark_session_ended(path, duration, QDateTime::currentDateTimeUtc())) {
+    // What each camera really recorded, from the frames in its video — the
+    // snapshot VideoManager::stop() just took, before the preview restart that
+    // follows recording_stopped resets the live counters.
+    std::vector<RecordedCamera> recorded;
+    if (d->settings.record.enableVideo && d->videoMgr) {
+        for (const auto& snap : d->videoMgr->last_recording_snapshot()) {
+            if (!snap.encoderFinished) {
+                // Read while the encoder was still writing: partial numbers
+                // would be saved as if final. Left out rather than wrong.
+                log_warning(QString("[RecordManager] %1: its video was still being written "
+                                    "when the recording stopped; its achieved rate is not "
+                                    "recorded.")
+                                .arg(camera_label(snap.configIndex)));
+                continue;
+            }
+            recorded.push_back({snap.configIndex, snap.framesEncoded, snap.firstFrameElapsedNs,
+                                snap.lastFrameElapsedNs});
+            const double fps =
+                achieved_fps(snap.framesEncoded, snap.firstFrameElapsedNs, snap.lastFrameElapsedNs);
+            log_info(QString("[RecordManager] %1: %2 frames, %3 fps achieved (%4 fps set).")
+                         .arg(camera_label(snap.configIndex))
+                         .arg(snap.framesEncoded)
+                         .arg(fps > 0 ? QString::number(fps, 'f', 2) : QStringLiteral("n/a"))
+                         .arg(snap.configuredFps, 0, 'f', 2));
+        }
+    }
+    if (!mark_session_ended(path, duration, QDateTime::currentDateTimeUtc(), recorded)) {
         log_warning(QString("[RecordManager] Could not record the end of the session in %1/"
                             "session_meta.json — it will be listed as interrupted even though "
                             "it stopped normally.")

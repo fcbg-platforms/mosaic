@@ -24,11 +24,11 @@ Prerequisites
 
       Install the following, in order:
 
-      1. `Visual Studio 2022 <https://visualstudio.microsoft.com/>`_ — *Desktop development with C++* workload.
-      2. `Qt 6.4+ <https://www.qt.io/download>`_ — choose the **msvc2022_64** kit.
+      1. `Visual Studio 2022 <https://visualstudio.microsoft.com/>`_: *Desktop development with C++* workload.
+      2. `Qt 6.4+ <https://www.qt.io/download>`_: choose the **msvc2022_64** kit.
          Note the install path (e.g. ``C:\Qt\6.8.1\msvc2022_64``).
-      3. `vcpkg <https://github.com/microsoft/vcpkg>`_ — for GTest / FFmpeg / OpenCV.
-      4. `Basler Pylon SDK 7.x <https://www.baslerweb.com/en/downloads/software-downloads/>`_ — only needed with real cameras.
+      3. `vcpkg <https://github.com/microsoft/vcpkg>`_: for GTest / FFmpeg / OpenCV.
+      4. `Basler Pylon SDK 7.x <https://www.baslerweb.com/en/downloads/software-downloads/>`_: only needed with real cameras.
 
 Building
 --------
@@ -42,7 +42,7 @@ Building
          git clone https://github.com/your-org/mosaic.git
          cd mosaic
 
-         # Debug build (cameras off, no FFmpeg) — works on any Mac
+         # Debug build (cameras off, no FFmpeg): works on any Mac
          ./scripts/configure.sh
 
          cmake --build build/Debug --parallel
@@ -123,7 +123,7 @@ Building the documentation
 
    cd docs && uv sync && cd ..
 
-   # Build with CMake (recommended — runs Doxygen automatically)
+   # Build with CMake (recommended, runs Doxygen automatically)
    cmake -S . -B build/Debug -DMOSAIC_BUILD_DOCS=ON
    cmake --build build/Debug --target docs
    open build/Debug/docs/sphinx/html/index.html
