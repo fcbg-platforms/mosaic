@@ -154,6 +154,12 @@ class VideoGrabber : public QThread {
     [[nodiscard]] double camera_max_fps() const;
     // Same, for the ROI offsets the camera actually applied. -1 when unknown.
     [[nodiscard]] int frame_offset_x() const;
+    // The pixel format the camera reported after open() configured it: what
+    // is really on the wire. CameraParameters::pixelFormat is only a request,
+    // which the camera may reject (it then tries a fallback list, or keeps the
+    // format it was in). Empty before open(), in stub builds, or when the read
+    // failed. Safe from any thread.
+    [[nodiscard]] QString pixel_format() const;
     [[nodiscard]] int frame_offset_y() const;
 
     // The camera's real, measured ResultingFrameRate — refreshed at open()
@@ -245,6 +251,11 @@ class VideoGrabber : public QThread {
 
     void run_pylon_loop();
     void run_stub_loop();
+
+    // Pylon builds only: reads the pixel format back into pixel_format() and
+    // logs what this stream costs on a gigabit link, warning when it is near
+    // or over the limit. Called once from open().
+    void log_pixel_format_and_bandwidth(int width, int height);
 
     struct Impl;
     std::unique_ptr<Impl> d;

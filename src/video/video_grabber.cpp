@@ -1,5 +1,6 @@
 #include "video/video_grabber.hpp"
 
+#include <QMutex>
 #include <QThread>
 #include <algorithm>
 #include <atomic>
@@ -11,6 +12,7 @@
 #include "utils/timestamp.hpp"
 #include "video/fps_readout.hpp"
 #include "video/gige_action_command.hpp"
+#include "video/gige_bandwidth.hpp"
 #include "video/param_mapping.hpp"
 
 #if defined(MOSAIC_HAVE_CAMERAS)
@@ -122,6 +124,12 @@ struct VideoGrabber::Impl {
     // warm-up has passed — it is shown as "the camera's limit for this crop"
     // straight after a change, and refined by the measured rate later.
     double openMaxFps = -1.0;
+    // The pixel format the camera reported after open() configured it, empty
+    // until then or when it could not be read. What is really on the wire:
+    // the setting is only a request (see the PixelFormat write in open()).
+    // A QString cannot be atomic, so guarded; see pixel_format().
+    mutable QMutex pixelFormatMutex;
+    QString pixelFormat;
     // Last exposure/gain logged by log_exposure_if_changed() — grab thread
     // only (refresh_achievable_fps() runs there after open()), so plain values.
     double loggedExposureUs = -1.0;
@@ -350,12 +358,16 @@ bool VideoGrabber::open() {
                     } catch (...) {
                     }
                 }
-                if (set) {
-                    log_info(
-                        QString("[Camera %1] PixelFormat '%2' not supported; accepted alternative")
-                            .arg(d->cameraIndex)
-                            .arg(d->params.pixelFormat));
-                }
+                // Either way the format actually in use is read back and
+                // logged at the end of open(); this only says the request
+                // itself did not land.
+                log_info(QString("[Camera %1] PixelFormat '%2' is not one this camera accepts; "
+                                 "%3")
+                             .arg(d->cameraIndex)
+                             .arg(d->params.pixelFormat)
+                             .arg(set ? QStringLiteral("a fallback was accepted.")
+                                      : QStringLiteral("no fallback was accepted either, so it "
+                                                       "keeps the format it was in.")));
             }
         });
 
@@ -688,10 +700,11 @@ bool VideoGrabber::open() {
         log_info(QString("[Camera %1] GetNodeMap ok").arg(d->cameraIndex));
         const int w = static_cast<int>(Pylon::CIntegerParameter(cam, "Width").GetValue());
         log_info(QString("[Camera %1] Width=%2").arg(d->cameraIndex).arg(w));
-        const int h      = static_cast<int>(Pylon::CIntegerParameter(cam, "Height").GetValue());
-        const double fps = d->params.specifyFps
-                               ? d->params.fps
-                               : Pylon::CFloatParameter(cam, "ResultingFrameRate").GetValue();
+        const int h = static_cast<int>(Pylon::CIntegerParameter(cam, "Height").GetValue());
+        // Not ResultingFrameRate read again here: this camera generation
+        // only has ResultingFrameRateAbs, and the throw skipped everything
+        // below. open() already read it, with the fallback, into openMaxFps.
+        const double fps = d->params.specifyFps ? d->params.fps : d->openMaxFps;
         d->frameWidth    = w;
         d->frameHeight   = h;
         try {
@@ -715,6 +728,7 @@ bool VideoGrabber::open() {
                             .arg(d->params.width)
                             .arg(d->params.height));
         }
+        log_pixel_format_and_bandwidth(w, h);
         log_info(QString("[Camera %1] Opened: %2\xd7%3 @ %4 fps (serial: %5)")
                      .arg(d->cameraIndex)
                      .arg(w)
@@ -754,6 +768,77 @@ bool VideoGrabber::open() {
     return true;
 #endif
 }
+
+#if defined(MOSAIC_HAVE_CAMERAS)
+// Reads back the pixel format the camera is really using and says, once, what
+// that costs on the wire at this size and rate. Judged against the read-back
+// format, never the configured one: the two differ whenever the camera
+// rejected the request, and a check against the request can report an
+// overload that does not exist or miss one that does (see gige_bandwidth.hpp).
+void VideoGrabber::log_pixel_format_and_bandwidth(int width, int height) {
+    QString actual;
+    try {
+        actual = QString::fromLatin1(
+            Pylon::CEnumParameter(d->camera.GetNodeMap(), "PixelFormat").GetValue().c_str());
+    } catch (const Pylon::GenericException&) {
+        // Left empty: reported as unknown, and nothing below is judged.
+    }
+    {
+        QMutexLocker lock(&d->pixelFormatMutex);
+        d->pixelFormat = actual;
+    }
+    if (actual.isEmpty()) {
+        log_warning(QString("[Camera %1] Could not read the pixel format back; its bandwidth "
+                            "cannot be judged.")
+                        .arg(d->cameraIndex));
+        return;
+    }
+
+    // The rate asked for when it is fixed, else what the camera says it can
+    // do. Not capped by the camera's own figure: on this generation that
+    // already accounts for the link (it throttles to fit), so capping would
+    // hide the very shortfall this is meant to report.
+    const double fps        = d->params.specifyFps ? d->params.fps : d->openMaxFps;
+    const QString requested = same_pixel_format(actual, d->params.pixelFormat)
+                                  ? QString()
+                                  : QString(" (requested %1, which the camera did not accept)")
+                                        .arg(d->params.pixelFormat);
+    const double needed     = required_bytes_per_second(width, height, fps, actual);
+    if (needed <= 0.0) {
+        log_info(QString("[Camera %1] Pixel format %2%3; bandwidth unknown for this format.")
+                     .arg(d->cameraIndex)
+                     .arg(actual)
+                     .arg(requested));
+        return;
+    }
+    const double share = needed / k_gige_line_rate_bytes_per_sec;
+    log_info(QString("[Camera %1] Pixel format %2%3: %4\xd7%5 @ %6 fps = %7 MB/s, %8% of a "
+                     "gigabit link.")
+                 .arg(d->cameraIndex)
+                 .arg(actual)
+                 .arg(requested)
+                 .arg(width)
+                 .arg(height)
+                 .arg(fps, 0, 'f', 1)
+                 .arg(needed / 1e6, 0, 'f', 1)
+                 .arg(100.0 * share, 0, 'f', 0));
+    if (share > k_gige_link_warn_utilisation) {
+        // No format advice: which formats a camera accepts varies by model and
+        // firmware, and a rate or crop change works on every one of them.
+        log_warning(QString("[Camera %1] This stream needs %2% of a gigabit link, so it will "
+                            "lose frames or fall short of %3 fps. At %4\xd7%5 in %6 the link "
+                            "carries about %7 fps; lower the frame rate or use a smaller crop.")
+                        .arg(d->cameraIndex)
+                        .arg(100.0 * share, 0, 'f', 0)
+                        .arg(fps, 0, 'f', 1)
+                        .arg(width)
+                        .arg(height)
+                        .arg(actual)
+                        .arg(k_gige_link_warn_utilisation * max_fps_for_link(width, height, actual),
+                             0, 'f', 1));
+    }
+}
+#endif
 
 // Writes the image-processing subset of CameraParameters (exposure, gain,
 // gamma, black level, white balance, auto-exposure target, digital shift)
@@ -1527,6 +1612,10 @@ int VideoGrabber::frame_width() const { return d->frameWidth; }
 int VideoGrabber::frame_height() const { return d->frameHeight; }
 double VideoGrabber::camera_max_fps() const { return d->openMaxFps; }
 int VideoGrabber::frame_offset_x() const { return d->frameOffsetX; }
+QString VideoGrabber::pixel_format() const {
+    QMutexLocker lock(&d->pixelFormatMutex);
+    return d->pixelFormat;
+}
 int VideoGrabber::frame_offset_y() const { return d->frameOffsetY; }
 double VideoGrabber::achievable_fps() const { return d->resultingFps; }
 

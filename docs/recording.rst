@@ -217,6 +217,17 @@ crop or exposure caps the rate. Interview mode once asked 50 and ran at 36.7. ``
 ``cameras`` array holds that one camera with the interview crop and rate. Older
 sessions have no ``mode`` and are room sessions. See :ref:`interview mode`.
 
+Each camera's ``pixel_format`` is the format the camera reported using, read
+back after it was configured; ``pixel_format_requested`` is the one in its
+settings. They can differ, because a camera can reject the request (see
+:doc:`camera_settings`). ``pixel_format`` is left out when the camera could
+not be asked. ``link_mb_per_s`` and ``link_utilisation`` say what that stream
+costs on the camera's gigabit link at its configured rate (1.0 is the whole
+125 MB/s); they are left out when the format is unknown. Above about 0.9 a
+camera loses frames or falls short of its rate, and the log warns about it
+when the camera opens. Sessions recorded before this have only
+``pixel_format``, and there it is the setting, not what the camera used.
+
 ``session_end`` is written as ``null`` when the recording starts and replaced
 with the object above once every camera, microphone and trigger file has been
 closed. While recording, MOSAIC also rewrites a small ``recording_heartbeat``

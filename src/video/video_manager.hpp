@@ -182,6 +182,9 @@ class VideoManager : public QObject {
         int height  = -1;
         int offsetX = -1;
         int offsetY = -1;
+        /// The pixel format the camera reported (VideoGrabber::pixel_format()),
+        /// empty when unknown. Not the setting, which is only a request.
+        QString pixelFormat;
     };
     [[nodiscard]] std::optional<OpenedGeometry> opened_geometry(int configIndex) const;
 
