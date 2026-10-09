@@ -43,7 +43,6 @@ class RoomCalibrationW : public QWidget {
     void refresh_intrinsics();
 
    signals:
-    void extrinsics_saved();
 
    private:
     void build_board_section(QVBoxLayout* parent);

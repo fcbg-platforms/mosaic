@@ -205,7 +205,6 @@ void MainWindow::build_menu_bar() {
         if (d->recordMgr && d->recordMgr->is_recording()) {
             d->recordMgr->stop();
         }
-        emit switch_profile_requested();
         // Exit code 42 signals main() to re-show the login dialog
         // rather than quit entirely.
         QCoreApplication::exit(42);
@@ -589,7 +588,7 @@ void MainWindow::build_central_widget() {
                             if (!d->poseWorker || !d->poseWorker->is_running()) return;
                             if (camIdx < 0 || camIdx >= static_cast<int>(ts->size())) return;
                             // Per-camera opt-out (Real-time tab's "Analyze"
-                            // checkbox) — separate from PoseWorker::is_paused()
+                            // checkbox) — separate from PoseWorker::set_paused()
                             // below: this is a per-camera user preference, that
                             // is a global recording-in-progress resource policy;
                             // neither should be able to stomp the other.

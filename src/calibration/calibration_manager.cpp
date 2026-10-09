@@ -149,8 +149,6 @@ void CalibrationManager::calibrate() {
 
     // Run on a lambda thread so the main event loop is not blocked.
     auto* worker = QThread::create([this] {
-        emit calibration_progress(5);
-
         cv::Mat cameraMatrix = cv::Mat::eye(3, 3, CV_64F);
         cv::Mat distCoeffs   = cv::Mat::zeros(5, 1, CV_64F);
         std::vector<cv::Mat> rvecs, tvecs;
@@ -158,8 +156,6 @@ void CalibrationManager::calibrate() {
         const double rms =
             cv::calibrateCamera(d->objectPoints, d->imagePoints, d->imageSize, cameraMatrix,
                                 distCoeffs, rvecs, tvecs, cv::CALIB_FIX_K4 | cv::CALIB_FIX_K5);
-
-        emit calibration_progress(90);
 
         CalibrationData result;
         result.calibrated = true;
@@ -176,7 +172,6 @@ void CalibrationManager::calibrate() {
         d->result    = result;
         d->hasResult = true;
 
-        emit calibration_progress(100);
         emit calibration_done(rms, true);
 
         log_info(QString("[Calibration] Done. RMS reprojection error: %1 px").arg(rms, 0, 'f', 3));

@@ -65,9 +65,6 @@ class TriggerManager : public QObject {
     /// @returns @c true while the CSV output file is open.
     [[nodiscard]] bool is_recording() const;
 
-    /// @returns The number of active keyboard trigger event filters.
-    [[nodiscard]] int keyboard_trigger_count() const;
-
     /// @param index  Zero-based index.
     /// @returns      The KeyboardTrigger at @p index as a @c QObject* so the
     ///               settings panel can connect to its @c count_changed() signal

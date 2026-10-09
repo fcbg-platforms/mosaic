@@ -3,7 +3,6 @@
 #include <QAudioSource>
 #include <QByteArray>
 #include <QObject>
-#include <atomic>
 #include <memory>
 
 #include "audio/wav_writer.hpp"
@@ -14,7 +13,7 @@ namespace mosaic {
 // Records one microphone device to a WAV file.
 // One AudioRecorder is created per MicrophoneParameters entry.
 //
-// Level metering: emits level_rms in the range [0.0, 1.0] after every
+// Level metering: emits level_rms_changed in the range [0.0, 1.0] after every
 // incoming audio buffer so callers can drive a VU meter, and envelope_changed
 // with a signed min/max pair (see audio_envelope.hpp) so callers can drive a
 // real bipolar waveform display.
@@ -31,8 +30,6 @@ class AudioRecorder : public QObject {
     void stop();
 
     [[nodiscard]] bool is_recording() const;
-    [[nodiscard]] float level_rms() const; // 0.0–1.0, updated every buffer
-    [[nodiscard]] double duration_sec() const;
 
    signals:
     void level_rms_changed(float rms); // 10–20 × per second, main-thread safe
@@ -53,7 +50,6 @@ class AudioRecorder : public QObject {
     std::unique_ptr<QAudioSource> m_source;
     QIODevice* m_ioDevice{nullptr};
     WavWriter m_writer;
-    std::atomic<float> m_level{0.0f};
     bool m_monitorOnly{false}; // true when filePath is "" (no file writing)
 
     // Whichever sample format the device actually ended up capturing in —

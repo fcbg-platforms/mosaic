@@ -431,44 +431,11 @@ double SyncManifest::delta_ms_at_tick(int cameraIdx, int tick) const {
     return static_cast<double>(deltaMs_[cameraIdx * totalTicks_ + tick]);
 }
 
-int SyncManifest::tick_for_ms(int64_t posMs) const {
-    if (stepNs_ == 0) {
-        return 0;
-    }
-    const int tick = static_cast<int>(posMs * 1'000'000LL / stepNs_);
-    return std::clamp(tick, 0, totalTicks_ - 1);
-}
-
 int64_t SyncManifest::seek_offset_ms(int cameraIdx) const {
     if (cameraIdx < 0 || cameraIdx >= cameras_.size()) {
         return 0;
     }
     return cameras_[cameraIdx].seekOffsetMs;
-}
-
-QString SyncManifest::quality_report() const {
-    if (!is_valid()) {
-        return "No sync manifest.";
-    }
-    QString r;
-    r += QString("Duration %1 ms   master %.1f fps   %2 ticks\n\n")
-             .arg(durationMs_)
-             .arg(masterFps_)
-             .arg(totalTicks_);
-    for (const auto& cs : cameras_) {
-        const char* grade = cs.coveragePct >= 80 ? "OK" : cs.coveragePct >= 50 ? "LOW" : "POOR";
-        r += QString(
-                 "  Cam %1  %2 frames  %.1f fps  %.0f%% coverage [%3]"
-                 "  mean Δ %.1f ms  max Δ %.1f ms\n")
-                 .arg(cs.index)
-                 .arg(cs.framesCaptured)
-                 .arg(cs.fpsActual)
-                 .arg(cs.coveragePct)
-                 .arg(grade)
-                 .arg(cs.meanDeltaMs)
-                 .arg(cs.maxDeltaMs);
-    }
-    return r;
 }
 
 } // namespace mosaic

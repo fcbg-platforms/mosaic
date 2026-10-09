@@ -481,7 +481,6 @@ void Application::initialize(const QString& username, bool isAdmin) {
     d->mainWindow->show();
 
     log_info("Initialisation complete.");
-    emit initialized();
 }
 
 void Application::shutdown() {
@@ -499,7 +498,6 @@ void Application::shutdown() {
         d->mainWindow->close();
     }
     Logger::instance().close_log_file();
-    emit shutdown_complete();
 }
 
 AppSettings& Application::settings() { return d->settings; }

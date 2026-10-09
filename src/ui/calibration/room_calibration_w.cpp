@@ -511,8 +511,6 @@ void RoomCalibrationW::save_to_settings() {
         d->roomSettings.planeDefined = true;
     }
 
-    emit extrinsics_saved();
-
     QString msg = QString("Extrinsics stored for %1 camera(s).%2")
                       .arg(savedCount)
                       .arg(d->pendingPlane ? "\nRoom plane also stored." : "");

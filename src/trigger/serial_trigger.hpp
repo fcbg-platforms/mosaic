@@ -46,8 +46,6 @@ class SerialTrigger : public QObject {
     /// @returns The number of trigger events fired since the last reset.
     [[nodiscard]] int fire_count() const;
 
-    void reset_count();
-
     /// @returns A list of all available serial port names on this system.
     [[nodiscard]] static QStringList available_ports();
 

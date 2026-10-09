@@ -42,9 +42,6 @@ class AudioManager : public QObject {
     /// @returns All available audio input devices on this system.
     [[nodiscard]] static QList<QAudioDevice> available_inputs();
 
-    /// @returns The system default audio input device.
-    [[nodiscard]] static QAudioDevice default_input();
-
     // ── Recording lifecycle ────────────────────────────────────────────────
 
     /// @brief Starts one AudioRecorder per entry in @p microphones.
@@ -72,9 +69,6 @@ class AudioManager : public QObject {
 
     /// @returns @c true while at least one recording recorder is active.
     [[nodiscard]] bool is_recording() const;
-
-    /// @returns @c true while monitoring-only recorders are running.
-    [[nodiscard]] bool is_monitoring() const;
 
     /// @returns The number of recorders that were successfully started.
     [[nodiscard]] int recorder_count() const;

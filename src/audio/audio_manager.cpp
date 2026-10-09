@@ -21,8 +21,6 @@ AudioManager::~AudioManager() { stop(); }
 
 QList<QAudioDevice> AudioManager::available_inputs() { return QMediaDevices::audioInputs(); }
 
-QAudioDevice AudioManager::default_input() { return QMediaDevices::defaultAudioInput(); }
-
 // ── Recording lifecycle ────────────────────────────────────────────────────
 
 void AudioManager::start_monitoring(const std::vector<MicrophoneParameters>& microphones) {
@@ -115,7 +113,6 @@ void AudioManager::stop() {
     d->recording = false;
 }
 
-bool AudioManager::is_monitoring() const { return !d->monitorRecorders.empty(); }
 bool AudioManager::is_recording() const { return d->recording; }
 int AudioManager::recorder_count() const { return static_cast<int>(d->recorders.size()); }
 

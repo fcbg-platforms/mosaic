@@ -463,8 +463,6 @@ void AnalysisManager::set_launches_held(bool held) {
     }
 }
 
-bool AnalysisManager::launches_held() const { return d->launchesHeld; }
-
 // ── Path discovery ─────────────────────────────────────────────────────────
 
 QString AnalysisManager::find_venv_python() const {

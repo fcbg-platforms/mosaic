@@ -29,11 +29,6 @@ void KeyboardTrigger::reload_key_sequence() {
     m_keySeq = QKeySequence(m_config.keySeq, QKeySequence::PortableText);
 }
 
-void KeyboardTrigger::reset_count() {
-    m_fireCount = 0;
-    emit count_changed(0);
-}
-
 namespace {
 // Real-world logs from this same key-binding feature showed 9 near-
 // simultaneous KeyPress events for a single physical press, spaced

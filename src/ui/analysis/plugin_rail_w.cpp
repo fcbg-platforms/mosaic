@@ -310,8 +310,6 @@ void AnalysisPluginRailW::set_current(const QString& pluginId) {
     }
 }
 
-QString AnalysisPluginRailW::current_plugin() const { return d->current; }
-
 void AnalysisPluginRailW::set_run_states(const QHash<QString, PluginRunState>& states) {
     for (auto* row : d->rows) {
         row->set_run_state(states.value(row->plugin_id(), PluginRunState::Unknown));

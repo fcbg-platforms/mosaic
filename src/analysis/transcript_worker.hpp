@@ -14,7 +14,7 @@ namespace mosaic {
 // mosaic-pose venv) and provides streaming speech-to-text.
 //
 // Mirrors PoseWorker's shape/lifecycle exactly (start/stop/is_running/
-// set_paused/is_paused), but audio is a continuous stream rather than
+// set_paused), but audio is a continuous stream rather than
 // discrete frames — see submit_chunk()'s doc comment for the wire format.
 class TranscriptWorker : public QObject {
     Q_OBJECT
@@ -36,7 +36,6 @@ class TranscriptWorker : public QObject {
     // against RecordManager::recording_started/stopped, same as PoseWorker
     // (see main_window.cpp) — a global resource policy, not owned by any tab.
     void set_paused(bool paused);
-    [[nodiscard]] bool is_paused() const;
 
    public slots:
     // pcm16 is interleaved int16 LE PCM, sampleCount * channels * 2 bytes —
@@ -55,8 +54,6 @@ class TranscriptWorker : public QObject {
     // Replaces (not appends) whatever tentative text was last shown for
     // this mic — may be an empty string, meaning "clear the tentative line".
     void transcript_partial(int micIndex, QString text);
-    void process_error(QString message);
-    void paused_changed(bool paused);
 
    private:
     struct Impl;

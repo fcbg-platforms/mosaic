@@ -29,7 +29,6 @@ class RealtimeCameraTileW : public QWidget {
     ~RealtimeCameraTileW() override;
 
     [[nodiscard]] int camera_index() const;
-    [[nodiscard]] bool analyze_enabled() const;
 
     // Aggregate rates for the tab-level KPI strip; empty until at least one
     // observation has been recorded for this tile.

@@ -2,7 +2,6 @@
 
 #include <QTimer>
 #include <array>
-#include <atomic>
 
 #include "utils/logger.hpp"
 #include "utils/timestamp.hpp"
@@ -59,7 +58,6 @@ struct ParallelPortTrigger::Impl {
     ParallelPortConfig config;
     QTimer timer;
     uint8_t lastByte{0xFF};
-    std::atomic<int> eventCount{0};
     bool active{false};
 
 #if defined(MOSAIC_HAVE_PARALLEL_PORT) && defined(Q_OS_WIN)
@@ -131,7 +129,6 @@ ParallelPortTrigger::ParallelPortTrigger(const ParallelPortConfig& config, QObje
             ev.source      = "parallel_port";
             ev.label       = QString("D%1_%2").arg(bit).arg(rising ? "RISE" : "FALL");
             ev.value       = rising ? 1.0 : 0.0;
-            d->eventCount.fetch_add(1);
             emit triggered(std::move(ev));
         }
     });
@@ -184,7 +181,6 @@ void ParallelPortTrigger::stop() {
 }
 
 bool ParallelPortTrigger::is_active() const { return d->active; }
-int ParallelPortTrigger::events_fired() const { return d->eventCount.load(); }
 
 void ParallelPortTrigger::set_recording_marker(bool active) {
     if (!d->active) {

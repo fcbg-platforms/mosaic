@@ -148,15 +148,5 @@ bool WavWriter::is_open() const {
     QMutexLocker l(&d->mutex);
     return d->open;
 }
-int64_t WavWriter::bytes_written() const {
-    QMutexLocker l(&d->mutex);
-    return d->bytesWritten;
-}
-
-double WavWriter::duration_sec() const {
-    QMutexLocker l(&d->mutex);
-    const int bytesPerSec = d->sampleRate * d->channels * d->bitsPerSample / 8;
-    return bytesPerSec > 0 ? double(d->bytesWritten) / bytesPerSec : 0.0;
-}
 
 } // namespace mosaic

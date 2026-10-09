@@ -151,7 +151,6 @@ void AudioRecorder::stop() {
     }
     m_ioDevice = nullptr;
     m_writer.close();
-    m_level.store(0.0f, std::memory_order_relaxed);
 }
 
 // ── Audio data ─────────────────────────────────────────────────────────────
@@ -175,7 +174,6 @@ void AudioRecorder::on_data_ready() {
     emit raw_pcm_ready(data, m_sampleRate, m_channels);
 
     const float rms = compute_rms(data.constData(), data.size());
-    m_level.store(rms, std::memory_order_relaxed);
     emit level_rms_changed(rms);
 
     const AudioEnvelope env = compute_envelope(data.constData(), data.size());
@@ -187,7 +185,5 @@ void AudioRecorder::on_data_ready() {
 bool AudioRecorder::is_recording() const {
     return m_monitorOnly ? (m_source != nullptr) : m_writer.is_open();
 }
-float AudioRecorder::level_rms() const { return m_level.load(std::memory_order_relaxed); }
-double AudioRecorder::duration_sec() const { return m_writer.duration_sec(); }
 
 } // namespace mosaic
