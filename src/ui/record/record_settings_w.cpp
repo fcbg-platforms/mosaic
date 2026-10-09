@@ -235,6 +235,19 @@ void RecordSettingsW::build_start_section(QVBoxLayout* parent) {
         emit settings_changed();
     });
 
+    auto* preflightChk = new QCheckBox("Check cameras, disk and microphones before recording");
+    preflightChk->setChecked(m_settings.runPreflightChecks);
+    preflightChk->setToolTip(
+        "When Record is clicked, check that every camera is open, delivering frames, at its "
+        "frame rate and synchronised, that every microphone is connected, and that the disk "
+        "has room. Anything wrong is listed in the naming dialog with a 'Record anyway' "
+        "choice; nothing is ever blocked. Recordings started by a trigger are never checked.");
+    lay->addWidget(preflightChk);
+    connect(preflightChk, &QCheckBox::toggled, this, [this](bool v) {
+        m_settings.runPreflightChecks = v;
+        emit settings_changed();
+    });
+
     connect(d->delaySpin, &QSpinBox::valueChanged, this, [this](int v) {
         m_settings.startDelaySec = v;
         emit settings_changed();

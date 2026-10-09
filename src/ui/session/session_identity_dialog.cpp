@@ -2,6 +2,8 @@
 
 #include <QDialogButtonBox>
 #include <QFormLayout>
+#include <QFrame>
+#include <QHBoxLayout>
 #include <QLabel>
 #include <QLineEdit>
 #include <QPushButton>
@@ -29,12 +31,45 @@ QLineEdit* identity_field(const QString& value, const QString& placeholder) {
     return edit;
 }
 
+// One row of the pre-flight checks: a coloured dot, the finding, and a muted
+// explanation under it. Red and amber match the warning colours used across
+// the app (#ddaa44 is the identity warning's own amber).
+QWidget* preflight_row(const PreflightItem& item) {
+    const char* colour = item.level == PreflightLevel::Fail   ? "#ff6655"
+                         : item.level == PreflightLevel::Warn ? "#ddaa44"
+                                                              : "#44cc66";
+    auto* row          = new QWidget;
+    auto* lay          = new QHBoxLayout(row);
+    lay->setContentsMargins(0, 0, 0, 0);
+    lay->setSpacing(8);
+
+    auto* dot = new QLabel("●");
+    dot->setStyleSheet(QString("color: %1; font-size: 12px;").arg(colour));
+    dot->setAlignment(Qt::AlignTop | Qt::AlignHCenter);
+    dot->setFixedWidth(14);
+    lay->addWidget(dot);
+
+    auto* text = new QLabel(
+        item.detail.isEmpty() ? QString("<b>%1</b>").arg(item.title.toHtmlEscaped())
+                              : QString("<b>%1</b><br><span style='color:#7070a0'>%2</span>")
+                                    .arg(item.title.toHtmlEscaped(), item.detail.toHtmlEscaped()));
+    text->setTextFormat(Qt::RichText);
+    text->setWordWrap(true);
+    text->setStyleSheet(QString("color: %1; font-size: 11px;")
+                            .arg(item.level == PreflightLevel::Ok ? "#a0a0c0" : "#d8d8f0"));
+    lay->addWidget(text, 1);
+    return row;
+}
+
 } // namespace
 
 SessionIdentityDialog::SessionIdentityDialog(const QString& subject, const QString& session,
-                                             const QString& task, AdviseFn advise, QWidget* parent)
-    : QDialog(parent), m_advise(std::move(advise)) {
-    setWindowTitle("Name this recording");
+                                             const QString& task, AdviseFn advise,
+                                             const PreflightReport& preflight, QWidget* parent)
+    : QDialog(parent),
+      m_advise(std::move(advise)),
+      m_preflightProblems(preflight.needs_attention()) {
+    setWindowTitle(m_preflightProblems ? "Before recording" : "Name this recording");
     setModal(true);
 
     auto* root = new QVBoxLayout(this);
@@ -70,8 +105,26 @@ SessionIdentityDialog::SessionIdentityDialog(const QString& subject, const QStri
     m_warning->setWordWrap(true);
     root->addWidget(m_warning);
 
+    // ── Pre-flight checks ────────────────────────────────────────────────
+    // Everything that was checked, problems first. The rows that passed stay
+    // in view on purpose: "3 cameras ready" next to "Camera 6 is not open"
+    // tells the operator the rest of the rig is fine, which is half of
+    // deciding whether to record anyway.
+    if (!preflight.items.isEmpty()) {
+        auto* rule = new QFrame;
+        rule->setFrameShape(QFrame::HLine);
+        rule->setStyleSheet("color: #1a1a35;");
+        root->addWidget(rule);
+        root->addWidget(caption_label(m_preflightProblems ? "Checks — fix these, or record anyway:"
+                                                          : "Checks"));
+        for (const auto& item : preflight.items) {
+            root->addWidget(preflight_row(item));
+        }
+    }
+
     auto* buttons = new QDialogButtonBox(QDialogButtonBox::Cancel);
-    m_start       = buttons->addButton("Start recording", QDialogButtonBox::AcceptRole);
+    m_start       = buttons->addButton(m_preflightProblems ? "Record anyway" : "Start recording",
+                                 QDialogButtonBox::AcceptRole);
     m_start->setDefault(true);
     root->addWidget(buttons);
 

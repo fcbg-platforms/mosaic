@@ -243,9 +243,6 @@ CameraParameters interview_camera_params(const CameraParameters& source,
     // persisted pair should not claim a range the camera never had.
     p.exposureAutoLowerUs = std::min(p.exposureAutoLowerUs, p.exposureAutoUpperUs);
     p.hwTriggerEnabled    = false;
-    // One camera, nothing to stagger against — and the delay appears to cost
-    // frame time (see CameraParameters::staggerTransmission).
-    p.staggerTransmission = false;
     return p;
 }
 
@@ -508,6 +505,7 @@ QJsonObject RecordSettings::to_json() const {
         {"start_delay_sec", startDelaySec},
         {"hide_previews_while_recording", hidePreviewsWhileRecording},
         {"auto_sync_repair", autoSyncRepair},
+        {"run_preflight_checks", runPreflightChecks},
         {"last_identity", lastIdentity.to_json()},
     };
 }
@@ -535,6 +533,8 @@ std::optional<RecordSettings> RecordSettings::from_json(const QJsonObject& o) {
             o["hide_previews_while_recording"].toBool(s.hidePreviewsWhileRecording);
     if (o.contains("auto_sync_repair"))
         s.autoSyncRepair = o["auto_sync_repair"].toBool(s.autoSyncRepair);
+    if (o.contains("run_preflight_checks"))
+        s.runPreflightChecks = o["run_preflight_checks"].toBool(s.runPreflightChecks);
     // from_json re-sanitizes every label, which matters here: settings.json is
     // a plain file a user can edit, and these values go on to form a directory
     // name.
