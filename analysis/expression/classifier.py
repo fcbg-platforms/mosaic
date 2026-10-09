@@ -131,7 +131,7 @@ def classify_expression(
     many blendshapes isn't unfairly favored over one listing few. Falls
     back to ``"Neutral"`` when the winning score is below
     :data:`_MIN_ACTIVATION`. Ties keep the first-seen category in
-    :data:`CATEGORIES` (``"Neutral"`` listed first) — a deliberate "when
+    :data:`CATEGORIES` (``"Neutral"`` listed first): a deliberate "when
     in doubt, don't overclaim an emotion" default, consistent with
     :func:`~diarize.pipeline.assign_speakers` leaving ``speaker=None`` on
     a zero-overlap tie. See :doc:`/math/facial_expression` for the

@@ -24,24 +24,24 @@ Camera 1, 3, 4 and so on.
 Interview mode
 --------------
 
-A session can record **one camera only** — by default *Camera 3*, the one
-facing the subject — cropped and at a higher frame rate than a whole-room
+A session can record **one camera only** (by default *Camera 3*, the one
+facing the subject), cropped and at a higher frame rate than a whole-room
 session allows. The other cameras are closed while it is on.
 
 **Switching.** The **Room | Interview** toggle above the live feeds, or the
 *Interview mode on* checkbox in the **Video** settings tab. Either one closes
 and reopens the cameras (a few seconds), and the live view then shows that one
-camera. Switching is refused while a recording runs or is about to start —
-reopening the cameras would end it — and both controls stay locked until it
-stops.
+camera. Switching is refused while a recording runs or is about to start
+(reopening the cameras would end it), and both controls stay locked until
+it stops.
 
 **Configuring.** The *Interview mode* section of the **Video** tab is
 collapsed by default. Click its header to open it; it opens by itself while
 interview mode is on. It sets the camera, the crop (presets, or size and offset
 by hand, with *Centre*), the frame rate and the auto-exposure upper limit for
 the mode. Edits are staged until **Apply**; with interview mode on, Apply
-reopens the camera. Everything else about the camera — white balance, gain,
-calibration — still comes from its own card. The room configuration is never
+reopens the camera. Everything else about the camera (white balance, gain,
+calibration) still comes from its own card. The room configuration is never
 changed, so switching back is lossless. The mode and its settings are saved
 with the profile.
 
@@ -103,8 +103,8 @@ in that user's ``settings.json`` under ``video.cameras[i]``.
 
 Most fields **live-apply**: editing them pushes the new value straight to the
 already-open camera (debounced ~150 ms) without interrupting preview or
-recording. A few *structural* changes — resolution, pixel format, frame rate,
-and the HW Trigger tab's fields — instead trigger a full close-and-reopen of
+recording. A few *structural* changes (resolution, pixel format, frame rate,
+and the HW Trigger tab's fields) instead trigger a full close-and-reopen of
 every configured camera, since those can't be changed on an already-streaming
 GigE device. Both paths go through the same ``settings.json``, so there's no
 separate "apply" step to remember.
@@ -121,7 +121,7 @@ Image tab
      - Notes
    * - Width / Height
      - 1920 / 1080 px
-     - Sensor ROI size. Structural — triggers a reopen.
+     - Sensor ROI size. Structural: triggers a reopen.
    * - Offset X / Y
      - 0 / 0 px
      - ROI top-left corner. Structural.
@@ -139,7 +139,7 @@ Image tab
    * - Frame rate
      - 25 fps
      - Matches the ``acA1920-25gc``'s real sustained maximum, not the
-       generic "30 fps" a lot of camera UIs default to. Structural — see
+       generic "30 fps" a lot of camera UIs default to. Structural; see
        :ref:`good default values <camera-good-defaults>` below for why
        requesting more than a camera can sustain just under-delivers
        silently rather than erroring.
@@ -156,7 +156,7 @@ Exposure tab
      - Notes
    * - Auto mode
      - ``Once``
-     - ``Off`` | ``Once`` | ``Continuous`` — see
+     - ``Off`` | ``Once`` | ``Continuous``; see
        :ref:`auto modes explained <camera-auto-modes>` below.
    * - Exposure time
      - 10000 µs
@@ -191,14 +191,14 @@ Gain tab
    * - Auto mode
      - ``Once``
      - Same three options as Exposure. **On the ``acA1920-25gc``, manual
-       (``Off``) gain does not currently work** — see the callout below.
+       (``Off``) gain does not currently work**; see the callout below.
    * - Gain
      - 0.0 dB
      - Manual value; only meaningful if the camera actually has a working
        manual-gain node (see below).
    * - Auto range (lower/upper)
      - 0.0 / 24.0 dB
-     - **Not currently applied** — saved and shown, but never written to the
+     - **Not currently applied**: saved and shown, but never written to the
        camera, so auto gain uses the camera's own limits. Unlike the exposure
        range this has not been wired up: these values are in dB, while the
        ``acA1920-25gc`` only exposes the SFNC 1.x ``GainRaw`` node, whose
@@ -206,18 +206,18 @@ Gain tab
        on the hardware before it can be trusted.
 
 .. note::
-   **Why you may see "Skipping 'Gain': ... No node attached."** — this
+   **Why you may see "Skipping 'Gain': ... No node attached."** This
    camera generation only exposes the older SFNC 1.x ``GainRaw`` integer
    node, not the modern SFNC 2.0 ``Gain`` (dB) float node Mosaic writes to
    when Auto mode is ``Off``. The write is skipped safely (this is not a
-   crash or a real error — see ``VideoGrabber::apply_image_params()`` in
+   crash or a real error; see ``VideoGrabber::apply_image_params()`` in
    ``video_grabber.cpp``), but it also means **manual gain is a silent
    no-op on this hardware today**. This is exactly why the default is
-   ``Once`` rather than ``Off`` — with manual gain effectively unusable,
+   ``Once`` rather than ``Off``: with manual gain effectively unusable,
    ``Off`` was leaving cameras at whatever gain they happened to power on
    with. If you need a working manual gain control, that would require
    implementing a ``GainRaw`` fallback path (the same pattern already used
-   for ``BlackLevel``'s SFNC 1.x fallback) — not done yet.
+   for ``BlackLevel``'s SFNC 1.x fallback); this is not done yet.
 
 Advanced tab
 ------------
@@ -235,13 +235,13 @@ Advanced tab
    * - Black level
      - 0.0
      - Falls back to the SFNC 1.x ``BlackLevelRaw`` node on this camera
-       generation (the SFNC 2.0 float node isn't present) — this one
+       generation (the SFNC 2.0 float node isn't present); this one
        **does** have a working fallback, unlike Gain above.
    * - Saturation / Contrast / Brightness
      - 1.0 / 1.0 / 0.5
      - No GenICam node on the ``acA1920-25gc`` at all (no on-camera ISP for
-       these) — saved with the session regardless, but only take visible
-       effect on a camera model that exposes the matching node.
+       these); they are saved with the session regardless, but only take
+       visible effect on a camera model that exposes the matching node.
    * - Auto target brightness
      - 0.5
      -
@@ -254,7 +254,7 @@ Advanced tab
    * - Test pattern
      - ``Off``
      - Simulated pattern shown in the monitor when no real camera is
-       connected — ``Off`` | ``ColorBars`` | ``Horizontal`` | ``Vertical``.
+       connected: ``Off`` | ``ColorBars`` | ``Horizontal`` | ``Vertical``.
 
 HW Trigger tab
 --------------
@@ -272,11 +272,11 @@ reference:
      - Notes
    * - Enable hardware trigger
      - on
-     - Structural — reopens every configured camera.
+     - Structural: reopens every configured camera.
    * - Trigger source
      - ``Action1``
      - ``Line1`` | ``Software`` | ``Action1``. ``Action1`` needs no physical
-       cable — it's a GigE Vision Action Command broadcast over the
+       cable; it's a GigE Vision Action Command broadcast over the
        existing camera network, fired once per frame for the whole
        session.
    * - Trigger delay
@@ -291,11 +291,11 @@ Auto modes explained (Exposure, Gain, White Balance)
 
 All three share the same three-value semantics:
 
-- **Off** — fixed, manual value you set yourself. Never changes on its own.
-- **Once** — the camera auto-calibrates a single time (when preview starts),
+- **Off**: fixed, manual value you set yourself. Never changes on its own.
+- **Once**: the camera auto-calibrates a single time (when preview starts),
   then **locks** that value for the rest of the session, including through
   recording.
-- **Continuous** — the camera keeps re-adjusting for as long as it's running,
+- **Continuous**: the camera keeps re-adjusting for as long as it's running,
   including *during* recording.
 
 **Continuous** tends to look the best in a live preview, since the camera is
@@ -304,10 +304,10 @@ brightness/color can visibly shift mid-recording, which is a real risk if
 anything downstream assumes consistent lighting frame-to-frame (facial
 expression confidence, luminance-based measures, anything comparing frames
 across time). **Once** is the better default for a research recording tool
-for exactly that reason — you get a scene-matched image without the
+for exactly that reason: you get a scene-matched image without the
 mid-recording drift risk. **Off** gives full manual control but requires you
-to already know a good value, and — for Gain specifically on this camera
-generation — currently doesn't work at all (see the Gain tab's note above).
+to already know a good value, and (for Gain specifically on this camera
+generation) currently doesn't work at all (see the Gain tab's note above).
 
 .. _camera-good-defaults:
 
@@ -320,7 +320,7 @@ from that single source of truth, so there's nowhere else a "default" can
 silently diverge:
 
 1. **A brand-new profile** gets seeded with room 11's real 6 camera serials
-   (``default_room11_cameras()`` in ``src/core/application.cpp``) — every
+   (``default_room11_cameras()`` in ``src/core/application.cpp``); every
    other field is left at ``CameraParameters``'s defaults.
 2. **"+ Add camera"** in the Video tab (``VideoSettingsW::add_camera()``)
    constructs a plain default-initialized ``CameraParameters``.
@@ -329,7 +329,7 @@ silently diverge:
 
 To change a default for every *future* camera (not ones already saved), edit
 the member-initializer in ``CameraParameters`` (``settings.hpp``) and
-rebuild — see the Gain/Exposure/White-balance defaults above for a worked
+rebuild. See the Gain/Exposure/White-balance defaults above for a worked
 example (``"Off"`` → ``"Once"``, changed 2026-07-27 for exactly the reasons
 described in this page).
 
@@ -338,7 +338,7 @@ How to change settings for a camera that already exists
 
 **Existing, already-configured cameras do not pick up a new code default
 automatically.** ``CameraParameters::from_json()`` only falls back to the
-struct's default when a key is *missing* from ``settings.json`` — for a
+struct's default when a key is *missing* from ``settings.json``. For a
 camera that's already been saved once, every field is present, "Off"
 included, so a code-level default change has no effect on it. Two ways to
 actually change an existing camera's settings:
@@ -350,7 +350,7 @@ actually change an existing camera's settings:
 - **Editing ``settings.json`` directly** (useful for changing several
   cameras at once, or scripting a rollout): find the file at
   ``%LOCALAPPDATA%\CSRU\MOSAIC\settings.json`` (or
-  ``profiles\<username>\settings.json`` for a named profile — see
+  ``profiles\<username>\settings.json`` for a named profile; see
   :doc:`profiles`), and edit the relevant key inside ``video.cameras[i]``,
   e.g.:
 
@@ -369,14 +369,14 @@ actually change an existing camera's settings:
        }
      }
 
-  The app must be closed while you edit — it only reads this file at
+  The app must be closed while you edit: it only reads this file at
   startup and rewrites it in full on shutdown, so any change made while it's
   running will be silently overwritten when it next saves.
 
 See also
 --------
 
-- :doc:`recording` — :ref:`synchronization` covers the HW Trigger tab and
+- :doc:`recording`: :ref:`synchronization` covers the HW Trigger tab and
   ``Action1`` in full detail.
-- :doc:`calibration` — intrinsic/extrinsic camera calibration, a separate
+- :doc:`calibration`: intrinsic/extrinsic camera calibration, a separate
   concept from the acquisition settings on this page.

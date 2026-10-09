@@ -100,7 +100,7 @@ class FaceGazeSample:
     head_translation : numpy.ndarray
         Length-3 head-pose translation, camera-local, mm.
     gaze_dx, gaze_dy : float
-        2D iris-offset heuristic, each in ``[-1, 1]`` — same heuristic as
+        2D iris-offset heuristic, each in ``[-1, 1]``, same heuristic as
         ``python/pose/gaze_estimator.py``.
     """
 
@@ -115,7 +115,7 @@ class FaceGazeSample:
 class MediaPipeGazeEstimator3D:
     """MediaPipe Tasks ``FaceLandmarker`` + ``cv2.solvePnP``-based 3D gaze estimator.
 
-    Thread-unsafe — one instance per process, matching every other
+    Thread-unsafe: one instance per process, matching every other
     MediaPipe-backed detector in this codebase.
 
     Parameters
@@ -157,7 +157,7 @@ class MediaPipeGazeEstimator3D:
         frame_bgr : numpy.ndarray
             BGR frame, as returned by ``cv2.imread``/``cv2.VideoCapture``.
         camera_matrix : numpy.ndarray
-            3x3 camera intrinsic matrix — this camera's real calibration
+            3x3 camera intrinsic matrix: this camera's real calibration
             (read from ``session_meta.json`` by the caller), required for
             a metric ``solvePnP`` solve.
         dist_coeffs : numpy.ndarray
@@ -169,7 +169,7 @@ class MediaPipeGazeEstimator3D:
         list of FaceGazeSample
             One entry per successfully-solved face. Faces missing iris
             landmarks, with a degenerate eye width, or a failed
-            ``solvePnP`` fit are silently skipped — a documented,
+            ``solvePnP`` fit are silently skipped. This is a documented,
             low-risk degrade (one fewer camera contributing to that
             frame's fusion), not a crash.
         """

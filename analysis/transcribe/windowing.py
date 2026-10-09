@@ -61,14 +61,14 @@ def confirm_segments(
     Returns
     -------
     confirmed : list of Segment
-        The newly-final segments from this pass (still buffer-relative —
+        The newly-final segments from this pass (still buffer-relative;
         the caller adds its own running offset to get absolute time).
     tentative_text : str
         Everything after the last confirmed segment, space-joined.
         Confirmed segments' text is NOT included.
     watermark_sec : float
         ``confirmed[-1].end_sec``, or ``0.0`` if nothing was confirmed this
-        pass — the caller trims the buffer's front up to this point (see
+        pass. The caller trims the buffer's front up to this point (see
         :func:`trim_buffer_samples`).
     """
     cutoff = buffer_duration_sec - trailing_margin_sec
@@ -85,7 +85,7 @@ def trim_buffer_samples(confirmed_watermark_sec: float, sample_rate_hz: int) -> 
     Parameters
     ----------
     confirmed_watermark_sec : float
-        How far (in seconds) audio has been confirmed — typically
+        How far (in seconds) audio has been confirmed, typically
         :func:`confirm_segments`'s ``watermark_sec`` return value.
     sample_rate_hz : int
         The rolling buffer's sample rate.

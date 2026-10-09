@@ -6,18 +6,18 @@ Multi-Camera Gaze Fusion
    :depth: 2
 
 Implemented in :mod:`gaze.estimator` (per-camera head-pose solve) and
-:mod:`gaze.ray_math` (pure geometry — see :doc:`/analysis_api` for the full
+:mod:`gaze.ray_math` (pure geometry; see :doc:`/analysis_api` for the full
 API reference). This page derives the three stages: turning a solved head
 pose into a camera-local 3D ray, transforming that ray into room
 coordinates, and fusing several cameras' rays into one triangulated point
 (optionally intersected with a target plane).
 
-Stage 1 — camera-local ray construction
+Stage 1: camera-local ray construction
 ------------------------------------------
 
 :func:`~gaze.ray_math.camera_ray_from_pose` takes a head pose
-:math:`(R, t)` — solved per-camera via ``cv2.solvePnP`` against a generic
-6-point 3D face model and that camera's real calibrated intrinsics — plus
+:math:`(R, t)` (solved per-camera via ``cv2.solvePnP`` against a generic
+6-point 3D face model and that camera's real calibrated intrinsics) plus
 the existing 2D iris-offset heuristic :math:`(\Delta_x, \Delta_y) \in
 [-1, 1]^2` (the same signal the live, single-camera gaze path already
 computes), and produces a 3D ray origin and direction in the **camera's**
@@ -69,7 +69,7 @@ then rotated into camera space by the solved head pose:
    d = \frac{R \, d_{\text{model}}}{\lVert R \, d_{\text{model}} \rVert}
 
 When :math:`\Delta_x = \Delta_y = 0`, :math:`d` reduces exactly to the
-head's own forward direction :math:`R f` — the eye perturbation vanishes.
+head's own forward direction :math:`R f`: the eye perturbation vanishes.
 
 .. note::
 
@@ -77,10 +77,10 @@ head's own forward direction :math:`R f` — the eye perturbation vanishes.
    It separates two genuinely different signals: *which way the head is
    pointing* (metric, solved via ``solvePnP`` against real camera
    intrinsics) from *which way the eyes are rotated within it* (a bounded
-   heuristic perturbation) — strictly more information than the live
+   heuristic perturbation). This is strictly more information than the live
    2D-only estimator it replaces, which conflates the two.
 
-Stage 2 — transform to room coordinates
+Stage 2: transform to room coordinates
 -------------------------------------------
 
 :func:`~gaze.ray_math.transform_ray_to_room` applies that camera's
@@ -92,10 +92,10 @@ extrinsic pose :math:`[R_e \,|\, t_e]` (from :doc:`room_calibration`):
    \qquad
    d_{\text{room}} = \frac{R_e \, d}{\lVert R_e \, d \rVert}
 
-(the direction is rotated only — no translation applies to a direction
+(the direction is rotated only; no translation applies to a direction
 vector).
 
-Stage 3 — multi-ray least-squares triangulation
+Stage 3: multi-ray least-squares triangulation
 ----------------------------------------------------
 
 Given :math:`N \ge 2` contributing cameras, each with a room-space ray
@@ -126,12 +126,12 @@ Setting the gradient to zero:
 
 :math:`A` is a 3×3 matrix, symmetric positive semi-definite, and positive
 **definite** (invertible) whenever the contributing ray directions aren't
-all parallel — the common case with :math:`\ge 2` cameras viewing the same
+all parallel, the common case with :math:`\ge 2` cameras viewing the same
 face from different angles. The implementation solves :math:`Ax=b` directly
 via ``np.linalg.solve``, falling back to the Moore–Penrose pseudo-inverse
 :math:`x^\star = A^{+}b` (the minimum-norm least-squares solution) when
-:math:`A` is near-singular — e.g. nearly-parallel rays, a genuinely
-degenerate configuration — rather than raising.
+:math:`A` is near-singular (e.g. nearly-parallel rays, a genuinely
+degenerate configuration) rather than raising.
 
 **Fit quality.** The reported residual is the RMS perpendicular distance
 from :math:`x^\star` back to every contributing ray:
@@ -140,7 +140,7 @@ from :math:`x^\star` back to every contributing ray:
 
    \text{residual}_{\text{rms}} = \sqrt{ \frac{1}{N} \sum_i \lVert P_i (x^\star - o_i) \rVert^2 }
 
-For a single ray (:math:`N=1`), there's nothing to triangulate — the
+For a single ray (:math:`N=1`), there's nothing to triangulate; the
 function returns that ray's own origin with a residual of exactly 0.
 
 Target-plane intersection
@@ -159,7 +159,7 @@ plane equation :math:`n \cdot (x(u) - p_0) = 0` and solving for :math:`u`:
 
 The intersection is reported as ``None`` (no target point) in two cases:
 :math:`|n \cdot \bar d|` below a small epsilon (the ray runs parallel to
-the plane — no well-defined intersection), or :math:`u < 0` (the
+the plane, so no well-defined intersection), or :math:`u < 0` (the
 intersection lies *behind* the ray's origin, i.e. the gaze direction
 points away from the surface).
 
@@ -175,14 +175,14 @@ Practical recommendations
       is still recorded but there's nothing to triangulate. 3+ cameras
       viewing the subject from meaningfully different angles gives both a
       better-conditioned :math:`A` matrix in Stage 3's least-squares solve
-      and a lower residual — treat 2-camera fusion as the practical
+      and a lower residual. Treat 2-camera fusion as the practical
       minimum, not the target.
 
    .. grid-item-card:: 📐  Room calibration accuracy dominates
 
       Every stage here is only as good as the room extrinsics from
       :doc:`room_calibration`. A camera with a marginal reprojection RMS
-      there silently degrades every fused ray computed through it — if
+      there silently degrades every fused ray computed through it. If
       target points look physically implausible, re-check calibration
       quality before suspecting the fusion math.
 
@@ -192,13 +192,13 @@ Practical recommendations
       signals: a metric, ``solvePnP``-solved head pose, and a *bounded
       heuristic* eye-in-socket perturbation (:math:`\pm 30°`/:math:`\pm
       20°` by default). Don't over-interpret gaze precision for subjects
-      looking sharply off-axis from their own head direction — the
+      looking sharply off-axis from their own head direction: the
       heuristic's bound is a real accuracy ceiling, not just a
       implementation detail.
 
    .. grid-item-card:: 📊  Reading the residual
 
-      ``residual_rms_mm`` is the direct fit-quality signal — a large
+      ``residual_rms_mm`` is the direct fit-quality signal: a large
       residual means the contributing cameras' rays didn't actually
       converge well, and any target point derived from that fit deserves
       correspondingly less trust, independent of how "close" it looks to

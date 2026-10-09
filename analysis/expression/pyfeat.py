@@ -138,10 +138,10 @@ def _ensure_ffmpeg_dll_directory() -> None:
 
 
 class PyFeatClassifier:
-    """py-feat Detectorv1 backend — 20-AU + 7-class emotion.
+    """py-feat Detectorv1 backend: 20-AU + 7-class emotion.
 
     Loads/downloads Detectorv1's model weights once per process (py-feat's
-    own cache, outside this project's control — see module docstring).
+    own cache, outside this project's control; see module docstring).
     """
 
     def __init__(self, device: str = "cpu") -> None:
@@ -163,7 +163,7 @@ class PyFeatClassifier:
         ----------
         face_crop_bgr : numpy.ndarray
             A tight crop around one detected face (e.g. via
-            :func:`~expression.detector.crop_bbox`) — the same
+            :func:`~expression.detector.crop_bbox`), the same
             already-cropped-image contract :meth:`FerPlusClassifier.classify`
             uses, so this backend can be wired into run_expression.py's
             per-face dispatch identically to the FER+ backend.
@@ -171,11 +171,11 @@ class PyFeatClassifier:
         Returns
         -------
         tuple of (str, float, dict[str, float])
-            ``(dominant_emotion_label, dominant_score, au_values)`` —
+            ``(dominant_emotion_label, dominant_score, au_values)``, with
             ``au_values`` keyed by :data:`AU_NAMES`, each in ``[0, 1]``.
             Returns ``("Neutral", 0.0, {})`` if py-feat's own internal
             face detector fails to find a face in the crop (a real, if
-            rare, possibility on an already-tightly-cropped image — see
+            rare, possibility on an already-tightly-cropped image; see
             the module docstring) rather than raising and aborting the
             whole analysis run, the same fail-soft precedent
             run_expression.py's own degenerate-bbox handling already uses.
@@ -216,7 +216,7 @@ def _bgr_crop_to_tensor(face_crop_bgr: np.ndarray):
 def _fex_row_to_result(
     au_values: dict, emotion_values: dict
 ) -> tuple[str, float, dict[str, float]]:
-    """Pure argmax-over-emotions + AU-passthrough — the one testable piece
+    """Pure argmax-over-emotions + AU-passthrough: the one testable piece
     of this backend, isolated from the actual Detectorv1 call exactly like
     ferplus.py's ``_softmax_and_label()`` isolates softmax+argmax from the
     ONNX session call.
@@ -232,7 +232,7 @@ def _fex_row_to_result(
     Returns
     -------
     tuple of (str, float, dict[str, float])
-        ``(dominant_emotion_label, dominant_score, au_values)`` —
+        ``(dominant_emotion_label, dominant_score, au_values)``, where
         ``dominant_emotion_label`` is one of :data:`_EMOTION_COLUMN_TO_LABEL`'s
         values (or the raw column name if unrecognized), ``au_values`` is
         keyed exactly as passed in, values rounded to 4 decimals.
@@ -241,7 +241,7 @@ def _fex_row_to_result(
     -----
     NaN values (py-feat's own per-row failure marker when its internal
     models can't produce a score) are treated as ``0.0`` rather than
-    propagating/crashing argmax — mirrors this codebase's established
+    propagating/crashing argmax. This mirrors this codebase's established
     "default missing/bad data to 0.0, never crash" convention (e.g. the
     BLENDSHAPE_NAMES lookup-by-name-with-default on the detection side).
     """

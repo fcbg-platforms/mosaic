@@ -20,7 +20,7 @@ use them without manual bookkeeping.
 Requirements: build with ``-DMOSAIC_ENABLE_OPENCV=ON``.  The **Calibrate** tab
 in the settings sidebar shows a helpful "not available" message otherwise.
 It has two inner tabs: **Intrinsics** (single-camera, this page) and
-**Room (Extrinsics)** (multi-camera, simultaneous capture — see below).
+**Room (Extrinsics)** (multi-camera, simultaneous capture; see below).
 
 Checkerboard setup
 ------------------
@@ -35,7 +35,7 @@ Ensure the board is:
 
 - Flat (a rigid foam-core mount is better than paper alone).
 - Large enough that it fills at least 1/3 of the frame.
-- Printed without any scaling — measure a square with calipers to confirm.
+- Printed without any scaling; measure a square with calipers to confirm.
 
 Intrinsic calibration procedure
 --------------------------------
@@ -47,12 +47,12 @@ Intrinsic calibration procedure
    of the camera.  Each time a good view appears, click **Capture frame** (or
    call :cpp:func:`mosaic::CalibrationManager::feed_frame` from code).
    The preview updates to show detected corners.
-5. Collect at least **10 accepted views** — aim for 20–30 at varied angles.
+5. Collect at least **10 accepted views**; aim for 20–30 at varied angles.
 6. Click **▶ Calibrate**.  The result appears within a few seconds:
 
-   - **RMS error < 0.5 px** — excellent.
-   - **0.5 – 1.0 px** — good; acceptable for most pose-estimation tasks.
-   - **> 2.0 px** — poor; recapture with better coverage.
+   - **RMS error < 0.5 px**: excellent.
+   - **0.5 – 1.0 px**: good; acceptable for most pose-estimation tasks.
+   - **> 2.0 px**: poor; recapture with better coverage.
 
 7. Click **Save calibration to settings**.  The result is written to the
    current group's ``settings.json`` and will appear in all future
@@ -68,23 +68,23 @@ Room (extrinsic) calibration procedure
 ---------------------------------------
 
 Every camera used here must already have a valid **intrinsic** calibration
-(above) — the **Room (Extrinsics)** page will not solve a camera that hasn't
+(above); the **Room (Extrinsics)** page will not solve a camera that hasn't
 been calibrated.
 
 1. Open the **Calibrate** tab, **Room (Extrinsics)** page.
 2. Set the ChArUco board's **Cols**, **Rows**, **Square size**, and
    **Marker size** (a ChArUco board tolerates partial views, unlike the plain
-   checkerboard above — useful since wide-FOV cameras around a room see the
+   checkerboard above, useful since wide-FOV cameras around a room see the
    board from very different angles).
 3. Hold the board somewhere visible to at least two cameras and click
    **▶ Capture shot**. Repeat, moving the board through overlapping pairs of
    camera fields of view, until every camera has been in at least one shot
-   shared with an already-resolved camera — 8+ shots is a reasonable start.
+   shared with an already-resolved camera; 8+ shots is a reasonable start.
 4. Pick a **reference camera** (its pose becomes the room's origin, identity
    transform) and click **▶ Solve**. The per-camera result table shows which
    cameras resolved and their reprojection RMS (aim for < 2 px, same guidance
    as intrinsics above); an unresolved camera means no shared-shot chain back
-   to the reference camera was found — capture another shot linking it in.
+   to the reference camera was found; capture another shot linking it in.
 5. To define the room's shared reference plane (used by gaze-fusion's
    target-point intersection): lay the board flat on the target surface,
    capture one more shot, then click **Use last shot as plane**.
@@ -117,11 +117,11 @@ What is stored
        identity for any camera that hasn't been resolved yet.
    * - ``extrinsicCalibrated``
      - ``true`` once this camera's extrinsics were successfully resolved by
-       the Room (Extrinsics) procedure — distinct from ``calibrated``, which
+       the Room (Extrinsics) procedure, distinct from ``calibrated``, which
        only ever means "intrinsics done".
 
 Room (extrinsic) calibration solves every camera's position and orientation
-relative to one shared room origin — needed to combine per-camera 3D
+relative to one shared room origin, needed to combine per-camera 3D
 signals (e.g. gaze rays, see :doc:`math/gaze_fusion`) across cameras. See
 :doc:`user_guide`'s calibration workflow for a narrative walkthrough of the
 same steps, and :doc:`math/room_calibration` for the underlying pose-graph
@@ -150,5 +150,5 @@ reference plane defined in step 5 above): ``plane_point``/``plane_normal``
 (3-vectors in room coordinates) and ``plane_defined``. The Analysis tab's
 **Multi-Camera Gaze Fusion** plugin reads both the per-camera ``extrinsic_rt``
 values and this ``room`` section to triangulate a 3D gaze ray per moment and,
-where the plane is defined, intersect it with the target surface — see
+where the plane is defined, intersect it with the target surface; see
 ``analysis/run_gaze_fusion.py`` and the resulting ``gaze_fusion.json``.

@@ -20,7 +20,7 @@ def pcm16_to_mono_float32(payload: bytes, channels: int) -> np.ndarray:
 
 
 def resample_to_16k(mono: np.ndarray, source_rate_hz: int) -> np.ndarray:
-    """No-op if already 16kHz (the common case is NOT 16kHz — see
+    """No-op if already 16kHz (the common case is NOT 16kHz; see
     audio_recorder.cpp's device-negotiation doc comment, e.g. this dev
     machine's real mic negotiates 48000Hz/2ch)."""
     if source_rate_hz == WHISPER_SAMPLE_RATE:

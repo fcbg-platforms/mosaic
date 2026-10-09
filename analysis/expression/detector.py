@@ -107,7 +107,7 @@ class FaceExpression:
     bbox_xyxy : tuple of float
         Detection bounding box, ``(x1, y1, x2, y2)`` pixels.
     confidence : float
-        Detection confidence. Always ``1.0`` — see the constructor site's
+        Detection confidence. Always ``1.0``; see the constructor site's
         comment for why a constant is more honest here than a proxy metric.
     blendshape_scores : list of float
         Per-category activation, in ``[0, 1]``, parallel to
@@ -208,7 +208,7 @@ def crop_bbox(frame_bgr: np.ndarray, bbox_xyxy: tuple[float, float, float, float
     -------
     numpy.ndarray
         The cropped region. Possibly empty (shape ``(0, 0, 3)``) if the
-        box is degenerate (e.g. fully outside the frame) — callers must
+        box is degenerate (e.g. fully outside the frame), so callers must
         check ``.size`` before use.
 
     Notes
