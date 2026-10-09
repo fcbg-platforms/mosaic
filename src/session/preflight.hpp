@@ -38,6 +38,8 @@ struct PreflightCamera {
     int configIndex     = 0;
     bool opened         = false;
     bool grabberRunning = false;
+    // Dropped out and being reopened (VideoGrabber::is_reconnecting()).
+    bool reconnecting = false;
     // Seconds since its newest frame arrived; < 0 when none ever has. An age,
     // not "a frame arrived": a link that drops mid-preview leaves the last
     // timestamp in place, and only its age shows the stream has stopped.

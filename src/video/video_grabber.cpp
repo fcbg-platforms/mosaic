@@ -76,13 +76,27 @@ struct VideoGrabber::Impl {
 
     // GigE Vision Action Command trigger state — see
     // action_command_ready()/action_device_key()/action_broadcast_address().
-    // Written only in open() (main thread) before the grab thread starts, so
-    // no synchronization is needed for reads afterward (plain bool/uint32_t/
-    // QString, not atomics — same happens-before argument as tickFreqHz
-    // below).
-    bool actionCommandReady{false};
-    uint32_t actionDeviceKey{0};
+    // Written in open(): on the main thread before the grab thread starts, and
+    // again on the grab thread when it reopens a lost camera (see
+    // reconnect_after_loss()) while the main thread may be reading — hence the
+    // atomics. The broadcast address is a QString and cannot be atomic; a
+    // reconnect only writes it if it changed, which it cannot do without the
+    // camera moving to another subnet (logged when it does).
+    std::atomic<bool> actionCommandReady{false};
+    std::atomic<uint32_t> actionDeviceKey{0};
     QString actionBroadcastAddress;
+
+    // The camera went away while grabbing (a pulled cable, a power cut) and the
+    // grab thread is trying to reopen it — see reconnect_after_loss(). While
+    // set, deviceOpen is false but the camera still belongs to this session:
+    // start_grabbing() starts the thread anyway, so a camera lost during a
+    // recording keeps being retried by the preview that follows.
+    std::atomic<bool> deviceLost{false};
+    // Successful reconnects since this grabber was created — see reconnects().
+    std::atomic<int64_t> reconnectCount{0};
+    // Set by reconnect_after_loss() around its open() attempts, so a camera
+    // that is still unplugged does not log "Cannot open device" every 2 s.
+    bool quietOpenFailure = false;
 
     // Set by apply_live_params() (typically called from the GUI thread) and
     // consumed by the grab thread's own loop. Pylon's CInstantCamera/node
@@ -103,25 +117,26 @@ struct VideoGrabber::Impl {
 
     // GevTimestampTickFrequency (Hz), read once in open() and reused by the
     // grab thread to convert each frame's chunk timestamp from device ticks
-    // to nanoseconds. Written only in open() (main thread) before the grab
-    // thread is started, so no synchronization is needed for the read in
-    // run_pylon_loop() — QThread::start() establishes the happens-before edge.
+    // to nanoseconds. Written in open() on the main thread before the grab
+    // thread is started (QThread::start() establishes the happens-before
+    // edge), or on the grab thread itself when it reopens a lost camera; only
+    // ever read by the grab thread, so no synchronization is needed.
     int64_t tickFreqHz = 0;
 
     // The frame size the camera actually delivers, read back from Width/Height
-    // at the end of open() — -1 until then, or if the read failed. Same
-    // write-in-open()-before-the-thread-starts reasoning as tickFreqHz. See
-    // frame_width().
-    int frameWidth   = -1;
-    int frameHeight  = -1;
-    int frameOffsetX = -1;
-    int frameOffsetY = -1;
+    // at the end of open() — -1 until then, or if the read failed. See
+    // frame_width(). Atomic for the same reason as actionCommandReady: a
+    // reconnect rewrites them on the grab thread.
+    std::atomic<int> frameWidth{-1};
+    std::atomic<int> frameHeight{-1};
+    std::atomic<int> frameOffsetX{-1};
+    std::atomic<int> frameOffsetY{-1};
     // The camera's own ResultingFrameRate as read at the end of open(): the
     // most it says it can deliver with the settings just applied. -1 when the
     // node was unavailable. Unlike resultingFps this is not held back until a
     // warm-up has passed — it is shown as "the camera's limit for this crop"
     // straight after a change, and refined by the measured rate later.
-    double openMaxFps = -1.0;
+    std::atomic<double> openMaxFps{-1.0};
     // Last exposure/gain logged by log_exposure_if_changed() — grab thread
     // only (refresh_achievable_fps() runs there after open()), so plain values.
     double loggedExposureUs = -1.0;
@@ -228,8 +243,12 @@ bool VideoGrabber::open() {
 #if defined(MOSAIC_HAVE_CAMERAS)
     // Phase 1: attach and open the physical device — hard failure if this fails.
     try {
-        Pylon::PylonInitialize();
-        d->pylonInitialized.store(true); // must call PylonTerminate() in close()
+        // Once per grabber, not once per open(): a reconnect calls open()
+        // again without close(), and must not take a second reference that
+        // close() would never release.
+        if (!d->pylonInitialized.exchange(true)) {
+            Pylon::PylonInitialize(); // balanced by PylonTerminate() in close()
+        }
 
         if (d->params.serialNumber.isEmpty()) {
             d->camera.Attach(Pylon::CTlFactory::GetInstance().CreateFirstDevice());
@@ -241,10 +260,12 @@ bool VideoGrabber::open() {
         d->camera.Open();
 
     } catch (const Pylon::GenericException& e) {
-        log_error(QString("[Camera %1] Cannot open device (serial %2): %3")
-                      .arg(d->cameraIndex)
-                      .arg(d->params.serialNumber)
-                      .arg(QString::fromLocal8Bit(e.GetDescription())));
+        if (!d->quietOpenFailure) {
+            log_error(QString("[Camera %1] Cannot open device (serial %2): %3")
+                          .arg(d->cameraIndex)
+                          .arg(d->params.serialNumber)
+                          .arg(QString::fromLocal8Bit(e.GetDescription())));
+        }
         return false;
     }
 
@@ -449,14 +470,28 @@ bool VideoGrabber::open() {
                     static_cast<uint32_t>(CIntegerParameter(cam, "GevCurrentIPAddress").GetValue());
                 const auto mask = static_cast<uint32_t>(
                     CIntegerParameter(cam, "GevCurrentSubnetMask").GetValue());
-                d->actionDeviceKey        = static_cast<uint32_t>(d->cameraIndex) + 1;
-                d->actionBroadcastAddress = ipv4_to_dotted(ipv4_broadcast_address(ip, mask));
-                d->actionCommandReady     = true;
+                d->actionDeviceKey      = static_cast<uint32_t>(d->cameraIndex) + 1;
+                const QString broadcast = ipv4_to_dotted(ipv4_broadcast_address(ip, mask));
+                if (broadcast != d->actionBroadcastAddress) {
+                    if (d->deviceLost.load()) {
+                        // Reconnected on another subnet: the running Action
+                        // Command ticker still broadcasts to the old one, so
+                        // this camera gets no triggers until it is reopened.
+                        log_warning(QString("[Camera %1] Came back on a different subnet "
+                                            "(%2, was %3); it will not be triggered until "
+                                            "the cameras are reopened.")
+                                        .arg(d->cameraIndex)
+                                        .arg(broadcast)
+                                        .arg(d->actionBroadcastAddress));
+                    }
+                    d->actionBroadcastAddress = broadcast;
+                }
+                d->actionCommandReady = true;
                 log_info(
                     QString("[Camera %1] Action-command trigger ready — deviceKey=%2 broadcast=%3")
                         .arg(d->cameraIndex)
-                        .arg(d->actionDeviceKey)
-                        .arg(d->actionBroadcastAddress));
+                        .arg(d->actionDeviceKey.load())
+                        .arg(broadcast));
             } catch (const Pylon::GenericException& e) {
                 log_warning(QString("[Camera %1] This firmware does not support GigE Vision Action "
                                     "Commands (%2) — falling back to free-run for this session. "
@@ -1122,22 +1157,7 @@ void VideoGrabber::close() {
 #endif
     );
 #if defined(MOSAIC_HAVE_CAMERAS)
-    try {
-        if (d->camera.IsGrabbing()) {
-            d->camera.StopGrabbing();
-            log_info(QString("[Camera %1] StopGrabbing done").arg(d->cameraIndex));
-        }
-        if (d->camera.IsOpen()) {
-            d->camera.Close();
-            log_info(QString("[Camera %1] Close done").arg(d->cameraIndex));
-        }
-        if (d->camera.IsPylonDeviceAttached()) {
-            d->camera.DestroyDevice();
-            log_info(QString("[Camera %1] DestroyDevice done").arg(d->cameraIndex));
-        }
-    } catch (...) {
-        log_error(QString("[Camera %1] close() exception caught").arg(d->cameraIndex));
-    }
+    release_device(false);
 
     // Balance the PylonInitialize() call from open().  When the last camera
     // calls this, the ref count hits 0 and Pylon fully resets its internal
@@ -1150,13 +1170,46 @@ void VideoGrabber::close() {
 #endif
 
     d->deviceOpen.store(false);
+    d->deviceLost.store(false);
     emit closed(d->cameraIndex);
 }
+
+#if defined(MOSAIC_HAVE_CAMERAS)
+// Stops, closes and detaches the Pylon device, leaving Pylon itself
+// initialised. Shared by close() and reconnect_after_loss(), which must free a
+// removed device before it can attach to the camera again. Each step is
+// guarded, so this is safe on a device that is gone, half-open or never
+// attached. `quiet` drops the per-step log lines, for the retry loop.
+void VideoGrabber::release_device(bool quiet) {
+    try {
+        if (d->camera.IsGrabbing()) {
+            d->camera.StopGrabbing();
+            if (!quiet) log_info(QString("[Camera %1] StopGrabbing done").arg(d->cameraIndex));
+        }
+        if (d->camera.IsOpen()) {
+            d->camera.Close();
+            if (!quiet) log_info(QString("[Camera %1] Close done").arg(d->cameraIndex));
+        }
+        if (d->camera.IsPylonDeviceAttached()) {
+            d->camera.DestroyDevice();
+            if (!quiet) log_info(QString("[Camera %1] DestroyDevice done").arg(d->cameraIndex));
+        }
+    } catch (...) {
+        if (!quiet) {
+            log_error(
+                QString("[Camera %1] exception while releasing the device").arg(d->cameraIndex));
+        }
+    }
+}
+#endif
 
 // ── Grab control ───────────────────────────────────────────────────────────
 
 void VideoGrabber::start_grabbing() {
-    if (!d->deviceOpen.load()) {
+    // A lost camera still starts: its thread begins by trying to reopen it
+    // (see run_pylon_loop()), so one lost during a recording keeps being
+    // retried in the preview that follows.
+    if (!d->deviceOpen.load() && !d->deviceLost.load()) {
         return;
     }
     d->frameCounter.store(0);
@@ -1170,10 +1223,16 @@ void VideoGrabber::start_grabbing() {
 void VideoGrabber::stop_grabbing() {
     if (!isRunning()) return;
     requestInterruption();
-    if (!wait(5000)) {
-        log_warning(
-            QString("[Camera %1] stop_grabbing: thread did not finish in 5 s — forcing terminate")
-                .arg(d->cameraIndex));
+    // A reconnecting thread may be inside open(), which cannot be interrupted
+    // and, on a link that drops again while it configures the camera, can
+    // spend several GigE control timeouts there. Killing it mid-call would
+    // leave the device in an unknown state for close(), so it gets longer.
+    const int waitMs = d->deviceLost.load() ? 20000 : 5000;
+    if (!wait(waitMs)) {
+        log_warning(QString("[Camera %1] stop_grabbing: thread did not finish in %2 s — forcing "
+                            "terminate")
+                        .arg(d->cameraIndex)
+                        .arg(waitMs / 1000));
         terminate();
         wait();
     }
@@ -1191,6 +1250,96 @@ void VideoGrabber::run() {
 
 #if defined(MOSAIC_HAVE_CAMERAS)
 void VideoGrabber::run_pylon_loop() {
+    // A camera that drops out (a pulled cable, a power cut) is reopened by
+    // this thread, in place, rather than left for dead until the operator
+    // reopens every camera. In place matters during a recording: the same
+    // ring buffer, encoder and video file carry on, frame_id keeps counting,
+    // and the gap shows up as a gap in the timestamps (and as MISSING in Frame
+    // Sync Repair's synced/ videos). The Action Command ticker keeps
+    // broadcasting to the camera's subnet throughout, so it is triggered
+    // again the moment it is armed. All Pylon access stays on this thread.
+    //
+    // A camera that fails again soon after coming back (a loose connector,
+    // a fault that a reopen does not fix) is retried less and less often, up
+    // to k_max_retry_s, so it cannot flood the log.
+    constexpr double k_min_retry_s = 2.0;
+    constexpr double k_max_retry_s = 30.0;
+    constexpr double k_stable_s    = 10.0;
+    double retryS                  = k_min_retry_s;
+
+    // Lost before this thread started (during the recording that just ended).
+    if (d->deviceLost.load() && !reconnect_after_loss(retryS)) {
+        return;
+    }
+    auto runningSince = SteadyClock::now();
+    while (grab_until_stopped()) {
+        const double ranS =
+            std::chrono::duration<double>(SteadyClock::now() - runningSince).count();
+        retryS = ranS < k_stable_s ? std::min(retryS * 2.0, k_max_retry_s) : k_min_retry_s;
+        if (!reconnect_after_loss(retryS)) {
+            return; // stopped while the camera was away
+        }
+        runningSince = SteadyClock::now();
+    }
+}
+
+bool VideoGrabber::reconnect_after_loss(double retryS) {
+    d->deviceLost.store(true);
+    d->deviceOpen.store(false);
+    d->actuallyGrabbing.store(false);
+    d->currentFps.store(0.0);
+    // The reopened camera's rate must pass the warm-up gate again, not inherit
+    // the previous stretch's start time (see refresh_achievable_fps()).
+    d->grabbingStartedAt.reset();
+    release_device(true);
+
+    log_warning(QString("[Camera %1] Lost; trying to reopen it every %2 s. Once it is back its "
+                        "frames continue in the same video, and the gap is marked MISSING by "
+                        "Frame Sync Repair.")
+                    .arg(d->cameraIndex)
+                    .arg(retryS, 0, 'f', 0));
+    const auto lostAt  = SteadyClock::now();
+    auto lastReport    = lostAt;
+    const auto retryMs = static_cast<int>(retryS * 1000.0);
+    int attempts       = 0;
+    while (!isInterruptionRequested()) {
+        // Interruptible wait, so stop_grabbing() is never held up by it.
+        for (int waited = 0; waited < retryMs && !isInterruptionRequested(); waited += 100) {
+            QThread::msleep(100);
+        }
+        if (isInterruptionRequested()) {
+            break;
+        }
+        ++attempts;
+        d->quietOpenFailure = true;
+        const bool ok       = open();
+        d->quietOpenFailure = false;
+        const auto now      = SteadyClock::now();
+        const double awayS  = std::chrono::duration<double>(now - lostAt).count();
+        if (ok) {
+            d->reconnectCount.fetch_add(1);
+            d->deviceLost.store(false);
+            log_info(QString("[Camera %1] Reconnected after %2 s (%3 attempt(s)).")
+                         .arg(d->cameraIndex)
+                         .arg(awayS, 0, 'f', 1)
+                         .arg(attempts));
+            return true;
+        }
+        release_device(true); // open() can fail after attaching
+        if (std::chrono::duration<double>(now - lastReport).count() >= 30.0) {
+            lastReport = now;
+            log_warning(QString("[Camera %1] Still not reachable after %2 s; still trying.")
+                            .arg(d->cameraIndex)
+                            .arg(awayS, 0, 'f', 0));
+        }
+    }
+    log_info(QString("[Camera %1] Stopped while lost; it will be retried when grabbing starts "
+                     "again.")
+                 .arg(d->cameraIndex));
+    return false;
+}
+
+bool VideoGrabber::grab_until_stopped() {
     bool grabFailed = false;
     try {
         // Always output BGR8packed so Qt can display any camera pixel format.
@@ -1250,6 +1399,12 @@ void VideoGrabber::run_pylon_loop() {
                 }
             }
             if (!d->camera.RetrieveResult(100, result, Pylon::TimeoutHandling_Return)) {
+                // Whether a removed GigE device makes RetrieveResult() throw
+                // or just time out depends on the Pylon version; ask, so a
+                // lost camera is always handed to reconnect_after_loss().
+                if (d->camera.IsCameraDeviceRemoved()) {
+                    throw RUNTIME_EXCEPTION("The camera device has been physically removed.");
+                }
                 continue;
             }
             if (!result->GrabSucceeded()) {
@@ -1386,7 +1541,7 @@ void VideoGrabber::run_pylon_loop() {
 
     if (grabFailed) {
         // This camera has stopped acquiring mid-session (a pulled cable is the
-        // realistic case), so nothing will ever refresh its rate again.
+        // realistic case), so nothing refreshes its rate until it is back.
         // VideoManager::close()'s retraction only covers an orderly shutdown,
         // which this isn't — without this the card would go on presenting the
         // last good reading as a live figure indefinitely.
@@ -1401,6 +1556,9 @@ void VideoGrabber::run_pylon_loop() {
         d->lastEmittedFps.store(-1.0);
         emit achievable_fps_changed(d->cameraIndex, -1.0);
     }
+    // Stopped on request is not a failure, even if the request landed just as
+    // the camera went away: the caller is shutting down.
+    return grabFailed && !isInterruptionRequested();
 }
 #else
 void VideoGrabber::run_pylon_loop() { run_stub_loop(); }
@@ -1512,6 +1670,8 @@ void VideoGrabber::run_stub_loop() {
 bool VideoGrabber::is_actually_grabbing() const { return d->actuallyGrabbing.load(); }
 
 bool VideoGrabber::is_open() const { return d->deviceOpen.load(); }
+bool VideoGrabber::is_reconnecting() const { return d->deviceLost.load(); }
+int64_t VideoGrabber::reconnects() const { return d->reconnectCount.load(); }
 int64_t VideoGrabber::frames_grabbed() const { return d->frameCounter.load(); }
 int64_t VideoGrabber::frames_dropped() const { return d->dropCounter.load(); }
 int64_t VideoGrabber::incomplete_frames_total() const { return d->incompleteFrameTotal.load(); }

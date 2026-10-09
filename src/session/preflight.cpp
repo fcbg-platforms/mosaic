@@ -96,6 +96,15 @@ PreflightReport evaluate_preflight(const PreflightInput& in) {
                                  "reconnect it from Settings → Video."});
                 continue;
             }
+            // Before the frame checks: a camera that dropped out has no fresh
+            // frame either, but the useful thing to say is that it is being
+            // reconnected and what that means for the recording.
+            if (c.reconnecting) {
+                items.push_back({PreflightLevel::Fail, name + " has dropped out",
+                                 "MOSAIC is trying to reconnect it; check its cable and power. "
+                                 "If you record anyway, its video has a gap until it is back."});
+                continue;
+            }
             if (!c.grabberRunning || c.lastFrameAgeSec < 0.0) {
                 items.push_back({PreflightLevel::Fail, name + " is not delivering frames",
                                  "It is open but no image has arrived, so its video would be "

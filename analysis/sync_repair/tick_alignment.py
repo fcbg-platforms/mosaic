@@ -26,6 +26,10 @@ How a frame finds its tick
    walk, tried first, let one bad interval shift everything after it.
    A frame without a hardware timestamp (0) is placed by its arrival time
    instead; a camera with none at all is placed by arrival time throughout.
+   A camera that dropped out and was reconnected mid-recording may come back
+   with its clock restarted: its frames are split where the hardware clock
+   runs backwards or jumps against the host clock, and each stretch gets its
+   own line.
    Period changes mid-recording need no special case: frames are matched to
    the real tick times in the log.
 2. **Which tick, not just which phase — anchoring by latency.** Step 1 fixes
@@ -60,6 +64,13 @@ UNCERTAIN_FRACTION = 1.0 / 3.0
 #: (2026-10-02): one camera unplugged and lost for good cost five healthy
 #: cameras the last 27 s of a 44 s recording.
 DROPOUT_TOLERANCE_S = 2.0
+
+#: Between two consecutive frames of one camera, a hardware-clock step that
+#: differs from the host-clock step by more than this means the camera's clock
+#: was restarted (a reconnected camera that lost power) or replaced: the frames
+#: on either side are fitted separately. Real drift is ppm, and host stalls
+#: delay arrival by tens of ms, so a second cannot be reached by either.
+CLOCK_JUMP_NS = 1_000_000_000
 
 #: Clock-fit residuals beyond this many robust standard deviations (MAD-based)
 #: are left out of the refit — a host stall makes a frame arrive late, and it
@@ -174,6 +185,19 @@ def _circular_phase(offsets_ns: np.ndarray, period_ns: float) -> float:
     return float(mean / (2.0 * np.pi) * period_ns)
 
 
+def clock_segments(hw_ns: np.ndarray, elapsed_ns: np.ndarray) -> np.ndarray:
+    """Segment number (0, 1, ...) for each frame, in recorded order, starting a
+    new segment wherever the hardware clock runs backwards or its step differs
+    from the host clock's by more than CLOCK_JUMP_NS. Both arrays are one
+    camera's frames that have a hardware timestamp."""
+    if len(hw_ns) < 2:
+        return np.zeros(len(hw_ns), dtype=np.int64)
+    d_hw = np.diff(hw_ns.astype(np.int64))
+    d_host = np.diff(elapsed_ns.astype(np.int64))
+    breaks = (d_hw <= 0) | (np.abs(d_hw - d_host) > CLOCK_JUMP_NS)
+    return np.concatenate(([0], np.cumsum(breaks))).astype(np.int64)
+
+
 def grid_positions(
     tick_times: np.ndarray, cam: TickCamera, period_ns: float
 ) -> tuple[np.ndarray, str]:
@@ -190,19 +214,45 @@ def grid_positions(
     arr_phase = _circular_phase(elapsed - _tick_time(tick_times, near), period_ns)
     by_arrival = _nearest_ticks(tick_times, elapsed - arr_phase)
 
-    if has_hw.sum() < 2:
-        return by_arrival, "trigger_ticks:arrival_interval"
+    # Hardware clock -> host clock, one line per stretch of unbroken clock
+    # (see clock_segments()). A stretch with a single frame has no line; that
+    # frame is placed by arrival below, like one without a timestamp.
+    hw_idx = np.flatnonzero(has_hw)
+    segments = clock_segments(hw[hw_idx], cam.elapsed_ns[hw_idx])
+    placed = np.zeros(len(hw), dtype=bool)
+    by_hw = by_arrival.copy()
+    for seg in np.unique(segments):
+        members = hw_idx[segments == seg]
+        if len(members) < 2:
+            continue
+        x0 = float(hw[members[0]])
+        y0 = float(elapsed[members[0]])
+        a, b = _robust_line(hw[members].astype(np.float64) - x0, elapsed[members] - y0)
+        mapped = a * (hw[members].astype(np.float64) - x0) + b + y0  # host-clock time
+        near = _nearest_ticks(tick_times, mapped)
+        hw_phase = _circular_phase(mapped - _tick_time(tick_times, near), period_ns)
+        by_hw[members] = _nearest_ticks(tick_times, mapped - hw_phase)
+        placed[members] = True
 
-    # Hardware clock -> host clock, fitted on the frames that have it.
-    x0 = float(hw[has_hw][0])
-    y0 = float(elapsed[has_hw][0])
-    x = hw[has_hw].astype(np.float64) - x0
-    y = elapsed[has_hw] - y0
-    a, b = _robust_line(x, y)
-    mapped = a * (hw.astype(np.float64) - x0) + b + y0  # host-clock time per frame
-    near = _nearest_ticks(tick_times, mapped[has_hw])
-    hw_phase = _circular_phase(mapped[has_hw] - _tick_time(tick_times, near), period_ns)
-    by_hw = _nearest_ticks(tick_times, mapped - hw_phase)
+    if placed.sum() < 2:
+        return by_arrival, "trigger_ticks:arrival_interval"
+    has_hw = placed
+
+    # Each stretch's phase is only known modulo a period, so two stretches can
+    # come out a whole tick apart, e.g. when the latency sits near half a
+    # period and one stretch's phase wraps the other way. The caller corrects
+    # one shift per camera, not one per stretch, so line every stretch up with
+    # the largest on the arrival estimate, whose phase is shared by all frames.
+    fitted = [hw_idx[segments == seg] for seg in np.unique(segments)]
+    fitted = [m for m in fitted if len(m) >= 2]
+    if len(fitted) > 1:
+
+        def offset(m: np.ndarray) -> int:
+            return int(np.round(np.median(by_hw[m] - by_arrival[m])))
+
+        ref_offset = offset(max(fitted, key=len))
+        for m in fitted:
+            by_hw[m] += ref_offset - offset(m)
 
     # Frames without a hardware timestamp fall back to arrival, shifted to
     # agree with the hardware-placed frames (the two estimates can differ by

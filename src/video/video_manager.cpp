@@ -88,6 +88,11 @@ class ActionCommandTicker : public QThread {
         for (auto* g : m_grabbers) {
             m_incompleteBaseline.push_back(g ? g->incomplete_frames_total() : 0);
         }
+        m_awayBaseline.assign(m_grabbers.size(), 0);
+        m_seenReconnects.reserve(m_grabbers.size());
+        for (auto* g : m_grabbers) {
+            m_seenReconnects.push_back(g ? g->reconnects() : 0);
+        }
     }
 
     // Total action-command ticks fired so far this ticker's lifetime.
@@ -156,14 +161,35 @@ class ActionCommandTicker : public QThread {
                         if (!m_grabbers[i]) {
                             continue;
                         }
-                        const int64_t captured = m_grabbers[i]->frames_grabbed();
-                        // Since this ticker started, so it covers the same
-                        // window as ticksFired and captured.
+                        // A camera that dropped out says so itself (see
+                        // VideoGrabber::reconnect_after_loss()). Its frames
+                        // are missing for that reason, not for a trigger or
+                        // link fault, so it is left out while away, and once
+                        // back it is judged from the moment it returned, or
+                        // its time away would read as missed triggers for
+                        // the rest of the session. Compared by reconnect
+                        // count, not only the live flag: a short dropout can
+                        // begin and end between two of these checks.
+                        if (m_grabbers[i]->is_reconnecting()) {
+                            continue;
+                        }
+                        const int64_t captured   = m_grabbers[i]->frames_grabbed();
+                        const int64_t reconnects = m_grabbers[i]->reconnects();
+                        if (reconnects != m_seenReconnects[i]) {
+                            m_seenReconnects[i]     = reconnects;
+                            m_awayBaseline[i]       = ticksFired - captured;
+                            m_incompleteBaseline[i] = m_grabbers[i]->incomplete_frames_total();
+                            continue;
+                        }
+                        // Since this ticker started (or the camera came
+                        // back), so it covers the same window as ticks and
+                        // captured.
                         const int64_t baseline =
                             i < m_incompleteBaseline.size() ? m_incompleteBaseline[i] : 0;
                         const int64_t incomplete = std::max<int64_t>(
                             0, m_grabbers[i]->incomplete_frames_total() - baseline);
-                        const int64_t missed = ticksFired - captured;
+                        const int64_t ticks  = ticksFired - m_awayBaseline[i];
+                        const int64_t missed = ticks - captured;
 
                         // Which fault this is, rather than assuming. This line
                         // used to say "likely missing trigger broadcasts" every
@@ -173,8 +199,8 @@ class ActionCommandTicker : public QThread {
                         // slack for a few late ticks and normal jitter now lives
                         // in classify_frame_shortfall().
                         const auto shortfall =
-                            classify_frame_shortfall(ticksFired, captured, incomplete);
-                        if (shortfall != FrameShortfall::None && captured < (ticksFired * 9) / 10) {
+                            classify_frame_shortfall(ticks, captured, incomplete);
+                        if (shortfall != FrameShortfall::None && captured < (ticks * 9) / 10) {
                             QString cause;
                             switch (shortfall) {
                                 case FrameShortfall::PacketLoss:
@@ -213,7 +239,7 @@ class ActionCommandTicker : public QThread {
                                                 "fired so far but only %3 frames captured (%4 "
                                                 "missing); %5.")
                                             .arg(m_targets[i].cameraIndex)
-                                            .arg(ticksFired)
+                                            .arg(ticks)
                                             .arg(captured)
                                             .arg(missed)
                                             .arg(cause));
@@ -290,6 +316,12 @@ class ActionCommandTicker : public QThread {
     // incomplete_frames_total() per camera at construction — see the ctor for
     // why this one counter needs a baseline and the other two do not.
     std::vector<int64_t> m_incompleteBaseline;
+    // Per camera, for one that dropped out and came back: the shortfall
+    // (ticks minus frames) at the first check after it returned, which the
+    // missed-trigger diagnostic subtracts — see run(). Zero otherwise.
+    std::vector<int64_t> m_awayBaseline;
+    // Each camera's VideoGrabber::reconnects() as last seen by run().
+    std::vector<int64_t> m_seenReconnects;
     std::chrono::duration<double, std::milli> m_period;
     std::atomic<int64_t> m_ticksFired{0};
 };
@@ -1031,6 +1063,7 @@ VideoManager::CameraStats VideoManager::camera_stats(int index) const {
         stats.framesGrabbed      = unit.grabber->frames_grabbed();
         stats.framesDropped      = unit.grabber->frames_dropped();
         stats.grabberRunning     = unit.grabber->isRunning();
+        stats.reconnecting       = unit.grabber->is_reconnecting();
         stats.lastFrameElapsedNs = unit.grabber->last_frame_elapsed_ns();
         stats.configuredFps      = unit.grabber->configured_fps();
         stats.achievableFps      = unit.grabber->achievable_fps();
