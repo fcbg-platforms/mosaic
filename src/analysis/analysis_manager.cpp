@@ -260,6 +260,18 @@ void AnalysisManager::run_face_dynamics_analysis(const QString& sessionPath, dou
     enqueue_or_launch(sessionPath, "analysis/run_face_dynamics.py", args, {});
 }
 
+void AnalysisManager::run_conversation_analysis(const QString& sessionPath, bool useDiarization,
+                                                bool annotatedVideo) {
+    QStringList args = {"--session", sessionPath};
+    if (!useDiarization) {
+        args << "--no-diarization";
+    }
+    if (!annotatedVideo) {
+        args << "--no-video";
+    }
+    enqueue_or_launch(sessionPath, "analysis/run_conversation.py", args, {});
+}
+
 void AnalysisManager::run_sync_repair(const QString& sessionPath, double masterFps) {
     const QStringList args = {
         "--session",

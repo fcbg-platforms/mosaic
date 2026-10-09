@@ -101,7 +101,11 @@ What happens during ``start()``
 2. **``session_meta.json``** is written immediately (see :ref:`session metadata`).
 3. **Trigger CSV** is opened: ``trigger.csv``.
 4. **Audio recorders** are started: one ``WAV`` file per configured microphone, under
-   ``<session>/audio/``.
+   ``<session>/audio/``, each with a ``<name>.timing.csv`` beside it. After every buffer of
+   sound that file records how many samples have been written and the
+   clock time they arrived, on the same clock as the video timestamps. Analysis uses it to
+   place each audio sample on the video's timeline, including the sound card's slow clock
+   drift (see :doc:`math/conversation_timing`).
 5. **Video grabbers and encoders** are started: one ``MP4`` + one ``timestamps_camN.csv`` per
    camera, under ``<session>/video/``.
 6. The **elapsed timer** fires every 100 ms, updating the HH:MM:SS display.
@@ -122,7 +126,8 @@ Session folder layout:
            ├── gaze_fusion/                    # its CSV, summary, annotated videos, heat maps
            ├── skeleton3d.json                 # written by run_pose3d.py, if run
            ├── audio/
-           │   └── audio_0.wav
+           │   ├── audio_0.wav
+           │   └── audio_0.timing.csv          # when each buffer of samples arrived
            ├── video/
            │   ├── video_0.mp4
            │   └── timestamps_cam0.csv
@@ -270,7 +275,8 @@ A crash, a forced close or a power cut no longer costs the whole session:
   plugins read it exactly like before.
 - **Timestamp files** are flushed to disk about once a second.
 - **Audio** WAV headers are updated about once a second, so a crashed WAV
-  declares the audio written up to then rather than reading as empty.
+  declares the audio written up to then rather than reading as empty. Its
+  timing file is flushed every 20 buffers.
 - **Triggers** are written to disk as each one arrives, as before.
 
 So expect to lose at most the last couple of seconds. The videos and their

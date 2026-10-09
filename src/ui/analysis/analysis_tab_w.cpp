@@ -51,6 +51,7 @@
 #include <limits>
 
 #include "analysis/analysis_plugins.hpp"
+#include "analysis/conversation_result.hpp"
 #include "analysis/dyadic_kinematics.hpp"
 #include "analysis/expression_result.hpp"
 #include "analysis/face_dynamics_result.hpp"
@@ -264,6 +265,14 @@ QString subject_chip_tooltip(SubjectChoice choice, bool fileHasTrackedIdentity) 
 // session_browser_w.cpp), which use a plain callback instead of moc-in-cpp
 // machinery for a class that never leaves this file.
 
+/// One line of MetricsChartW::set_named_series().
+struct NamedSeries {
+    QString name;
+    QColor color;
+    QVector<QPointF> points; ///< x in ms, like every other setter.
+    bool showPoints = false;
+};
+
 class MetricsChartW : public QChartView {
    public:
     using SeekCb = std::function<void(int64_t)>;
@@ -467,6 +476,36 @@ class MetricsChartW : public QChartView {
         apply_ranges(minY <= maxY, minY, maxY, maxT);
     }
 
+    /// Several lines with their own names and colours (the subject series
+    /// slots, so the generic X/Y/value series are cleared).
+    void set_named_series(const QVector<NamedSeries>& series, const QString& yAxisLabel,
+                          double minDurationMs = 0.0) {
+        clear_all_series();
+        clear_subject_series();
+        axisY_->setTitleText(yAxisLabel);
+        set_series_marker_visible(xSeries_, false);
+        set_series_marker_visible(ySeries_, false);
+        set_series_marker_visible(valueSeries_, false);
+        double minY = std::numeric_limits<double>::max();
+        double maxY = std::numeric_limits<double>::lowest();
+        double maxT = std::max(0.0, minDurationMs) / 1000.0;
+        for (const auto& ns : series) {
+            auto* s = new QLineSeries();
+            s->setName(ns.name);
+            s->setPen(QPen(ns.color, 2));
+            s->setPointsVisible(ns.showPoints);
+            for (const auto& p : ns.points) {
+                const double tSec = p.x() / 1000.0;
+                s->append(tSec, p.y());
+                maxT = std::max(maxT, tSec);
+                minY = std::min(minY, p.y());
+                maxY = std::max(maxY, p.y());
+            }
+            add_subject_series(s);
+        }
+        apply_ranges(minY <= maxY, minY, maxY, maxT);
+    }
+
     // Speed/Acceleration mode, one or more subjects: 1 line per subject,
     // tinted by subject_color(choice). perSubject: (SubjectChoice,
     // points) pairs, points already in (ms-since-start, value) form
@@ -657,7 +696,11 @@ class MetricsChartW : public QChartView {
         }
         axisX_->setRange(0, std::max(maxT, 1.0));
         if (minY <= maxY) {
-            const double pad = std::max((maxY - minY) * 0.1, 5.0);
+            // 10% of the data's range. A fixed minimum pad (it was 5 units)
+            // flattened every 0..1 signal (blendshapes, openness, gaze
+            // offsets) to a line along the middle of the plot.
+            const double span = maxY - minY;
+            const double pad  = span > 0.0 ? span * 0.1 : std::max(std::abs(maxY) * 0.1, 1e-3);
             axisY_->setRange(minY - pad, maxY + pad);
         }
     }
@@ -831,6 +874,8 @@ struct AnalysisTabW::Impl {
     QSpinBox* gaze2dSkipSpin                 = nullptr; // gaze2d
     QDoubleSpinBox* faceDynMinConfidenceSpin = nullptr; // face_dynamics
     QCheckBox* faceDynVideoCheck             = nullptr; // face_dynamics
+    QCheckBox* convDiarizationCheck          = nullptr; // conversation
+    QCheckBox* convVideoCheck                = nullptr; // conversation
     QDoubleSpinBox* syncRepairMasterFpsSpin  = nullptr; // sync_repair — 0.0 = "Auto"
 
     QPushButton* runBtn = nullptr;
@@ -969,6 +1014,10 @@ struct AnalysisTabW::Impl {
     QComboBox* faceDynMetricCombo = nullptr; // face_dynamics only
     QLabel* faceDynStatsLbl       = nullptr; // face_dynamics only
     QPushButton* exportFaceDynBtn = nullptr; // face_dynamics only
+    QWidget* convRowW             = nullptr; // conversation only
+    QComboBox* convMetricCombo    = nullptr; // conversation only
+    QLabel* convStatsLbl          = nullptr; // conversation only
+    QPushButton* exportConvBtn    = nullptr; // conversation only
 
     // Frame Sync Repair view controls — mirrors triggerSyncRowW's shape
     // (a per-camera table, not the usual chart+overlay — this plugin's
@@ -1018,6 +1067,7 @@ struct AnalysisTabW::Impl {
     RppgResult currentRppgResult;            // rppg only
     Gaze2dResult currentGaze2dResult;        // gaze2d only
     FaceDynamicsResult currentFaceDynResult; // face_dynamics only
+    ConversationResult currentConversation;  // conversation only
     SyncRepairResult currentSyncRepair;      // sync_repair only
 
     // AnalysisManager is a single shared instance (also used by
@@ -1070,6 +1120,7 @@ struct AnalysisTabW::Impl {
         currentRppgResult       = RppgResult();
         currentGaze2dResult     = Gaze2dResult();
         currentFaceDynResult    = FaceDynamicsResult();
+        currentConversation     = ConversationResult();
         currentSyncRepair       = SyncRepairResult();
         currentVoice            = VoiceResult();
     }
@@ -1743,6 +1794,27 @@ void AnalysisTabW::build_ui() {
     faceDynCtlLay->addWidget(d->faceDynVideoCheck);
     add_plugin_page("face_dynamics", faceDynPage);
 
+    // Conversation Timing: speaker labels from Speaker Diarization when the
+    // session has them, and the annotated video.
+    auto* convPage   = new QWidget;
+    auto* convCtlLay = new QHBoxLayout(convPage);
+    convCtlLay->setContentsMargins(0, 0, 0, 0);
+    d->convDiarizationCheck = new QCheckBox("Use diarization");
+    d->convDiarizationCheck->setChecked(true);
+    d->convDiarizationCheck->setToolTip(
+        "Use the speaker labels from Speaker Diarization when this session has them. "
+        "Without them, who speaks is decided from the mouth on camera alone, and "
+        "overlapping speech cannot be seen.");
+    convCtlLay->addWidget(d->convDiarizationCheck);
+    d->convVideoCheck = new QCheckBox("Annotated video");
+    d->convVideoCheck->setChecked(true);
+    d->convVideoCheck->setToolTip(
+        "Also write a copy of each video showing who is speaking, the words of the "
+        "current turn and a scrolling timeline (no sound track).");
+    convCtlLay->addWidget(d->convVideoCheck);
+    convCtlLay->addStretch(1);
+    add_plugin_page("conversation", convPage);
+
     // ── Frame Sync Repair controls page ─────────────────────────────────
     auto* syncRepairPage   = new QWidget;
     auto* syncRepairCtlLay = new QHBoxLayout(syncRepairPage);
@@ -2382,6 +2454,29 @@ void AnalysisTabW::build_ui() {
     d->faceDynRowW->setVisible(false); // shown only for the face_dynamics plugin
     rightLay->addWidget(d->faceDynRowW);
 
+    // Conversation Timing row: chart choice, numbers, turns CSV export.
+    d->convRowW      = new QWidget;
+    auto* convRowLay = new QHBoxLayout(d->convRowW);
+    convRowLay->setContentsMargins(0, 0, 0, 0);
+    d->convMetricCombo = new QComboBox;
+    d->convMetricCombo->addItem("Who is speaking", "speaking");
+    d->convMetricCombo->addItem("Response times (ms)", "fto");
+    d->convMetricCombo->addItem("Audio level (dB)", "audio");
+    d->convMetricCombo->addItem("Mouth movement", "mouth");
+    connect(d->convMetricCombo, &QComboBox::currentIndexChanged, this,
+            &AnalysisTabW::update_conversation_view);
+    convRowLay->addWidget(new QLabel("Metric:"));
+    convRowLay->addWidget(d->convMetricCombo);
+    d->convStatsLbl = new QLabel;
+    d->convStatsLbl->setStyleSheet("color:#7070a0; font-size:11px;");
+    d->convStatsLbl->setWordWrap(true);
+    convRowLay->addWidget(d->convStatsLbl, 1);
+    d->exportConvBtn = new QPushButton("Export turns CSV");
+    connect(d->exportConvBtn, &QPushButton::clicked, this, &AnalysisTabW::export_conversation_csv);
+    convRowLay->addWidget(d->exportConvBtn);
+    d->convRowW->setVisible(false); // shown only for the conversation plugin
+    rightLay->addWidget(d->convRowW);
+
     // ── Frame Sync Repair view controls: stats readout + CSV export.
     //    sync_repair only. syncRepairTable itself lives in resultsSplitter
     //    below (own-container row here just holds the stats/export line,
@@ -2673,6 +2768,7 @@ void AnalysisTabW::select_plugin(const QString& pluginId) {
     const bool isRppg        = is_rppg_plugin();
     const bool isGaze2d      = is_gaze2d_plugin();
     const bool isFaceDyn     = is_face_dynamics_plugin();
+    const bool isConv        = is_conversation_plugin();
     const bool isSyncRepair  = is_sync_repair_plugin();
     // A depth model selected within the Pose plugin produces a colorized
     // video, not keypoints — the keypoint/chart controls below need to stay
@@ -2701,8 +2797,8 @@ void AnalysisTabW::select_plugin(const QString& pluginId) {
     // isPose3D included so the shared chart can show the Dyad Analysis
     // series — pose3d's own room-view/2D-overlay results view never needed
     // it before Dyad Analysis was added.
-    set_visible_animated(
-        d->chart, isPoseKeypoints || isExpression || isRppg || isGaze2d || isPose3D || isFaceDyn);
+    set_visible_animated(d->chart, isPoseKeypoints || isExpression || isRppg || isGaze2d ||
+                                       isPose3D || isFaceDyn || isConv);
     set_visible_animated(d->kinematicsRowW, isPoseKeypoints);
     // subjectPickerRowW's own further narrowing (hidden when the session has
     // <=1 detected subject) happens inside rebuild_subject_chips(), called
@@ -2722,10 +2818,11 @@ void AnalysisTabW::select_plugin(const QString& pluginId) {
     set_visible_animated(d->rppgRowW, isRppg);
     set_visible_animated(d->gaze2dRowW, isGaze2d);
     set_visible_animated(d->faceDynRowW, isFaceDyn);
+    set_visible_animated(d->convRowW, isConv);
     set_visible_animated(d->syncRepairRowW, isSyncRepair);
     set_visible_animated(d->syncRepairTable, isSyncRepair);
     set_visible_animated(d->openFolderBtn, isFaceMask || is_pose_depth_selected() || isSyncRepair ||
-                                               isGazeFusion || isFaceDyn);
+                                               isGazeFusion || isFaceDyn || isConv);
     set_visible_animated(d->sourceRowW, !isDiarize);
     set_visible_animated(d->micRowW, isDiarize);
     set_visible_animated(d->transcriptTable, isDiarize);
@@ -2849,6 +2946,10 @@ PluginRunState AnalysisTabW::run_state_for(const QString& pluginId) const {
         return per_input(info->videoFiles,
                          [this](const QString& v) { return gaze2d_json_path_for(v); });
     }
+    if (pluginId == "conversation") {
+        return per_input(info->videoFiles,
+                         [this](const QString& v) { return conversation_json_path_for(v); });
+    }
     if (pluginId == "face_dynamics") {
         return per_input(info->videoFiles,
                          [this](const QString& v) { return face_dynamics_json_path_for(v); });
@@ -2968,6 +3069,11 @@ QString AnalysisTabW::rppg_json_path_for(const QString& videoRelPath) const {
            d->rppgBackendCombo->currentData().toString() + ".rppg.json";
 }
 
+QString AnalysisTabW::conversation_json_path_for(const QString& videoRelPath) const {
+    // analysis/run_conversation.py writes into the session's conversation/.
+    return "conversation/" + QFileInfo(videoRelPath).completeBaseName() + ".conversation.json";
+}
+
 QString AnalysisTabW::face_dynamics_json_path_for(const QString& videoRelPath) const {
     // analysis/run_face_dynamics.py writes into the session's face_dynamics/.
     return "face_dynamics/" + QFileInfo(videoRelPath).completeBaseName() + ".face_dynamics.json";
@@ -3007,6 +3113,8 @@ bool AnalysisTabW::is_trigger_sync_plugin() const { return d->currentPlugin == "
 bool AnalysisTabW::is_rppg_plugin() const { return d->currentPlugin == "rppg"; }
 
 bool AnalysisTabW::is_gaze2d_plugin() const { return d->currentPlugin == "gaze2d"; }
+
+bool AnalysisTabW::is_conversation_plugin() const { return d->currentPlugin == "conversation"; }
 
 bool AnalysisTabW::is_face_dynamics_plugin() const { return d->currentPlugin == "face_dynamics"; }
 
@@ -3338,6 +3446,7 @@ void AnalysisTabW::reload_current_camera_result() {
         update_rppg_view();
         update_gaze2d_view();
         update_face_dynamics_view();
+        update_conversation_view();
         return;
     }
 
@@ -3496,6 +3605,37 @@ void AnalysisTabW::reload_current_camera_result() {
                 "2D Gaze ran, but no face was detected in this camera's "
                 "footage — try a different camera, or check its framing/lighting.");
             d->statusLbl->setStyleSheet("color:#ddaa33; font-size:15px; font-weight:600;");
+        }
+        return;
+    }
+
+    if (is_conversation_plugin()) {
+        const QString jsonAbs = info->path + "/" + conversation_json_path_for(videoRel);
+        d->currentConversation =
+            QFileInfo::exists(jsonAbs) ? ConversationResult::load(jsonAbs) : ConversationResult();
+        const QString annotated = d->currentConversation.annotated_video();
+        const bool hasAnnotated =
+            !annotated.isEmpty() && QFileInfo::exists(info->path + "/" + annotated);
+        d->player->set_video(hasAnnotated ? info->path + "/" + annotated : videoAbs);
+        d->player->set_pose_result(PoseAnalysisResult());
+        d->openFolderBtn->setEnabled(d->currentConversation.is_valid());
+
+        update_conversation_view();
+
+        if (!d->currentConversation.is_valid()) {
+            d->statusLbl->setText(
+                info->audioFiles.isEmpty()
+                    ? "This session has no audio, so there is no conversation to time."
+                    : "No analysis yet for this camera — click Run.");
+            d->statusLbl->setStyleSheet("color:#6060a0; font-size:15px; font-weight:600;");
+        } else if (d->currentConversation.transition_count() == 0) {
+            d->statusLbl->setText(
+                "Conversation Timing ran, but found no change of speaker — check that the "
+                "person on this camera is talking with someone, and that their face is visible.");
+            d->statusLbl->setStyleSheet("color:#ddaa33; font-size:15px; font-weight:600;");
+        } else if (hasAnnotated) {
+            d->statusLbl->setText("Showing the annotated video (no sound).");
+            d->statusLbl->setStyleSheet("color:#44cc66; font-size:15px; font-weight:600;");
         }
         return;
     }
@@ -4790,6 +4930,124 @@ void AnalysisTabW::export_gaze2d_csv() {
     });
 }
 
+void AnalysisTabW::update_conversation_view() {
+    const auto& r = d->currentConversation;
+    if (!r.is_valid()) {
+        d->chart->set_single_series({}, "Conversation");
+        d->chart->set_title("No analysis yet");
+        d->convStatsLbl->clear();
+        d->chart->set_playhead_ms(d->player->position_ms());
+        return;
+    }
+    // The chart and the player count from the video's first frame.
+    const double t0       = r.video_start_ms();
+    const QString metric  = d->convMetricCombo->currentData().toString();
+    const QColor subjectC = QColor("#5ac85a");
+    const QColor otherC   = QColor("#3ca0e6");
+    double lastMs         = 0.0;
+    for (const auto& s : r.spurts()) {
+        lastMs = std::max(lastMs, s.endMs - t0);
+    }
+
+    if (metric == "speaking") {
+        // Steps: on camera at +1, other at -1, while they speak.
+        auto steps = [&](const QString& who, double level) {
+            QVector<QPointF> pts;
+            for (const auto& s : r.spurts()) {
+                if (s.speaker != who) {
+                    continue;
+                }
+                const double a = s.startMs - t0;
+                const double b = s.endMs - t0;
+                pts << QPointF(a, 0.0) << QPointF(a, level) << QPointF(b, level) << QPointF(b, 0.0);
+            }
+            return pts;
+        };
+        d->chart->set_named_series({{"On camera", subjectC, steps("subject", 1.0)},
+                                    {"Other", otherC, steps("other", -1.0)}},
+                                   "Speaking", lastMs);
+    } else if (metric == "fto") {
+        QVector<QPointF> toSubject;
+        QVector<QPointF> toOther;
+        for (const auto& x : r.transitions()) {
+            (x.to == "subject" ? toSubject : toOther) << QPointF(x.nextStartMs - t0, x.ftoMs);
+        }
+        d->chart->set_named_series({{"On camera responding", subjectC, toSubject, true},
+                                    {"Other responding", otherC, toOther, true}},
+                                   "Offset (ms)", lastMs);
+    } else {
+        const QVector<double>& v = metric == "audio" ? r.audio_db() : r.mouth_activity();
+        QVector<QPointF> pts;
+        for (int i = 0; i < v.size(); ++i) {
+            if (std::isfinite(v[i])) {
+                pts << QPointF(r.signal_start_ms() + i * r.signal_step_ms() - t0, v[i]);
+            }
+        }
+        d->chart->set_single_series(pts, d->convMetricCombo->currentText(), QString(), lastMs);
+    }
+    d->chart->set_title("Conversation — " + d->convMetricCombo->currentText());
+    d->chart->set_playhead_ms(d->player->position_ms());
+
+    auto sec = [](const std::optional<double>& v) {
+        return v ? QString("%1 ms").arg(*v * 1000.0, 0, 'f', 0) : QString("–");
+    };
+    const auto& a = r.subject();
+    const auto& b = r.other();
+    QStringList parts;
+    parts << QString("on camera %1 s in %2 turns, responds after %3")
+                 .arg(a.speechS, 0, 'f', 0)
+                 .arg(a.turns)
+                 .arg(sec(a.medianResponseS));
+    parts << QString("other %1 s in %2 turns, responds after %3")
+                 .arg(b.speechS, 0, 'f', 0)
+                 .arg(b.turns)
+                 .arg(sec(b.medianResponseS));
+    parts << QString("%1 changes of speaker (%2 gaps, %3 overlapping, %4 interruptions)")
+                 .arg(r.transition_count())
+                 .arg(r.gaps())
+                 .arg(r.overlapping_transitions())
+                 .arg(a.interruptions + b.interruptions);
+    parts << QString("%1 pauses, %2 backchannels by the other").arg(a.pauses).arg(b.backchannels);
+    if (a.wordsPerMin) {
+        parts << QString("%1 words/min on camera").arg(*a.wordsPerMin, 0, 'f', 0);
+    }
+    parts << QString("speakers from %1")
+                 .arg(r.attribution_method() == "diarization" ? "diarization + mouth"
+                                                              : "mouth movement only");
+    if (r.timing_method() != "timing_file") {
+        parts << "audio placed approximately (recorded before audio timing files)";
+    }
+    d->convStatsLbl->setText(parts.join("  ·  "));
+}
+
+void AnalysisTabW::export_conversation_csv() {
+    const auto* info = d->current_session();
+    const auto& r    = d->currentConversation;
+    if (!info || !r.is_valid()) {
+        return;
+    }
+    const QString stem      = QFileInfo(r.source_video()).completeBaseName();
+    const QString suggested = info->path + "/" + stem + "_turns.csv";
+    const double t0         = r.video_start_ms();
+    export_csv(this, "Export conversation turns", suggested, [&](QTextStream& ts) {
+        ts << "speaker,start_s,end_s,duration_s,pauses,response_ms,text\n";
+        for (const auto& t : r.turns()) {
+            QString response;
+            for (const auto& x : r.transitions()) {
+                if (x.nextStartMs == t.startMs && x.to == t.speaker) {
+                    response = QString::number(x.ftoMs);
+                }
+            }
+            QString text = t.text;
+            text.replace('"', "\"\"");
+            ts << t.speaker << "," << QString::number((t.startMs - t0) / 1000.0, 'f', 3) << ","
+               << QString::number((t.endMs - t0) / 1000.0, 'f', 3) << ","
+               << QString::number((t.endMs - t.startMs) / 1000.0, 'f', 3) << "," << t.pauses << ","
+               << response << ",\"" << text << "\"\n";
+        }
+    });
+}
+
 void AnalysisTabW::update_face_dynamics_view() {
     const auto& result = d->currentFaceDynResult;
     if (!result.is_valid() || result.frames().isEmpty()) {
@@ -5151,6 +5409,10 @@ void AnalysisTabW::run_analysis() {
     } else if (plugin == "gaze2d") {
         d->analysisMgr->run_gaze2d_analysis(
             d->currentSessionPath, d->gaze2dMinConfidenceSpin->value(), d->gaze2dSkipSpin->value());
+    } else if (plugin == "conversation") {
+        d->analysisMgr->run_conversation_analysis(d->currentSessionPath,
+                                                  d->convDiarizationCheck->isChecked(),
+                                                  d->convVideoCheck->isChecked());
     } else if (plugin == "face_dynamics") {
         d->analysisMgr->run_face_dynamics_analysis(d->currentSessionPath,
                                                    d->faceDynMinConfidenceSpin->value(),
@@ -5180,6 +5442,8 @@ void AnalysisTabW::open_output_folder() {
         folder = "gaze_fusion";
     } else if (is_face_dynamics_plugin()) {
         folder = "face_dynamics";
+    } else if (is_conversation_plugin()) {
+        folder = "conversation";
     }
     QDesktopServices::openUrl(QUrl::fromLocalFile(info->path + "/" + folder));
 }

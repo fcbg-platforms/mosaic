@@ -382,7 +382,8 @@ For a selected session you can:
   - **SYNCED**: the equal-length videos in ``synced/`` exist.
   - **POSE**, **MOTION**, **TRANSCRIPT** (Speaker Diarization),
     **EXPRESSION**, **GAZE**, **3D POSE**, **HR** (Remote Heart Rate),
-    **GAZE 2D**, **FACE DYN**: that analysis has been run. Face Masking has no badge of its
+    **GAZE 2D**, **FACE DYN**, **TURNS** (Conversation Timing): that analysis has
+    been run. Face Masking has no badge of its
     own; look for the session's ``anonymized/`` folder.
 
 .. note::
@@ -779,6 +780,46 @@ sitting alongside **Live**. The workflow is always the same shape:
       event. The ``face_dynamics/`` folder (**Open output folder**) also
       holds a per-frame CSV with all 52 blendshapes. See
       :doc:`math/face_dynamics` for every rule and threshold.
+
+   .. tab-item:: Conversation Timing
+
+      **What it does**: times the conversation between the person on a
+      camera (in interview mode, the interviewee) and everyone else heard on
+      the microphone (the interviewer):
+
+      - who speaks when;
+      - how quickly each answers (the *floor transfer offset*: the gap, or
+        the overlap when one starts before the other stops);
+      - interruptions, pauses within a turn, and short "mm-hm"
+        backchannels;
+      - speech time and, with a transcript, words per minute.
+
+      Speech timing comes from the audio; the camera (mouth movement) decides
+      whose speech it is. Run **Speaker Diarization** first if you can: its
+      speaker labels make attribution more reliable, they are needed to see
+      overlapping speech, and they add the words of each turn. Running **Face
+      Dynamics** first saves this plugin a pass over the video.
+
+      Recordings made with this version also save an audio timing file, so
+      sound and picture line up to within the sound card's own capture
+      latency (typically tens of milliseconds). For older recordings
+      the plugin lines them up from lip movement where it can, and says so.
+
+      **Controls**: **Use diarization** (use the speaker labels when the
+      session has them) and **Annotated video** (a copy of the video showing
+      who is speaking, the last response time, the current turn's words and
+      a scrolling timeline; it has no sound).
+
+      **Reading the output**: the **Metric** dropdown shows who is speaking
+      over time (on camera above the axis, the other speaker below), each
+      response time as a point, the audio level, or the mouth movement. The
+      stats line gives each speaker's speech time, turns and median response
+      time, the count of speaker changes split into gaps, overlaps and
+      interruptions, pauses and backchannels, and how speakers were
+      attributed. **Export turns CSV** saves one row per turn with its
+      response time and words; ``conversation/`` (**Open output folder**)
+      also holds a transitions CSV. See :doc:`math/conversation_timing` for
+      every definition and its accuracy.
 
    .. tab-item:: EEG/Trigger ↔ Frame Sync
 

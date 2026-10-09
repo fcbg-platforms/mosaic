@@ -5,6 +5,7 @@
 #include <QObject>
 #include <memory>
 
+#include "audio/audio_timing_log.hpp"
 #include "audio/wav_writer.hpp"
 #include "core/settings.hpp"
 
@@ -50,6 +51,8 @@ class AudioRecorder : public QObject {
     std::unique_ptr<QAudioSource> m_source;
     QIODevice* m_ioDevice{nullptr};
     WavWriter m_writer;
+    AudioTimingLog m_timing;   // <wav>.timing.csv, places samples on the video clock
+    int64_t m_bytesWritten{0}; // 16-bit PCM bytes, so frames = bytes / (2 * channels)
     bool m_monitorOnly{false}; // true when filePath is "" (no file writing)
 
     // Whichever sample format the device actually ended up capturing in —

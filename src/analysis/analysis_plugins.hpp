@@ -83,6 +83,8 @@ struct AnalysisPluginDesc {
         {"face_dynamics", "Face Dynamics",
          "Blinks, smiles, brow raises, nods. Best in interview mode.",
          AnalysisPluginCategory::FaceGaze},
+        {"conversation", "Conversation Timing", "Turns, response times, pauses and overlaps.",
+         AnalysisPluginCategory::Audio},
         {"sync_repair", "Frame Sync Repair", "Equalizes camera frame counts into synced/.",
          AnalysisPluginCategory::DataPrep},
     };

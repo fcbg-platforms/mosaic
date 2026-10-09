@@ -73,6 +73,13 @@ algorithm behind its output.
       Blinks, Duchenne smiles, brow raises, expressivity, nods and shakes
       from one camera's video.
 
+   .. grid-item-card:: 💬 Conversation Timing
+      :link: analysis-api-conversation
+      :link-type: ref
+
+      Turns, response times, pauses, overlaps and backchannels from the
+      audio and the face on camera.
+
    .. grid-item-card:: 🐭 Motion Tracking
       :link: analysis-api-motion
       :link-type: ref
@@ -707,6 +714,72 @@ supplies the per-frame measurements. See :doc:`math/face_dynamics`.
    :members: measure, close
 
 .. autofunction:: face_dynamics.extract.head_angles
+
+.. _analysis-api-conversation:
+
+Conversation Timing
+-------------------
+
+Times a conversation from the session's audio and one camera's face. Speech
+comes from Silero VAD (:mod:`conversation.vad`), audio is placed on the video
+clock from the recorder's timing file (:mod:`conversation.timing`), speech
+is attributed to the face on camera or someone else from mouth movement and
+diarization labels (:mod:`conversation.speakers`), and turns, floor
+transfer offsets, pauses, overlaps and backchannels follow
+(:mod:`conversation.turns`). See :doc:`math/conversation_timing`.
+
+.. code-block:: python
+
+   from conversation import turns as tt
+
+   subject = tt.merge_close(tt.mask_intervals(subject_mask, 0.01), tt.MIN_PAUSE_S)
+   other = tt.merge_close(tt.mask_intervals(other_mask, 0.01), tt.MIN_PAUSE_S)
+   spurts = tt.classify_spurts(subject, other)
+   turns, transitions = tt.build_turns(spurts)
+   [x.fto_s for x in transitions]   # response times, seconds
+
+.. automodule:: conversation
+   :no-members:
+
+.. autosummary::
+   :nosignatures:
+
+   vad.detect_speech_silero
+   vad.band_energy_db
+   timing.fit_timing
+   timing.estimate_av_lag
+   speakers.mouth_activity
+   speakers.speaking_threshold
+   speakers.match_diarized_speaker
+   speakers.attribute
+   turns.classify_spurts
+   turns.build_turns
+   turns.summarise
+
+.. autofunction:: conversation.vad.detect_speech_silero
+
+.. autofunction:: conversation.vad.band_energy_db
+
+.. autoclass:: conversation.timing.AudioClock
+   :members:
+
+.. autofunction:: conversation.timing.fit_timing
+
+.. autofunction:: conversation.timing.estimate_av_lag
+
+.. autofunction:: conversation.speakers.mouth_activity
+
+.. autofunction:: conversation.speakers.speaking_threshold
+
+.. autofunction:: conversation.speakers.match_diarized_speaker
+
+.. autofunction:: conversation.speakers.attribute
+
+.. autofunction:: conversation.turns.classify_spurts
+
+.. autofunction:: conversation.turns.build_turns
+
+.. autofunction:: conversation.turns.summarise
 
 .. _analysis-api-motion:
 
