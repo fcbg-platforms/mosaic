@@ -2,6 +2,7 @@
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QString>
+#include <QVector>
 #include <array>
 #include <optional>
 #include <vector>
@@ -33,6 +34,15 @@ struct CalibrationData {
     // "intrinsics done". extrinsicRt stays at its default identity while
     // this is false.
     bool extrinsicCalibrated = false;
+    // The image the intrinsics were calibrated on: its size and, when the
+    // camera was cropped (interview mode), where that crop sat on the
+    // sensor. -1 = unknown (calibrated before these were recorded). The
+    // principal point is only valid for that crop; analysis shifts it for a
+    // recording that used a different one.
+    int imageWidth   = -1;
+    int imageHeight  = -1;
+    int imageOffsetX = -1;
+    int imageOffsetY = -1;
 
     [[nodiscard]] QJsonObject to_json() const;
     [[nodiscard]] static std::optional<CalibrationData> from_json(const QJsonObject&);
@@ -465,10 +475,27 @@ struct AnalysisSettings {
 // target surface for one shot). Consumed by analysis/run_gaze_fusion.py via
 // the "room" section RecordManager writes into session_meta.json — a plane
 // isn't camera-specific, so it lives here rather than inside CalibrationData.
+// A named rectangle in the room (a screen, a poster, a toy box) that gaze
+// analysis reports looks at. Room frame, millimetres. Usually placed by
+// holding the ChArUco board on it for one shot (RoomCalibrationW).
+struct GazeRegion {
+    QString name;
+    std::array<double, 3> centre = {0, 0, 0};
+    std::array<double, 3> normal = {0, 0, 1};
+    std::array<double, 3> uAxis  = {1, 0, 0}; // along the width
+    double width                 = 0.0;
+    double height                = 0.0;
+
+    [[nodiscard]] QJsonObject to_json() const;
+    [[nodiscard]] static std::optional<GazeRegion> from_json(const QJsonObject&);
+};
+
 struct RoomSettings {
     std::array<double, 3> planePoint  = {0, 0, 0};
     std::array<double, 3> planeNormal = {0, 0, 1};
     bool planeDefined                 = false;
+    // Named gaze targets; snapshotted into session_meta.json with the plane.
+    QVector<GazeRegion> regions;
 
     [[nodiscard]] QJsonObject to_json() const;
     [[nodiscard]] static std::optional<RoomSettings> from_json(const QJsonObject&);

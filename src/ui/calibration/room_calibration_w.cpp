@@ -79,6 +79,13 @@ struct RoomCalibrationW::Impl {
     std::array<double, 3> pendingPlanePoint  = {0, 0, 0};
     std::array<double, 3> pendingPlaneNormal = {0, 0, 1};
 
+    // Gaze target regions: edited here, written to roomSettings by
+    // save_to_settings() like the plane.
+    QVector<GazeRegion> regions;
+    QTableWidget* regionTable    = nullptr;
+    QPushButton* addRegionBtn    = nullptr;
+    QPushButton* removeRegionBtn = nullptr;
+
     explicit Impl(VideoSettings& vs, RoomSettings& rs, VideoManager* vm)
         : videoSettings(vs), roomSettings(rs), videoMgr(vm) {}
 };
@@ -289,7 +296,8 @@ void RoomCalibrationW::build_capture_section(QVBoxLayout* parent) {
 
     auto* note = new QLabel(
         "Move the board through overlapping pairs of camera views, capturing a shot each time "
-        "it's visible to at least two cameras. Camera 0 is the fixed room-origin reference.");
+        "it's visible to at least two cameras. The reference camera chosen below defines the "
+        "room's origin and axes.");
     note->setProperty("role", "muted");
     note->setWordWrap(true);
     vlay->addWidget(note);
@@ -334,6 +342,74 @@ void RoomCalibrationW::build_capture_section(QVBoxLayout* parent) {
     d->planeStatusLbl->setProperty("role", "muted");
     d->planeStatusLbl->setWordWrap(true);
     vlay->addWidget(d->planeStatusLbl);
+
+    // Gaze target regions: things gaze analysis names when someone looks at
+    // them (a screen, a poster, a toy box).
+    auto* regionNote = new QLabel(
+        "Gaze target regions: hold the board flat on the target, centred on it, capture a "
+        "shot, then add it. Set the name and the target's real width and height (the "
+        "board's size is filled in). Regions are kept as soon as they change, and written "
+        "to the settings file on exit.");
+    regionNote->setProperty("role", "muted");
+    regionNote->setWordWrap(true);
+    vlay->addWidget(regionNote);
+
+    d->regions     = d->roomSettings.regions;
+    d->regionTable = new QTableWidget(0, 4);
+    d->regionTable->setHorizontalHeaderLabels(
+        {"Name", "Width (mm)", "Height (mm)", "Centre (mm, room)"});
+    d->regionTable->horizontalHeader()->setStretchLastSection(true);
+    d->regionTable->verticalHeader()->setVisible(false);
+    d->regionTable->setSelectionBehavior(QAbstractItemView::SelectRows);
+    d->regionTable->setMaximumHeight(150);
+    connect(d->regionTable, &QTableWidget::itemChanged, this, [this](QTableWidgetItem* item) {
+        const int row = item->row();
+        if (row < 0 || row >= d->regions.size()) {
+            return;
+        }
+        auto& region = d->regions[row];
+        bool ok      = false;
+        QString kept;
+        if (item->column() == 0) {
+            const QString name = item->text().trimmed();
+            if (!name.isEmpty()) {
+                region.name = name;
+            }
+            kept = region.name;
+        } else if (item->column() == 1 || item->column() == 2) {
+            double& field      = item->column() == 1 ? region.width : region.height;
+            const double value = item->text().toDouble(&ok);
+            if (ok && value > 0.0) {
+                field = value;
+            }
+            kept = QString::number(field, 'f', 0);
+        } else {
+            return;
+        }
+        // Show the value actually kept, on the same item: replacing items
+        // from inside their own itemChanged would delete the emitter.
+        {
+            const QSignalBlocker block(d->regionTable);
+            item->setText(kept);
+        }
+        // Regions take effect at once, independent of Solve and of the
+        // extrinsics: saving those would also rewrite every camera's pose.
+        d->roomSettings.regions = d->regions;
+    });
+    vlay->addWidget(d->regionTable);
+
+    auto* row4      = new QHBoxLayout;
+    d->addRegionBtn = new QPushButton("Add from last board shot");
+    d->addRegionBtn->setEnabled(false);
+    connect(d->addRegionBtn, &QPushButton::clicked, this, &RoomCalibrationW::add_region_from_shot);
+    row4->addWidget(d->addRegionBtn);
+    d->removeRegionBtn = new QPushButton("Remove");
+    connect(d->removeRegionBtn, &QPushButton::clicked, this,
+            &RoomCalibrationW::remove_selected_region);
+    row4->addWidget(d->removeRegionBtn);
+    row4->addStretch();
+    vlay->addLayout(row4);
+    refresh_region_table();
 
     parent->addWidget(box);
 }
@@ -427,6 +503,7 @@ void RoomCalibrationW::solve() {
     }();
     d->saveBtn->setEnabled(anyResolved);
     d->usePlaneBtn->setEnabled(anyResolved && d->lastShotIndex >= 0);
+    d->addRegionBtn->setEnabled(anyResolved && d->lastShotIndex >= 0);
 }
 
 void RoomCalibrationW::update_result_table() {
@@ -482,6 +559,57 @@ void RoomCalibrationW::use_shot_as_plane() {
             .arg(point[2], 0, 'f', 1));
 }
 
+void RoomCalibrationW::add_region_from_shot() {
+    if (d->lastShotIndex < 0) {
+        return;
+    }
+    GazeRegion region;
+    bool ok = false;
+    for (int i = 0; i < static_cast<int>(d->videoSettings.cameras.size()) && !ok; ++i) {
+        ok = d->manager.use_shot_as_region(d->lastShotIndex, i, region.centre, region.normal,
+                                           region.uAxis, region.width, region.height);
+    }
+    if (!ok) {
+        QMessageBox::warning(this, "No region available",
+                             "The last captured shot has no detection from an already-resolved "
+                             "camera. Run Solve first, then capture a shot with the board on the "
+                             "target.");
+        return;
+    }
+    region.name = QString("region %1").arg(d->regions.size() + 1);
+    d->regions.push_back(region);
+    d->roomSettings.regions = d->regions;
+    refresh_region_table();
+    d->regionTable->selectRow(d->regions.size() - 1);
+}
+
+void RoomCalibrationW::remove_selected_region() {
+    const int row = d->regionTable->currentRow();
+    if (row >= 0 && row < d->regions.size()) {
+        d->regions.removeAt(row);
+        d->roomSettings.regions = d->regions;
+        refresh_region_table();
+    }
+}
+
+void RoomCalibrationW::refresh_region_table() {
+    const QSignalBlocker block(d->regionTable);
+    d->regionTable->setRowCount(static_cast<int>(d->regions.size()));
+    for (int row = 0; row < d->regions.size(); ++row) {
+        const auto& r = d->regions[row];
+        d->regionTable->setItem(row, 0, new QTableWidgetItem(r.name));
+        d->regionTable->setItem(row, 1, new QTableWidgetItem(QString::number(r.width, 'f', 0)));
+        d->regionTable->setItem(row, 2, new QTableWidgetItem(QString::number(r.height, 'f', 0)));
+        auto* centre = new QTableWidgetItem(QString("%1, %2, %3")
+                                                .arg(r.centre[0], 0, 'f', 0)
+                                                .arg(r.centre[1], 0, 'f', 0)
+                                                .arg(r.centre[2], 0, 'f', 0));
+        centre->setFlags(centre->flags() & ~Qt::ItemIsEditable);
+        d->regionTable->setItem(row, 3, centre);
+    }
+    d->removeRegionBtn->setEnabled(!d->regions.isEmpty());
+}
+
 void RoomCalibrationW::save_to_settings() {
     int savedCount   = 0;
     int clearedCount = 0;
@@ -510,6 +638,7 @@ void RoomCalibrationW::save_to_settings() {
         d->roomSettings.planeNormal  = d->pendingPlaneNormal;
         d->roomSettings.planeDefined = true;
     }
+    d->roomSettings.regions = d->regions;
 
     QString msg = QString("Extrinsics stored for %1 camera(s).%2")
                       .arg(savedCount)
@@ -520,6 +649,9 @@ void RoomCalibrationW::save_to_settings() {
                    "their extrinsics cleared — re-run Solve with more overlapping shots "
                    "to restore them.")
                    .arg(clearedCount);
+    }
+    if (!d->regions.isEmpty()) {
+        msg += QString("\n%1 gaze target region(s) stored.").arg(d->regions.size());
     }
     msg += "\nWritten to the settings file on application exit.";
     QMessageBox::information(this, "Room calibration saved", msg);

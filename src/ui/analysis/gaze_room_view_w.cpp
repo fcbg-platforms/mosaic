@@ -2,6 +2,7 @@
 
 #include <QPainter>
 #include <algorithm>
+#include <cmath>
 #include <limits>
 
 #include "video/camera_label.hpp"
@@ -9,76 +10,111 @@
 namespace mosaic {
 
 namespace {
-const QColor kCameraColors[] = {
-    QColor("#44cc44"), QColor("#4488ff"), QColor("#ffaa44"),
-    QColor("#ff4488"), QColor("#44cccc"), QColor("#cc44cc"),
+
+// Same per-subject colours as the annotated videos (analysis/gaze/render.py
+// PALETTE, which is BGR there).
+const QColor kSubjectColors[] = {
+    QColor(255, 200, 60), QColor(40, 160, 255), QColor(90, 230, 90),
+    QColor(230, 90, 230), QColor(90, 255, 255), QColor(255, 120, 80),
 };
+
+Vec3 sub(const Vec3& a, const Vec3& b) { return {a[0] - b[0], a[1] - b[1], a[2] - b[2]}; }
+Vec3 add(const Vec3& a, const Vec3& b) { return {a[0] + b[0], a[1] + b[1], a[2] + b[2]}; }
+Vec3 mul(const Vec3& a, double k) { return {a[0] * k, a[1] * k, a[2] * k}; }
+double dot(const Vec3& a, const Vec3& b) { return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]; }
+Vec3 cross(const Vec3& a, const Vec3& b) {
+    return {a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]};
+}
+Vec3 unit(const Vec3& a) {
+    const double n = std::sqrt(dot(a, a));
+    return n > 1e-12 ? mul(a, 1.0 / n) : a;
+}
+
 } // namespace
 
 struct GazeRoomViewW::Impl {
     GazeFusionResult result;
     int64_t positionMs = 0;
 
-    // Auto-fit projection bounds, room-space mm (X/Y — top-down).
-    double minX = -1000, maxX = 1000, minY = -1000, maxY = 1000;
+    // Top-down basis: "up" is the calibrated plane's normal (towards the
+    // cameras) when there is one, else the reference camera's up (-y, its
+    // y points down); e1/e2 span the floor. Matches gaze/render.py TopDown,
+    // so this panel and room_topdown.mp4 show the room the same way round.
+    Vec3 e1 = {1, 0, 0}, e2 = {0, 0, 1};
+    double minU = -1000, maxU = 1000, minV = -1000, maxV = 1000;
 
-    void recompute_bounds() {
-        minX = minY = std::numeric_limits<double>::max();
-        maxX = maxY = std::numeric_limits<double>::lowest();
+    [[nodiscard]] QPointF uv(const Vec3& p) const { return {dot(p, e1), dot(p, e2)}; }
 
+    void recompute_basis_and_bounds() {
+        Vec3 up = {0, -1, 0};
+        if (result.plane_defined()) {
+            up        = unit(result.plane_normal());
+            Vec3 mean = {0, 0, 0};
+            for (const auto& c : result.cameras()) {
+                mean = add(mean, c.positionRoom);
+            }
+            if (!result.cameras().isEmpty()) {
+                mean = mul(mean, 1.0 / result.cameras().size());
+                if (dot(sub(mean, result.plane_point()), up) < 0) {
+                    up = mul(up, -1.0);
+                }
+            }
+        }
+        const Vec3 refX = {1, 0, 0};
+        e1              = unit(sub(refX, mul(up, dot(refX, up))));
+        if (dot(e1, e1) < 0.25) {
+            e1 = unit(cross(up, Vec3{0, 0, 1}));
+        }
+        // e1 to the right and e2 drawn downwards must look *down* the up
+        // axis (e1 x e2 = -up); cross(up, e1) would show the room from
+        // below, mirrored.
+        e2 = cross(e1, up);
+
+        minU = minV = std::numeric_limits<double>::max();
+        maxU = maxV   = std::numeric_limits<double>::lowest();
         auto consider = [&](const Vec3& p) {
-            minX = std::min(minX, p[0]);
-            maxX = std::max(maxX, p[0]);
-            minY = std::min(minY, p[1]);
-            maxY = std::max(maxY, p[1]);
+            const QPointF q = uv(p);
+            minU            = std::min(minU, q.x());
+            maxU            = std::max(maxU, q.x());
+            minV            = std::min(minV, q.y());
+            maxV            = std::max(maxV, q.y());
         };
-
         for (const auto& cam : result.cameras()) {
             consider(cam.positionRoom);
         }
-        if (result.plane_defined()) {
-            consider(result.plane_point());
+        for (const auto& r : result.regions()) {
+            consider(r.centre);
         }
         for (const auto& frame : result.frames()) {
-            if (frame.numCameras > 0) {
-                consider(frame.fusedOriginRoom);
-            }
-            if (frame.hasTarget) {
-                consider(frame.targetPointRoom);
+            for (const auto& s : frame.subjects) {
+                consider(s.origin);
             }
         }
-
-        if (minX > maxX) { // nothing considered (empty/invalid result) — fall back
-            minX = -1000;
-            maxX = 1000;
-            minY = -1000;
-            maxY = 1000;
+        if (minU > maxU) {
+            minU = minV = -1000;
+            maxU = maxV = 1000;
         }
-        const double padX = std::max((maxX - minX) * 0.15, 100.0);
-        const double padY = std::max((maxY - minY) * 0.15, 100.0);
-        minX -= padX;
-        maxX += padX;
-        minY -= padY;
-        maxY += padY;
+        const double pad = std::max({(maxU - minU) * 0.15, (maxV - minV) * 0.15, 400.0});
+        minU -= pad;
+        maxU += pad;
+        minV -= pad;
+        maxV += pad;
     }
 
-    // Room X/Y -> widget coordinates, independently scaled per axis to
-    // fill `area` (not forced to a single uniform scale — this is a schematic
-    // top-down diagram, not a metrically-accurate blueprint). Room Y is
-    // flipped so it grows "up" on screen, matching a conventional top-down
-    // view rather than Qt's own downward-growing Y.
+    // One uniform scale for both axes: distances and angles on screen are
+    // true to the room.
     [[nodiscard]] QPointF to_widget(const Vec3& p, const QRectF& area) const {
-        const double u = (p[0] - minX) / std::max(maxX - minX, 1e-6);
-        const double v = (p[1] - minY) / std::max(maxY - minY, 1e-6);
-        return QPointF(area.left() + u * area.width(), area.bottom() - v * area.height());
+        const double scale = std::min(area.width() / std::max(maxU - minU, 1.0),
+                                      area.height() / std::max(maxV - minV, 1.0));
+        const double offX  = area.left() + (area.width() - (maxU - minU) * scale) / 2.0;
+        const double offY  = area.top() + (area.height() - (maxV - minV) * scale) / 2.0;
+        const QPointF q    = uv(p);
+        return {offX + (q.x() - minU) * scale, offY + (q.y() - minV) * scale};
     }
 
-    [[nodiscard]] const GazeFusionFrame* current_frame() const {
-        if (result.frames().isEmpty()) {
-            return nullptr;
-        }
-        const int64_t ts = result.frames().first().timestampNs + positionMs * 1000000LL;
-        return result.nearest_frame(ts);
+    [[nodiscard]] QColor subject_color(const QString& id) const {
+        const int i = std::max(0, static_cast<int>(result.subject_ids().indexOf(id)));
+        return kSubjectColors[i % 6];
     }
 };
 
@@ -90,7 +126,7 @@ GazeRoomViewW::~GazeRoomViewW() = default;
 
 void GazeRoomViewW::set_result(const GazeFusionResult& result) {
     d->result = result;
-    d->recompute_bounds();
+    d->recompute_basis_and_bounds();
     update();
 }
 
@@ -110,71 +146,68 @@ void GazeRoomViewW::paintEvent(QPaintEvent*) {
         return;
     }
 
-    const QRectF area = QRectF(rect()).adjusted(12, 12, -12, -12);
+    const QRectF area = QRectF(rect()).adjusted(12, 24, -12, -22);
+    painter.setPen(QColor("#7070a0"));
+    painter.drawText(rect().adjusted(8, 4, -8, -4), Qt::AlignTop | Qt::AlignLeft,
+                     "Room from above");
 
-    // Reference plane — object points aren't known (only point+normal), so
-    // draw a simple square footprint centered on the plane point as a
-    // schematic stand-in for "the target surface is roughly here."
-    if (d->result.plane_defined()) {
-        const auto pp           = d->result.plane_point();
-        const double halfExtent = std::max(d->maxX - d->minX, d->maxY - d->minY) * 0.15;
-        const Vec3 corner1      = {pp[0] - halfExtent, pp[1] - halfExtent, pp[2]};
-        const Vec3 corner2      = {pp[0] + halfExtent, pp[1] + halfExtent, pp[2]};
-        painter.setPen(QPen(QColor("#335544"), 1));
-        painter.setBrush(QColor(60, 110, 90, 60));
-        painter.drawRect(
-            QRectF(d->to_widget(corner1, area), d->to_widget(corner2, area)).normalized());
+    // Named regions, as their outline.
+    for (const auto& r : d->result.regions()) {
+        const Vec3 u = mul(unit(r.uAxis), r.width / 2.0);
+        const Vec3 v = mul(unit(cross(r.normal, r.uAxis)), r.height / 2.0);
+        const QPolygonF poly{d->to_widget(sub(sub(r.centre, u), v), area),
+                             d->to_widget(sub(add(r.centre, u), v), area),
+                             d->to_widget(add(add(r.centre, u), v), area),
+                             d->to_widget(add(sub(r.centre, u), v), area)};
+        painter.setPen(QPen(QColor("#9090b0"), 1.5));
+        painter.setBrush(QColor(120, 120, 170, 40));
+        painter.drawPolygon(poly);
+        painter.setPen(QColor("#b0b0d0"));
+        painter.drawText(poly.boundingRect().center() + QPointF(-12, 4), r.name);
     }
 
     // Cameras.
     for (const auto& cam : d->result.cameras()) {
-        const QPointF p    = d->to_widget(cam.positionRoom, area);
-        const QColor color = kCameraColors[((cam.index % 6) + 6) % 6];
+        const QPointF p = d->to_widget(cam.positionRoom, area);
         painter.setPen(Qt::NoPen);
-        painter.setBrush(color);
-        painter.drawEllipse(p, 5, 5);
-        painter.setPen(color);
+        painter.setBrush(QColor("#a0a0b8"));
+        painter.drawEllipse(p, 4, 4);
+        painter.setPen(QColor("#a0a0b8"));
         painter.drawText(p + QPointF(6, -6), camera_short_label(cam.index));
     }
 
-    // Current fused frame: per-camera rays (thin) + the fused ray (bold).
-    const GazeFusionFrame* frame = d->current_frame();
-    if (frame && frame->numCameras > 0) {
-        for (const auto& cam : frame->perCamera) {
-            const Vec3 tip = {cam.originRoom[0] + cam.directionRoom[0] * 500.0,
-                              cam.originRoom[1] + cam.directionRoom[1] * 500.0,
-                              cam.originRoom[2] + cam.directionRoom[2] * 500.0};
-            painter.setPen(QPen(QColor(255, 255, 255, 70), 1, Qt::DashLine));
-            painter.drawLine(d->to_widget(cam.originRoom, area), d->to_widget(tip, area));
+    const GazeFusionFrame* frame = d->result.frame_at_position_ms(d->positionMs);
+    QStringList lines;
+    if (frame) {
+        for (const auto& s : frame->subjects) {
+            const QColor color = d->subject_color(s.id);
+            const QPointF o    = d->to_widget(s.origin, area);
+            painter.setPen(QPen(color, 2));
+            painter.setBrush(Qt::NoBrush);
+            painter.drawEllipse(o, 9, 9);
+            painter.drawText(o + QPointF(11, 4), s.name);
+            if (s.hasDirection) {
+                const Vec3 tip   = s.hasPoint ? s.point : add(s.origin, mul(s.direction, 800.0));
+                const QPointF tp = d->to_widget(tip, area);
+                painter.setPen(QPen(color, s.mutual ? 3 : 2));
+                painter.drawLine(o, tp);
+                painter.setPen(Qt::NoPen);
+                painter.setBrush(color);
+                painter.drawEllipse(tp, 4, 4);
+            }
+            QString target = s.targetType == QLatin1String("subject") ? s.targetLabel
+                             : (s.targetLabel.isEmpty() || s.targetLabel == QLatin1String("none"))
+                                 ? QStringLiteral("nothing recognised")
+                                 : s.targetLabel;
+            lines << QString("%1 → %2%3").arg(s.name, target, s.mutual ? "  (mutual)" : "");
         }
-
-        const QPointF fusedOrigin = d->to_widget(frame->fusedOriginRoom, area);
-        QPointF fusedTip;
-        if (frame->hasTarget) {
-            fusedTip = d->to_widget(frame->targetPointRoom, area);
-        } else {
-            const Vec3 tip = {frame->fusedOriginRoom[0] + frame->fusedDirectionRoom[0] * 800.0,
-                              frame->fusedOriginRoom[1] + frame->fusedDirectionRoom[1] * 800.0,
-                              frame->fusedOriginRoom[2] + frame->fusedDirectionRoom[2] * 800.0};
-            fusedTip       = d->to_widget(tip, area);
-        }
-        painter.setPen(QPen(QColor("#ffdd44"), 2));
-        painter.drawLine(fusedOrigin, fusedTip);
-        painter.setPen(Qt::NoPen);
-        painter.setBrush(QColor("#ffdd44"));
-        painter.drawEllipse(fusedTip, 4, 4);
     }
-
-    painter.setPen(QColor("#7070a0"));
+    painter.setPen(QColor("#9090c0"));
     const QString info =
-        frame ? QString("tick %1  ·  %2 camera(s)%3")
-                    .arg(frame->tick)
-                    .arg(frame->numCameras)
-                    .arg(frame->isTriangulated
-                             ? QString("  ·  residual %1 mm").arg(frame->residualRmsMm, 0, 'f', 1)
-                             : QString())
+        frame ? (lines.isEmpty() ? QString("tick %1  ·  nobody seen").arg(frame->tick)
+                                 : lines.join("   "))
               : QString("no data at this position");
-    painter.drawText(rect().adjusted(6, 4, -6, -4), Qt::AlignBottom | Qt::AlignLeft, info);
+    painter.drawText(rect().adjusted(8, 4, -8, -4), Qt::AlignBottom | Qt::AlignLeft, info);
 }
 
 } // namespace mosaic

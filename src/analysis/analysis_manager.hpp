@@ -162,11 +162,11 @@ class AnalysisManager : public QObject {
     void run_expression_analysis(const QString& sessionPath, const QString& backend, int maxFaces,
                                  double minConfidence, int frameSkip);
 
-    /// @brief Fuse per-camera 3D gaze rays (from every camera with both
-    /// intrinsic and extrinsic calibration) into a triangulated room-space
-    /// gaze origin/direction, plus (when the room plane is defined) a
-    /// target point, per synchronized master tick. Writes a session-root
-    /// "gaze_fusion.json" sidecar — originals are never modified.
+    /// @brief 3D gaze of every subject (analysis/run_gaze_fusion.py): who
+    /// looks where, at whom, at which named region, across all calibrated
+    /// cameras. Writes a session-root "gaze_fusion.json" plus a
+    /// "gaze_fusion/" folder (CSV, summary, an annotated video per camera, a
+    /// top-down room video and heat maps). Originals are never modified.
     ///
     /// Always runs when called directly, exactly like analyze_session(). If a
     /// previous analysis is still running, this queues the new job.
@@ -177,12 +177,15 @@ class AnalysisManager : public QObject {
     /// to duplicate that C++-side generation logic in Python.
     ///
     /// @param sessionPath    Absolute path to the recorded session directory.
-    /// @param minCameras     Minimum simultaneous cameras required to compute
-    ///                       a target point (rays are still recorded below this).
-    /// @param minConfidence  Face detection/presence confidence threshold (0-1).
-    /// @param frameSkip      Process every Nth frame per camera (1 = every frame).
+    /// @param minCameras     Cameras that must see a subject before its gaze
+    ///                       is reported (1 = any camera).
+    /// @param minConfidence  Face detector confidence threshold (0-1).
+    /// @param frameSkip      Analyse every Nth tick (the videos still show every
+    ///                       frame, holding the last estimate in between).
+    /// @param maxSubjects    Keep at most this many subjects (0 = as many as
+    ///                       are seen long enough).
     void run_gaze_fusion(const QString& sessionPath, int minCameras, double minConfidence,
-                         int frameSkip);
+                         int frameSkip, int maxSubjects = 0);
 
     /// @brief Triangulate each camera's already-computed 2D pose keypoints
     /// (analyze_session()'s ".pose.json" sidecars — must already exist for

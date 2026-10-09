@@ -88,8 +88,16 @@ been calibrated.
 5. To define the room's shared reference plane (used by gaze-fusion's
    target-point intersection): lay the board flat on the target surface,
    capture one more shot, then click **Use last shot as plane**.
-6. Click **Save to settings** to persist both the per-camera extrinsics and
-   the plane into the group's ``settings.json``.
+6. To name a gaze target (a screen, a poster, a toy box) for gaze analysis:
+   hold the board flat on it, centred, capture a shot, then click **Add from
+   last board shot**. A row appears in **Gaze target regions** with the
+   board's size; set its name and the target's real width and height. Repeat
+   for each target. Regions are kept as soon as you add, edit or remove one;
+   they need no Solve and no **Save to settings**.
+7. Click **Save to settings** to persist the per-camera extrinsics and the
+   plane. Everything is written to the group's ``settings.json`` when MOSAIC
+   closes, and recordings made afterwards carry it in their
+   ``session_meta.json``.
 
 What is stored
 --------------
@@ -119,6 +127,12 @@ What is stored
      - ``true`` once this camera's extrinsics were successfully resolved by
        the Room (Extrinsics) procedure, distinct from ``calibrated``, which
        only ever means "intrinsics done".
+   * - ``imageWidth``, ``imageHeight``, ``imageOffsetX``, ``imageOffsetY``
+     - The image the intrinsics were calibrated on: its size and where it sat
+       on the sensor (the interview crop, if that camera was in interview
+       mode). The principal point only holds for that region, so analysis
+       shifts it for recordings made with a different crop. ``-1`` for
+       calibrations made before these were recorded.
 
 Room (extrinsic) calibration solves every camera's position and orientation
 relative to one shared room origin, needed to combine per-camera 3D
@@ -145,10 +159,10 @@ Using calibration data in Python
    print("Principal pt: cx={:.1f}  cy={:.1f}".format(K[0,2], K[1,2]))
    # K and D can be passed directly to cv2.undistort() or DeepLabCut
 
-``session_meta.json`` also carries a session-wide ``room`` section (the
-reference plane defined in step 5 above): ``plane_point``/``plane_normal``
-(3-vectors in room coordinates) and ``plane_defined``. The Analysis tab's
-**Multi-Camera Gaze Fusion** plugin reads both the per-camera ``extrinsic_rt``
-values and this ``room`` section to triangulate a 3D gaze ray per moment and,
-where the plane is defined, intersect it with the target surface; see
-``analysis/run_gaze_fusion.py`` and the resulting ``gaze_fusion.json``.
+``session_meta.json`` also carries a session-wide ``room`` section: the
+reference plane from step 5 (``plane_point``/``plane_normal``, 3-vectors in
+room coordinates, and ``plane_defined``) and the named gaze target
+``regions`` from step 6 (``name``, ``centre``, ``normal``, ``u_axis``,
+``width``, ``height``). The Analysis tab's **Multi-Camera Gaze Fusion**
+plugin reads these and the per-camera calibration to find what each person
+looks at; see :ref:`analysis-api-gaze`.

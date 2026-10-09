@@ -119,6 +119,7 @@ Session folder layout:
            ├── trigger_frame_map.json         # written by the EEG/Trigger↔Frame Sync plugin, if run
            ├── sync_manifest.json             # written after recording stops
            ├── gaze_fusion.json                # written by run_gaze_fusion.py, if run
+           ├── gaze_fusion/                    # its CSV, summary, annotated videos, heat maps
            ├── skeleton3d.json                 # written by run_pose3d.py, if run
            ├── audio/
            │   └── audio_0.wav
@@ -432,9 +433,10 @@ builds a **post-hoc** alignment after recording, via
 4. The result (``sync_manifest.json``) is what :cpp:class:`mosaic::SessionPlayerW`
    uses to play all cameras back in sync.
 
-This is what every analysis plugin that fuses across cameras (gaze fusion,
-3D pose reconstruction) actually reads: they consume the master-tick
-timeline, not raw per-camera frame indices, so they benefit from tighter
+This is what the 3D pose reconstruction plugin reads, and what gaze fusion
+falls back to when there is no ``synced/`` copy (it prefers Frame Sync
+Repair's trigger-exact one): they consume the master-tick timeline, not raw
+per-camera frame indices, so they benefit from tighter
 alignment when hardware triggering was active without needing to know
 whether it was. When hardware triggering was **not** active for a session,
 this layer is the *only* synchronization, and its quality is a

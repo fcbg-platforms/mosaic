@@ -31,6 +31,11 @@ struct CalibrationW::Impl {
     RoomCalibrationW* roomTab = nullptr; // not owned (child widget, Qt parent-owns)
     VideoManager* videoMgr    = nullptr; // not owned
     QTabWidget* innerTabs     = nullptr; // not owned — Intrinsics is index 0
+    // Where on the sensor the frames fed into the calibration came from, as
+    // the camera actually opened them (it may round a requested crop), read
+    // when each frame arrives, not at save time. -1 = unknown.
+    int capturedOffsetX = -1;
+    int capturedOffsetY = -1;
 
     // Board configuration
     QSpinBox* colsSpin         = nullptr;
@@ -189,6 +194,10 @@ CalibrationW::CalibrationW(VideoSettings& videoSettings, RoomSettings& roomSetti
                              .arg(camIdx)
                              .arg(vf.width)
                              .arg(vf.height));
+                if (const auto g = d->videoMgr->opened_geometry(camIdx)) {
+                    d->capturedOffsetX = g->offsetX;
+                    d->capturedOffsetY = g->offsetY;
+                }
                 d->manager.feed_frame(vf);
             },
             Qt::QueuedConnection);
@@ -305,6 +314,7 @@ void CalibrationW::build_capture_section(QVBoxLayout* parent) {
     auto* clearBtn = new QPushButton("Clear views");
     connect(clearBtn, &QPushButton::clicked, this, [this] {
         d->manager.clear_views();
+        d->capturedOffsetX = d->capturedOffsetY = -1;
         d->viewCountLabel->setText("Views accepted: 0");
         d->previewLabel->clear();
         d->previewLabel->setText("(no preview)");
@@ -469,6 +479,10 @@ void CalibrationW::save_to_settings() {
     stored.rmsError         = intrinsics.rmsError;
     stored.cameraMatrix     = intrinsics.cameraMatrix;
     stored.distCoeffs       = intrinsics.distCoeffs;
+    stored.imageWidth       = intrinsics.imageWidth;
+    stored.imageHeight      = intrinsics.imageHeight;
+    stored.imageOffsetX     = d->capturedOffsetX;
+    stored.imageOffsetY     = d->capturedOffsetY;
     emit calibration_saved(camIdx);
 
     QMessageBox::information(this, "Calibration saved",

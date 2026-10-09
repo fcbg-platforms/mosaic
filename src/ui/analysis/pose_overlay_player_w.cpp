@@ -328,56 +328,53 @@ class SkeletonOverlayW : public QWidget {
         }
     }
 
-    // Draws a bbox + short direction arrow (from gazeDx/gazeDy, same
-    // convention as the live QML monitor's gaze overlay in
-    // src/qml/MonitorView.qml) for whichever GazeFusionCamera entry in
-    // gazeFrame_->perCamera matches gazeCameraIndex_ — a fused frame may
-    // carry contributions from several cameras, but this overlay only ever
-    // draws the one matching the currently-loaded video.
+    // Draws, for every subject in the frame that this camera saw, the face
+    // box and what the subject looks at ("S1 -> S2"), in the subject's own
+    // colour (the same palette as the annotated videos and the room view).
+    // Only used when no annotated video was rendered: those already show
+    // the projected gaze ray and gaze point, which needs the calibration.
     void paint_gaze(QPainter& painter, const std::function<QPointF(QPointF)>& to_widget) {
-        const GazeFusionCamera* cam = nullptr;
-        for (const auto& c : gazeFrame_->perCamera) {
-            if (c.cameraIndex == gazeCameraIndex_) {
-                cam = &c;
-                break;
-            }
-        }
-        if (!cam) {
-            return;
-        }
-
+        static const QColor kGazeSubjectColors[] = {
+            QColor(255, 200, 60), QColor(40, 160, 255), QColor(90, 230, 90),
+            QColor(230, 90, 230), QColor(90, 255, 255), QColor(255, 120, 80),
+        };
         const QFontMetrics fm(painter.font());
+        for (const auto& subject : gazeFrame_->subjects) {
+            const GazeFusionCamera* cam = nullptr;
+            for (const auto& c : subject.perCamera) {
+                if (c.cameraIndex == gazeCameraIndex_) {
+                    cam = &c;
+                    break;
+                }
+            }
+            if (!cam || cam->faceBoxPx.isEmpty()) {
+                continue;
+            }
+            bool ok        = false;
+            const int n    = subject.id.mid(1).toInt(&ok);
+            const QColor c = kGazeSubjectColors[ok && n > 0 ? (n - 1) % 6 : 0];
 
-        const QRectF box(to_widget(cam->faceBoxPx.topLeft()),
-                         to_widget(cam->faceBoxPx.bottomRight()));
-        painter.setPen(QPen(QColor(80, 220, 220), 2));
-        painter.setBrush(Qt::NoBrush);
-        painter.drawRect(box);
+            const QRectF box(to_widget(cam->faceBoxPx.topLeft()),
+                             to_widget(cam->faceBoxPx.bottomRight()));
+            painter.setPen(QPen(c, 2));
+            painter.setBrush(Qt::NoBrush);
+            painter.drawRect(box);
 
-        // Arrow from box centre, extending toward (gazeDx, gazeDy) scaled by
-        // the box's own size — same relative-to-face-size convention the
-        // live monitor overlay uses, just computed in native-video pixel
-        // space here (before to_widget scaling) rather than screen space.
-        const QPointF centerNative = cam->faceBoxPx.center();
-        const QPointF tipNative(centerNative.x() + cam->gazeDx * cam->faceBoxPx.width() * 0.5,
-                                centerNative.y() + cam->gazeDy * cam->faceBoxPx.height() * 0.5);
-        painter.setPen(QPen(QColor(255, 220, 60), 2));
-        painter.drawLine(to_widget(centerNative), to_widget(tipNative));
-        painter.setBrush(QColor(255, 220, 60));
-        painter.setPen(Qt::NoPen);
-        painter.drawEllipse(to_widget(tipNative), 3, 3);
-
-        const QString label = QString("%1  dx%2 dy%3")
-                                  .arg(camera_short_label(cam->cameraIndex))
-                                  .arg(cam->gazeDx, 0, 'f', 2)
-                                  .arg(cam->gazeDy, 0, 'f', 2);
-        const QRectF labelBg(box.left(), box.top() - fm.height() - 4,
-                             fm.horizontalAdvance(label) + 8, fm.height() + 4);
-        painter.setPen(Qt::NoPen);
-        painter.setBrush(QColor(0, 0, 0, 160));
-        painter.drawRect(labelBg);
-        painter.setPen(QColor(160, 230, 230));
-        painter.drawText(labelBg, Qt::AlignCenter, label);
+            QString label = subject.name;
+            if (subject.hasDirection && !subject.targetLabel.isEmpty() &&
+                subject.targetLabel != QLatin1String("none")) {
+                // Left-right arrow for mutual gaze, right arrow otherwise.
+                const QChar arrow = subject.mutual ? QChar(0x2194) : QChar(0x2192);
+                label += QStringLiteral(" ") + arrow + QStringLiteral(" ") + subject.targetLabel;
+            }
+            const QRectF labelBg(box.left(), box.top() - fm.height() - 4,
+                                 fm.horizontalAdvance(label) + 8, fm.height() + 4);
+            painter.setPen(Qt::NoPen);
+            painter.setBrush(QColor(0, 0, 0, 170));
+            painter.drawRect(labelBg);
+            painter.setPen(c);
+            painter.drawText(labelBg, Qt::AlignCenter, label);
+        }
     }
 
     // Draws every reconstructed person's reprojected 2D skeleton for the
@@ -568,20 +565,6 @@ struct PoseOverlayPlayerW::Impl {
         return static_cast<int>(std::llround(positionMs / 1000.0 * fps));
     }
 
-    // GazeFusionResult::nearest_frame() is keyed on absolute timestampNs
-    // (the shared master timeline — see its header doc), not a per-video
-    // frame index like Pose/Expression's nearest_frame(). Approximates
-    // "player position 0" as aligned with the gaze result's own first fused
-    // tick — a small-skew approximation in the same spirit as this
-    // codebase's other cross-camera-alignment conveniences, not a
-    // replacement for SyncManifest's own precise alignment.
-    [[nodiscard]] int64_t gaze_timestamp_estimate(int64_t positionMs) const {
-        if (gazeResult.frames().isEmpty()) {
-            return 0;
-        }
-        return gazeResult.frames().first().timestampNs + positionMs * 1000000LL;
-    }
-
     // Same "player position 0 ≈ result's own first fused tick" approximation
     // as gaze_timestamp_estimate() above, for Skeleton3DResult's identically
     // timestamp-keyed nearest_frame().
@@ -752,9 +735,7 @@ PoseOverlayPlayerW::PoseOverlayPlayerW(QWidget* parent)
             d->overlay->set_skeleton3d_frame(frame, d->skeleton3dCameraIndex,
                                              d->skeleton3dResult.skeleton_edges());
         } else if (d->gazeResult.is_valid()) {
-            const GazeFusionFrame* frame =
-                d->gazeResult.nearest_frame(d->gaze_timestamp_estimate(pos));
-            d->overlay->set_gaze_frame(frame, d->gazeCameraIndex);
+            d->overlay->set_gaze_frame(d->gazeResult.frame_at_position_ms(pos), d->gazeCameraIndex);
         } else if (d->expressionResult.is_valid()) {
             const ExpressionFrame* frame =
                 d->expressionResult.nearest_frame(d->frame_estimate(pos));
@@ -845,17 +826,16 @@ void PoseOverlayPlayerW::set_expression_result(const ExpressionResult& result) {
 }
 
 void PoseOverlayPlayerW::set_gaze_result(const GazeFusionResult& result, int cameraIndex) {
-    d->poseResult       = PoseAnalysisResult(); // mutually exclusive, see header doc
-    d->expressionResult = ExpressionResult();
-    d->skeleton3dResult = Skeleton3DResult();
-    d->rppgResult       = RppgResult();
-    d->gaze2dResult     = Gaze2dResult();
-    d->gazeResult       = result;
-    d->gazeCameraIndex  = cameraIndex;
-    const GazeFusionFrame* frame =
-        d->gazeResult.is_valid()
-            ? d->gazeResult.nearest_frame(d->gaze_timestamp_estimate(d->player->position()))
-            : nullptr;
+    d->poseResult                = PoseAnalysisResult(); // mutually exclusive, see header doc
+    d->expressionResult          = ExpressionResult();
+    d->skeleton3dResult          = Skeleton3DResult();
+    d->rppgResult                = RppgResult();
+    d->gaze2dResult              = Gaze2dResult();
+    d->gazeResult                = result;
+    d->gazeCameraIndex           = cameraIndex;
+    const GazeFusionFrame* frame = d->gazeResult.is_valid()
+                                       ? d->gazeResult.frame_at_position_ms(d->player->position())
+                                       : nullptr;
     d->overlay->set_gaze_frame(frame, cameraIndex);
 }
 

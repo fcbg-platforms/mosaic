@@ -43,6 +43,10 @@ QJsonObject CalibrationData::to_json() const {
         {"dist_coeffs", array_to_json(distCoeffs)},
         {"extrinsic_rt", array_to_json(extrinsicRt)},
         {"extrinsic_calibrated", extrinsicCalibrated},
+        {"image_width", imageWidth},
+        {"image_height", imageHeight},
+        {"offset_x", imageOffsetX},
+        {"offset_y", imageOffsetY},
     };
 }
 
@@ -66,6 +70,10 @@ std::optional<CalibrationData> CalibrationData::from_json(const QJsonObject& o) 
     if (o.contains("extrinsic_calibrated")) {
         cal.extrinsicCalibrated = o["extrinsic_calibrated"].toBool();
     }
+    cal.imageWidth   = o["image_width"].toInt(-1);
+    cal.imageHeight  = o["image_height"].toInt(-1);
+    cal.imageOffsetX = o["offset_x"].toInt(-1);
+    cal.imageOffsetY = o["offset_y"].toInt(-1);
     return cal;
 }
 
@@ -557,11 +565,41 @@ std::optional<AnalysisSettings> AnalysisSettings::from_json(const QJsonObject& o
 
 // ── RoomSettings ───────────────────────────────────────────────────────────
 
+QJsonObject GazeRegion::to_json() const {
+    return {
+        {"name", name},
+        {"centre", array_to_json(centre)},
+        {"normal", array_to_json(normal)},
+        {"u_axis", array_to_json(uAxis)},
+        {"width", width},
+        {"height", height},
+    };
+}
+
+std::optional<GazeRegion> GazeRegion::from_json(const QJsonObject& o) {
+    GazeRegion r;
+    r.name   = o["name"].toString();
+    r.centre = json_to_array(o["centre"].toArray(), r.centre);
+    r.normal = json_to_array(o["normal"].toArray(), r.normal);
+    r.uAxis  = json_to_array(o["u_axis"].toArray(), r.uAxis);
+    r.width  = o["width"].toDouble();
+    r.height = o["height"].toDouble();
+    if (r.name.isEmpty() || r.width <= 0.0 || r.height <= 0.0) {
+        return std::nullopt;
+    }
+    return r;
+}
+
 QJsonObject RoomSettings::to_json() const {
+    QJsonArray regionArray;
+    for (const auto& r : regions) {
+        regionArray.append(r.to_json());
+    }
     return {
         {"plane_point", array_to_json(planePoint)},
         {"plane_normal", array_to_json(planeNormal)},
         {"plane_defined", planeDefined},
+        {"regions", regionArray},
     };
 }
 
@@ -575,6 +613,11 @@ std::optional<RoomSettings> RoomSettings::from_json(const QJsonObject& o) {
     }
     if (o.contains("plane_defined")) {
         s.planeDefined = o["plane_defined"].toBool();
+    }
+    for (const auto& v : o["regions"].toArray()) {
+        if (auto r = GazeRegion::from_json(v.toObject())) {
+            s.regions.push_back(std::move(*r));
+        }
     }
     return s;
 }

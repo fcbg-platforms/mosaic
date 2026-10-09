@@ -29,6 +29,8 @@ class VideoManager;
 //   │  [per-camera resolved / RMS table]            │
 //   │  Reference camera [combo]  [▶ Solve]          │
 //   │  [Use last shot as plane]  [Save to settings] │
+//   │  Gaze target regions [table]                  │
+//   │  [Add from last board shot]  [Remove]         │
 //   └──────────────────────────────────────────────┘
 class RoomCalibrationW : public QWidget {
     Q_OBJECT
@@ -55,6 +57,9 @@ class RoomCalibrationW : public QWidget {
     void capture_shot();
     void solve();
     void use_shot_as_plane();
+    void add_region_from_shot();
+    void remove_selected_region();
+    void refresh_region_table();
     void save_to_settings();
     void update_result_table();
     void rebuild_board_spec();

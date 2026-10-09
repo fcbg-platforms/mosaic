@@ -1,205 +1,307 @@
-Multi-Camera Gaze Fusion
-===========================
+Multi-camera 3D gaze
+====================
 
-.. contents:: On this page
-   :local:
-   :depth: 2
+Where every subject in the room looks, in 3D: whose face, which named
+region, which point on the calibrated plane, or simply which point in space.
+Implemented in ``analysis/run_gaze_fusion.py`` and the :mod:`gaze` package;
+see :ref:`analysis-api-gaze` for the module reference.
 
-Implemented in :mod:`gaze.estimator` (per-camera head-pose solve) and
-:mod:`gaze.ray_math` (pure geometry; see :doc:`/analysis_api` for the full
-API reference). This page derives the three stages: turning a solved head
-pose into a camera-local 3D ray, transforming that ray into room
-coordinates, and fusing several cameras' rays into one triangulated point
-(optionally intersected with a target plane).
+The method has four parts, each fixing a specific weakness of a single-camera
+gaze heuristic:
 
-Stage 1: camera-local ray construction
-------------------------------------------
+1. **Metric head pose**, from MediaPipe's own metric face model and the
+   cameras' real calibration, fitted jointly across every camera that sees
+   the face.
+2. **A geometric eyeball model**, which turns the iris seen in the image into
+   an eye rotation, separately from the head's rotation.
+3. **Robust fusion** of every camera's view of each eye, with an honest
+   uncertainty.
+4. **Subjects and targets**: who is who across cameras and time, and what
+   each gaze ray lands on.
 
-:func:`~gaze.ray_math.camera_ray_from_pose` takes a head pose
-:math:`(R, t)` (solved per-camera via ``cv2.solvePnP`` against a generic
-6-point 3D face model and that camera's real calibrated intrinsics) plus
-the existing 2D iris-offset heuristic :math:`(\Delta_x, \Delta_y) \in
-[-1, 1]^2` (the same signal the live, single-camera gaze path already
-computes), and produces a 3D ray origin and direction in the **camera's**
-local frame.
+Conventions
+-----------
 
-**Origin.** The ray starts at the eye-centre model point
-:math:`o_{\text{model}}` (the midpoint of the two eye-outer-corner model
-points), mapped into camera space by the solved head pose:
+All lengths are millimetres. Three frames are used:
 
-.. math::
-   :label: gaze-origin
+.. list-table::
+   :header-rows: 1
+   :widths: 18 82
 
-   \text{origin} = R \, o_{\text{model}} + t
+   * - Frame
+     - Definition
+   * - Head
+     - +x towards the subject's left, +y down, +z into the head. The face
+       looks along **-z**.
+   * - Camera
+     - OpenCV: +x right, +y down, +z forward.
+   * - Room
+     - The reference camera's frame, chosen during room calibration
+       (:doc:`room_calibration`). ``extrinsic_rt`` maps camera to room:
+       :math:`p_{room} = R\,p_{cam} + t`.
 
-**Direction.** Rather than trusting a monocular depth estimate for the eye
-itself (unobservable from iris landmarks alone), the direction composes
-two rotations: the head's own solved orientation, and a small eye-in-socket
-perturbation bounded by tunable constants
-:math:`\psi_{\max}` (``max_eye_yaw_deg``, default 30°) and
-:math:`\varphi_{\max}` (``max_eye_pitch_deg``, default 20°):
+Gaze angles in the head frame are a yaw (positive towards head +x) and a
+pitch (positive up); straight ahead is :math:`(0, 0)`.
 
-.. math::
-
-   \psi = \Delta_x \, \psi_{\max}, \qquad
-   \varphi = \Delta_y \, \varphi_{\max}
-
-.. math::
-
-   R_{\text{yaw}}(\psi) = \begin{bmatrix}
-       \cos\psi & 0 & \sin\psi \\
-       0 & 1 & 0 \\
-       -\sin\psi & 0 & \cos\psi
-   \end{bmatrix}
-   \qquad
-   R_{\text{pitch}}(\varphi) = \begin{bmatrix}
-       1 & 0 & 0 \\
-       0 & \cos\varphi & -\sin\varphi \\
-       0 & \sin\varphi & \cos\varphi
-   \end{bmatrix}
-
-Applied to the face model's own forward axis :math:`f = (0, 0, 1)^\mathsf{T}`,
-then rotated into camera space by the solved head pose:
-
-.. math::
-   :label: gaze-direction
-
-   d_{\text{model}} = R_{\text{yaw}}(\psi) \, \big( R_{\text{pitch}}(\varphi) \, f \big),
-   \qquad
-   d = \frac{R \, d_{\text{model}}}{\lVert R \, d_{\text{model}} \rVert}
-
-When :math:`\Delta_x = \Delta_y = 0`, :math:`d` reduces exactly to the
-head's own forward direction :math:`R f`: the eye perturbation vanishes.
-
-.. note::
-
-   This is deliberately a heuristic, not a claim of true stereo eye depth.
-   It separates two genuinely different signals: *which way the head is
-   pointing* (metric, solved via ``solvePnP`` against real camera
-   intrinsics) from *which way the eyes are rotated within it* (a bounded
-   heuristic perturbation). This is strictly more information than the live
-   2D-only estimator it replaces, which conflates the two.
-
-Stage 2: transform to room coordinates
--------------------------------------------
-
-:func:`~gaze.ray_math.transform_ray_to_room` applies that camera's
-extrinsic pose :math:`[R_e \,|\, t_e]` (from :doc:`room_calibration`):
-
-.. math::
-
-   \text{origin}_{\text{room}} = R_e \, \text{origin} + t_e,
-   \qquad
-   d_{\text{room}} = \frac{R_e \, d}{\lVert R_e \, d \rVert}
-
-(the direction is rotated only; no translation applies to a direction
-vector).
-
-Stage 3: multi-ray least-squares triangulation
-----------------------------------------------------
-
-Given :math:`N \ge 2` contributing cameras, each with a room-space ray
-:math:`(o_i, d_i)`, :func:`~gaze.ray_math.closest_point_of_rays` finds the
-single 3D point :math:`x^\star` minimizing the summed squared perpendicular
-distance to every ray.
-
-For ray :math:`i`, the orthogonal projector onto the plane perpendicular to
-:math:`d_i` is :math:`P_i = I - d_i d_i^\mathsf{T}` (symmetric, idempotent:
-:math:`P_i^2 = P_i`). The squared perpendicular distance from a point
-:math:`x` to ray :math:`i` is :math:`\lVert P_i (x - o_i) \rVert^2`, so the
-objective is:
-
-.. math::
-   :label: gaze-objective
-
-   F(x) = \sum_{i=1}^{N} (x - o_i)^\mathsf{T} P_i \, (x - o_i)
-
-Setting the gradient to zero:
-
-.. math::
-
-   \nabla F(x) = 2 \sum_i P_i (x - o_i) = 0
-   \;\;\Longrightarrow\;\;
-   \underbrace{\Big(\sum_i P_i\Big)}_{A} x = \underbrace{\sum_i P_i o_i}_{b}
-   \;\;\Longrightarrow\;\;
-   A x = b
-
-:math:`A` is a 3×3 matrix, symmetric positive semi-definite, and positive
-**definite** (invertible) whenever the contributing ray directions aren't
-all parallel, the common case with :math:`\ge 2` cameras viewing the same
-face from different angles. The implementation solves :math:`Ax=b` directly
-via ``np.linalg.solve``, falling back to the Moore–Penrose pseudo-inverse
-:math:`x^\star = A^{+}b` (the minimum-norm least-squares solution) when
-:math:`A` is near-singular (e.g. nearly-parallel rays, a genuinely
-degenerate configuration) rather than raising.
-
-**Fit quality.** The reported residual is the RMS perpendicular distance
-from :math:`x^\star` back to every contributing ray:
-
-.. math::
-
-   \text{residual}_{\text{rms}} = \sqrt{ \frac{1}{N} \sum_i \lVert P_i (x^\star - o_i) \rVert^2 }
-
-For a single ray (:math:`N=1`), there's nothing to triangulate; the
-function returns that ray's own origin with a residual of exactly 0.
-
-Target-plane intersection
+Finding faces at room distance
 ------------------------------
 
-:func:`~gaze.ray_math.ray_plane_intersection` finds where the fused ray
-:math:`x(u) = x^\star + u\,\bar d` (using the mean of the contributing
-directions as the fused direction :math:`\bar d`) crosses a plane defined
-by a point :math:`p_0` and unit normal :math:`n` (the room's reference
-plane, set once during :doc:`room_calibration`). Substituting into the
-plane equation :math:`n \cdot (x(u) - p_0) = 0` and solving for :math:`u`:
+MediaPipe FaceLandmarker carries its own face detector, a short-range model
+built for faces filling a phone camera. Across a room a face is 70 to 90
+pixels wide in a 1080p frame and that detector mostly finds nothing. So the
+work is split: OpenCV's YuNet detector finds every face in the full frame,
+then FaceLandmarker runs on a square crop 1.6 times the face's size (padded
+where it leaves the frame), where the face is large again. Its normalised
+landmarks map back to frame pixels as
 
 .. math::
 
-   u = \frac{n \cdot (p_0 - x^\star)}{n \cdot \bar d}
+   u = x_0 + x_n\,s, \qquad v = y_0 + y_n\,s,
 
-The intersection is reported as ``None`` (no target point) in two cases:
-:math:`|n \cdot \bar d|` below a small epsilon (the ray runs parallel to
-the plane, so no well-defined intersection), or :math:`u < 0` (the
-intersection lies *behind* the ray's origin, i.e. the gaze direction
-points away from the surface).
+with :math:`(x_0, y_0)` the crop's corner and :math:`s` its side.
 
-Practical recommendations
-------------------------------
+Head pose
+---------
 
-.. grid:: 1 1 2 2
-   :gutter: 2
+**Model.** MediaPipe ships a metric canonical face inside
+``face_landmarker.task``: 468 vertices in centimetres, vertex *i* being
+landmark *i*, plus a weighted list of 33 landmarks it treats as rigid (the
+"Procrustes basis": nose, forehead, eye corners, cheekbones). The plugin
+reads both directly from the bundle and converts them to the head frame
+(:math:`\times 10`, y and z negated).
 
-   .. grid-item-card:: 📷  More cameras, better fusion
+**One camera.** For the rigid landmarks with model points :math:`X_k` and
+pixels :math:`x_k`,
 
-      Below the ``--min-cameras`` threshold (default 2), a per-camera ray
-      is still recorded but there's nothing to triangulate. 3+ cameras
-      viewing the subject from meaningfully different angles gives both a
-      better-conditioned :math:`A` matrix in Stage 3's least-squares solve
-      and a lower residual. Treat 2-camera fusion as the practical
-      minimum, not the target.
+.. math::
 
-   .. grid-item-card:: 📐  Room calibration accuracy dominates
+   \min_{R, t} \sum_k \left\| \pi\!\left(K, d;\ R X_k + t\right) - x_k \right\|^2,
 
-      Every stage here is only as good as the room extrinsics from
-      :doc:`room_calibration`. A camera with a marginal reprojection RMS
-      there silently degrades every fused ray computed through it. If
-      target points look physically implausible, re-check calibration
-      quality before suspecting the fusion math.
+where :math:`\pi` is the camera's real projection, including its distortion
+:math:`d`. ``cv2.SOLVEPNP_SQPNP`` gives the global solution and
+Levenberg-Marquardt refines it.
 
-   .. grid-item-card:: 👁️  The eye-rotation term is a bounded heuristic
+**Every camera together.** A face seen by several cameras gets a single
+room-frame pose and a face scale :math:`s`:
 
-      Remember the direction formula separates two genuinely different
-      signals: a metric, ``solvePnP``-solved head pose, and a *bounded
-      heuristic* eye-in-socket perturbation (:math:`\pm 30°`/:math:`\pm
-      20°` by default). Don't over-interpret gaze precision for subjects
-      looking sharply off-axis from their own head direction: the
-      heuristic's bound is a real accuracy ceiling, not just a
-      implementation detail.
+.. math::
 
-   .. grid-item-card:: 📊  Reading the residual
+   \min_{R, t, s} \sum_{c} \sum_k w_k\, \rho\!\left(
+     \left\| \pi_c\!\left( T_c^{-1} \left( R\,(s X_k) + t \right) \right) - x_{c,k} \right\|
+   \right),
 
-      ``residual_rms_mm`` is the direct fit-quality signal: a large
-      residual means the contributing cameras' rays didn't actually
-      converge well, and any target point derived from that fit deserves
-      correspondingly less trust, independent of how "close" it looks to
-      a plausible screen/table location.
+with :math:`T_c` camera *c*'s room-from-camera transform, :math:`w_k`
+MediaPipe's rigid weights and :math:`\rho` a Huber loss (3 px), so a single
+mislocated landmark or camera cannot pull the head away. The scale matters:
+real faces are up to about 8% larger or smaller than the canonical one, and
+one camera cannot tell a larger face from a nearer one. Two or more can.
+The scale learned for a subject over all their multi-camera frames is
+reused when only one camera sees them: scaling a face and its distance
+together leaves the image unchanged, so the single-camera pose simply scales
+in that camera's frame.
+
+The eyeball model
+-----------------
+
+Each eye is a sphere rotating about a centre fixed in the head. From
+average adult anatomy and the canonical face (whose eyelid surface sits about
+3.6 mm in front of the eye-corner midpoint):
+
+.. list-table::
+   :header-rows: 1
+   :widths: 45 15 40
+
+   * - Quantity
+     - Value
+     - Source
+   * - Rotation centre behind the eye-corner midpoint
+     - 8 mm
+     - centre about 13 mm behind the corneal apex
+   * - Rotation centre to iris (pupil) centre
+     - 9.5 mm
+     - pupil plane about 3.5 mm behind the apex
+   * - Visual axis from optical axis (kappa)
+     - 5° nasal, 1.5° up
+     - average adult; individuals vary by 2 to 3°
+
+For eye centre :math:`c` (camera frame, from the head pose) and the
+undistorted camera ray :math:`r` through the iris-centre pixel, the iris lies
+where the ray meets the sphere of radius :math:`\rho = 9.5` mm:
+
+.. math::
+
+   t = r \cdot c - \sqrt{(r \cdot c)^2 - \|c\|^2 + \rho^2},
+   \qquad p_{iris} = t\,r,
+   \qquad a = \frac{p_{iris} - c}{\|p_{iris} - c\|}.
+
+The near root is the front of the eye. If the ray misses the sphere (pixel
+noise or a model error pushed it past the eye's silhouette), the sphere's
+point nearest the ray is used, with less weight. :math:`a` is the optical
+axis; expressed in the head frame it becomes the visual axis by adding kappa
+to its yaw (towards the nose) and pitch.
+
+Two safeguards keep small, noisy irises from producing absurd directions.
+An eye-in-head rotation beyond 35° is pulled back to 35° and its weight cut:
+eyes can turn about 45° but rarely go past 30°, because people turn the head
+instead, so a larger estimate is almost always noise. And a closed eye (lid
+gap under 12% of the eye's width) contributes nothing.
+
+This separates head and eye rotation properly. Turning the head moves the
+eye centre and the iris together and changes nothing in :math:`a` measured
+in the head frame; only the iris moving relative to the centre does.
+
+Fusing cameras and eyes
+-----------------------
+
+Every camera that sees an eye gives a visual axis :math:`v_{c,e}` (room
+frame) with a reliability weight
+
+.. math::
+
+   w = w_{facing}\; w_{resolution}\; w_{open}\; w_{hit},
+
+where :math:`w_{facing}` falls to zero as the eye turns more than about 80°
+from the camera (each eye's own outward-turned normal is used, so the far
+eye of a turned head goes first), :math:`w_{resolution}` grows with the iris
+radius in pixels, :math:`w_{open}` with the lid gap, and :math:`w_{hit}` is
+0.3 for a missed sphere or a limited rotation.
+
+Each eye is averaged over cameras by a robust spherical mean: the weighted
+mean, then every direction more than 20° from it dropped and the rest
+re-averaged, up to three times. One camera that misread an eye cannot drag
+the result.
+
+The two eyes then count **equally**. They converge on what the subject
+looks at, about 2.5° apart at 1.5 m, and weighting one more just because a
+camera sees it better would tilt the result towards it. The gaze ray starts
+at the midpoint of the two eye centres. When one eye is much less reliable
+than the other (under a quarter of its weight: closed, or hidden behind the
+nose), that eye alone is used and the ray starts **at that eye**; starting it
+between the eyes would run it parallel to the true line of sight, 32 mm off.
+
+**Uncertainty.** One pixel of iris noise moves the estimated rotation by
+about :math:`\arctan(1/r_{px})`, with :math:`r_{px}` the iris sphere radius in
+pixels. Combining the kept observations as independent measurements and
+adding how much they actually disagree:
+
+.. math::
+
+   \sigma = \sqrt{\left(\sum_i \sigma_i^{-2}\right)^{-1} + \frac{D^2}{n}},
+
+with :math:`D` the weighted RMS angle of the kept directions around their
+eye's mean. This is the per-frame 1-sigma before smoothing, written as
+``uncertainty_deg``.
+
+Subjects across cameras and time
+--------------------------------
+
+**Association.** Each face first gets a head position from its own camera.
+That position is uncertain mostly along the camera's line of sight (depth,
+about 15%), much less sideways. So two faces from different cameras are the
+same person when their sight lines (camera centre through the head) pass
+within 150 mm of each other, **and** where they meet lies inside both
+estimates' depth bands, **and** their midline landmarks triangulate with a
+mean reprojection error under 25 px. Triangulation alone is not enough, a
+fact found while testing: with cameras and seated heads at one height, every
+pair of sight lines meets somewhere, so it matched neighbours; but for two
+different people that meeting point lies far outside the depth bands. Pairs
+join best first; a group grows only when every face in it fits every other
+(a chain A~B, B~C never joins A to C on its own), with one face per camera.
+If the joint head fit still explains the landmarks poorly (above 8 px RMS),
+the faces are kept as separate subjects rather than merged into a compromise
+head.
+
+**Tracking.** Head positions are followed from tick to tick (a track may go
+unseen for 2 s, and move at most 400 mm between sightings). Two tracks never
+seen at the same tick are joined when every hand-over between them is
+walkable: the head moved at most 0.5 m plus 1 m/s times the time between the
+two sightings. That joins a seated person who looked away from every camera,
+and someone who got up, walked around and came back; it never joins two
+people seen at once. Two tracks that run side by side within 250 mm on most
+shared ticks are one person seen twice, and are joined too. Tracks seen for
+less than a second are dropped. Subjects are named ``S1``, ``S2``... from left to right in
+the room, so names are stable between runs; ``gaze_targets.json`` can rename
+them.
+
+**Smoothing.** Origins and directions are smoothed per subject with a One
+Euro filter (Casiez, Roussel and Vogel, 2012), whose cutoff rises with the
+signal's speed: strong smoothing during fixations, little during saccades.
+It runs forwards and backwards and the two passes are averaged, so it adds
+no lag. Gaps longer than 0.5 s are never bridged.
+
+What the gaze lands on
+----------------------
+
+Every candidate the ray meets is collected and the **nearest along the
+ray** wins: looking at a person standing behind a screen lands on the screen.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 20 80
+
+   * - Target
+     - Test
+   * - Another subject
+     - The angle between the gaze and the direction to their eye midpoint is
+       below :math:`\max(\arcsin(r/d),\ 7°)`, with :math:`r = 110` mm and
+       :math:`d` the distance. Faces are judged by angle, not by hitting a
+       sphere: a head subtends only about 5° at 2.5 m, less than the gaze
+       accuracy, so a surface test would miss most real looks.
+   * - Named region
+     - The ray meets the region's plane within its width and height.
+   * - Plane
+     - The ray meets the calibrated plane in front of the subject.
+   * - None
+     - A free point 1.5 m along the ray, labelled ``none``.
+
+Labels are debounced: a new target must hold for 150 ms to replace the
+current one, so a single noisy frame cannot flip "S1 looks at S2" to
+something else and back. The type and label are debounced together. The
+gaze point stays the measured one; the output's ``measured`` field shows
+when it differs from the debounced label. **Mutual gaze** is when S1's
+debounced target is S2 and S2's is S1 at the same tick.
+
+Timeline
+--------
+
+When Frame Sync Repair has produced ``synced/`` videos, frame *k* of every
+camera is tick *k*, and tick times come from the trigger log. Frames the
+repair filled in for a camera that missed a tick repeat an older image; they
+are never analysed (the last estimate is held) but are still drawn in the
+annotated videos. Without ``synced/`` the raw videos are aligned through
+``sync_manifest.json``, and a frame further than half a tick from its tick is
+treated as missing rather than used out of time.
+
+When a camera was recorded with a crop (interview mode) different from the
+one its intrinsics were calibrated with, the principal point is shifted by
+the difference. Calibrations made before the crop was recorded are assumed
+to be full-frame, with a note in the log.
+
+Accuracy and limits
+-------------------
+
+On synthetic scenes (three calibrated cameras, two subjects, the real
+canonical face) the pipeline recovers the gaze exactly without noise; with
+0.3 and 0.6 px of landmark noise the median error after smoothing is about
+1.7° and 3.8°, and mutual gaze is detected on every frame.
+
+Real footage is harder, and these limits matter:
+
+* **Iris resolution.** At 2.5 m with a 1080p camera the iris is only 5 to 7
+  pixels across; one pixel of landmark noise is about 10° of eye rotation.
+  Several cameras and the smoothing average this down, but a single distant
+  camera gives a coarse gaze. ``uncertainty_deg`` says how coarse.
+* **Average anatomy.** Eyeball geometry and kappa are population averages; a
+  given subject may be off by a few degrees consistently.
+* **Not yet validated on calibrated footage.** On one uncalibrated room-11
+  recording (one person looking down at a laptop, analysed with a
+  placeholder focal length), the eye-in-head pitch read 11 to 20° upward.
+  Whether that comes from the placeholder calibration, from MediaPipe's iris
+  centre drifting up when a lowered lid covers the top of the iris, or from
+  the eye-centre height in the model is not yet known. A short check with a
+  calibrated room and known targets (look at a camera, at the partner, at a
+  region, a few seconds each) is the way to settle it, and its result could
+  feed a per-subject correction.
+* **Identity** across cameras relies on head positions, so it needs the
+  room calibration to be good. Without room calibration only one camera can
+  be used (``--camera N``), in that camera's own frame.
