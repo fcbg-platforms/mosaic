@@ -132,6 +132,8 @@ class AnalysisTabW : public QWidget {
     void export_face_dynamics_csv();
     void update_conversation_view();
     void export_conversation_csv();
+    void update_eye_contact_view();
+    void export_eye_contact_csv();
     void update_sync_repair_view();
     void export_sync_repair_csv();
     [[nodiscard]] bool is_pose_plugin() const;
@@ -145,6 +147,7 @@ class AnalysisTabW : public QWidget {
     [[nodiscard]] bool is_gaze2d_plugin() const;
     [[nodiscard]] bool is_face_dynamics_plugin() const;
     [[nodiscard]] bool is_conversation_plugin() const;
+    [[nodiscard]] bool is_eye_contact_plugin() const;
     [[nodiscard]] bool is_sync_repair_plugin() const;
     [[nodiscard]] bool is_pose_depth_selected() const;
     [[nodiscard]] QString slug_for_model(const QString& modelId) const;
@@ -161,6 +164,7 @@ class AnalysisTabW : public QWidget {
     [[nodiscard]] QString gaze2d_json_path_for(const QString& videoRelPath) const;
     [[nodiscard]] QString face_dynamics_json_path_for(const QString& videoRelPath) const;
     [[nodiscard]] QString conversation_json_path_for(const QString& videoRelPath) const;
+    [[nodiscard]] QString eye_contact_json_path_for(const QString& videoRelPath) const;
     [[nodiscard]] QString synced_video_path_for(const QString& videoRelPath) const;
 
     /// Whether `pluginId`'s output already exists for the selected session,

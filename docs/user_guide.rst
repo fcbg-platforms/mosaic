@@ -382,7 +382,7 @@ For a selected session you can:
   - **SYNCED**: the equal-length videos in ``synced/`` exist.
   - **POSE**, **MOTION**, **TRANSCRIPT** (Speaker Diarization),
     **EXPRESSION**, **GAZE**, **3D POSE**, **HR** (Remote Heart Rate),
-    **GAZE 2D**, **FACE DYN**, **TURNS** (Conversation Timing): that analysis has
+    **GAZE 2D**, **FACE DYN**, **TURNS** (Conversation Timing), **EYE CONTACT**: that analysis has
     been run. Face Masking has no badge of its
     own; look for the session's ``anonymized/`` folder.
 
@@ -780,6 +780,34 @@ sitting alongside **Live**. The workflow is always the same shape:
       event. The ``face_dynamics/`` folder (**Open output folder**) also
       holds a per-frame CSV with all 52 blendshapes. See
       :doc:`math/face_dynamics` for every rule and threshold.
+
+   .. tab-item:: Eye Contact
+
+      **What it does**: measures how much of the time the person on a camera
+      looks at their conversation partner, and when, for how long and in
+      which direction (up, down, their left or right) they look away. With
+      **Conversation Timing** run first, it also splits eye contact into
+      speaking and listening, and checks the answers: how often the person
+      looks away as they start answering, looks back as they finish, and
+      looks away while thinking before an answer.
+
+      The partner's direction is found from the gaze itself: where the
+      person looks most while listening. That cancels the gaze estimate's
+      constant errors, but it assumes there is a partner to look at. Choose
+      **Partner: the camera** for a remote interview, or when the
+      interviewer sits right beside the camera. That measure is absolute,
+      so errors of the gaze estimate are not cancelled.
+
+      **Controls**: the **Partner** choice and **Annotated video** (the gaze
+      arrow, the state, and a small map of the gaze around the partner).
+
+      **Reading the output**: the **Metric** dropdown shows eye contact over
+      time (1 looking at the partner, 0 away), the angle from the partner,
+      or the gaze yaw and pitch. The stats line gives the overall eye contact
+      share, listening and speaking shares, the look-aways and their
+      directions, the answer patterns, and where the partner was found.
+      **Export look-aways CSV** saves one row per look-away. See
+      :doc:`math/eye_contact` for every rule.
 
    .. tab-item:: Conversation Timing
 

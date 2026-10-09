@@ -76,6 +76,10 @@ class FrameFace:
     box: tuple  # (x1, y1, x2, y2), px
     outline: np.ndarray  # (N, 2) px: right eye, left eye, lips
     nose: tuple  # nose tip (x, y), px
+    #: All 478 landmarks (px) and the head pose (:class:`gaze.head_pose.HeadPose`,
+    #: camera frame, or ``None``), for gaze (:mod:`eye_contact`).
+    landmarks: np.ndarray | None = None
+    pose: object | None = None
 
 
 def head_angles(r_cam_head) -> tuple[float, float, float]:
@@ -222,4 +226,6 @@ class FaceTracker:
             tuple(float(v) for v in box),
             px[list(EYE_OUTLINE_RIGHT) + list(EYE_OUTLINE_LEFT) + list(LIPS_OUTER)],
             (float(px[NOSE_TIP, 0]), float(px[NOSE_TIP, 1])),
+            px,
+            pose,
         )

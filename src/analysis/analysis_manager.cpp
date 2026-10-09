@@ -272,6 +272,15 @@ void AnalysisManager::run_conversation_analysis(const QString& sessionPath, bool
     enqueue_or_launch(sessionPath, "analysis/run_conversation.py", args, {});
 }
 
+void AnalysisManager::run_eye_contact_analysis(const QString& sessionPath, const QString& target,
+                                               bool annotatedVideo) {
+    QStringList args = {"--session", sessionPath, "--target", target};
+    if (!annotatedVideo) {
+        args << "--no-video";
+    }
+    enqueue_or_launch(sessionPath, "analysis/run_eye_contact.py", args, {});
+}
+
 void AnalysisManager::run_sync_repair(const QString& sessionPath, double masterFps) {
     const QStringList args = {
         "--session",

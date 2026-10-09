@@ -104,6 +104,13 @@ conventions, matching
       Baseline-normalised blinks, Duchenne smiles, expressivity, and nods
       and shakes from a zig-zag filter.
 
+   .. grid-item-card:: 👀 Eye Contact
+      :link: eye_contact
+      :link-type: doc
+
+      The partner found as the mode of the gaze while listening, a contact
+      cone from the gaze spread, and look-aways against turns.
+
    .. grid-item-card:: 💬 Conversation Timing
       :link: conversation_timing
       :link-type: doc
@@ -125,3 +132,4 @@ conventions, matching
    remote_heart_rate
    face_dynamics
    conversation_timing
+   eye_contact
