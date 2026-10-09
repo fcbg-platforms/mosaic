@@ -15,7 +15,7 @@ trigger integration for syncing with external systems (e.g. EEG amplifiers).
 - Multi-microphone audio recording alongside video
 - Post-hoc frame-accurate cross-camera sync (`sync_manifest.json`), with per-camera and
   per-frame timestamp logs
-- Keyboard, serial, and parallel-port trigger sources, with a session-wide trigger event log —
+- Keyboard, serial, and parallel-port trigger sources, with a session-wide trigger event log;
   parallel ports can also send a recording start/stop marker back out to an external device (e.g.
   an EEG amplifier's trigger channel)
 - Post-hoc EEG-trigger-to-camera-frame lookup (Analysis tab's "EEG/Trigger ↔ Frame Sync" plugin)
@@ -29,20 +29,20 @@ trigger integration for syncing with external systems (e.g. EEG amplifiers).
 ## Requirements
 
 The base build (UI, settings, profiles, tests) only needs Qt + CMake. Everything else is an
-opt-in `MOSAIC_ENABLE_*` flag — see [Feature flags](#feature-flags) below.
+opt-in `MOSAIC_ENABLE_*` flag; see [Feature flags](#feature-flags) below.
 
 | Tool | Version | Needed for |
 |---|---|---|
 | CMake | ≥ 3.25 | always |
 | C++ compiler | MSVC 2022 / GCC 13 / Clang 17 (C++23) | always |
 | Qt | 6.4+ (Core, Gui, Widgets, Network, Multimedia, Quick, QuickWidgets) | always |
-| vcpkg | — | GTest, OpenCV, FFmpeg |
+| vcpkg | n/a | GTest, OpenCV, FFmpeg |
 | Basler Pylon SDK | 7.x | `-EnableCameras` |
 | FFmpeg | via vcpkg (`x264` feature) | `-EnableFfmpeg` |
 | OpenCV | 4.x via vcpkg | `-EnableOpenCV` (calibration) |
-| CUDA + NVIDIA driver | — | `-EnableNvenc` |
+| CUDA + NVIDIA driver | n/a | `-EnableNvenc` |
 
-All optional features compile with stub fallbacks when disabled — you can develop and test the
+All optional features compile with stub fallbacks when disabled, so you can develop and test the
 full UI without any lab hardware attached.
 
 ## Building
@@ -55,7 +55,7 @@ cd mosaic
 # 2. Install vcpkg packages
 vcpkg install
 
-# 3. Configure & build — base build, no hardware
+# 3. Configure & build: base build, no hardware
 .\scripts\configure.ps1 -BuildType Release -BuildTests
 cmake --build build\Release --parallel
 
@@ -88,7 +88,7 @@ ctest --output-on-failure
 | `MOSAIC_BUILD_TESTS` | OFF | GTest (vcpkg) |
 | `MOSAIC_BUILD_DOCS` | OFF | Doxygen + Sphinx (see [Python environments](#python-environments)) |
 
-CI (`.github/workflows/ci.yml`) builds and tests the hardware-free configuration only — Pylon is
+CI (`.github/workflows/ci.yml`) builds and tests the hardware-free configuration only. Pylon is
 a licensed vendor SDK not fetchable via vcpkg, and no camera hardware exists on hosted
 runners. Camera/FFmpeg-touching changes need manual verification against real hardware; note
 how you tested in the PR description.
@@ -96,7 +96,7 @@ how you tested in the PR description.
 ### Python environments
 
 `python/`, `analysis/`, and `docs/` are three independent [uv](https://docs.astral.sh/uv/)
-projects (own `pyproject.toml`/`uv.lock`/`.venv` each) — not a shared workspace, since they have
+projects (own `pyproject.toml`/`uv.lock`/`.venv` each), not a shared workspace, since they have
 genuinely conflicting dependencies (e.g. `python/` needs a light, headless OpenCV for the
 real-time capture path; `analysis/` needs the full OpenCV build plus torch/ultralytics for batch
 pose analysis). Install only what you need:
@@ -108,7 +108,7 @@ cd docs && uv sync        # Sphinx documentation build
 ```
 
 Lint/format with `ruff` (config shared at repo-root `ruff.toml`; ruff isn't a dependency of any
-of the three projects, so use `uvx` — an isolated, ad-hoc tool run — not `uv run`) from the repo
+of the three projects, so use `uvx` (an isolated, ad-hoc tool run), not `uv run`) from the repo
 root:
 
 ```bash
@@ -146,19 +146,19 @@ mosaic/
 ## Documentation
 
 Full docs (architecture, quickstart, calibration, recording layout, profiles) live
-under `docs/` — build them with `MOSAIC_BUILD_DOCS=ON` (see the table above), or start with
+under `docs/`. Build them with `MOSAIC_BUILD_DOCS=ON` (see the table above), or start with
 `docs/quickstart.rst` directly.
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) — every PR needs a test, and CI must pass.
+See [CONTRIBUTING.md](CONTRIBUTING.md): every PR needs a test, and CI must pass.
 
 ## License
 
 [BSD 3-Clause](LICENSE)
 
 Third-party models and libraries carry their own licenses, which are not
-affected by this one — notably py-feat's `Detectorv2` weights, which are
+affected by this one, notably py-feat's `Detectorv2` weights, which are
 research-only/non-commercial (MOSAIC uses `Detectorv1`, whose default models
 carry no such restriction). See each analysis plugin's module docstring.
 

@@ -42,7 +42,7 @@ def expand_and_clip(box: Box, margin_frac: float, frame_w: int, frame_h: int) ->
     Notes
     -----
     Padding is applied before clipping, so a face near the frame edge is
-    padded first and only then clamped — it cannot produce a negative or
+    padded first and only then clamped, so it cannot produce a negative or
     out-of-bounds coordinate a caller could mis-slice. See
     :doc:`/math/face_masking` for the exact padding/clamp formula.
     """

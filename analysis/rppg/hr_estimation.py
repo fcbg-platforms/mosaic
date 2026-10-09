@@ -20,7 +20,7 @@ def bandpass_filter(
 
     Restricts ``signal`` to the physiological pulse band. This also
     removes DC/slow drift, so no separate detrending stage is needed for
-    windows this short — the bandpass's own low cutoff subsumes it.
+    windows this short: the bandpass's own low cutoff subsumes it.
 
     Parameters
     ----------
@@ -40,7 +40,7 @@ def bandpass_filter(
         The filtered signal, same shape as input. If the signal is too
         short for ``scipy.signal.filtfilt``'s required padding length,
         degrades gracefully to a mean-centered (unfiltered) copy rather
-        than raising — matches this codebase's "skip/degrade, don't
+        than raising. This matches this codebase's "skip/degrade, don't
         crash" discipline for too-little-data cases.
     """
     nyq = fs / 2.0
@@ -83,7 +83,7 @@ def estimate_hr_welch(
         confident. This is a standard, documented SNR definition in the
         spirit of the rPPG literature's "pulse SNR" concept (signal power
         concentrated at the pulse frequency + its harmonic vs. spread
-        elsewhere) — it is **not** a verified reproduction of one
+        elsewhere); it is **not** a verified reproduction of one
         specific paper's exact formula (unlike the CHROM/POS projections
         in :mod:`rppg.algorithms`, which were checked against primary
         sources), since no single canonical SNR formula was independently
@@ -157,7 +157,7 @@ def median_smooth(values: np.ndarray, window: int = 3) -> np.ndarray:
     ----------
     values : numpy.ndarray
         1-D array of per-hop BPM estimates; ``NaN`` marks a window with
-        no reliable estimate (never fabricated — see
+        no reliable estimate (never fabricated; see
         :func:`estimate_hr_welch`).
     window : int, default 3
         Filter width in windows. ``1`` disables smoothing (returned
@@ -169,7 +169,7 @@ def median_smooth(values: np.ndarray, window: int = 3) -> np.ndarray:
     -------
     numpy.ndarray
         Same length as ``values``. A position's output is the median of
-        the *valid* (non-NaN) values within its centered window — one bad
+        the *valid* (non-NaN) values within its centered window, so one bad
         neighboring window doesn't blank out an otherwise-good estimate,
         and a position with no valid values in range stays ``NaN``.
     """

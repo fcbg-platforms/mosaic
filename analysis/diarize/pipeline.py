@@ -127,7 +127,7 @@ def load_whisper_model(model_size: str, device: str):
     Notes
     -----
     Call this once per run and pass the result to every
-    :func:`transcribe_audio` call in that run — building a fresh model per
+    :func:`transcribe_audio` call in that run. Building a fresh model per
     audio file reloads weights from disk/cache once per microphone instead
     of once per run.
     """
@@ -148,7 +148,7 @@ def transcribe_audio(
         A model from :func:`load_whisper_model`.
     audio_path : pathlib.Path
         Path to the audio file. faster-whisper decodes/resamples it
-        internally (mono/16kHz) — no separate preprocessing step is
+        internally (mono/16kHz), so no separate preprocessing step is
         needed regardless of the recording's original sample
         rate/channel count.
     language : str or None
@@ -197,14 +197,14 @@ def load_diarization_pipeline(hf_token: str, device: str):
     ------
     RuntimeError
         If the token is missing/invalid or the gated models haven't been
-        accepted yet — raised with actionable setup instructions rather
+        accepted yet. Raised with actionable setup instructions rather
         than letting a raw HTTP/auth exception propagate to the caller's
         log.
 
     Notes
     -----
     Call this once per run and pass the result to every
-    :func:`diarize_audio` call in that run — building a fresh pipeline per
+    :func:`diarize_audio` call in that run. Building a fresh pipeline per
     audio file reloads weights from disk/cache once per microphone
     instead of once per run.
     """
@@ -292,7 +292,7 @@ def diarize_audio(
     dataclass, not the bare ``Annotation`` 3.x returned. Uses
     ``exclusive_speaker_diarization`` (turns with overlapping speech
     resolved to a single speaker) rather than ``speaker_diarization``
-    (keeps overlaps) — its own docstring calls this out as "adapted to
+    (keeps overlaps); its own docstring calls this out as "adapted to
     downstream transcription", exactly this function's use case via
     :func:`assign_speakers`'s single-best-speaker-per-segment matching,
     where an overlapping turn would only add ambiguity.
@@ -327,7 +327,7 @@ def assign_speakers(
     diarization_turns : list of DiarizationTurn
         Speaker turns from :func:`diarize_audio`, ``start``/``end`` in
         seconds plus a ``speaker`` label. May be empty (diarization was
-        skipped) — every output segment then gets ``speaker=None``.
+        skipped), in which case every output segment gets ``speaker=None``.
 
     Returns
     -------

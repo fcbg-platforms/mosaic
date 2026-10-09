@@ -63,7 +63,7 @@ class FaceRoiSample:
     Attributes
     ----------
     roi_bbox_px : tuple of int
-        ``(x, y, w, h)`` pixel bounding box of the sampled ROI polygon —
+        ``(x, y, w, h)`` pixel bounding box of the sampled ROI polygon,
         kept for the debug overlay, not used by the signal-processing math.
     rgb_mean : tuple of float
         Mean ``(R, G, B)`` pixel value inside the ROI polygon, in ``[0,255]``.
@@ -112,7 +112,7 @@ class MediaPipeFaceRoiExtractor:
         Returns
         -------
         FaceRoiSample or None
-            ``None`` if no face was detected this frame — callers must treat
+            ``None`` if no face was detected this frame; callers must treat
             this as a real gap, not fabricate a sample (matches this
             codebase's established "skip missing samples" discipline, e.g.
             pose_kinematics.hpp).

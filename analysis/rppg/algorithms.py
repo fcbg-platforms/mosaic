@@ -29,7 +29,7 @@ import numpy as np
 def normalize_channels(rgb: np.ndarray) -> np.ndarray:
     """Divide each channel by its own temporal mean.
 
-    ``Cn = C / mean(C)`` — the standard first step shared by CHROM and
+    ``Cn = C / mean(C)``: the standard first step shared by CHROM and
     POS: it removes each channel's own DC/brightness level so that
     illumination differences between R, G, and B don't dominate over the
     much smaller pulse-induced color variation the whole method exists to
@@ -50,7 +50,7 @@ def normalize_channels(rgb: np.ndarray) -> np.ndarray:
     ------
     ValueError
         If any channel's temporal mean is exactly zero (a degenerate
-        all-black window) — dividing would produce ``inf``/``nan``.
+        all-black window), since dividing would produce ``inf``/``nan``.
     """
     means = rgb.mean(axis=0)
     if np.any(means == 0):
@@ -62,10 +62,10 @@ def green_signal(rgb: np.ndarray) -> np.ndarray:
     """Naive baseline: the raw green channel, mean-centered.
 
     Verkruysse, Svaasand & Nelson (2008), "Remote plethysmographic
-    imaging using ambient light" — the original, simplest rPPG method.
+    imaging using ambient light": the original, simplest rPPG method.
     Green has the strongest hemoglobin-absorption response of the three
     channels, but this method has no motion/illumination compensation at
-    all — kept as a fast baseline for comparison/debugging, not the
+    all. Kept as a fast baseline for comparison/debugging, not the
     default backend.
 
     Parameters
@@ -83,14 +83,14 @@ def green_signal(rgb: np.ndarray) -> np.ndarray:
 
 
 def chrom_signal(rgb: np.ndarray) -> np.ndarray:
-    """CHROM — chrominance-based pulse extraction.
+    """CHROM: chrominance-based pulse extraction.
 
     de Haan & Jeanne, IEEE TBME 2013, "Robust Pulse Rate From
-    Chrominance-Based rPPG" — chrominance signals
+    Chrominance-Based rPPG": chrominance signals
     ``Ω = 3R − 2G``, ``Φ = 1.5R + G − 1.5B``, alpha-tuned combination.
 
     Applies the standard temporal-mean normalization (via
-    :func:`normalize_channels`) before the chrominance projection — the
+    :func:`normalize_channels`) before the chrominance projection, the
     theoretically-required step for CHROM's motion/illumination
     cancellation to hold: without it, the DC brightness term dominates
     and the paper's own skin-reflection-model argument for why the
@@ -102,7 +102,7 @@ def chrom_signal(rgb: np.ndarray) -> np.ndarray:
     during verification: a reference implementation inspected while
     building this (``phuselab/pyVHR``, ``cpu_CHROM``) applies the
     ``3R−2G`` / ``1.5R+G−1.5B`` formula directly to **raw**
-    (non-normalized) RGB in the one function body actually retrieved —
+    (non-normalized) RGB in the one function body actually retrieved;
     normalization may happen upstream in that library's own
     RGB-extraction stage, which wasn't independently confirmed. If
     CHROM's output quality looks wrong in practice, re-verify this
@@ -132,10 +132,10 @@ def chrom_signal(rgb: np.ndarray) -> np.ndarray:
 
 
 def pos_signal(rgb: np.ndarray) -> np.ndarray:
-    """POS — Plane-Orthogonal-to-Skin pulse extraction (default backend).
+    """POS: Plane-Orthogonal-to-Skin pulse extraction (default backend).
 
     Wang, den Brinker, Stuijk & de Haan, IEEE TBME 2017, "Algorithmic
-    Principles of Remote-PPG" — generally regarded as the best classical
+    Principles of Remote-PPG", generally regarded as the best classical
     (non-deep-learning) rPPG method. Verified directly against a real,
     cited reference implementation (``pavisj/rppg-pos``,
     ``pos_face_seg.py``) rather than reconstructed from memory: temporal
@@ -150,7 +150,7 @@ def pos_signal(rgb: np.ndarray) -> np.ndarray:
     reference runs this projection over short (~1.6s) overlapping windows
     with overlap-add reconstruction, tuned for real-time streaming use.
     This implementation applies one projection per (longer,
-    caller-supplied) HR-analysis window instead — a documented, understood
+    caller-supplied) HR-analysis window instead: a documented, understood
     divergence from that streaming-specific implementation detail, not a
     misunderstanding of the underlying algorithm.
 
