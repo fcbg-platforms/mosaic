@@ -39,8 +39,6 @@ class WavWriter {
     void set_header_update_interval_ms(int ms);
 
     [[nodiscard]] bool is_open() const;
-    [[nodiscard]] int64_t bytes_written() const;
-    [[nodiscard]] double duration_sec() const;
 
    private:
     struct Impl;

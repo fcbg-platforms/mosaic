@@ -54,9 +54,6 @@ class AudioWaveformW : public QWidget {
     /// for higher indices are silently ignored; missing channels draw flat.
     void set_channel_count(int count);
 
-    /// @returns Current channel count.
-    [[nodiscard]] int channel_count() const;
-
     /// Set the display amplitude scale (clamped to [kMinScale, kMaxScale]);
     /// re-renders the whole visible history at the new scale immediately.
     void set_scale(float scale);

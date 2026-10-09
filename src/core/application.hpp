@@ -89,11 +89,6 @@ class Application : public QObject {
     [[nodiscard]] RecordManager* record_manager() const;
 
    signals:
-    /// Emitted at the end of initialize() when all subsystems are ready.
-    void initialized();
-
-    /// Emitted at the end of shutdown() after all resources are released.
-    void shutdown_complete();
 
    private:
     struct Impl;

@@ -89,7 +89,6 @@ class AnalysisManager : public QObject {
     /// Application holds on recording_started and releases on
     /// recording_stopped.
     void set_launches_held(bool held);
-    [[nodiscard]] bool launches_held() const;
 
     // ── Operations ───────────────────────────────────────────────────────────
 

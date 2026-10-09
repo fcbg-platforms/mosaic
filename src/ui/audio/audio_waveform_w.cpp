@@ -110,8 +110,6 @@ void AudioWaveformW::set_channel_count(int count) {
     update();
 }
 
-int AudioWaveformW::channel_count() const { return d->channelCount; }
-
 // ── Scale ──────────────────────────────────────────────────────────────────
 
 void AudioWaveformW::set_scale(float scale) {

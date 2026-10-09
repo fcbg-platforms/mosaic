@@ -49,7 +49,6 @@ class AnalysisPluginRailW : public QWidget {
     /// nothing, so the owner can call it from its own selection handler
     /// without looping back through this widget's signal.
     void set_current(const QString& pluginId);
-    [[nodiscard]] QString current_plugin() const;
 
     /// Run-state dots. Ids absent from the map fall back to Unknown, which
     /// draws nothing at all rather than implying "not run".

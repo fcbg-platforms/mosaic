@@ -58,8 +58,6 @@ class MainWindow : public QMainWindow {
     [[nodiscard]] bool start_recording_from_trigger();
 
    signals:
-    // Emitted when the user chooses File → Switch profile.
-    void switch_profile_requested();
 
    protected:
     void closeEvent(QCloseEvent* event) override;

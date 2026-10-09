@@ -110,9 +110,6 @@ class SyncManifest {
     // Positive = frame was captured after the tick's ideal time.
     [[nodiscard]] double delta_ms_at_tick(int cameraIdx, int tick) const;
 
-    // Nearest tick index for a master position in ms.
-    [[nodiscard]] int tick_for_ms(int64_t posMs) const;
-
     // How far into the video file the player must seek to be at master t = 0.
     // Positive for cameras that started before t_origin (most cameras).
     [[nodiscard]] int64_t seek_offset_ms(int cameraIdx) const;
@@ -120,9 +117,6 @@ class SyncManifest {
     // How far into the audio file the player must seek to be at master t = 0.
     // Derived from the gap between session_start_utc and t_origin.
     [[nodiscard]] int64_t audio_seek_ms() const;
-
-    // Human-readable quality summary for all cameras.
-    [[nodiscard]] QString quality_report() const;
 
    private:
     // Columnar storage: index = cameraIdx * totalTicks_ + tick

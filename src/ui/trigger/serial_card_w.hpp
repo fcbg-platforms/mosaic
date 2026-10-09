@@ -33,7 +33,6 @@ class SerialCardW : public QWidget {
     void build_body();
     void toggle_expanded();
     void update_header_summary();
-    void update_enabled_states();
 
     SerialTriggerConfig& m_config;
     int m_index;

@@ -30,8 +30,6 @@ class LoggerPanelW : public QWidget {
     explicit LoggerPanelW(QWidget* parent = nullptr);
     ~LoggerPanelW() override;
 
-    void set_max_lines(int max);
-
    private slots:
     void on_entry_added(int level, QString timestamp, QString location, QString message);
 

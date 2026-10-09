@@ -242,17 +242,6 @@ class CentroidTracker:
             history=500, varThreshold=16.0, detectShadows=True
         )
 
-    def set_roi(self, mask: np.ndarray) -> None:
-        """Restrict detection to a region of interest.
-
-        Parameters
-        ----------
-        mask : numpy.ndarray
-            Binary ``uint8`` array (255 = keep, 0 = ignore), the same
-            size as the input frame.
-        """
-        self._roi_mask = mask
-
     # ── Internal ────────────────────────────────────────────────────────────
 
     def _detect(self, frame: np.ndarray) -> list[Detection]:
@@ -265,10 +254,6 @@ class CentroidTracker:
         # Morphological clean-up
         fg = cv2.morphologyEx(fg, cv2.MORPH_CLOSE, self._close_k)
         fg = cv2.morphologyEx(fg, cv2.MORPH_OPEN, self._open_k)
-
-        # Apply optional ROI mask
-        if hasattr(self, "_roi_mask") and self._roi_mask is not None:
-            fg = cv2.bitwise_and(fg, self._roi_mask)
 
         contours, _ = cv2.findContours(fg, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 

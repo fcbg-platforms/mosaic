@@ -84,8 +84,7 @@ class CalibrationManager : public QObject {
 
     /// @brief Runs @c cv::calibrateCamera() on a background thread.
     ///
-    /// Emits calibration_started(), calibration_progress(), and
-    /// calibration_done() in sequence.  The caller must wait for
+    /// Emits calibration_started() and then calibration_done().  The caller must wait for
     /// calibration_done() before reading result().
     ///
     /// Requires at least 5 accepted views (10+ recommended).
@@ -107,9 +106,6 @@ class CalibrationManager : public QObject {
 
     /// Emitted when calibrate() starts its background thread.
     void calibration_started();
-
-    /// @param percentage  Rough completion percentage (0–100).
-    void calibration_progress(int percentage);
 
     /// Emitted when calibration finishes.
     /// @param rmsError  Mean reprojection error in pixels.  Negative on failure.

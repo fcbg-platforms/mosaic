@@ -31,7 +31,6 @@ class PoseWorker : public QObject {
     // to free up CPU for the 6-camera grab/encode pipeline while a real
     // recording is in progress (see MainWindow's RecordManager wiring).
     void set_paused(bool paused);
-    [[nodiscard]] bool is_paused() const;
 
    public slots:
     void submit_frame(int cameraIndex, QImage frame);
@@ -42,8 +41,6 @@ class PoseWorker : public QObject {
     // gazeData is a QVariantMap: {face_box:{x,y,w,h}, left_iris:{x,y},
     //                              right_iris:{x,y}, gaze_dx, gaze_dy}
     void gaze_ready(int cameraIndex, QVariantMap gazeData);
-    void process_error(QString message);
-    void paused_changed(bool paused);
 
    private:
     struct Impl;

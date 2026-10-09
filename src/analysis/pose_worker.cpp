@@ -88,7 +88,6 @@ bool PoseWorker::start(const QString& interpreter, const QString& scriptPath) {
     connect(d->proc.get(), &QProcess::errorOccurred, this, [this](QProcess::ProcessError err) {
         const QString msg = QString("Pose process error: %1").arg(static_cast<int>(err));
         log_error(msg);
-        emit process_error(msg);
     });
 
     d->proc->start();
@@ -115,10 +114,7 @@ bool PoseWorker::is_running() const { return d->proc && d->proc->state() == QPro
 void PoseWorker::set_paused(bool paused) {
     if (d->paused == paused) return;
     d->paused = paused;
-    emit paused_changed(paused);
 }
-
-bool PoseWorker::is_paused() const { return d->paused; }
 
 void PoseWorker::submit_frame(int cameraIndex, QImage frame) {
     if (!is_running() || d->paused) return;

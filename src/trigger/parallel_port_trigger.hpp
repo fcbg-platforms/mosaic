@@ -34,7 +34,6 @@ class ParallelPortTrigger : public QObject {
     void stop();
 
     [[nodiscard]] bool is_active() const;
-    [[nodiscard]] int events_fired() const;
 
     // Drives the Control register's INIT pin (bit 2, portAddr+2) high or low
     // — physically separate pins from the Data register this class reads,

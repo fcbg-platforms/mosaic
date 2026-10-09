@@ -58,7 +58,6 @@ bool TranscriptWorker::start(const QString& interpreter, const QString& scriptPa
     connect(d->proc.get(), &QProcess::errorOccurred, this, [this](QProcess::ProcessError err) {
         const QString msg = QString("Transcript process error: %1").arg(static_cast<int>(err));
         log_error(msg);
-        emit process_error(msg);
     });
 
     d->proc->start();
@@ -88,10 +87,7 @@ bool TranscriptWorker::is_running() const {
 void TranscriptWorker::set_paused(bool paused) {
     if (d->paused == paused) return;
     d->paused = paused;
-    emit paused_changed(paused);
 }
-
-bool TranscriptWorker::is_paused() const { return d->paused; }
 
 void TranscriptWorker::submit_chunk(int micIndex, int sampleRate, int channels, QByteArray pcm16) {
     if (!is_running() || d->paused) return;

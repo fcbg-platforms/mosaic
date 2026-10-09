@@ -193,10 +193,6 @@ bool TriggerManager::is_recording() const { return d->recorder->is_recording(); 
 
 // ── Accessors ──────────────────────────────────────────────────────────────
 
-int TriggerManager::keyboard_trigger_count() const {
-    return static_cast<int>(d->keyTriggers.size());
-}
-
 QObject* TriggerManager::keyboard_trigger_at(int index) const {
     if (index < 0 || index >= static_cast<int>(d->keyTriggers.size())) {
         return nullptr;

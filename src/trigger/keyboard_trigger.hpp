@@ -25,7 +25,6 @@ class KeyboardTrigger : public QObject {
     void reload_key_sequence();
 
     [[nodiscard]] int fire_count() const { return m_fireCount; }
-    void reset_count();
 
     bool eventFilter(QObject* obj, QEvent* event) override;
 

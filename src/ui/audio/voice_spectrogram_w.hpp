@@ -70,12 +70,6 @@ class VoiceSpectrogramW : public QWidget {
     void set_playhead_ms(qint64 ms);
     void set_seek_callback(std::function<void(qint64)> cb);
 
-    /// Crops the drawn band without re-running analysis — the stored image
-    /// always covers 0..f1Hz, this only selects which rows are shown. Defaults
-    /// to 5 kHz: at this widget's height the full 8 kHz puts a low male voice's
-    /// harmonics about two pixels apart, which moirés under smooth scaling.
-    void set_displayed_max_frequency(double hz);
-
     void set_show_pitch(bool on);
     void set_show_intensity(bool on);
 

@@ -66,8 +66,8 @@ struct VoiceSpectrogramW::Impl {
     // 4096-wide image per paint would cost 5-10 ms a tick.
     QPixmap cache;
     QSize cacheFor;
-    // Part of the cache key, not just the size: set_displayed_max_frequency()
-    // changes which rows are drawn, and a cache keyed on size alone would keep
+    // Part of the cache key, not just the size: displayMaxHz changes which
+    // rows are drawn, and a cache keyed on size alone would keep
     // serving the previous band while the frequency labels moved — the plot
     // would then actively misstate its own axis.
     double cacheForMaxHz{-1.0};
@@ -164,11 +164,6 @@ void VoiceSpectrogramW::set_playhead_ms(qint64 ms) {
 
 void VoiceSpectrogramW::set_seek_callback(std::function<void(qint64)> cb) {
     d->seekCb = std::move(cb);
-}
-
-void VoiceSpectrogramW::set_displayed_max_frequency(double hz) {
-    d->displayMaxHz = std::max(100.0, hz);
-    update();
 }
 
 void VoiceSpectrogramW::set_show_pitch(bool on) {

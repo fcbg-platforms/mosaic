@@ -232,9 +232,8 @@ class ThumbnailAreaW : public QWidget {
 // ── Impl ────────────────────────────────────────────────────────────────────
 
 struct RealtimeCameraTileW::Impl {
-    int cameraIndex     = 0;
-    bool analyzeEnabled = true;
-    bool paused         = false;
+    int cameraIndex = 0;
+    bool paused     = false;
 
     QLabel* liveDot         = nullptr;
     QCheckBox* analyzeCk    = nullptr;
@@ -258,7 +257,6 @@ RealtimeCameraTileW::RealtimeCameraTileW(int cameraIndex, bool liveAnalysisEnabl
                                          int detectionWindowBuckets, QWidget* parent)
     : QWidget(parent), d(std::make_unique<Impl>()) {
     d->cameraIndex      = cameraIndex;
-    d->analyzeEnabled   = liveAnalysisEnabled;
     d->detectionTracker = DetectionRateTracker(std::max(1, detectionWindowBuckets));
     d->gazeTracker      = DetectionRateTracker(std::max(1, detectionWindowBuckets));
 
@@ -282,7 +280,6 @@ RealtimeCameraTileW::RealtimeCameraTileW(int cameraIndex, bool liveAnalysisEnabl
         "Include this camera in the shared live pose/gaze budget "
         "(~5fps/camera, split across every enabled camera).");
     connect(d->analyzeCk, &QCheckBox::toggled, this, [this](bool on) {
-        d->analyzeEnabled = on;
         if (!on) {
             // Turning analysis off stops new pose_ready/gaze_ready events
             // from ever arriving for this camera (main_window.cpp's
@@ -327,7 +324,6 @@ RealtimeCameraTileW::RealtimeCameraTileW(int cameraIndex, bool liveAnalysisEnabl
 RealtimeCameraTileW::~RealtimeCameraTileW() = default;
 
 int RealtimeCameraTileW::camera_index() const { return d->cameraIndex; }
-bool RealtimeCameraTileW::analyze_enabled() const { return d->analyzeEnabled; }
 
 std::optional<double> RealtimeCameraTileW::detection_rate() const {
     return d->detectionTracker.rate();

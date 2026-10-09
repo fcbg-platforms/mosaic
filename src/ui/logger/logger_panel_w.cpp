@@ -64,8 +64,6 @@ LoggerPanelW::LoggerPanelW(QWidget* parent) : QWidget(parent), d(std::make_uniqu
 
 LoggerPanelW::~LoggerPanelW() = default;
 
-void LoggerPanelW::set_max_lines(int max) { d->maxLines = max; }
-
 // ── Toolbar ────────────────────────────────────────────────────────────────
 
 void LoggerPanelW::build_toolbar(QVBoxLayout* parent) {
