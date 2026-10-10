@@ -237,9 +237,9 @@ runs and every segment's speaker is left ``None``.
 
 .. code-block:: python
 
-   from diarize import resolve_device, load_whisper_model, transcribe_audio
+   from diarize import resolve_whisper_device, load_whisper_model, transcribe_audio
 
-   device = resolve_device(device_arg=None)
+   device = resolve_whisper_device(device_arg=None)
    model = load_whisper_model("small", device)
    segments, detected_language = transcribe_audio(model, audio_path, language=None)
 
@@ -250,6 +250,7 @@ runs and every segment's speaker is left ``None``.
    :nosignatures:
 
    resolve_device
+   resolve_whisper_device
    load_whisper_model
    transcribe_audio
    load_diarization_pipeline
@@ -257,6 +258,8 @@ runs and every segment's speaker is left ``None``.
    assign_speakers
 
 .. autofunction:: diarize.resolve_device
+
+.. autofunction:: diarize.resolve_whisper_device
 
 .. autofunction:: diarize.load_whisper_model
 

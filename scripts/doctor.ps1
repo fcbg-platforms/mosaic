@@ -339,7 +339,7 @@ foreach ($e in $envs) {
         if ($info.cuda) {
             Add-Result "Software" "PASS" "$($e.Name) GPU" "PyTorch sees the GPU (pose and depth analyses run on it)"
         } else {
-            Add-Result "Software" "WARN" "$($e.Name) GPU" "PyTorch cannot use the GPU, so pose and depth analyses run on the CPU (much slower). See the GPU note in analysis\pyproject.toml"
+            Add-Result "Software" "WARN" "$($e.Name) GPU" "PyTorch cannot use the GPU, so pose and depth analyses run on the CPU (much slower). Run uv sync in analysis (it installs the CUDA build) and check the NVIDIA driver is 580 or later"
         }
     }
 }

@@ -20,6 +20,9 @@ should not require the heavy ML stack to be installed.
 
 from __future__ import annotations
 
+import ctypes
+import ctypes.util
+import sys
 from pathlib import Path
 from typing import TypedDict
 
@@ -106,6 +109,80 @@ def resolve_device(device_arg: str | None) -> str:
     return "cuda" if torch.cuda.is_available() else "cpu"
 
 
+#: The CUDA libraries faster-whisper's ctranslate2 backend loads from the
+#: system on first use (its Windows wheel bundles cuDNN but not cuBLAS).
+#: PyTorch's CUDA wheels bring their own, different CUDA version, so a GPU
+#: that torch can use is not enough.
+WHISPER_CUDA_LIBRARIES = {
+    "win32": ("cublas64_12",),
+    "linux": ("libcublas.so.12", "libcudnn.so.9"),
+}
+
+
+def _library_loads(name: str, extra_dir: str | None = None) -> bool:
+    """True when the shared library ``name`` can be found and loaded.
+
+    On Windows it is looked for in ``extra_dir`` first, then on PATH.
+    """
+    path = None
+    if sys.platform == "win32":
+        if extra_dir:
+            candidate = Path(extra_dir) / (name + ".dll")
+            path = str(candidate) if candidate.is_file() else None
+        path = path or ctypes.util.find_library(name)
+    else:
+        path = name
+    if not path:
+        return False
+    try:
+        ctypes.CDLL(path)
+    except OSError:
+        return False
+    return True
+
+
+def resolve_whisper_device(device_arg: str | None) -> str:
+    """The device faster-whisper should run on.
+
+    Parameters
+    ----------
+    device_arg : str or None
+        Explicit device (``"cuda"``, ``"cpu"``), or ``None`` to auto-detect.
+
+    Returns
+    -------
+    str
+        ``device_arg`` unchanged if given; else ``"cuda"`` when ctranslate2
+        sees a GPU and the CUDA libraries it needs load
+        (:data:`WHISPER_CUDA_LIBRARIES`); else ``"cpu"``.
+
+    Notes
+    -----
+    Separate from :func:`resolve_device` because ctranslate2 does not use
+    torch's CUDA libraries. Without its own (CUDA 12 cuBLAS on Windows), a
+    model loads on the GPU and then fails at the first transcription with
+    "Library cublas64_12.dll is not found", so the check has to happen here.
+    On Windows the libraries are looked for where ctranslate2 itself finds
+    them: its own package folder (a common place to copy them) and PATH.
+    On Linux, ``libcublas.so.12`` is the deciding check: the cuDNN 9 that
+    the CUDA torch wheels bring may already be loaded.
+    """
+    if device_arg:
+        return device_arg
+    try:
+        import ctranslate2
+
+        if ctranslate2.get_cuda_device_count() < 1:
+            return "cpu"
+        package_dir = str(Path(ctranslate2.__file__).parent) if ctranslate2.__file__ else None
+    except Exception:
+        return "cpu"
+    needed = WHISPER_CUDA_LIBRARIES.get(sys.platform)
+    if needed is None:
+        return "cpu"
+    return "cuda" if all(_library_loads(n, package_dir) for n in needed) else "cpu"
+
+
 # ── Transcription (faster-whisper) ────────────────────────────────────────────
 
 
@@ -117,7 +194,7 @@ def load_whisper_model(model_size: str, device: str):
     model_size : str
         faster-whisper model size (e.g. ``"small"``, ``"large-v3"``).
     device : str
-        Inference device, typically from :func:`resolve_device`.
+        Inference device, typically from :func:`resolve_whisper_device`.
 
     Returns
     -------

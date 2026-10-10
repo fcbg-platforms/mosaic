@@ -19,6 +19,10 @@ dependencies = [
     # release to ship the "depth" task at all; a fresh `uv sync` resolves to
     # the latest release either way.
     "ultralytics>=8.3",
+    # ultralytics' tracker (Pose uses model.track()) needs lap but does not
+    # declare it: it pip-installs it on first use, and every `uv sync` then
+    # removed it again. Declared so it is locked and always present.
+    "lap>=0.5.12",
     "mediapipe>=0.10.14",
     "pandas>=2.0",
     "scipy>=1.11",
@@ -37,6 +41,12 @@ dependencies = [
     # transitively via matplotlib; declared because this code imports it
     # directly and should not depend on another package's dependency.
     "pillow>=10.0",
+    # Already pulled in by ultralytics and pyannote.audio; listed here so the
+    # CUDA index in [tool.uv.sources] below applies to them (uv only applies a
+    # source to a direct dependency).
+    "torch>=2.4",
+    "torchvision>=0.19",
+    "torchaudio>=2.4",
 ]
 
 [dependency-groups]
@@ -64,22 +74,30 @@ dev = [
 # cache location cannot be redirected via HF_HOME/HUGGINGFACE_HUB_CACHE
 # (py-feat hardcodes its own cache_dir on every download).
 #
-# GPU acceleration (NVIDIA only): ultralytics, faster-whisper (via ctranslate2),
-# and pyannote.audio (via torch/torchaudio) all pull in CPU-only wheels from
-# PyPI by default. A manual `uv pip install torch --index-url ...` does NOT
-# survive the next `uv sync` — it reconciles the environment back to the CPU
-# wheels pinned in uv.lock. To make CUDA wheels stick for the torch-based
-# packages (ultralytics, pyannote.audio), uncomment and adjust the CUDA
-# version below (see https://docs.astral.sh/uv/guides/integration/pytorch/).
-# faster-whisper's ctranslate2 backend detects CUDA independently of torch —
-# see https://opennmt.net/CTranslate2/installation.html for its own GPU
-# requirements (CUDA 12.x + cuDNN 9):
+# GPU acceleration (NVIDIA): torch, torchvision and torchaudio come from
+# PyTorch's CUDA 13.0 index on Windows and Linux, so ultralytics (Pose, depth,
+# YOLO face/segmentation) and pyannote.audio (diarization) run on the GPU when
+# there is one, and on the CPU otherwise (the CUDA wheels work without a GPU,
+# they are just larger). PyPI's own wheels are CPU-only, and a manual
+# `uv pip install torch --index-url ...` would not survive the next `uv sync`,
+# which reconciles back to uv.lock. cu130 needs an NVIDIA driver from the 580
+# series or later; it is the CUDA build PyTorch publishes for every one of
+# these three packages at the locked versions (see
+# https://docs.astral.sh/uv/guides/integration/pytorch/). To change it, edit
+# the index URL and run `uv lock`.
 #
-# [[tool.uv.index]]
-# name = "pytorch-cu121"
-# url = "https://download.pytorch.org/whl/cu121"
-# explicit = true
-#
-# [tool.uv.sources]
-# torch = [{ index = "pytorch-cu121", marker = "sys_platform == 'win32' or sys_platform == 'linux'" }]
-# torchvision = [{ index = "pytorch-cu121", marker = "sys_platform == 'win32' or sys_platform == 'linux'" }]
+# faster-whisper (transcription) does not use torch: its ctranslate2 backend
+# needs its own CUDA 12 cuBLAS (and, on Linux, cuDNN 9; the Windows wheel
+# bundles cuDNN), which these wheels do not include.
+# diarize.pipeline.resolve_whisper_device() runs it on the GPU only when
+# those libraries load, and on the CPU otherwise.
+
+[[tool.uv.index]]
+name = "pytorch-cu130"
+url = "https://download.pytorch.org/whl/cu130"
+explicit = true
+
+[tool.uv.sources]
+torch = [{ index = "pytorch-cu130", marker = "sys_platform == 'win32' or sys_platform == 'linux'" }]
+torchvision = [{ index = "pytorch-cu130", marker = "sys_platform == 'win32' or sys_platform == 'linux'" }]
+torchaudio = [{ index = "pytorch-cu130", marker = "sys_platform == 'win32' or sys_platform == 'linux'" }]

@@ -67,7 +67,7 @@ _MODELS_DIR.mkdir(parents=True, exist_ok=True)
 os.environ.setdefault("HF_HOME", str(_MODELS_DIR))
 
 import numpy as np  # noqa: E402
-from diarize.pipeline import load_whisper_model, resolve_device  # noqa: E402
+from diarize.pipeline import load_whisper_model, resolve_whisper_device  # noqa: E402
 from transcribe.resample import pcm16_to_mono_float32, resample_to_16k  # noqa: E402
 from transcribe.windowing import Segment, confirm_segments, trim_buffer_samples  # noqa: E402
 
@@ -173,7 +173,7 @@ def main() -> None:
     parser.add_argument("--device", default=None)
     args = parser.parse_args()
 
-    device = resolve_device(args.device)
+    device = resolve_whisper_device(args.device)
     print(
         f"[run_live_transcribe] Loading whisper model={args.model} device={device}...",
         file=sys.stderr,
