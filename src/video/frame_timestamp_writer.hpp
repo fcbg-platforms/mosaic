@@ -15,7 +15,7 @@ namespace mosaic {
 // take columns by position or by name both keep working.
 //
 // Thread-safe: write() is called from the grabber thread while the main
-// thread may call is_open() / frames_written() concurrently.
+// thread may call is_open() concurrently.
 // The file is flushed and closed in stop() from whatever thread calls it.
 //
 // Rows also reach the file while recording — at most one flush interval
@@ -49,7 +49,6 @@ class FrameTimestampWriter {
     void set_flush_interval_ms(int ms);
 
     [[nodiscard]] bool is_open() const;
-    [[nodiscard]] int64_t frames_written() const;
 
    private:
     struct Impl;

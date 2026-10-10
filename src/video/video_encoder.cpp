@@ -1,6 +1,5 @@
 #include "video/video_encoder.hpp"
 
-#include <QFile>
 #include <algorithm>
 #include <atomic>
 #include <chrono>
@@ -91,8 +90,6 @@ void VideoEncoder::run_stub_loop() {
                             QString("Cannot open timestamp file: %1").arg(d->cfg.timestampPath));
         return;
     }
-
-    emit encoding_started(d->cfg.cameraIndex);
 
     while (!d->stopFlag.load()) {
         std::shared_ptr<VideoFrame> frame;
@@ -310,8 +307,6 @@ void VideoEncoder::run_ffmpeg_loop() {
         log_warning(QString("[Encoder %1] Cannot open timestamp file — continuing without it.")
                         .arg(cfg.cameraIndex));
     }
-
-    emit encoding_started(cfg.cameraIndex);
 
     // PTS is derived from each frame's elapsed_ns (steady_clock at grab time).
     // Subtracting the first frame's timestamp gives t=0 at recording start.

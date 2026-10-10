@@ -57,11 +57,6 @@ struct VideoFrame {
     [[nodiscard]] bool is_valid() const noexcept {
         return width > 0 && height > 0 && !data.empty();
     }
-
-    /// @returns Total number of bytes in the pixel data (stride × height).
-    [[nodiscard]] size_t byte_count() const noexcept {
-        return static_cast<size_t>(stride * height);
-    }
 };
 
 } // namespace mosaic

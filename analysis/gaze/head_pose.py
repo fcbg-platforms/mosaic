@@ -258,14 +258,3 @@ def camera_pose_to_room(pose_cam: HeadPose, room_from_camera) -> HeadPose:
         scale=pose_cam.scale,
         rms_px=pose_cam.rms_px,
     )
-
-
-def room_pose_to_camera(pose_room: HeadPose, camera_from_room) -> HeadPose:
-    """Re-express a room-from-head pose in one camera's frame."""
-    m = np.asarray(camera_from_room, dtype=np.float64).reshape(4, 4)
-    return HeadPose(
-        r=m[:3, :3] @ pose_room.r,
-        t=m[:3, :3] @ pose_room.t + m[:3, 3],
-        scale=pose_room.scale,
-        rms_px=pose_room.rms_px,
-    )

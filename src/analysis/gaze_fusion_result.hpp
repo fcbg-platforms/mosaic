@@ -100,8 +100,6 @@ class GazeFusionResult {
     /// none was rendered (v1 files, or a run with --no-render).
     [[nodiscard]] QString annotated_video(int cameraIndex) const;
     [[nodiscard]] const QString& room_video() const { return roomVideo_; }
-    /// "synced" or "raw" for v2 (which videos were analysed); empty for v1.
-    [[nodiscard]] const QString& source() const { return source_; }
     [[nodiscard]] const QVector<GazeFusionRoomCamera>& cameras() const { return cameras_; }
     [[nodiscard]] bool plane_defined() const { return planeDefined_; }
     [[nodiscard]] Vec3 plane_point() const { return planePoint_; }

@@ -1,5 +1,4 @@
 #pragma once
-#include <QJsonObject>
 #include <QString>
 #include <QVector>
 #include <memory>
@@ -93,8 +92,7 @@ class SyncManifest {
     [[nodiscard]] int total_ticks() const;
     [[nodiscard]] double master_fps() const;
     [[nodiscard]] int64_t duration_ms() const;
-    [[nodiscard]] int64_t t_origin_ns() const;      // master t=0 on the elapsed_ns clock
-    [[nodiscard]] int64_t t_origin_wall_ns() const; // same instant, wall-clock (for reference)
+    [[nodiscard]] int64_t t_origin_ns() const; // master t=0 on the elapsed_ns clock
 
     // ── Per-camera info ────────────────────────────────────────────────────
     // `idx` is a position in the camera list, 0..camera_count()-1 — NOT a

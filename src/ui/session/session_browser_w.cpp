@@ -1,8 +1,6 @@
 #include "ui/session/session_browser_w.hpp"
 
 #include <QAbstractScrollArea>
-#include <QApplication>
-#include <QClipboard>
 #include <QComboBox>
 #include <QCoreApplication>
 #include <QDesktopServices>
@@ -12,8 +10,6 @@
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QFrame>
-#include <QGridLayout>
-#include <QGroupBox>
 #include <QHBoxLayout>
 #include <QHeaderView>
 #include <QLabel>
@@ -25,10 +21,8 @@
 #include <QPushButton>
 #include <QScrollArea>
 #include <QScrollBar>
-#include <QSizePolicy>
 #include <QSplitter>
 #include <QStackedWidget>
-#include <QStandardPaths>
 #include <QTableWidget>
 #include <QTableWidgetItem>
 #include <QTextEdit>

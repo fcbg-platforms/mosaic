@@ -13,7 +13,7 @@ namespace mosaic {
 // fixtures. The caller (MainWindow::show_session_health()) fills this in from
 // VideoManager::last_recording_snapshot() plus last_recording_action_ticks()
 // and a SyncManifest lookup — deliberately the post-recording snapshots, not
-// the live camera_stats()/action_ticks_fired() reads, which the preview
+// the live camera_stats() reads, which the preview
 // restart following recording_stopped has already zeroed by then.
 struct CameraHealthInput {
     int index = 0;

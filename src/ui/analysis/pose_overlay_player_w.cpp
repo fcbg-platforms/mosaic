@@ -6,7 +6,6 @@
 #include <QLabel>
 #include <QMediaMetaData>
 #include <QMediaPlayer>
-#include <QMouseEvent>
 #include <QPainter>
 #include <QPushButton>
 #include <QSlider>

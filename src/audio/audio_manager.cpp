@@ -93,10 +93,6 @@ void AudioManager::start(const QString& sessionDir, const QString& basename,
             [this, i](QByteArray pcm, int sr, int ch) { emit raw_pcm_ready(i, pcm, sr, ch); },
             Qt::QueuedConnection);
 
-        connect(
-            rec.get(), &AudioRecorder::error_occurred, this,
-            [this, i](const QString& msg) { emit recorder_error(i, msg); }, Qt::QueuedConnection);
-
         if (!rec->start(filePath)) {
             log_error(QString("[AudioManager] Recorder %1 failed to start.").arg(i));
         }

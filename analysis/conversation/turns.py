@@ -67,10 +67,6 @@ class Turn:
     def duration_s(self) -> float:
         return self.end_s - self.start_s
 
-    @property
-    def speech_s(self) -> float:
-        return sum(s.duration_s for s in self.spurts)
-
 
 @dataclass
 class Transition:

@@ -394,7 +394,6 @@ int SyncManifest::total_ticks() const { return totalTicks_; }
 double SyncManifest::master_fps() const { return masterFps_; }
 int64_t SyncManifest::duration_ms() const { return durationMs_; }
 int64_t SyncManifest::t_origin_ns() const { return tOriginNs_; }
-int64_t SyncManifest::t_origin_wall_ns() const { return tOriginWallNs_; }
 int64_t SyncManifest::audio_seek_ms() const { return audioSeekMs_; }
 
 static CameraSync kEmptyCamera;

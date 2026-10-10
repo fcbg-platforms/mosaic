@@ -180,8 +180,6 @@ void ParallelPortTrigger::stop() {
     d->active = false;
 }
 
-bool ParallelPortTrigger::is_active() const { return d->active; }
-
 void ParallelPortTrigger::set_recording_marker(bool active) {
     if (!d->active) {
         return;

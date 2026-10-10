@@ -11,7 +11,6 @@
 #include <QLabel>
 #include <QMenuBar>
 #include <QMessageBox>
-#include <QPushButton>
 #include <QQmlContext>
 #include <QQuickWidget>
 #include <QSet>
@@ -21,7 +20,6 @@
 #include <QTabBar>
 #include <QTabWidget>
 #include <QTimer>
-#include <QVBoxLayout>
 #include <algorithm>
 #include <array>
 #include <memory>

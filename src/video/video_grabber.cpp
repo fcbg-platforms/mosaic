@@ -780,7 +780,6 @@ bool VideoGrabber::open() {
                      .arg(h)
                      .arg(fps)
                      .arg(d->params.serialNumber));
-        emit opened(d->cameraIndex, w, h, fps);
     } catch (const Pylon::GenericException& e) {
         log_warning(QString("[Camera %1] Pylon exception reading dimensions: %2")
                         .arg(d->cameraIndex)
@@ -788,15 +787,12 @@ bool VideoGrabber::open() {
         log_info(QString("[Camera %1] Opened (serial: %2)")
                      .arg(d->cameraIndex)
                      .arg(d->params.serialNumber));
-        emit opened(d->cameraIndex, d->params.width, d->params.height, d->params.fps);
     } catch (const std::exception& e) {
         log_error(QString("[Camera %1] std::exception reading dimensions: %2")
                       .arg(d->cameraIndex)
                       .arg(QString::fromLocal8Bit(e.what())));
-        emit opened(d->cameraIndex, d->params.width, d->params.height, d->params.fps);
     } catch (...) {
         log_error(QString("[Camera %1] unknown exception reading dimensions").arg(d->cameraIndex));
-        emit opened(d->cameraIndex, d->params.width, d->params.height, d->params.fps);
     }
 
     return true;
@@ -809,7 +805,6 @@ bool VideoGrabber::open() {
                  .arg(d->params.width)
                  .arg(d->params.height)
                  .arg(d->params.fps));
-    emit opened(d->cameraIndex, d->params.width, d->params.height, d->params.fps);
     return true;
 #endif
 }
@@ -1266,7 +1261,6 @@ void VideoGrabber::close() {
 
     d->deviceOpen.store(false);
     d->deviceLost.store(false);
-    emit closed(d->cameraIndex);
 }
 
 #if defined(MOSAIC_HAVE_CAMERAS)

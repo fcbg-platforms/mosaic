@@ -55,9 +55,8 @@ MAX_GAP_S = 0.5
 MIN_SEGMENT_S = 10.0
 #: POS window (Wang et al. use 1.6 s at 20 fps), seconds.
 POS_WINDOW_S = 1.6
-#: Physiological band and the narrower band around the person's rate, Hz.
+#: Physiological band, where the heart rate is looked for, Hz.
 LOW_HZ, HIGH_HZ = 0.7, 3.0
-BAND_HALF_HZ = 0.6
 #: Band for timing beats: wide enough to keep the upstroke sharp, Hz.
 BEAT_BAND = (0.5, 5.0)
 #: Upsampling for peak timing.
@@ -157,13 +156,6 @@ def dominant_hz(signal, fs: float, low: float = LOW_HZ, high: float = HIGH_HZ) -
     if not band.any() or p[band].max() <= 0:
         return None
     return float(f[band][np.argmax(p[band])])
-
-
-def band_for(heart_hz: float | None) -> tuple[float, float]:
-    """The pass band around a heart rate (the full band without one)."""
-    if heart_hz is None:
-        return LOW_HZ, HIGH_HZ
-    return max(LOW_HZ, heart_hz - BAND_HALF_HZ), min(HIGH_HZ, heart_hz + BAND_HALF_HZ)
 
 
 def bandpass(signal, fs: float, low: float, high: float) -> np.ndarray:

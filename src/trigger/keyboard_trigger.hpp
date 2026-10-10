@@ -19,12 +19,9 @@ class KeyboardTrigger : public QObject {
     ~KeyboardTrigger() override;
 
     void set_active(bool active);
-    [[nodiscard]] bool is_active() const { return m_active; }
 
     // Call after the config's keySeq string changes to re-parse it.
     void reload_key_sequence();
-
-    [[nodiscard]] int fire_count() const { return m_fireCount; }
 
     bool eventFilter(QObject* obj, QEvent* event) override;
 

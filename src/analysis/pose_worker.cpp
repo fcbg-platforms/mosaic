@@ -14,7 +14,6 @@ namespace mosaic {
 
 struct PoseWorker::Impl {
     std::unique_ptr<QProcess> proc;
-    QTimer* readTimer{nullptr};
     QByteArray readBuf;
     bool paused{false};
 };
