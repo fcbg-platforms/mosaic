@@ -10,6 +10,7 @@ from .pipeline import (
     load_diarization_pipeline,
     load_whisper_model,
     resolve_device,
+    resolve_whisper_device,
     transcribe_audio,
 )
 
@@ -18,6 +19,7 @@ __all__ = [
     "DiarizationTurn",
     "TranscriptSegment",
     "resolve_device",
+    "resolve_whisper_device",
     "load_whisper_model",
     "transcribe_audio",
     "load_diarization_pipeline",

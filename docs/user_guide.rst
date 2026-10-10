@@ -991,15 +991,26 @@ Tips and troubleshooting
 
    .. grid-item-card:: 🖥️  GPU / CPU auto-selection
 
-      Pose, diarization, and gaze fusion all auto-select CUDA if a working
-      GPU is available, falling back to CPU otherwise, with no manual device
-      flag needed. FER+, face-mask detectors, py-feat, rPPG, and 3D Pose
-      Reconstruction all run CPU-only by design: the models are small
-      enough (FER+, face-mask), the underlying library doesn't auto-select
-      a device (py-feat), or there's simply no GPU-acceleratable step at
-      all (rPPG's classical signal processing; 3D Pose Reconstruction's
-      pure linear algebra). For all of these, a GPU wouldn't meaningfully
-      help.
+      ``uv sync`` in ``analysis/`` installs PyTorch's CUDA build on Windows
+      and Linux (it needs an NVIDIA driver from the 580 series or later, and
+      falls back to the CPU without one). Everything built on PyTorch then
+      uses the GPU on its own, with no device flag: **Pose** and its depth
+      option, the YOLO face detector and segmenter of **Face Mask**, and the
+      speaker-turn step of **Speaker Diarization**. On room 11's RTX A4000,
+      Pose on a 1080p video went from 14.6 to 22 fps with the nano model and
+      from 6.3 to 22 fps with the medium one, and depth from 10.7 to 28 fps.
+      Video decoding is then the limit, so a larger Pose model costs little.
+
+      **Transcription** (faster-whisper) has its own CUDA requirement: it
+      uses the GPU only when it can load the CUDA 12 cuBLAS library (on
+      Windows from PATH or from the ctranslate2 package folder; on Linux it
+      also needs cuDNN 9), and the CPU otherwise. The log line ``Loading
+      whisper model (... device=...)`` says which.
+
+      The other analyses run on the CPU: MediaPipe face and gaze models
+      (Gaze 2D, Gaze Fusion, Face Dynamics, Eye Contact, rPPG), FER+, and
+      py-feat, which is set to the CPU. ``scripts/doctor.ps1`` reports
+      whether PyTorch can use the GPU.
 
    .. grid-item-card:: 🧑‍🤝‍🧑  Subject identity across frames
 
