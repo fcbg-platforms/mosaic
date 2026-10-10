@@ -13,17 +13,11 @@
     is logged when MOSAIC opens it ("[Camera N] Pixel format ..."), with its
     share of the link; the pixel format in the settings is only a request.
 
-    *** ROOM-SPECIFIC — filled in for this PC via VideoGrabber::enumerate_devices() ***
-    The $CameraMap table below is this room's confirmed NIC-to-camera-IP-to-serial
-    mapping, captured by discovering all 6 physically-connected cameras. If this
-    script is copied to a different PC/room, re-derive it:
-      1. Run 'Get-NetAdapter' on the new PC and note the real port names
-         (e.g. "Ethernet 3") — they are specific to that PC's NIC hardware.
-      2. Use Mosaic's "Discover cameras" button (Video settings tab) or
-         Pylon IP Configurator's device list to read each camera's serial/IP.
-      3. Replace $CameraMap below with the new room's values.
-    Running this script with placeholder values still present will abort (see the
-    preflight check) rather than silently apply a wrong/stale mapping.
+    The room's NIC-to-camera map (port names, IPs, serials) is in
+    room_cameras.psd1 next to this script, shared with doctor.ps1. Edit that
+    file, not this one, when the room or PC changes; this script refuses to
+    run while it still holds "REPLACE_ME" values. Run doctor.ps1 afterwards to
+    check the result.
 
     After running this script:
       1. Physically connect each camera to its assigned NIC port (see table).
@@ -36,28 +30,9 @@
          See the GevSCPSPacketSize comment in src/video/video_grabber.cpp.
 #>
 
-# ── Room-specific camera map ────────────────────────────────────────────────
-# Nic:       Windows adapter name from `Get-NetAdapter` (e.g. "Ethernet 3")
-# PcIp:      This PC's IP on that camera's dedicated subnet
-# CameraIp:  Static IP to assign the camera via Pylon IP Configurator
-# Serial:    Camera's serial number (physical label / Pylon device list)
-# Label:     Human-readable camera identifier for this room (matches the
-#            "Camera N" position shown in Mosaic's Video settings tab)
-#
-# Confirmed via VideoGrabber::enumerate_devices() with all 6 cameras connected.
-# Ethernet 7's PC-side IP (192.168.8.2/24), jumbo frames, and receive buffers
-# are now set to match the other 5 ports. The camera's own static IP
-# (192.168.8.3) is still a manual Pylon IP Configurator step — it currently
-# self-assigns a link-local address, which works fine for discovery/streaming
-# but is inconsistent with the rest of the topology.
-$CameraMap = @(
-    [PSCustomObject]@{ Nic = "Ethernet 10"; PcIp = "192.168.3.2"; CameraIp = "192.168.3.3"; Serial = "24925616"; Label = "Camera 1" }
-    [PSCustomObject]@{ Nic = "Ethernet 9";  PcIp = "192.168.7.2"; CameraIp = "192.168.7.3"; Serial = "24925618"; Label = "Camera 2" }
-    [PSCustomObject]@{ Nic = "Ethernet 8";  PcIp = "192.168.6.2"; CameraIp = "192.168.6.3"; Serial = "24925620"; Label = "Camera 3" }
-    [PSCustomObject]@{ Nic = "Ethernet 3";  PcIp = "192.168.4.2"; CameraIp = "192.168.4.3"; Serial = "24925615"; Label = "Camera 4" }
-    [PSCustomObject]@{ Nic = "Ethernet 7";  PcIp = "192.168.8.2"; CameraIp = "192.168.8.3"; Serial = "24925621"; Label = "Camera 5 (camera-side static IP still pending — see note above)" }
-    [PSCustomObject]@{ Nic = "Ethernet 6";  PcIp = "192.168.5.2"; CameraIp = "192.168.5.3"; Serial = "24893039"; Label = "Camera 6" }
-)
+# ── Room-specific camera map (see room_cameras.psd1) ──────────────────────
+$CameraMap = (Import-PowerShellDataFile (Join-Path $PSScriptRoot "room_cameras.psd1")).Cameras |
+    ForEach-Object { [PSCustomObject]$_ }
 
 Write-Host "`n=== MOSAIC camera NIC setup ===" -ForegroundColor Cyan
 
@@ -68,7 +43,7 @@ $placeholderCount = ($CameraMap | Where-Object {
 }).Count
 if ($placeholderCount -gt 0) {
     Write-Host "`nERROR: `$CameraMap still has $placeholderCount placeholder entr$(if ($placeholderCount -eq 1) {'y'} else {'ies'})." -ForegroundColor Red
-    Write-Host "Edit the `$CameraMap table at the top of this script with this room's" -ForegroundColor Red
+    Write-Host "Edit room_cameras.psd1 (next to this script) with this room's" -ForegroundColor Red
     Write-Host "real NIC names, IPs, and camera serials before running it. See the" -ForegroundColor Red
     Write-Host "header comment for how to find those values (Get-NetAdapter + camera labels)." -ForegroundColor Red
     exit 1
@@ -126,8 +101,7 @@ Write-Host "Next steps:" -ForegroundColor Yellow
 Write-Host "  1. Plug each camera into its assigned NIC port above"
 Write-Host "  2. Open: C:\Program Files\Basler\pylon 7\Tools\PylonIPConfigurator.exe"
 Write-Host "  3. For each camera: select it -> Set Static IP -> enter the IP from table above"
-Write-Host "  4. Reboot to activate jumbo frames, then in Mosaic camera settings set"
-Write-Host "     PacketSize = 8192 for each camera (the app itself still hardcodes 1500"
-Write-Host "     bytes in video_grabber.cpp until that's made configurable — see the"
-Write-Host "     room-11 bring-up plan for this known gap)."
+Write-Host "  4. Reboot to activate the NIC settings (MOSAIC keeps the camera packet"
+Write-Host "     size at 1500 bytes on purpose; see the note at the top of this script)"
+Write-Host "  5. Check everything with: .\scripts\doctor.ps1"
 Write-Host ""

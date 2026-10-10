@@ -9,7 +9,8 @@ Camera numbering
 ----------------
 
 Everywhere on screen, cameras are numbered **from 1**: Camera 1 to Camera 6,
-matching the room labels and ``setup_nic_cameras.ps1``. Files and data are
+matching the room labels and ``scripts/room_cameras.psd1`` (the camera map
+that ``setup_nic_cameras.ps1`` and ``doctor.ps1`` read). Files and data are
 numbered **from 0**, so *Camera 3* records ``video/video_2.mp4`` and
 ``timestamps_cam2.csv``, and appears as index ``2`` in ``sync_manifest.json``
 and as ``[Camera 2]`` in ``mosaic.log``. The data side is kept 0-based because

@@ -116,6 +116,45 @@ First launch
 4. Press **● Record** (or ``Ctrl+R``) to start a session. Files appear in
    the configured output folder.
 
+Checking a recording PC
+-----------------------
+
+``scripts/doctor.ps1`` checks that a Windows PC is ready to record and
+analyse. It changes nothing and needs no administrator rights:
+
+.. code-block:: powershell
+
+   .\scripts\doctor.ps1
+   .\scripts\doctor.ps1 -UserProfile csru -Json doctor_report.json
+
+It prints PASS, WARN, FAIL or INFO for:
+
+- **System:** memory and the power plan (High performance is recommended
+  while recording).
+- **GPU:** the model and driver, and whether it can hardware-encode every
+  camera at once. Consumer GeForce cards limit how many streams their driver
+  encodes at the same time; professional cards (RTX A-series, Quadro) do not.
+- **Cameras:** for each camera in ``scripts/room_cameras.psd1``, its network
+  port is up at 1 Gbps with this PC's IP, jumbo frames and receive buffers
+  set, and the camera answers at its IP. The cameras in MOSAIC's settings must
+  match that file.
+- **Last camera streams:** what each camera really sent when MOSAIC last
+  opened it (pixel format and share of the gigabit link, from ``mosaic.log``).
+- **Software:** Basler Pylon, the MOSAIC build, both Python environments and
+  their key packages (and whether PyTorch can use the GPU), and the analysis
+  model files.
+- **Storage:** free space in the recordings folder (in hours at the
+  configured bitrate, as the app's own pre-recording check reckons it), the
+  drive type, and a short write-speed test (``-SkipDiskTest`` skips it).
+
+The exit code is 1 when a check fails. ``-Json`` also writes every result to
+a file, to attach to a support request.
+
+``scripts/room_cameras.psd1`` is the room's camera map (network port, IPs and
+serial of each camera). ``scripts/setup_nic_cameras.ps1`` reads the same file
+to apply the port settings, as administrator. On a new PC or in a new room,
+edit the map first.
+
 Building the documentation
 --------------------------
 
