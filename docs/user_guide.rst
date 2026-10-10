@@ -182,7 +182,8 @@ seconds; it is not possible during a recording.
         deliver up to about **26 fps**; the room is set to 25.
       - Triggered cameras are paced together at 85 % of the slowest
         camera's rate. With all cameras set to 25 fps, the room records at
-        about **21 fps**.
+        about **21 fps**. The share is the **Trigger rate** setting under
+        **Camera sync**; see :doc:`camera_settings` before raising it.
       - Each camera's achievable rate is shown on its card in
         **Settings → Video**.
 
@@ -314,7 +315,8 @@ Each camera's card in **Settings → Video** shows the rate the camera itself
 says it can deliver. If it is below what you configured:
 
 - **Room mode:** a full frame takes 38.3 ms to read out, so about 26 fps is
-  the ceiling, and triggered recording runs at 85 % of the slowest camera.
+  the ceiling, and triggered recording runs at 85 % of the slowest camera
+  (the **Trigger rate** setting).
 - **Interview mode:** a shorter crop (fewer rows) raises the rate; width and
   exposure barely change it. Use the **Use N fps** button to ask for exactly
   what the camera can do.

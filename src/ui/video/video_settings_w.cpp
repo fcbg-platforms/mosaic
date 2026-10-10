@@ -121,6 +121,7 @@ VideoSettingsW::VideoSettingsW(VideoSettings& settings, QWidget* parent)
     contentLay->setSpacing(10);
 
     build_encoding_section(contentLay);
+    build_sync_section(contentLay);
     build_interview_section(contentLay);
     build_cameras_section(contentLay);
     contentLay->addStretch();
@@ -805,6 +806,53 @@ void VideoSettingsW::build_encoding_section(QVBoxLayout* parent) {
         m_settings.preset = v;
         emit settings_changed();
     });
+
+    parent->addWidget(box);
+}
+
+// ── Camera sync section ────────────────────────────────────────────────────
+
+void VideoSettingsW::build_sync_section(QVBoxLayout* parent) {
+    auto* box  = new QGroupBox("Camera sync");
+    auto* form = new QVBoxLayout(box);
+    form->setSpacing(6);
+
+    auto* row = new QHBoxLayout;
+    auto* lbl = new QLabel("Trigger rate:");
+    lbl->setFixedWidth(90);
+    lbl->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+    auto* spin = new QSpinBox;
+    spin->setRange(static_cast<int>(std::lround(100.0 * VideoSettings::kMinTriggerMargin)), 100);
+    spin->setValue(static_cast<int>(std::lround(100.0 * m_settings.triggerMargin)));
+    spin->setSuffix(" %");
+    spin->setFixedWidth(130);
+    spin->setToolTip(
+        QString("Default %1 %.").arg(std::lround(100.0 * VideoSettings::kDefaultTriggerMargin)));
+    auto* rowHint = new QLabel("of the slowest camera's rate");
+    rowHint->setProperty("role", "muted");
+    connect(spin, qOverload<int>(&QSpinBox::valueChanged), this, [this](int v) {
+        m_settings.triggerMargin = v / 100.0;
+        emit settings_changed();
+    });
+    row->addWidget(lbl);
+    row->addWidget(spin);
+    row->addSpacing(6);
+    row->addWidget(rowHint);
+    row->addStretch();
+    form->addLayout(row);
+
+    auto* hint = new QLabel(
+        QString("Cameras with hardware triggering are fired together at this share of the "
+                "slowest camera's rate (25 fps cameras at %1 % record at about %2 fps). Higher "
+                "is faster, but a camera fired too close to its limit misses triggers: after "
+                "changing it, record a test and compare each camera's frames with the triggers "
+                "fired in the recording's health report. "
+                "Takes effect at the next recording (a running preview keeps its rate).")
+            .arg(std::lround(100.0 * VideoSettings::kDefaultTriggerMargin))
+            .arg(25.0 * VideoSettings::kDefaultTriggerMargin, 0, 'f', 2));
+    hint->setProperty("role", "muted");
+    hint->setWordWrap(true);
+    form->addWidget(hint);
 
     parent->addWidget(box);
 }

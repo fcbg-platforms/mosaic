@@ -68,13 +68,14 @@ class ActionCommandTicker : public QThread {
     // worth a file. Owned here so it closes when this thread is done.
     ActionCommandTicker(std::unique_ptr<ActionCommandSession> session,
                         std::vector<ActionCommandTarget> targets,
-                        std::vector<VideoGrabber*> grabbers, double periodMs,
+                        std::vector<VideoGrabber*> grabbers, double periodMs, double margin,
                         std::unique_ptr<ActionTickLog> tickLog = nullptr)
         : m_session(std::move(session)),
           m_targets(std::move(targets)),
           m_grabbers(std::move(grabbers)),
           m_tickLog(std::move(tickLog)),
-          m_period(std::chrono::duration<double, std::milli>(periodMs)) {
+          m_period(std::chrono::duration<double, std::milli>(periodMs)),
+          m_margin(margin) {
         // Baseline each camera's corrupted-frame counter, because it is the odd
         // one out: ticks_fired() starts at zero with this ticker and
         // frames_grabbed() is reset by start_grabbing(), but
@@ -273,7 +274,7 @@ class ActionCommandTicker : public QThread {
                                                                   : g->configured_fps());
                     }
                     const auto newPeriod = std::chrono::duration<double, std::milli>(
-                        action_command_period_ms(freshTargetFps));
+                        action_command_period_ms(freshTargetFps, m_margin));
                     // Only act on a materially different period — floating-
                     // point noise or sub-percent jitter in a repeated
                     // measurement shouldn't restart the tick cadence every
@@ -322,6 +323,8 @@ class ActionCommandTicker : public QThread {
     // Each camera's VideoGrabber::reconnects() as last seen by run().
     std::vector<int64_t> m_seenReconnects;
     std::chrono::duration<double, std::milli> m_period;
+    // VideoSettings::triggerMargin, as the ticker was started with.
+    double m_margin;
     std::atomic<int64_t> m_ticksFired{0};
 };
 
@@ -372,6 +375,11 @@ struct VideoManager::Impl {
     // once recording stops never writes into the finished session.
     QString tickLogDir;
 
+    // VideoSettings::triggerMargin as of the last open() or start(), so a
+    // changed value takes effect when the ticker is next started (the next
+    // recording; a running preview keeps its rate).
+    double triggerMargin = k_default_action_margin;
+
     // ── Interview mode ────────────────────────────────────────────────────
     // The settings object open() was given — an AppSettings member, alive for
     // the app's lifetime. Needed by apply_live_params(), which is handed only
@@ -402,6 +410,7 @@ VideoManager::~VideoManager() {
 
 int VideoManager::open(const VideoSettings& settings) {
     close();
+    d->triggerMargin = settings.triggerMargin;
 
     // Interview mode opens one camera with its own crop and rate laid over
     // that camera's configuration — see interview_camera_params(). The rest
@@ -594,6 +603,7 @@ void VideoManager::start(const QString& sessionDir, const QString& videoBasename
     if (d->recording || d->units.empty()) {
         return;
     }
+    d->triggerMargin = settings.triggerMargin;
 
     // Stop preview grabbers so ring buffers can be safely reset before recording.
     if (d->previewing) {
@@ -903,7 +913,7 @@ void VideoManager::arm_and_fire_action_commands() {
         targetFps.push_back(achievable > 0.0 ? achievable : u->grabber->configured_fps());
         targetDesc << QString("cam%1@%2").arg(u->configIndex).arg(targets.back().broadcastAddress);
     }
-    const double periodMs = action_command_period_ms(targetFps);
+    const double periodMs = action_command_period_ms(targetFps, d->triggerMargin);
 
     // Construct (and validate) the transport-layer session HERE, on the
     // main thread, before starting any background thread — not inside the
@@ -927,10 +937,11 @@ void VideoManager::arm_and_fire_action_commands() {
     }
 
     log_info(QString("[VideoManager] Starting continuous GigE Action Command firing "
-                     "(every %1 ms) for %2 camera(s): %3")
+                     "(every %1 ms, %4% of the slowest camera's rate) for %2 camera(s): %3")
                  .arg(periodMs, 0, 'f', 1)
                  .arg(targets.size())
-                 .arg(targetDesc.join(", ")));
+                 .arg(targetDesc.join(", "))
+                 .arg(100.0 * d->triggerMargin, 0, 'f', 0));
     // The recording's tick log, plus which cameras the ticks apply to: a
     // camera outside the Action1 group free-runs, and must not be forced onto
     // a trigger grid it never followed.
@@ -944,7 +955,7 @@ void VideoManager::arm_and_fire_action_commands() {
                 {"tick_log", "action_ticks.csv"},
                 {"cameras", cams},
                 {"initial_period_ms", periodMs},
-                {"margin", k_default_action_margin},
+                {"margin", d->triggerMargin},
             };
             QFile f(d->tickLogDir + "/action_group.json");
             if (f.open(QIODevice::WriteOnly | QIODevice::Text)) {
@@ -954,8 +965,9 @@ void VideoManager::arm_and_fire_action_commands() {
             tickLog.reset();
         }
     }
-    d->actionTicker = std::make_unique<ActionCommandTicker>(
-        std::move(session), std::move(targets), std::move(grabbers), periodMs, std::move(tickLog));
+    d->actionTicker = std::make_unique<ActionCommandTicker>(std::move(session), std::move(targets),
+                                                            std::move(grabbers), periodMs,
+                                                            d->triggerMargin, std::move(tickLog));
     d->actionTicker->start();
 }
 

@@ -648,7 +648,7 @@ bool VideoGrabber::open() {
         // (2026-10-02, full frame, 25 fps asked): the delay adds straight onto
         // each camera's frame time — readout 38.3 ms + delay + 0.5 ms — so the
         // six cameras could manage 25.0 / 22.8 / 20.5 / 18.6 / 17.0 / 15.7 fps,
-        // and Action1 triggering paces the whole group at 85% of the slowest:
+        // and Action1 triggering paced the whole group at 85% of the slowest:
         // ~13.3 fps (14.45 when Camera 6 was not opening — the ceiling this rig
         // showed for months). Without it every camera reports 25 and the group
         // records at 21.25 fps, with no incomplete (packet-loss) frames on any

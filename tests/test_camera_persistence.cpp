@@ -192,3 +192,28 @@ TEST(CalibrationPersistence, ImageSizeAndCropRoundTripAndDefaultToUnknown) {
     EXPECT_EQ(legacy->imageWidth, -1);
     EXPECT_EQ(legacy->imageOffsetX, -1);
 }
+
+// The trigger margin is a saved setting; an old settings.json without it, or a
+// hand-edited value outside [kMinTriggerMargin, 1], must not reach the ticker.
+TEST(CameraPersistence, TriggerMarginRoundTripsAndIsKeptInRange) {
+    VideoSettings video;
+    video.triggerMargin = 0.93;
+    const auto loaded   = VideoSettings::from_json(video.to_json());
+    ASSERT_TRUE(loaded.has_value());
+    EXPECT_DOUBLE_EQ(loaded->triggerMargin, 0.93);
+
+    const auto margin = [](const QJsonValue& v) {
+        QJsonObject o;
+        if (!v.isUndefined()) {
+            o["trigger_margin"] = v;
+        }
+        return VideoSettings::from_json(o)->triggerMargin;
+    };
+    EXPECT_DOUBLE_EQ(margin(QJsonValue::Undefined), VideoSettings::kDefaultTriggerMargin);
+    EXPECT_DOUBLE_EQ(margin(1.4), 1.0);
+    EXPECT_DOUBLE_EQ(margin(1.0), 1.0);
+    EXPECT_DOUBLE_EQ(margin(0.5), 0.5);
+    EXPECT_DOUBLE_EQ(margin(0.2), VideoSettings::kDefaultTriggerMargin);
+    EXPECT_DOUBLE_EQ(margin(-1.0), VideoSettings::kDefaultTriggerMargin);
+    EXPECT_DOUBLE_EQ(margin(QStringLiteral("fast")), VideoSettings::kDefaultTriggerMargin);
+}
