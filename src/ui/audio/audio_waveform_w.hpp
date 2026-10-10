@@ -58,9 +58,6 @@ class AudioWaveformW : public QWidget {
     /// re-renders the whole visible history at the new scale immediately.
     void set_scale(float scale);
 
-    /// @returns Current display amplitude scale.
-    [[nodiscard]] float scale() const;
-
     /// Switches into static mode and displays a whole pre-recorded clip's
     /// envelope across the full widget width, instead of the live rolling
     /// history used by the Audio settings tab — used by the Analysis tab's
@@ -118,7 +115,7 @@ class AudioWaveformW : public QWidget {
    public slots:
     /// Append one (min, max) envelope pair for @p channelIndex (0-based),
     /// each in the raw, unscaled range [-1, 1] — display gain is applied in
-    /// paintEvent() via scale(), not here. Safe to call from any thread;
+    /// paintEvent() (set_scale()), not here. Safe to call from any thread;
     /// internally dispatches via invokeMethod if needed.
     void push_envelope(int channelIndex, float minSample, float maxSample);
 

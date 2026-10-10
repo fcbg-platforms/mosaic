@@ -1,5 +1,4 @@
 #pragma once
-#include <QLabel>
 #include <QVBoxLayout>
 #include <QWidget>
 #include <memory>

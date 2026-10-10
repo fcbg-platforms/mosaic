@@ -117,8 +117,6 @@ void AudioWaveformW::set_scale(float scale) {
     update();
 }
 
-float AudioWaveformW::scale() const { return d->scale; }
-
 // ── Static mode ────────────────────────────────────────────────────────────
 
 void AudioWaveformW::set_static_envelope(const QVector<QPair<float, float>>& envelope,

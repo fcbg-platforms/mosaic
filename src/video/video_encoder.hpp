@@ -53,7 +53,6 @@ class VideoEncoder : public QThread {
     [[nodiscard]] int64_t last_frame_elapsed_ns() const;
 
    signals:
-    void encoding_started(int cameraIndex);
     void encoding_stopped(int cameraIndex, int64_t totalFrames);
     void encoding_error(int cameraIndex, QString message);
 

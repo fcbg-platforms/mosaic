@@ -39,8 +39,6 @@ class Track:
         Recent per-frame timestamps (ns), parallel to ``positions``.
     areas : collections.deque
         Recent per-frame contour areas (px²), parallel to ``positions``.
-    last_frame : int, default 0
-        Internal frame index this track was last updated at.
     lost_count : int, default 0
         Consecutive frames since this track was last matched to a
         detection; pruned once this exceeds
@@ -51,7 +49,6 @@ class Track:
     positions: deque = field(default_factory=lambda: deque(maxlen=90))
     timestamps_ns: deque = field(default_factory=lambda: deque(maxlen=90))
     areas: deque = field(default_factory=lambda: deque(maxlen=90))
-    last_frame: int = 0
     lost_count: int = 0
 
     @property
@@ -112,15 +109,12 @@ class Detection:
         Contour area, px².
     bbox : tuple of int
         Bounding rect, ``(x, y, w, h)`` px.
-    contour : numpy.ndarray
-        The raw OpenCV contour this detection was built from.
     """
 
     cx: float
     cy: float
     area: float
     bbox: tuple[int, int, int, int]  # x, y, w, h
-    contour: np.ndarray
 
 
 # ── CentroidTracker ────────────────────────────────────────────────────────
@@ -188,7 +182,6 @@ class CentroidTracker:
         )
         self._next_id: int = 0
         self._tracks: dict[int, Track] = {}
-        self._frame_idx: int = 0
 
         # Pre-build kernels once
         self._close_k = cv2.getStructuringElement(
@@ -226,7 +219,6 @@ class CentroidTracker:
         detections = self._detect(frame)
         self._assign(detections, timestamp_ns, fps)
         self._prune_lost()
-        self._frame_idx += 1
         return list(self._tracks.values())
 
     @property
@@ -237,7 +229,6 @@ class CentroidTracker:
         """Clear all tracks and rebuild the background model from scratch."""
         self._tracks.clear()
         self._next_id = 0
-        self._frame_idx = 0
         self._fgbg = cv2.createBackgroundSubtractorMOG2(
             history=500, varThreshold=16.0, detectShadows=True
         )
@@ -268,7 +259,7 @@ class CentroidTracker:
             cx = M["m10"] / M["m00"]
             cy = M["m01"] / M["m00"]
             x, y, w, h = cv2.boundingRect(cnt)
-            detections.append(Detection(cx=cx, cy=cy, area=area, bbox=(x, y, w, h), contour=cnt))
+            detections.append(Detection(cx=cx, cy=cy, area=area, bbox=(x, y, w, h)))
 
         # Sort largest first — helps with occluded blobs
         detections.sort(key=lambda d: d.area, reverse=True)
@@ -336,7 +327,7 @@ class CentroidTracker:
                     self._create_track(det, timestamp_ns)
 
     def _create_track(self, det: Detection, ts_ns: int) -> Track:
-        t = Track(id=self._next_id, last_frame=self._frame_idx)
+        t = Track(id=self._next_id)
         t.positions.append((det.cx, det.cy))
         t.timestamps_ns.append(ts_ns)
         t.areas.append(det.area)
@@ -348,7 +339,6 @@ class CentroidTracker:
         track.positions.append((det.cx, det.cy))
         track.timestamps_ns.append(ts_ns)
         track.areas.append(det.area)
-        track.last_frame = self._frame_idx
         track.lost_count = 0
 
     def _prune_lost(self) -> None:

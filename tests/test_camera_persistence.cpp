@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 
 #include <QFileInfo>
+#include <QJsonArray>
 #include <QTemporaryDir>
 
 #include "auth/profile_manager.hpp"

@@ -208,8 +208,6 @@ class VideoGrabber : public QThread {
     [[nodiscard]] static QVector<DiscoveredCamera> enumerate_devices();
 
    signals:
-    void opened(int cameraIndex, int width, int height, double fps);
-    void closed(int cameraIndex);
     void frame_dropped(int cameraIndex, int64_t frameId);
     void grab_error(int cameraIndex, QString message);
     // Throttled preview at ~15 fps — used for live QML display only.

@@ -1,7 +1,6 @@
 #include "video/video_manager.hpp"
 
 #include <QCoreApplication>
-#include <QDir>
 #include <QFile>
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -99,7 +98,7 @@ class ActionCommandTicker : public QThread {
     // Cross-thread-safe (atomic); read by VideoManager::stop_action_ticker()
     // right before this object is destroyed, since the running total would
     // otherwise be lost the instant that happens — see
-    // VideoManager::action_ticks_fired()'s own doc comment.
+    // VideoManager::last_recording_action_ticks()'s doc comment.
     [[nodiscard]] int64_t ticks_fired() const {
         return m_ticksFired.load(std::memory_order_relaxed);
     }
@@ -330,7 +329,6 @@ struct CameraUnit {
     std::unique_ptr<RingBuffer<std::shared_ptr<VideoFrame>>> buffer;
     std::unique_ptr<VideoGrabber> grabber;
     std::unique_ptr<VideoEncoder> encoder;
-    bool encoderDone{false};
     // Position in the *configured* settings.cameras array this unit was
     // opened from — NOT necessarily this unit's position in d->units, since
     // an earlier camera that failed to open leaves a gap. VideoGrabber keeps
@@ -358,7 +356,7 @@ struct VideoManager::Impl {
     std::unique_ptr<ActionCommandTicker> actionTicker;
 
     // Snapshot of the most recently stopped actionTicker's own ticks_fired()
-    // — see VideoManager::action_ticks_fired()'s doc comment. -1 = Action1
+    // — see VideoManager::last_recording_action_ticks()'s doc comment. -1 = Action1
     // triggering was never used in this VideoManager's lifetime.
     int64_t lastActionTicksFired = -1;
 
@@ -491,10 +489,6 @@ int VideoManager::open(const VideoSettings& settings) {
         unit.buffer  = std::make_unique<RingBuffer<std::shared_ptr<VideoFrame>>>(k_ring_capacity);
         unit.grabber = std::make_unique<VideoGrabber>(i, cam, *unit.buffer);
 
-        connect(unit.grabber.get(), &VideoGrabber::opened, this, &VideoManager::camera_opened,
-                Qt::QueuedConnection);
-        connect(unit.grabber.get(), &VideoGrabber::closed, this, &VideoManager::camera_closed,
-                Qt::QueuedConnection);
         connect(unit.grabber.get(), &VideoGrabber::frame_dropped, this,
                 &VideoManager::frame_dropped, Qt::QueuedConnection);
         connect(unit.grabber.get(), &VideoGrabber::grab_error, this, &VideoManager::camera_error,
@@ -803,8 +797,8 @@ void VideoManager::request_calibration_frame(int configIndex, uint64_t token) {
 void VideoManager::arm_and_fire_action_commands() {
     // Reset up front, before deciding whether a ticker is even needed this
     // call — otherwise a session that doesn't use Action1 triggering would
-    // silently keep reporting an earlier session's tick count via
-    // action_ticks_fired() (see that accessor's own doc comment), since
+    // silently keep reporting an earlier session's tick count (see
+    // last_recording_action_ticks()'s doc comment), since
     // stop_action_ticker() only snapshots a fresh value when a ticker
     // actually existed to snapshot.
     d->lastActionTicksFired = -1;
@@ -979,7 +973,7 @@ void VideoManager::stop_action_ticker() {
         // Abandon it instead — the loader stops at the last complete row.
         d->actionTicker->abandon_tick_log();
     }
-    // Snapshot before destroying — see action_ticks_fired()'s doc comment.
+    // Snapshot before destroying — see last_recording_action_ticks()'s doc comment.
     d->lastActionTicksFired = d->actionTicker->ticks_fired();
     d->actionTicker.reset();
 }
@@ -997,11 +991,9 @@ void VideoManager::on_encoder_stopped(int cameraIndex, int64_t frames) {
 // ── Accessors ──────────────────────────────────────────────────────────────
 
 bool VideoManager::is_recording() const { return d->recording; }
-bool VideoManager::is_previewing() const { return d->previewing; }
 int VideoManager::camera_count() const { return d->cameraCount; }
 int64_t VideoManager::total_frames_encoded() const { return d->totalEncoded.load(); }
 int64_t VideoManager::total_frames_dropped() const { return d->totalDropped.load(); }
-int64_t VideoManager::action_ticks_fired() const { return d->lastActionTicksFired; }
 
 bool VideoManager::camera_action_command_ready(int index) const {
     if (index < 0 || index >= static_cast<int>(d->units.size())) {

@@ -43,9 +43,6 @@ class SerialTrigger : public QObject {
     /// @returns @c true while the port is open.
     [[nodiscard]] bool is_open() const;
 
-    /// @returns The number of trigger events fired since the last reset.
-    [[nodiscard]] int fire_count() const;
-
     /// @returns A list of all available serial port names on this system.
     [[nodiscard]] static QStringList available_ports();
 
@@ -53,7 +50,8 @@ class SerialTrigger : public QObject {
     /// Emitted on the main thread each time a matching byte is received.
     void triggered(mosaic::TriggerEvent event);
 
-    /// Emitted whenever fire_count() changes.
+    /// Emitted with the number of trigger events fired since the last reset,
+    /// each time it changes.
     void count_changed(int count);
 
     /// Emitted when QSerialPort reports a non-NoError state.

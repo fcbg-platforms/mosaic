@@ -97,11 +97,6 @@ class AudioManager : public QObject {
     /// @param channels    Actually-negotiated channel count.
     void raw_pcm_ready(int micIndex, QByteArray pcm16, int sampleRate, int channels);
 
-    /// Emitted when a recorder encounters a device error.
-    /// @param micIndex  Zero-based index of the failing recorder.
-    /// @param message   Human-readable error string.
-    void recorder_error(int micIndex, QString message);
-
    private:
     struct Impl;
     std::unique_ptr<Impl> d;

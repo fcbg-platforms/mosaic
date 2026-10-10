@@ -7,7 +7,6 @@
 #include <QHash>
 #include <QLabel>
 #include <QPainter>
-#include <QPainterPath>
 #include <QPointer>
 #include <QVBoxLayout>
 #include <QVariantAnimation>

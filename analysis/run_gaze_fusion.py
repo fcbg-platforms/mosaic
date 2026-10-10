@@ -379,7 +379,6 @@ def fuse(rig: GazeRig, faces: dict, timeline, args, plane, regions):
                 e.direction = None
                 e.confidence = 0.0
                 e.uncertainty_deg = None
-                e.dispersion_deg = None
                 for c in e.per_camera:
                     c.direction = None
     entries = drop_duplicates(entries)

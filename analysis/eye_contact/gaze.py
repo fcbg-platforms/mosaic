@@ -66,15 +66,16 @@ class GazeModel:
     def gaze(self, px: np.ndarray, pose) -> FrameGaze | None:
         import cv2
         from gaze.canonical import LEFT_IRIS, RIGHT_IRIS
-        from gaze.eye_model import EYE_CENTRE_DEPTH_MM, EYES, estimate_eye, eye_openness
+        from gaze.eye_model import EYES, estimate_eye, eye_openness, eyeball_centre_head
 
         if pose is None or px is None or len(px) < 478:
             return None
         found = {}
         for name, (outer, inner, top, bottom, nasal) in EYES.items():
             iris = RIGHT_IRIS if name == "right" else LEFT_IRIS
-            mid = (self._canonical.vertices_mm[outer] + self._canonical.vertices_mm[inner]) / 2.0
-            centre_cam = pose.apply(mid + np.array([0.0, 0.0, EYE_CENTRE_DEPTH_MM]))
+            v = self._canonical.vertices_mm
+            centre_head = eyeball_centre_head(pose.scale * v[outer], pose.scale * v[inner])
+            centre_cam = pose.r @ centre_head + pose.t
             centre_px = px[iris[0]]
             iris_r = float(np.mean(np.linalg.norm(px[list(iris[1:])] - centre_px, axis=1)))
             openness = eye_openness(px[outer], px[inner], px[top], px[bottom])

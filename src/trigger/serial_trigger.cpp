@@ -141,8 +141,6 @@ void SerialTrigger::on_error(QSerialPort::SerialPortError error) {
 
 // ── Utility ────────────────────────────────────────────────────────────────
 
-int SerialTrigger::fire_count() const { return m_fireCount; }
-
 QStringList SerialTrigger::available_ports() {
     QStringList names;
     for (const QSerialPortInfo& info : QSerialPortInfo::availablePorts()) {

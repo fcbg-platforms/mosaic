@@ -108,13 +108,6 @@ class VideoManager : public QObject {
     /// @returns @c true while a recording session is active.
     [[nodiscard]] bool is_recording() const;
 
-    /// @returns @c true while a live preview session is active (started via
-    /// start_preview(), not yet stopped by start()/close()). Used to guard
-    /// actions that would race with a running ActionCommandTicker, which
-    /// touches Pylon's CTlFactory from a background thread for as long as
-    /// either preview or recording keeps it alive.
-    [[nodiscard]] bool is_previewing() const;
-
     /// @returns The number of cameras that were successfully opened.
     [[nodiscard]] int camera_count() const;
 
@@ -189,27 +182,11 @@ class VideoManager : public QObject {
     };
     [[nodiscard]] std::optional<OpenedGeometry> opened_geometry(int configIndex) const;
 
-    /// @returns The number of GigE Vision Action Command ticks fired during
-    /// this camera group's most recently *attempted* arm_and_fire_action_commands()
-    /// call (recording or preview, whichever ran most recently), or -1 if
-    /// that call didn't use Action1 triggering at all — reset to -1 at the
-    /// start of every arm_and_fire_action_commands() call, before a ticker
-    /// is even created, so a session that doesn't use Action1 never reports
-    /// a stale count left over from an earlier session that did. Snapshotted
-    /// in stop_action_ticker() right before the ticker is destroyed, since
-    /// the live tick count itself is otherwise lost the instant the ticker
-    /// object goes away. This is one shared, group-wide count — see
-    /// camera_action_command_ready() for whether it's even meaningful for a
-    /// particular camera. Combined with a camera's own frames_grabbed() by
-    /// SessionHealthReport to report how many trigger broadcasts a camera
-    /// missed, not just how many frames it captured.
-    [[nodiscard]] int64_t action_ticks_fired() const;
-
     /// @returns Whether this camera was Action1-ready (and therefore part of
     /// the Action Command target group whose shared tick count
-    /// action_ticks_fired() reports) as of its last open()/probe. False for
+    /// last_recording_action_ticks() reports) as of its last open()/probe. False for
     /// out-of-range indices and for any camera not opened for Action1
-    /// triggering, in which case action_ticks_fired()'s count is unrelated
+    /// triggering, in which case that count is unrelated
     /// to it and callers must not apply it to that camera (a session can mix
     /// Action1-armed and free-running cameras).
     [[nodiscard]] bool camera_action_command_ready(int index) const;
@@ -252,10 +229,19 @@ class VideoManager : public QObject {
     /// Empty until the first stop().
     [[nodiscard]] const std::vector<RecordingCameraSnapshot>& last_recording_snapshot() const;
 
-    /// @returns action_ticks_fired() as captured at the end of the recording
-    /// that just ended, for the same reason last_recording_snapshot() exists:
-    /// the live value is reset to -1 by the preview restart that follows
-    /// recording_stopped. -1 if that recording didn't use Action1 triggering.
+    /// @returns The number of GigE Vision Action Command ticks fired during
+    /// the recording that just ended, or -1 if it didn't use Action1
+    /// triggering. The live count is snapshotted in stop_action_ticker()
+    /// right before the ticker is destroyed (the count is otherwise lost the
+    /// instant the ticker goes away), and reset to -1 at the start of every
+    /// arm_and_fire_action_commands() call, so a session without Action1
+    /// never reports an earlier session's count. Captured at the end of the
+    /// recording for the same reason last_recording_snapshot() exists: the
+    /// preview restart that follows recording_stopped resets the live value.
+    /// This is one shared, group-wide count (see camera_action_command_ready()
+    /// for whether it applies to a camera); SessionHealthReport combines it
+    /// with each camera's frames_grabbed() to report missed trigger
+    /// broadcasts, not just captured frames.
     [[nodiscard]] int64_t last_recording_action_ticks() const;
 
     /// @brief Discards the previous recording's snapshot.
@@ -269,12 +255,6 @@ class VideoManager : public QObject {
     void clear_recording_snapshot();
 
    signals:
-    /// Emitted on the main thread when a camera device is successfully opened.
-    void camera_opened(int cameraIndex, int width, int height, double fps);
-
-    /// Emitted when a camera device is closed.
-    void camera_closed(int cameraIndex);
-
     /// Emitted each time a frame is dropped because the ring buffer was full.
     /// @param cameraIndex  Which camera dropped the frame.
     /// @param frameId      The frame counter value of the dropped frame.

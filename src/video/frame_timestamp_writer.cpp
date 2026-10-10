@@ -15,7 +15,6 @@ struct FrameTimestampWriter::Impl {
     QFile file;
     QTextStream stream;
     QMutex mutex;
-    std::atomic<int64_t> count{0};
     bool open{false};
     QElapsedTimer sinceFlush;
     int flushIntervalMs{1000};
@@ -40,7 +39,6 @@ bool FrameTimestampWriter::start(const QString& path) {
     d->stream << "frame_id,elapsed_ns,wall_ns,hw_timestamp_ns,exposure_us\n";
     d->stream.flush();
     d->sinceFlush.start();
-    d->count.store(0, std::memory_order_relaxed);
     d->open = true;
     return true;
 }
@@ -54,7 +52,6 @@ void FrameTimestampWriter::write(int64_t frameId, int64_t elapsedNs, int64_t wal
     // "1e+06".
     if (exposureUs >= 0.0) d->stream << QString::number(exposureUs, 'f', 1);
     d->stream << '\n';
-    d->count.fetch_add(1, std::memory_order_relaxed);
     // QTextStream::flush() also flushes the QFile underneath, so the rows
     // reach the OS — which keeps them through a crash of this process.
     if (d->sinceFlush.elapsed() >= d->flushIntervalMs) {
@@ -77,8 +74,4 @@ void FrameTimestampWriter::stop() {
 }
 
 bool FrameTimestampWriter::is_open() const { return d->open; }
-int64_t FrameTimestampWriter::frames_written() const {
-    return d->count.load(std::memory_order_relaxed);
-}
-
 } // namespace mosaic

@@ -39,7 +39,7 @@ from .canonical import (
     RIGHT_IRIS,
     CanonicalFace,
 )
-from .eye_model import EYE_CENTRE_DEPTH_MM, EYES, estimate_eye, eye_openness
+from .eye_model import EYES, estimate_eye, eye_openness, eyeball_centre_head
 from .head_pose import (
     CameraView,
     HeadPose,
@@ -109,15 +109,12 @@ class Entry:
     track: int = -1
     subject: str | None = None
     origin: np.ndarray | None = None
-    eye_centres: tuple | None = None
     direction: np.ndarray | None = None
     confidence: float = 0.0
     uncertainty_deg: float | None = None
-    dispersion_deg: float | None = None
     per_camera: list = field(default_factory=list)
-    # Filled after smoothing (run_gaze_fusion.finalize): the unsmoothed
-    # direction, what the gaze landed on, the debounced label, mutual gaze.
-    raw_direction: np.ndarray | None = None
+    # Filled after smoothing (run_gaze_fusion.finalize): what the gaze
+    # landed on, the debounced label, mutual gaze.
     target: object | None = None
     label: str | None = None  # debounced target label
     label_kind: str | None = None  # its type: subject, region, plane, none
@@ -297,9 +294,9 @@ class GazeRig:
     def eye_centres_room(self, pose: HeadPose) -> dict:
         """Both eyeball centres in the room for a room-from-head pose."""
         out = {}
+        v = self.canonical.vertices_mm
         for name, (outer, inner, _top, _bottom, _nasal) in EYES.items():
-            mid = (self.canonical.vertices_mm[outer] + self.canonical.vertices_mm[inner]) / 2.0
-            centre_head = pose.scale * mid + np.array([0.0, 0.0, EYE_CENTRE_DEPTH_MM])
+            centre_head = eyeball_centre_head(pose.scale * v[outer], pose.scale * v[inner])
             out[name] = pose.r @ centre_head + pose.t
         return out
 
@@ -308,7 +305,6 @@ class GazeRig:
         import cv2
 
         centres_room = self.eye_centres_room(entry.pose)
-        entry.eye_centres = (centres_room["right"], centres_room["left"])
         entry.origin = (centres_room["right"] + centres_room["left"]) / 2.0
 
         dirs, weights, sigmas, owners, eyes = [], [], [], [], []
@@ -359,7 +355,6 @@ class GazeRig:
             # One eye: the gaze ray starts at that eye, not between the eyes,
             # or it would run parallel to the true line of sight, 32 mm off.
             entry.origin = centres_room[used[0]]
-        entry.dispersion_deg = dispersion
         w = np.asarray(weights)
         s = np.asarray(sigmas)
         # 1-sigma angular uncertainty of this tick's (unsmoothed) estimate:
@@ -685,8 +680,6 @@ def finalize(
     by_subject = {
         s: sorted((e for e in entries if e.subject == s), key=lambda e: e.tick) for s in subjects
     }
-    for e in entries:
-        e.raw_direction = e.direction
     if smooth:
         for mine in by_subject.values():
             if len(mine) < 3:

@@ -1,6 +1,5 @@
 #include "session/preflight.hpp"
 
-#include <QDir>
 #include <QFileInfo>
 #include <QStorageInfo>
 #include <algorithm>
