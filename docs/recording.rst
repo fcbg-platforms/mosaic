@@ -143,6 +143,9 @@ Session folder layout:
            │   └── video_0.expression.json    # written by run_expression.py, if run
            ├── rppg/
            │   └── video_0.<backend>.rppg.json  # written by run_rppg.py, if run: EXPERIMENTAL
+           ├── report/                         # written by run_session_report.py, if run:
+           │   ├── session_report.html         # everything the analyses found, one page
+           │   └── session_summary.csv         # the session's numbers as one row (+ .json)
            └── anonymized/
                └── video_0.mp4                 # written by run_face_mask.py, if run; never
                                                 # touches the original video/ files

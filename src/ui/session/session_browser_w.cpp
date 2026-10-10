@@ -37,6 +37,7 @@
 #include <QTimeEdit>
 #include <QTimer>
 #include <QVBoxLayout>
+#include <utility>
 
 #include "session/session_info.hpp"
 #include "ui/session/session_player_w.hpp"
@@ -243,9 +244,13 @@ struct SessionBrowserW::Impl {
     // Analysis section
     QPushButton* runPoseBtn   = nullptr;
     QPushButton* runMotionBtn = nullptr;
-    QLabel* analysisFilesLbl  = nullptr;
-    QTextEdit* analysisLog    = nullptr;
-    QLabel* analysisStatus    = nullptr;
+    QPushButton* reportBtn    = nullptr;
+    QPushButton* summaryBtn   = nullptr;
+    // Opened when the running job succeeds (a report page or summary CSV).
+    QString openWhenDone;
+    QLabel* analysisFilesLbl = nullptr;
+    QTextEdit* analysisLog   = nullptr;
+    QLabel* analysisStatus   = nullptr;
 
     // Annotation section
     QTableWidget* annotTable     = nullptr;
@@ -420,8 +425,15 @@ void SessionBrowserW::build_left_panel() {
     footerBox->setSpacing(6);
 
     auto* openFolderBtn = new QPushButton("📁 Open folder");
-    auto* refreshBtn    = new QPushButton("⟳ Refresh");
+    auto* summaryBtn    = new QPushButton("📊 Summary CSV");
+    d->summaryBtn       = summaryBtn;
+    summaryBtn->setToolTip(
+        "One row of numbers per session, for every session in this folder, combined into "
+        "sessions_summary.csv (also writes each session's report files).");
+    auto* refreshBtn = new QPushButton("⟳ Refresh");
     footerBox->addWidget(openFolderBtn);
+    footerBox->addWidget(summaryBtn);
+    connect(summaryBtn, &QPushButton::clicked, this, &SessionBrowserW::export_sessions_summary);
     footerBox->addStretch();
     footerBox->addWidget(refreshBtn);
 
@@ -570,8 +582,20 @@ void SessionBrowserW::build_right_panel() {
         "QPushButton:disabled { color: #334488; border-color: #0f0f2a; }");
     connect(d->runPoseBtn, &QPushButton::clicked, this, &SessionBrowserW::run_pose_analysis);
     connect(d->runMotionBtn, &QPushButton::clicked, this, &SessionBrowserW::run_motion_analysis);
+    d->reportBtn = new QPushButton("📄  Session report");
+    d->reportBtn->setToolTip(
+        "One page with everything the analyses found for this session (opens in the "
+        "browser; print it to PDF to share). Run the analyses first; the report lists "
+        "the ones not run yet.");
+    d->reportBtn->setStyleSheet(
+        "QPushButton { background: #1a1a2a; border: 1px solid #2a2a4a;"
+        "  color: #c0c0ff; border-radius: 4px; padding: 5px 14px; }"
+        "QPushButton:hover { background: #222238; border-color: #8c9eff; }"
+        "QPushButton:disabled { color: #555577; border-color: #1a1a2a; }");
+    connect(d->reportBtn, &QPushButton::clicked, this, &SessionBrowserW::make_session_report);
     analysisRow->addWidget(d->runPoseBtn);
     analysisRow->addWidget(d->runMotionBtn);
+    analysisRow->addWidget(d->reportBtn);
     analysisRow->addStretch();
     detailBox->addLayout(analysisRow);
 
@@ -1085,20 +1109,7 @@ void SessionBrowserW::run_motion_analysis() {
         return;
     }
 
-    // Try to find run_motion.py relative to app or project root
-    QStringList candidateDirs = {
-        QCoreApplication::applicationDirPath(),
-        QCoreApplication::applicationDirPath() + "/../../..",
-        QDir::currentPath(),
-    };
-    QString script;
-    for (const auto& base : candidateDirs) {
-        const QString candidate = QDir(base).filePath("analysis/run_motion.py");
-        if (QFile::exists(candidate)) {
-            script = candidate;
-            break;
-        }
-    }
+    const QString script = find_analysis_script("run_motion.py");
     if (script.isEmpty()) {
         d->analysisStatus->setText("run_motion.py not found. Check analysis/ directory.");
         return;
@@ -1107,22 +1118,108 @@ void SessionBrowserW::run_motion_analysis() {
     launch_analysis(python, {script, "--session", info->path, "--out-format", "csv"});
 }
 
-void SessionBrowserW::launch_analysis(const QString& exe, const QStringList& args) {
+QString SessionBrowserW::find_analysis_script(const QString& name) const {
+    const QStringList candidateDirs = {
+        QCoreApplication::applicationDirPath(),
+        QCoreApplication::applicationDirPath() + "/../../..",
+        QDir::currentPath(),
+    };
+    for (const auto& base : candidateDirs) {
+        const QString candidate = QDir(base).filePath("analysis/" + name);
+        if (QFile::exists(candidate)) {
+            return candidate;
+        }
+    }
+    return {};
+}
+
+void SessionBrowserW::make_session_report() {
+    auto* info = d->current();
+    if (!info) {
+        return;
+    }
+    const QString python = find_python();
+    const QString script = find_analysis_script("run_session_report.py");
+    if (python.isEmpty() || script.isEmpty()) {
+        d->analysisStatus->setText(
+            python.isEmpty() ? "Python not found. Set up the analysis environment first."
+                             : "run_session_report.py not found. Check analysis/ directory.");
+        return;
+    }
+    launch_analysis(python, {script, "--session", info->path},
+                    QDir(info->path).filePath("report/session_report.html"));
+}
+
+void SessionBrowserW::export_sessions_summary() {
+    const QString python = find_python();
+    const QString script = find_analysis_script("run_session_report.py");
+    if (d->recordsDir.isEmpty()) {
+        d->analysisStatus->setText("No recordings folder is set.");
+        return;
+    }
+    if (python.isEmpty() || script.isEmpty()) {
+        d->analysisStatus->setText(
+            python.isEmpty() ? "Python not found. Set up the analysis environment first."
+                             : "run_session_report.py not found. Check analysis/ directory.");
+        return;
+    }
+    // Every folder the list shows (an admin also sees other profiles'
+    // folders); the combined CSV goes in the first.
+    QStringList args = {script, "--sessions-root", d->recordsDir};
+    for (const QString& dir : d->extraDirectories) {
+        if (QDir(dir).exists()) {
+            args << dir;
+        }
+    }
+    args << "--summary-only";
+    launch_analysis(python, args, QDir(d->recordsDir).filePath("sessions_summary.csv"));
+}
+
+void SessionBrowserW::set_job_running(bool running) {
+    for (QPushButton* b : {d->runPoseBtn, d->runMotionBtn, d->reportBtn, d->summaryBtn}) {
+        if (b != nullptr) {
+            b->setEnabled(!running);
+        }
+    }
+}
+
+void SessionBrowserW::launch_analysis(const QString& exe, const QStringList& args,
+                                      const QString& openWhenDone) {
     if (d->proc && d->proc->state() != QProcess::NotRunning) {
         d->analysisStatus->setText("Analysis already running…");
         return;
     }
+    // Set only once this job really starts, so it cannot be opened by
+    // another job's finish.
+    d->openWhenDone = openWhenDone;
 
-    d->runPoseBtn->setEnabled(false);
-    d->runMotionBtn->setEnabled(false);
+    set_job_running(true);
     d->analysisLog->clear();
     d->analysisLog->show();
     d->analysisStatus->setText("Running…");
 
-    if (!d->proc) {
-        d->proc = new QProcess(this);
-        d->proc->setProcessChannelMode(QProcess::MergedChannels);
+    if (d->proc) {
+        d->proc->start(exe, args);
+        return;
     }
+    // Created and connected once: connecting on every run would print every
+    // later run's output (and run its finish handler) once per earlier run.
+    d->proc = new QProcess(this);
+    d->proc->setProcessChannelMode(QProcess::MergedChannels);
+    // UTF-8 output whatever the console code page (session paths can hold
+    // any character), as AnalysisManager does for its scripts.
+    QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
+    env.insert("PYTHONIOENCODING", "utf-8");
+    d->proc->setProcessEnvironment(env);
+
+    // A process that never starts never sends finished().
+    connect(d->proc, &QProcess::errorOccurred, this, [this](QProcess::ProcessError error) {
+        if (error == QProcess::FailedToStart) {
+            set_job_running(false);
+            d->openWhenDone.clear();
+            d->analysisStatus->setText("Could not start Python: " + d->proc->errorString());
+        }
+    });
 
     connect(d->proc, &QProcess::readyRead, this, [this] {
         const QString out = d->proc->readAll().trimmed();
@@ -1133,10 +1230,14 @@ void SessionBrowserW::launch_analysis(const QString& exe, const QStringList& arg
 
     connect(d->proc, qOverload<int, QProcess::ExitStatus>(&QProcess::finished), this,
             [this](int code, QProcess::ExitStatus) {
-                d->runPoseBtn->setEnabled(true);
-                d->runMotionBtn->setEnabled(true);
+                set_job_running(false);
                 const QString msg = (code == 0) ? "Analysis complete." : "Analysis failed.";
                 d->analysisStatus->setText(msg);
+                const QString target = std::exchange(d->openWhenDone, QString());
+                if (code == 0 && !target.isEmpty() && QFileInfo::exists(target)) {
+                    QDesktopServices::openUrl(QUrl::fromLocalFile(target));
+                    d->analysisStatus->setText("Done: opened " + QFileInfo(target).fileName());
+                }
                 // Refresh analysis files list
                 if (auto* info = d->current()) {
                     *info = SessionInfo::load(info->path);
