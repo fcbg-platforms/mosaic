@@ -83,6 +83,7 @@ class VideoSettingsW : public QWidget {
 
    private:
     void build_encoding_section(QVBoxLayout* parent);
+    void build_sync_section(QVBoxLayout* parent);
     void build_cameras_section(QVBoxLayout* parent);
     void build_interview_section(QVBoxLayout* parent);
     // Interview section helpers — see the .cpp.

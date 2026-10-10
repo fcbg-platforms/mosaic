@@ -194,8 +194,8 @@ struct InterviewSettings {
 ///
 /// Triggering is off because it exists to line several cameras up with each
 /// other; with one camera there is nothing to line up, and an Action Command
-/// ticker would only pace this camera at 85% of its own measured rate (see
-/// k_default_action_margin). Free-running at AcquisitionFrameRate is exactly
+/// ticker would only pace this camera below its own measured rate (at
+/// VideoSettings::triggerMargin). Free-running at AcquisitionFrameRate is exactly
 /// what a single camera wants. Hardware timestamps are unaffected — chunk mode
 /// is configured independently of triggering.
 ///
@@ -238,6 +238,14 @@ struct VideoSettings {
     QString preset = "p4";         // GPU: p1-p7  |  CPU: fast, medium, slow
     int crf        = 23;           // quality for CPU encoder (17=best, 28=worst)
     int bitrate    = 5000;         // kbit/s (GPU encoder)
+
+    /// Triggered cameras are fired together at this share of the slowest
+    /// camera's achievable rate (see k_default_action_margin for why it is
+    /// below 1). Higher records faster, but a camera fired too close to its
+    /// own limit misses triggers. Kept within [kMinTriggerMargin, 1].
+    static constexpr double kDefaultTriggerMargin = 0.85;
+    static constexpr double kMinTriggerMargin     = 0.50;
+    double triggerMargin                          = kDefaultTriggerMargin;
 
     // Upper bound on the number of configured cameras this app will ever
     // treat as a live rig (room 11 has 6; 32 is a generous safety margin,

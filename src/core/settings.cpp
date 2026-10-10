@@ -11,6 +11,7 @@
 #include "trigger/trigger_types.hpp"
 #include "utils/dpapi_crypt.hpp"
 #include "utils/logger.hpp"
+#include "video/gige_action_command.hpp"
 
 namespace mosaic {
 
@@ -273,12 +274,20 @@ std::vector<int> VideoSettings::recorded_camera_indices() const {
     return all;
 }
 
+static_assert(VideoSettings::kDefaultTriggerMargin == k_default_action_margin,
+              "the settings default and the trigger code's default must agree");
+
 QJsonObject VideoSettings::to_json() const {
     QJsonArray cams;
     for (const auto& c : cameras) cams.append(c.to_json());
     return {
-        {"codec", codec},     {"preset", preset}, {"crf", crf},
-        {"bitrate", bitrate}, {"cameras", cams},  {"interview", interview.to_json()},
+        {"codec", codec},
+        {"preset", preset},
+        {"crf", crf},
+        {"bitrate", bitrate},
+        {"trigger_margin", triggerMargin},
+        {"cameras", cams},
+        {"interview", interview.to_json()},
     };
 }
 
@@ -288,6 +297,11 @@ std::optional<VideoSettings> VideoSettings::from_json(const QJsonObject& o) {
     if (o.contains("preset")) s.preset = o["preset"].toString(s.preset);
     if (o.contains("crf")) s.crf = o["crf"].toInt(s.crf);
     if (o.contains("bitrate")) s.bitrate = o["bitrate"].toInt(s.bitrate);
+    if (o.contains("trigger_margin")) {
+        // NaN fails the comparison and falls back to the default.
+        const double m  = o["trigger_margin"].toDouble(kDefaultTriggerMargin);
+        s.triggerMargin = m >= kMinTriggerMargin ? std::min(m, 1.0) : kDefaultTriggerMargin;
+    }
     if (o.contains("interview"))
         s.interview = InterviewSettings::from_json(o["interview"].toObject());
     // Legacy "sync_fps"/"target_fps" keys from older settings.json files are

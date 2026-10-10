@@ -75,6 +75,21 @@ ceiling this rig showed for months. Measured on room 11 on 2026-10-02 at
 25 fps asked: with the delay removed every camera reported 25 and the group
 recorded at 21.25 fps, with no packet loss on any camera.
 
+**Trigger rate.** The 85% is a setting: **Settings → Video → Camera sync →
+Trigger rate**, from 50 to 100%. A camera reports the rate it can sustain
+with perfect timing, but the triggers come from a software timer with a
+little jitter, and a trigger that arrives before the camera has finished its
+previous frame is lost, not queued. Triggering at 100% lost about 40% of the
+triggers of one camera in a 2026-07 room-11 test, so
+some margin is needed; 85% is a safe starting point, not a measured optimum.
+To try a higher value, raise it in small steps (90%, then 93%, 95%), record a
+minute at each, and compare each camera's frames with the triggers fired in
+the recording's health report. Keep the highest value at which no camera
+loses frames. The value takes effect at the next recording (a preview that
+is already running keeps its rate), and
+each recording stores the one it used as ``margin`` in
+``video/action_group.json``.
+
 **How it records.**
 
 - Only ``video/video_N.mp4`` and ``timestamps_camN.csv`` for the interview

@@ -355,7 +355,8 @@ copy of every camera's video to ``synced/video_N.mp4``:
 How frames are placed on ticks. Every hardware-triggered recording logs its
 trigger ticks to ``video/action_ticks.csv`` (``tick,elapsed_ns,fired``: when
 each Action Command was broadcast, on the same clock as the frame timestamps),
-and ``video/action_group.json`` names the cameras the ticks apply to. Each
+and ``video/action_group.json`` names the cameras the ticks apply to (with
+the first tick period and the trigger rate share, ``margin``, it used). Each
 camera's own hardware clock is mapped onto the host clock by a robust
 straight-line fit over the whole recording, which absorbs clock drift and
 ignores host stalls and corrupt timestamps. Each frame then lands on a tick on
