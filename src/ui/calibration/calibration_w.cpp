@@ -15,6 +15,7 @@
 #include <QTabWidget>
 #include <QTimer>
 #include <QVBoxLayout>
+#include <initializer_list>
 
 #include "calibration/rms_quality.hpp"
 #include "ui/calibration/badge_style.hpp"
@@ -112,12 +113,22 @@ CalibrationW::CalibrationW(VideoSettings& videoSettings, RoomSettings& roomSetti
     // a real correctness bug (wrong absolute scale in the result), not
     // just a cosmetic mismatch, whenever a user changed Square away from
     // that default before capturing.
+    //
+    // Views captured with the old board are discarded by set_board(): their
+    // stored corner positions use the old board's size and layout.
     const auto sync_board_spec = [this] {
         CalibrationManager::BoardSpec spec;
-        spec.cols         = d->colsSpin->value();
-        spec.rows         = d->rowsSpin->value();
-        spec.squareSizeMm = d->squareSpin->value();
-        d->manager.set_board(spec);
+        spec.cols           = d->colsSpin->value();
+        spec.rows           = d->rowsSpin->value();
+        spec.squareSizeMm   = d->squareSpin->value();
+        const int discarded = d->manager.set_board(spec);
+        if (discarded > 0 && d->viewCountLabel != nullptr) {
+            d->capturedOffsetX = d->capturedOffsetY = -1;
+            d->viewCountLabel->setText(
+                QString("Views accepted: 0  (board changed: %1 views taken with the old "
+                        "board were discarded)")
+                    .arg(discarded));
+        }
     };
     sync_board_spec();
     connect(d->colsSpin, qOverload<int>(&QSpinBox::valueChanged), this, sync_board_spec);
@@ -314,6 +325,7 @@ void CalibrationW::build_capture_section(QVBoxLayout* parent) {
     auto* clearBtn = new QPushButton("Clear views");
     connect(clearBtn, &QPushButton::clicked, this, [this] {
         d->manager.clear_views();
+        lock_board(false);
         d->capturedOffsetX = d->capturedOffsetY = -1;
         d->viewCountLabel->setText("Views accepted: 0");
         d->previewLabel->clear();
@@ -399,9 +411,21 @@ void CalibrationW::build_result_section(QVBoxLayout* parent) {
 
 // ── Slots ──────────────────────────────────────────────────────────────────
 
+void CalibrationW::lock_board(bool locked) {
+    for (QWidget* w : std::initializer_list<QWidget*>{d->colsSpin, d->rowsSpin, d->squareSpin}) {
+        w->setEnabled(!locked);
+        w->setToolTip(locked ? "Clear the views to change the board: they were taken with this one."
+                             : QString());
+    }
+}
+
 void CalibrationW::on_corners_detected(int /*viewIndex*/, bool found, QImage preview) {
     const int cnt = d->manager.view_count();
     d->viewCountLabel->setText(QString("Views accepted: %1  (need ≥10)").arg(cnt));
+    // While views exist the board is fixed: a changed board would discard
+    // them (CalibrationManager::set_board()), and a stray scroll over a spin
+    // box should not cost the views. Clear views unlocks.
+    lock_board(cnt > 0);
 
     if (!preview.isNull()) {
         const QPixmap px =

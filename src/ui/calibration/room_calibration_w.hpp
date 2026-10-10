@@ -63,6 +63,11 @@ class RoomCalibrationW : public QWidget {
     void save_to_settings();
     void update_result_table();
     void rebuild_board_spec();
+    /// Resets the shot-dependent UI after the shots were discarded;
+    /// @p note (if any) says why, beside the shot count.
+    void shots_cleared(const QString& note);
+    /// Disables the board fields while shots taken with it exist.
+    void lock_board(bool locked);
 
     struct Impl;
     std::unique_ptr<Impl> d;

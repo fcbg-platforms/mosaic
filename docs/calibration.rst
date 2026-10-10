@@ -41,7 +41,10 @@ Intrinsic calibration procedure
 --------------------------------
 
 1. Open the **Calibrate** tab in the settings sidebar, **Intrinsics** page.
-2. Set **Cols**, **Rows**, and **Square size** to match your board.
+2. Set **Cols**, **Rows**, and **Square size** to match your board. Each
+   captured view stores its corners in this board's size, so the board
+   fields are locked once a view is captured; click **Clear views** to start
+   over with another board.
 3. Select the camera to calibrate from the **Camera** dropdown.
 4. Move the board to different positions, orientations, and distances in front
    of the camera.  Each time a good view appears, click **Capture frame** (or
@@ -75,7 +78,10 @@ been calibrated.
 2. Set the ChArUco board's **Cols**, **Rows**, **Square size**, and
    **Marker size** (a ChArUco board tolerates partial views, unlike the plain
    checkerboard above, useful since wide-FOV cameras around a room see the
-   board from very different angles).
+   board from very different angles). Each shot stores the board's pose in
+   this board's size, so the board fields are locked once a shot is
+   captured; click **Clear shots** to start over with another board (it also
+   discards any solve made from the old shots).
 3. Hold the board somewhere visible to at least two cameras and click
    **▶ Capture shot**. Repeat, moving the board through overlapping pairs of
    camera fields of view, until every camera has been in at least one shot

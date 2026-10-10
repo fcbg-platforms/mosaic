@@ -122,6 +122,20 @@ if(WIN32)
     target_link_libraries(mosaic_tests PRIVATE Crypt32)  # utils/dpapi_crypt.cpp
 endif()
 
+# The calibration managers' board handling, tested on real board images
+# rendered by OpenCV, so only when the build has it (as the app does).
+if(MOSAIC_ENABLE_OPENCV)
+    target_sources(mosaic_tests PRIVATE
+        test_calibration_board_change.cpp
+        "${CMAKE_SOURCE_DIR}/src/calibration/calibration_manager.cpp"
+        "${CMAKE_SOURCE_DIR}/src/calibration/room_calibration_manager.cpp"
+    )
+    target_link_libraries(mosaic_tests PRIVATE
+        Qt6::Gui  # CalibrationManager's QImage previews
+        opencv_core opencv_imgproc opencv_calib3d opencv_objdetect)
+    target_compile_definitions(mosaic_tests PRIVATE MOSAIC_HAVE_OPENCV)
+endif()
+
 target_include_directories(mosaic_tests PRIVATE
     "${CMAKE_SOURCE_DIR}/src"
 )

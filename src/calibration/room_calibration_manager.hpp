@@ -43,6 +43,8 @@ class RoomCalibrationManager {
         int rows              = 5;    ///< Number of squares, vertically.
         double squareLengthMm = 40.0; ///< Physical side length of one square, in mm.
         double markerLengthMm = 30.0; ///< Physical side length of one ArUco marker, in mm.
+
+        bool operator==(const BoardSpec&) const = default;
     };
 
     /// @brief Outcome of one camera's board detection within a single shot.
@@ -63,9 +65,15 @@ class RoomCalibrationManager {
 
     [[nodiscard]] static bool is_available();
 
-    /// Call before the first feed_shot(). Changing the spec after capturing
-    /// shots requires clear_shots() to discard incompatible data.
-    void set_board(const BoardSpec& spec);
+    /// Call before the first feed_shot(). Each shot stores the board's pose
+    /// solved with the board's own size and layout, so shots taken with one
+    /// board cannot be mixed with another: a spec that differs from the
+    /// current one discards the shots and any solve made from them
+    /// (clear_shots()).
+    ///
+    /// @returns How many shots were discarded (0 if the spec is unchanged or
+    ///          there were none).
+    int set_board(const BoardSpec& spec);
 
     /// Registers a camera's already-computed intrinsic calibration (from
     /// CalibrationManager). Must be called once per camera before that

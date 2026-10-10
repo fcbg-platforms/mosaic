@@ -49,7 +49,18 @@ bool CalibrationManager::is_available() {
 #endif
 }
 
-void CalibrationManager::set_board(const BoardSpec& spec) { d->board = spec; }
+int CalibrationManager::set_board(const BoardSpec& spec) {
+    if (spec == d->board) {
+        return 0;
+    }
+    d->board            = spec;
+    const int discarded = view_count();
+#if defined(MOSAIC_HAVE_OPENCV)
+    d->objectPoints.clear();
+    d->imagePoints.clear();
+#endif
+    return discarded;
+}
 
 // ── Frame feeding ──────────────────────────────────────────────────────────
 
