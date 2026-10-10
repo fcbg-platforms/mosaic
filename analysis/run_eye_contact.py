@@ -279,6 +279,7 @@ def analyse(g: GazeTrack, times_ms: np.ndarray, conv, args) -> dict:
         "target_pitch": np.broadcast_to(np.asarray(tp, float), (g.n,)),
         "speaking": speaking,
         "listening": listening,
+        "covered": covered if conv is not None else None,
         "summary": summary,
     }
 

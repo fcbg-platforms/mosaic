@@ -1,0 +1,55 @@
+{
+ "source_audio": "audio.wav",
+ "diarization": true,
+ "diarization_status": "ok",
+ "segments": [
+  {
+   "start_ms": 1000,
+   "end_ms": 7000,
+   "speaker": "SPEAKER_00",
+   "text": "question words here"
+  },
+  {
+   "start_ms": 7600,
+   "end_ms": 16000,
+   "speaker": "SPEAKER_01",
+   "text": "an answer with several words in it"
+  },
+  {
+   "start_ms": 16500,
+   "end_ms": 22000,
+   "speaker": "SPEAKER_00",
+   "text": "question words here"
+  },
+  {
+   "start_ms": 21600,
+   "end_ms": 32000,
+   "speaker": "SPEAKER_01",
+   "text": "an answer with several words in it"
+  },
+  {
+   "start_ms": 33000,
+   "end_ms": 40000,
+   "speaker": "SPEAKER_00",
+   "text": "question words here"
+  },
+  {
+   "start_ms": 40800,
+   "end_ms": 52000,
+   "speaker": "SPEAKER_01",
+   "text": "an answer with several words in it"
+  },
+  {
+   "start_ms": 52600,
+   "end_ms": 58000,
+   "speaker": "SPEAKER_00",
+   "text": "question words here"
+  },
+  {
+   "start_ms": 58400,
+   "end_ms": 70000,
+   "speaker": "SPEAKER_01",
+   "text": "an answer with several words in it"
+  }
+ ]
+}

@@ -41,6 +41,7 @@ add_executable(mosaic_tests
     test_face_dynamics_result.cpp
     test_conversation_result.cpp
     test_eye_contact_result.cpp
+    test_golden_session.cpp
     test_sync_repair_result.cpp
     test_audio_envelope.cpp
     test_audio_persistence.cpp
@@ -135,6 +136,10 @@ if(MOSAIC_ENABLE_OPENCV)
         opencv_core opencv_imgproc opencv_calib3d opencv_objdetect)
     target_compile_definitions(mosaic_tests PRIVATE MOSAIC_HAVE_OPENCV)
 endif()
+
+# The golden analysis session (analysis/tests/golden_session.py), read in place.
+target_compile_definitions(mosaic_tests PRIVATE
+    MOSAIC_GOLDEN_DIR="${CMAKE_SOURCE_DIR}/tests/golden/session")
 
 target_include_directories(mosaic_tests PRIVATE
     "${CMAKE_SOURCE_DIR}/src"

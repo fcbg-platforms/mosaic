@@ -78,11 +78,13 @@ def test_resolve_device_returns_explicit_arg_unchanged():
 
 
 def test_resolve_device_auto_detects_cuda_available():
+    pytest.importorskip("torch")  # CI runs the suite without the model libraries
     with patch("torch.cuda.is_available", return_value=True):
         assert resolve_device(None) == "cuda"
 
 
 def test_resolve_device_auto_falls_back_to_cpu():
+    pytest.importorskip("torch")  # CI runs the suite without the model libraries
     with patch("torch.cuda.is_available", return_value=False):
         assert resolve_device(None) == "cpu"
 
