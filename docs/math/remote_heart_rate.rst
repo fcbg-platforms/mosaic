@@ -250,6 +250,121 @@ smooths the per-window ``bpm`` series into a separate ``smoothed_bpm``
 column for display. The raw column is always kept alongside it, so
 nothing is silently overwritten.
 
+Beat-to-beat timing and HRV
+------------------------------
+
+The windowed heart rate above finds the dominant frequency of each window.
+Heart-rate variability needs every beat. ``rppg/hrv.py`` takes the same
+per-frame skin colour through a separate chain. This chain always uses POS,
+whatever backend the windows use.
+
+1. **Even sampling.** Frames are placed at their real timestamps and
+   resampled at the camera's frame rate. Face gaps up to 0.5 s are bridged;
+   longer gaps split the recording into segments of at least 10 s, analysed
+   separately.
+2. **Continuous pulse wave.** POS runs on overlapping 1.6 s windows that are
+   added back together, as in Wang et al. (2017), Algorithm 1. The wave then
+   follows slow changes in light and skin tone.
+3. **Beats.**
+
+   - The dominant frequency in 0.7 to 3 Hz gives the typical beat
+     interval.
+   - The wave is band-passed wide (0.5 to 5 Hz, zero-phase), so each beat
+     keeps its shape.
+   - The wave is upsampled 4x by a cubic spline. Systolic peaks at least
+     0.6 of the typical interval apart are found.
+   - Each beat is timed at the steepest point of its upstroke, the usual
+     fiducial point for pulse waves.
+   - Each beat is then re-timed by cross-correlating the stretch around it
+     with the person's median beat (a matched filter, 1 ms steps,
+     parabolic refinement). This uses the whole beat, not one noisy point.
+
+4. **Cleaning.** Each beat's quality is its shape's correlation with the
+   median beat; beats below 0.6 are poor. An interval is **NN**
+   (normal-to-normal) only when all of these hold:
+
+   - both its beats are good and in the same segment;
+   - it lies between 333 and 1500 ms (40 to 180 bpm);
+   - it is within 20% of the median of its 11 neighbours.
+
+5. **HRV** (Task Force, 1996; Shaffer and Ginsberg, 2017), from the NN
+   intervals:
+
+   - mean NN and heart rate;
+   - **SDNN** (overall variability);
+   - **RMSSD** and **pNN50** (beat-to-beat, vagally mediated variability);
+   - **LF** (0.04 to 0.15 Hz) and **HF** (0.15 to 0.4 Hz) power, and their
+     ratio. These come from the NN series resampled at 4 Hz by cubic spline,
+     detrended, with a Welch periodogram over 64 s segments, as Kubios does.
+     They need at least 2 minutes.
+
+   RMSSD and heart rate are also given over a sliding minute (10 s steps),
+   for windows with at least 30 NN intervals.
+
+HRV, and the sliding-minute series, are **not reported** (the reason is
+stated instead) when:
+
+- the frame rate is below 25 fps;
+- there are less than 60 s of NN intervals;
+- more than 25% of intervals are artifacts.
+
+Timing noise and the split-face correction
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+A camera samples the pulse every 20 ms at 50 fps, and sensor noise moves each
+detected beat further. Let independent timing noise of :math:`\sigma` affect
+every beat. An interval is a difference of two beat times, and a successive
+difference of intervals is :math:`b_{k+1} - 2b_k + b_{k-1}`, so
+
+.. math::
+
+   \mathrm{SDNN}^2_{\text{measured}} \approx \mathrm{SDNN}^2 + 2\sigma^2,
+   \qquad
+   \mathrm{RMSSD}^2_{\text{measured}} \approx \mathrm{RMSSD}^2 + 6\sigma^2.
+
+Camera-based HRV therefore **overestimates** variability, most for people
+whose true variability is low. At 15 ms of jitter, noise alone gives an
+RMSSD of 37 ms.
+
+The ROI is split along the face's midline (nose tip to below the lower
+lip), and the beats are found separately in each half. The beat chain's
+"whole face" is the equal-weight average of the two halves (not the pixel
+mean of the ROI), so that this holds even when a turned head makes the halves
+unequal in size. Both halves see the
+same heartbeat, so their beat times differ only by noise and a constant
+offset. If each half has noise :math:`s`, the difference has
+:math:`\sqrt2\,s`, and the whole face (both halves averaged) has
+:math:`s/\sqrt2`. So the whole face's jitter is half the spread of the
+differences, taken robustly as 1.4826 times the median absolute deviation
+over at least 30 matched beats. The **corrected** values are
+
+.. math::
+
+   \mathrm{RMSSD}_{\text{corrected}} = \sqrt{\max(\mathrm{RMSSD}^2 - 6\sigma^2, 0)},
+   \qquad
+   \mathrm{SDNN}_{\text{corrected}} = \sqrt{\max(\mathrm{SDNN}^2 - 2\sigma^2, 0)}.
+
+The correction is conservative: noise the two halves share is not seen. That
+includes head motion, light flicker and compression artefacts.
+
+On synthetic faces (a pulse with known breathing-linked and random beat
+variation, camera noise and drifting light, at 50 fps):
+
+- the true RMSSD was 39 to 41 ms;
+- the raw measurement gave 63 to 67 ms;
+- the corrected value gave 41 to 51 ms;
+- SDNN went from 42 to 46 ms to 32 to 38 ms, against a true 32 to 33 ms.
+
+(Four synthetic recordings, random seeds 0 to 3.)
+
+**This has not been checked against an ECG or a chest strap on a real
+face.** Use RMSSD to compare conditions within a person (for example the
+same interview's speaking and listening), not as an absolute clinical value.
+
+With Conversation Timing's output, the mean heart rate while the person on
+camera speaks and while they listen is also given. Speaking itself raises
+heart rate and moves the face, so read differences with that in mind.
+
 .. _rppg-recommendations:
 
 Practical recommendations
@@ -313,3 +428,26 @@ Practical recommendations
       fast-changing signal you're willing to accept noisier for, lengthen
       it for a resting-state recording where stability matters more than
       responsiveness.
+
+   .. grid-item-card:: 💓  For HRV
+
+      Record in interview mode at 50 fps with even light, and keep at
+      least a few minutes. Read the noise-corrected RMSSD, the beat-timing
+      noise next to it, and the share of artifacts together. A timing noise
+      comparable to the RMSSD itself means the variability is mostly noise.
+
+References (HRV)
+------------------------------
+
+- Task Force of the European Society of Cardiology and the North American
+  Society of Pacing and Electrophysiology (1996). Heart rate variability:
+  standards of measurement, physiological interpretation and clinical use.
+  *Circulation* 93(5), 1043 to 1065.
+- Shaffer, F. and Ginsberg, J. P. (2017). An overview of heart rate
+  variability metrics and norms. *Frontiers in Public Health* 5, 258.
+- Wang, W., den Brinker, A. C., Stuijk, S. and de Haan, G. (2017).
+  Algorithmic principles of remote PPG. *IEEE Transactions on Biomedical
+  Engineering* 64(7), 1479 to 1491.
+- Tarvainen, M. P. et al. (2014). Kubios HRV: heart rate variability
+  analysis software. *Computer Methods and Programs in Biomedicine* 113(1),
+  210 to 220.

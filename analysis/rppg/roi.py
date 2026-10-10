@@ -71,6 +71,11 @@ class FaceRoiSample:
 
     roi_bbox_px: tuple[int, int, int, int]
     rgb_mean: tuple[float, float, float]
+    #: The same, for each half of the ROI either side of the face's midline
+    #: (image left, image right), or ``None`` when a half is empty. Two
+    #: independent views of the same pulse: their beat timing differs only
+    #: by noise, which :mod:`rppg.hrv` uses to estimate that noise.
+    rgb_halves: tuple | None = None
 
 
 class MediaPipeFaceRoiExtractor:
@@ -137,7 +142,39 @@ class MediaPipeFaceRoiExtractor:
         rgb_mean = (mean_bgr[2], mean_bgr[1], mean_bgr[0])
 
         x, y, bw, bh = cv2.boundingRect(pts)
-        return FaceRoiSample(roi_bbox_px=(x, y, bw, bh), rgb_mean=rgb_mean)
+        halves = _split_means(frame_bgr, mask, (x, y, bw, bh), landmarks, w, h)
+        return FaceRoiSample(roi_bbox_px=(x, y, bw, bh), rgb_mean=rgb_mean, rgb_halves=halves)
+
+
+#: Two midline landmarks (nose tip, and the centre below the lower lip) that
+#: split the ROI into its two halves.
+MIDLINE_LANDMARKS = (1, 200)
+
+
+def _split_means(frame_bgr, mask, bbox, landmarks, w: int, h: int):
+    """Mean RGB of the ROI either side of the line through
+    :data:`MIDLINE_LANDMARKS` (image left first), or ``None``."""
+    # Landmarks can lie outside the frame when the face is partly out of it.
+    x0, y0 = max(bbox[0], 0), max(bbox[1], 0)
+    x1, y1 = min(bbox[0] + bbox[2], w), min(bbox[1] + bbox[3], h)
+    if x1 <= x0 or y1 <= y0:
+        return None
+    x, y, bw, bh = x0, y0, x1 - x0, y1 - y0
+    a = np.array([landmarks[MIDLINE_LANDMARKS[0]].x * w, landmarks[MIDLINE_LANDMARKS[0]].y * h])
+    b = np.array([landmarks[MIDLINE_LANDMARKS[1]].x * w, landmarks[MIDLINE_LANDMARKS[1]].y * h])
+    yy, xx = np.mgrid[y : y + bh, x : x + bw]
+    # Sign of the cross product: which side of the line a->b each pixel is on.
+    side = (b[0] - a[0]) * (yy - a[1]) - (b[1] - a[1]) * (xx - a[0])
+    roi = mask[y : y + bh, x : x + bw] > 0
+    pix = frame_bgr[y : y + bh, x : x + bw]
+    out = []
+    # With a pointing down the face (nose to chin), side > 0 is image left.
+    for sel in (roi & (side > 0), roi & (side < 0)):
+        if sel.sum() < 20:
+            return None
+        bgr = pix[sel].mean(axis=0)
+        out.append((float(bgr[2]), float(bgr[1]), float(bgr[0])))
+    return tuple(out)
 
 
 def _ensure_download(dest: Path, url: str) -> Path:

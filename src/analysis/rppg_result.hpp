@@ -1,6 +1,7 @@
 #pragma once
 #include <QRect>
 #include <QString>
+#include <QStringList>
 #include <QVector>
 #include <cstdint>
 #include <limits>
@@ -30,6 +31,38 @@ struct RppgFrame {
     int64_t timestampMs = 0;
     bool faceDetected   = false;
     QRect roiBboxPx;
+};
+
+/// One beat-to-beat interval (schema v2's "intervals"), at the second
+/// beat's time. nn is false for an artifact (implausible, a sudden jump, or
+/// next to a poorly shaped beat).
+struct RppgInterval {
+    int64_t tMs  = 0;
+    double ibiMs = 0.0;
+    bool nn      = false;
+};
+
+/// Heart rate and RMSSD over a sliding window of NN intervals (schema v2's
+/// "hrv_windows"); NaN where the window had too few intervals.
+struct RppgHrvWindow {
+    int64_t startMs = 0;
+    int64_t endMs   = 0;
+    double hrBpm    = std::numeric_limits<double>::quiet_NaN();
+    double rmssdMs  = std::numeric_limits<double>::quiet_NaN();
+};
+
+/// Heart-rate variability of the whole recording (schema v2's "hrv").
+/// Values the script left out or wrote as null are std::nullopt.
+struct RppgHrv {
+    int nnCount = 0;
+    std::optional<double> meanHrBpm;
+    std::optional<double> sdnnMs;
+    std::optional<double> rmssdMs;
+    std::optional<double> pnn50Pct;
+    std::optional<double> lfHf;
+    std::optional<double> timingJitterMs;   ///< Beat-timing noise from the two face halves.
+    std::optional<double> rmssdCorrectedMs; ///< RMSSD with that noise taken out.
+    std::optional<double> sdnnCorrectedMs;
 };
 
 /// Parses a "<video_stem>.<backend>.rppg.json" file written by
@@ -71,6 +104,18 @@ class RppgResult {
     [[nodiscard]] std::optional<double> max_bpm() const { return maxBpm_; }
     [[nodiscard]] double pct_windows_good() const { return pctWindowsGood_; }
 
+    /// Schema v2 (beats and HRV); empty or nullopt for a v1 file.
+    [[nodiscard]] const QVector<RppgInterval>& intervals() const { return intervals_; }
+    [[nodiscard]] const QVector<RppgHrvWindow>& hrv_windows() const { return hrvWindows_; }
+    /// The recording's HRV, or nullopt when it was withheld (see
+    /// hrv_withheld() for why) or the file predates it.
+    [[nodiscard]] const std::optional<RppgHrv>& hrv() const { return hrv_; }
+    [[nodiscard]] const QStringList& hrv_withheld() const { return hrvWithheld_; }
+    /// Mean heart rate while the person on camera speaks / listens (needs
+    /// Conversation Timing's output); nullopt without it.
+    [[nodiscard]] std::optional<double> hr_speaking() const { return hrSpeaking_; }
+    [[nodiscard]] std::optional<double> hr_listening() const { return hrListening_; }
+
     /// Binary search by start time (windows()/frames() are both written in
     /// chronological order by run_rppg.py) with a before/after
     /// numerically-closer tie-break — mirrors GazeFusionResult::
@@ -93,6 +138,12 @@ class RppgResult {
     std::optional<double> minBpm_;
     std::optional<double> maxBpm_;
     double pctWindowsGood_ = 0.0;
+    QVector<RppgInterval> intervals_;
+    QVector<RppgHrvWindow> hrvWindows_;
+    std::optional<RppgHrv> hrv_;
+    QStringList hrvWithheld_;
+    std::optional<double> hrSpeaking_;
+    std::optional<double> hrListening_;
 };
 
 } // namespace mosaic

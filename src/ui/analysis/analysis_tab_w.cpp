@@ -996,11 +996,12 @@ struct AnalysisTabW::Impl {
     QWidget* rppgRowW         = nullptr;        // rppg only
     QLabel* rppgDisclaimerLbl = nullptr;        // rppg only
     QCheckBox* rppgShowSmoothedCheck = nullptr; // rppg only — toggles which series the chart plots
-    QLabel* rppgStatsLbl     = nullptr;         // rppg only
-    QLabel* rppgQualityBadge = nullptr;         // rppg only — rppg_quality_for() tier, reusing
-                                                // the same RmsQuality/badge_stylesheet() vocabulary
-                                                // pose_tracking_quality_for() already established
-    QPushButton* exportRppgBtn = nullptr;       // rppg only
+    QComboBox* rppgMetricCombo = nullptr; // rppg only — windowed HR, beat-to-beat HR or RMSSD
+    QLabel* rppgStatsLbl       = nullptr; // rppg only
+    QLabel* rppgQualityBadge   = nullptr; // rppg only — rppg_quality_for() tier, reusing
+                                          // the same RmsQuality/badge_stylesheet() vocabulary
+                                          // pose_tracking_quality_for() already established
+    QPushButton* exportRppgBtn = nullptr; // rppg only
 
     // Calibration-free 2D Gaze view controls — mirrors rppgRowW's
     // own-container pattern. Reuses the shared MetricsChartW (via
@@ -2393,7 +2394,19 @@ void AnalysisTabW::build_ui() {
     d->rppgDisclaimerLbl->setWordWrap(true);
     rppgRowLay->addWidget(d->rppgDisclaimerLbl);
 
-    auto* rppgStatsRow       = new QHBoxLayout;
+    auto* rppgStatsRow = new QHBoxLayout;
+    d->rppgMetricCombo = new QComboBox;
+    d->rppgMetricCombo->addItem("Heart rate (windows)", "windows");
+    d->rppgMetricCombo->addItem("Heart rate (beat to beat)", "beats");
+    d->rppgMetricCombo->addItem("RMSSD (60 s windows)", "rmssd");
+    d->rppgMetricCombo->setToolTip(
+        "Windows: the dominant pulse frequency of each analysis window. Beat to beat: "
+        "60 / each clean interval between beats. RMSSD: beat-to-beat variability over "
+        "a sliding minute (raw, so inflated by timing noise; the stats line gives the "
+        "noise-corrected value for the whole recording).");
+    connect(d->rppgMetricCombo, &QComboBox::currentIndexChanged, this,
+            &AnalysisTabW::update_rppg_view);
+    rppgStatsRow->addWidget(d->rppgMetricCombo);
     d->rppgShowSmoothedCheck = new QCheckBox("Show smoothed");
     d->rppgShowSmoothedCheck->setToolTip(
         "Toggles the chart between the raw per-window BPM series and a centered "
@@ -4841,28 +4854,45 @@ void AnalysisTabW::update_rppg_view() {
         return;
     }
 
-    const bool showSmoothed = d->rppgShowSmoothedCheck->isChecked();
+    // Window and beat times are app-launch-relative (elapsed_ns from
+    // timestamps_camN.csv); the chart and the player count from the video's
+    // first frame, as PoseOverlayPlayerW::Impl::rppg_timestamp_estimate() does.
+    const int64_t t0     = result.frames().isEmpty() ? result.windows().first().startMs
+                                                     : result.frames().first().timestampMs;
+    const QString metric = d->rppgMetricCombo->currentData().toString();
+    // Smoothing applies to the windowed series only.
+    d->rppgShowSmoothedCheck->setEnabled(metric == "windows");
+    const double lastAnalyzedMs = static_cast<double>(result.windows().last().endMs - t0);
     QVector<QPointF> points;
-    points.reserve(result.windows().size());
-    for (const auto& win : result.windows()) {
-        // startMs/endMs are already video-relative (see run_rppg.py's
-        // timestamp handling — no separate t0 subtraction needed, unlike
-        // Pose's/Expression's charts). Plotted at the window's midpoint,
-        // the conventional way to represent a sliding-window estimate.
-        const double bpm = showSmoothed ? win.smoothedBpm : win.bpm;
-        if (std::isnan(bpm)) {
-            continue;
-        } // no reliable estimate this window — skip, don't fabricate
-        points.append(QPointF((win.startMs + win.endMs) / 2.0, bpm));
+    if (metric == "beats") {
+        for (const auto& iv : result.intervals()) {
+            if (iv.nn && iv.ibiMs > 0.0) {
+                points.append(QPointF(static_cast<double>(iv.tMs - t0), 60000.0 / iv.ibiMs));
+            }
+        }
+        d->chart->set_single_series(points, "BPM", "Beat to beat", lastAnalyzedMs);
+    } else if (metric == "rmssd") {
+        for (const auto& w : result.hrv_windows()) {
+            if (!std::isnan(w.rmssdMs)) {
+                points.append(QPointF((w.startMs + w.endMs) / 2.0 - t0, w.rmssdMs));
+            }
+        }
+        d->chart->set_single_series(points, "RMSSD (ms)", "RMSSD, 60 s", lastAnalyzedMs);
+    } else {
+        const bool showSmoothed = d->rppgShowSmoothedCheck->isChecked();
+        points.reserve(result.windows().size());
+        for (const auto& win : result.windows()) {
+            // Plotted at the window's midpoint, the conventional way to
+            // represent a sliding-window estimate.
+            const double bpm = showSmoothed ? win.smoothedBpm : win.bpm;
+            if (std::isnan(bpm)) {
+                continue;
+            } // no reliable estimate this window — skip, don't fabricate
+            points.append(QPointF((win.startMs + win.endMs) / 2.0 - t0, bpm));
+        }
+        d->chart->set_single_series(points, "BPM", showSmoothed ? "Smoothed BPM" : "Raw BPM",
+                                    lastAnalyzedMs);
     }
-
-    // Floors the axis at the last window's own end time (regardless of
-    // whether every window had a usable estimate), matching
-    // update_expression_view()'s identical reasoning for why the axis must
-    // span the full analyzed range, not just the plotted points.
-    const double lastAnalyzedMs = static_cast<double>(result.windows().last().endMs);
-    d->chart->set_single_series(points, "BPM", showSmoothed ? "Smoothed BPM" : "Raw BPM",
-                                lastAnalyzedMs);
     d->chart->set_title(QString("Heart rate — %1").arg(result.backend().toUpper()));
     d->chart->set_playhead_ms(d->player->position_ms());
 
@@ -4877,6 +4907,26 @@ void AnalysisTabW::update_rppg_view() {
                      .arg(*result.max_bpm(), 0, 'f', 1);
     }
     parts << QString("%1% windows usable").arg(result.pct_windows_good() * 100.0, 0, 'f', 0);
+    if (const auto& h = result.hrv()) {
+        auto ms = [](const std::optional<double>& v) {
+            return v ? QString::number(*v, 'f', 0) : QString("–");
+        };
+        QString text = QString("HRV: RMSSD %1 ms").arg(ms(h->rmssdMs));
+        if (h->rmssdCorrectedMs) {
+            text += QString(" (%1 after removing %2 ms beat-timing noise)")
+                        .arg(ms(h->rmssdCorrectedMs), ms(h->timingJitterMs));
+        }
+        text += QString(", SDNN %1 ms, %2 clean beats").arg(ms(h->sdnnMs)).arg(h->nnCount);
+        parts << text;
+    } else if (!result.hrv_withheld().isEmpty()) {
+        parts << "HRV not reported: " + result.hrv_withheld().join("; ");
+    }
+    if (result.hr_speaking() && result.hr_listening()) {
+        parts << QString("speaking %1 bpm, listening %2 bpm")
+                     .arg(*result.hr_speaking(), 0, 'f', 0)
+                     .arg(*result.hr_listening(), 0, 'f', 0);
+    }
+    d->rppgStatsLbl->setWordWrap(true);
     d->rppgStatsLbl->setText(parts.join("  ·  "));
 
     // Aggregate quality badge — mean SNR across windows with a usable
@@ -4929,7 +4979,7 @@ void AnalysisTabW::export_rppg_csv() {
 
     export_csv(this, "Export Heart Rate", suggested, [&](QTextStream& ts) {
         ts << "# EXPERIMENTAL research estimate only — not a medical device, "
-              "not clinically validated. See mosaic-rppg-v1 schema docs.\n";
+              "not clinically validated. See the mosaic-rppg schema docs.\n";
         ts << "# backend: " << d->currentRppgResult.backend() << "\n";
         ts << "start_ms,end_ms,bpm,smoothed_bpm,snr_db,valid_frame_fraction\n";
         for (const auto& win : d->currentRppgResult.windows()) {

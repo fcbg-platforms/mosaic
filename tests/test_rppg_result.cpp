@@ -136,3 +136,70 @@ TEST(RppgResult, NearestWindowAndFrameOnEmptyResultReturnNull) {
     EXPECT_EQ(result.nearest_window(0), nullptr);
     EXPECT_EQ(result.nearest_frame(0), nullptr);
 }
+
+TEST(RppgResult, V1FileHasNoBeatsOrHrv) {
+    QTemporaryDir dir;
+    const auto result = RppgResult::load(write_fixture(dir.path()));
+    ASSERT_TRUE(result.is_valid());
+    EXPECT_TRUE(result.intervals().isEmpty());
+    EXPECT_FALSE(result.hrv().has_value());
+    EXPECT_TRUE(result.hrv_withheld().isEmpty());
+    EXPECT_FALSE(result.hr_speaking().has_value());
+}
+
+TEST(RppgResult, LoadsBeatsAndHrvOfSchemaV2) {
+    QTemporaryDir dir;
+    const QString path = dir.path() + "/video_2.pos.rppg.json";
+    QFile f(path);
+    ASSERT_TRUE(f.open(QIODevice::WriteOnly | QIODevice::Text));
+    f.write(R"JSON({
+ "schema": "mosaic-rppg-v2", "source_video": "video_2.mp4", "backend": "pos",
+ "windows": [{"start_ms": 1000000, "end_ms": 1010000, "bpm": 72.0, "smoothed_bpm": 72.0,
+              "snr_db": 3.1, "valid_frame_fraction": 1.0}],
+ "frames": [], "summary": {"mean_bpm": 72.0, "pct_windows_good": 1.0},
+ "frame_rate": 50.0,
+ "intervals": [{"t_ms": 1000800.0, "ibi_ms": 810.0, "nn": true},
+               {"t_ms": 1002400.0, "ibi_ms": 1600.0, "nn": false}],
+ "hrv": {"nn_count": 180, "mean_hr_bpm": 74.1, "sdnn_ms": 43.4, "rmssd_ms": 63.4,
+         "pnn50_pct": 47.0, "lf_hf": 0.04, "timing_jitter_ms": 19.5,
+         "rmssd_corrected_ms": 41.8, "sdnn_corrected_ms": 33.5},
+ "hrv_withheld": [],
+ "hrv_windows": [{"start_ms": 1000000, "end_ms": 1060000, "hr_bpm": 74.0, "rmssd_ms": 60.2,
+                  "nn_count": 75},
+                 {"start_ms": 1010000, "end_ms": 1070000, "hr_bpm": null, "rmssd_ms": null,
+                  "nn_count": 1}],
+ "by_state": {"speaking": {"beats": 70, "mean_hr_bpm": 78.5},
+              "listening": {"beats": 80, "mean_hr_bpm": null}}
+})JSON");
+    f.close();
+    const auto r = RppgResult::load(path);
+    ASSERT_TRUE(r.is_valid());
+    ASSERT_EQ(r.intervals().size(), 2);
+    EXPECT_TRUE(r.intervals()[0].nn);
+    EXPECT_FALSE(r.intervals()[1].nn);
+    EXPECT_DOUBLE_EQ(r.intervals()[0].ibiMs, 810.0);
+    ASSERT_TRUE(r.hrv().has_value());
+    EXPECT_EQ(r.hrv()->nnCount, 180);
+    EXPECT_DOUBLE_EQ(*r.hrv()->rmssdCorrectedMs, 41.8);
+    EXPECT_DOUBLE_EQ(*r.hrv()->timingJitterMs, 19.5);
+    ASSERT_EQ(r.hrv_windows().size(), 2);
+    EXPECT_DOUBLE_EQ(r.hrv_windows()[0].rmssdMs, 60.2);
+    EXPECT_TRUE(std::isnan(r.hrv_windows()[1].hrBpm));
+    EXPECT_DOUBLE_EQ(*r.hr_speaking(), 78.5);
+    EXPECT_FALSE(r.hr_listening().has_value());
+}
+
+TEST(RppgResult, WithheldHrvKeepsItsReasons) {
+    QTemporaryDir dir;
+    const QString path = dir.path() + "/v.pos.rppg.json";
+    QFile f(path);
+    ASSERT_TRUE(f.open(QIODevice::WriteOnly | QIODevice::Text));
+    f.write(R"({"schema": "mosaic-rppg-v2", "windows": [], "frames": [], "summary": {},
+               "hrv": null, "hrv_withheld": ["frame rate 13 fps is below 25 fps"]})");
+    f.close();
+    const auto r = RppgResult::load(path);
+    ASSERT_TRUE(r.is_valid());
+    EXPECT_FALSE(r.hrv().has_value());
+    ASSERT_EQ(r.hrv_withheld().size(), 1);
+    EXPECT_TRUE(r.hrv_withheld()[0].startsWith("frame rate"));
+}

@@ -88,6 +88,42 @@ RppgResult RppgResult::load(const QString& jsonPath) {
     result.maxBpm_            = optional_double(summary["max_bpm"]);
     result.pctWindowsGood_    = summary["pct_windows_good"].toDouble();
 
+    // Schema v2: beats and heart-rate variability (absent in v1 files).
+    for (const auto& v : root["intervals"].toArray()) {
+        const QJsonObject o = v.toObject();
+        result.intervals_ << RppgInterval{static_cast<int64_t>(o["t_ms"].toDouble()),
+                                          o["ibi_ms"].toDouble(), o["nn"].toBool()};
+    }
+    for (const auto& v : root["hrv_windows"].toArray()) {
+        const QJsonObject o = v.toObject();
+        RppgHrvWindow w;
+        w.startMs = static_cast<int64_t>(o["start_ms"].toDouble());
+        w.endMs   = static_cast<int64_t>(o["end_ms"].toDouble());
+        w.hrBpm   = double_or_nan(o["hr_bpm"]);
+        w.rmssdMs = double_or_nan(o["rmssd_ms"]);
+        result.hrvWindows_ << w;
+    }
+    if (root["hrv"].isObject()) {
+        const QJsonObject h = root["hrv"].toObject();
+        RppgHrv hrv;
+        hrv.nnCount          = h["nn_count"].toInt();
+        hrv.meanHrBpm        = optional_double(h["mean_hr_bpm"]);
+        hrv.sdnnMs           = optional_double(h["sdnn_ms"]);
+        hrv.rmssdMs          = optional_double(h["rmssd_ms"]);
+        hrv.pnn50Pct         = optional_double(h["pnn50_pct"]);
+        hrv.lfHf             = optional_double(h["lf_hf"]);
+        hrv.timingJitterMs   = optional_double(h["timing_jitter_ms"]);
+        hrv.rmssdCorrectedMs = optional_double(h["rmssd_corrected_ms"]);
+        hrv.sdnnCorrectedMs  = optional_double(h["sdnn_corrected_ms"]);
+        result.hrv_          = hrv;
+    }
+    for (const auto& v : root["hrv_withheld"].toArray()) {
+        result.hrvWithheld_ << v.toString();
+    }
+    const QJsonObject byState = root["by_state"].toObject();
+    result.hrSpeaking_        = optional_double(byState["speaking"].toObject()["mean_hr_bpm"]);
+    result.hrListening_       = optional_double(byState["listening"].toObject()["mean_hr_bpm"]);
+
     result.valid_ = true;
     return result;
 }

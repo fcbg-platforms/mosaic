@@ -623,6 +623,41 @@ physiological frequency band.
    bandpass_filter
    estimate_hr_welch
    median_smooth
+   hrv.analyse
+   hrv.pos_overlap_add
+   hrv.detect_beats
+   hrv.refine_with_template
+   hrv.clean_intervals
+   hrv.timing_jitter
+   hrv.hrv_time_domain
+   hrv.hrv_frequency_domain
+
+Beat-to-beat timing and HRV (:mod:`rppg.hrv`) take the same per-frame
+colour through a continuous POS pulse wave, matched-filter beat timing and
+artifact cleaning; the two halves of the face give the timing noise:
+
+.. code-block:: python
+
+   from rppg import hrv
+
+   r = hrv.analyse(times_s, rgb, fs=50.0, halves=(rgb_left, rgb_right))
+   r["hrv"]["rmssd_ms"], r["hrv"]["rmssd_corrected_ms"], r["hrv"]["timing_jitter_ms"]
+
+.. autofunction:: rppg.hrv.analyse
+
+.. autofunction:: rppg.hrv.pos_overlap_add
+
+.. autofunction:: rppg.hrv.detect_beats
+
+.. autofunction:: rppg.hrv.refine_with_template
+
+.. autofunction:: rppg.hrv.clean_intervals
+
+.. autofunction:: rppg.hrv.timing_jitter
+
+.. autofunction:: rppg.hrv.hrv_time_domain
+
+.. autofunction:: rppg.hrv.hrv_frequency_domain
 
 .. autoclass:: rppg.MediaPipeFaceRoiExtractor
    :members:
