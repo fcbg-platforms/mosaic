@@ -123,11 +123,19 @@ bool RoomCalibrationManager::is_available() {
 #endif
 }
 
-void RoomCalibrationManager::set_board(const BoardSpec& spec) {
+int RoomCalibrationManager::set_board(const BoardSpec& spec) {
+    if (spec == d->board) {
+        return 0;
+    }
     d->board = spec;
 #if defined(MOSAIC_HAVE_OPENCV)
     d->charucoBoard.release(); // rebuilt lazily on next feed_shot()
 #endif
+    const int discarded = shot_count();
+    if (discarded > 0) {
+        clear_shots();
+    }
+    return discarded;
 }
 
 void RoomCalibrationManager::set_camera_intrinsics(int cameraIndex, const CalibrationData& data) {

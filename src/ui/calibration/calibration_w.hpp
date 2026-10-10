@@ -58,6 +58,8 @@ class CalibrationW : public QWidget {
     void build_result_section(QVBoxLayout* parent);
 
     void update_result_labels();
+    /// Disables the board fields while views taken with it exist.
+    void lock_board(bool locked);
     void save_to_settings();
 
     struct Impl;

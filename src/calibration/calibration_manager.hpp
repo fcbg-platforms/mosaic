@@ -45,6 +45,8 @@ class CalibrationManager : public QObject {
         int cols            = 9;    ///< Number of *inner* corner columns.
         int rows            = 6;    ///< Number of *inner* corner rows.
         double squareSizeMm = 25.0; ///< Physical side length of one square, in mm.
+
+        bool operator==(const BoardSpec&) const = default;
     };
 
     explicit CalibrationManager(QObject* parent = nullptr);
@@ -55,11 +57,16 @@ class CalibrationManager : public QObject {
 
     /// @brief Sets the checkerboard geometry used for detection and calibration.
     ///
-    /// Call before the first feed_frame().  Changing the spec after capturing
-    /// views requires clear_views() to discard incompatible data.
+    /// Call before the first feed_frame(). Every accepted view stores its
+    /// corners' 3-D positions in the board's own size, so views captured with
+    /// one board cannot be mixed with another: a spec that differs from the
+    /// current one discards the views captured so far (a finished calibration
+    /// result is kept; the intrinsics do not depend on the board).
     ///
     /// @param spec  Board geometry (cols, rows, square size in mm).
-    void set_board(const BoardSpec& spec);
+    /// @returns     How many captured views were discarded (0 if the spec is
+    ///              unchanged or there were none).
+    int set_board(const BoardSpec& spec);
 
     /// @brief Runs corner detection on a single frame.
     ///

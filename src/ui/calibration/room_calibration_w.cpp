@@ -17,6 +17,7 @@
 #include <QTableWidget>
 #include <QTimer>
 #include <QVBoxLayout>
+#include <initializer_list>
 
 #include "video/camera_label.hpp"
 #include "video/video_manager.hpp"
@@ -215,7 +216,31 @@ void RoomCalibrationW::rebuild_board_spec() {
     spec.rows           = d->rowsSpin->value();
     spec.squareLengthMm = d->squareSpin->value();
     spec.markerLengthMm = d->markerSpin->value();
-    d->manager.set_board(spec);
+    // Shots taken with the old board are discarded by set_board(): their
+    // board poses were solved with the old board's size and layout, and
+    // mixing them with new ones would give a wrong solve.
+    const int discarded = d->manager.set_board(spec);
+    if (discarded > 0) {
+        shots_cleared(QString("board changed: %1 shots taken with the old board were discarded")
+                          .arg(discarded));
+    }
+}
+
+void RoomCalibrationW::shots_cleared(const QString& note) {
+    d->lastShotIndex = -1;
+    d->shotCountLbl->setText(note.isEmpty() ? QString("Shots: 0")
+                                            : QString("Shots: 0  (%1)").arg(note));
+    for (auto* dot : d->foundDots) {
+        dot->setText("○");
+        dot->setStyleSheet("color: #606080;"); // as built: no shot yet
+        dot->setToolTip(QString());
+    }
+    // The solve was made from the discarded shots: nothing is resolved now.
+    update_result_table();
+    d->saveBtn->setEnabled(false);
+    d->usePlaneBtn->setEnabled(false);
+    d->addRegionBtn->setEnabled(false);
+    lock_board(false);
 }
 
 // ── Camera thumbnails ────────────────────────────────────────────────────────
@@ -291,6 +316,14 @@ void RoomCalibrationW::build_capture_section(QVBoxLayout* parent) {
     d->shotCountLbl = new QLabel("Shots: 0");
     d->shotCountLbl->setProperty("role", "muted");
     row1->addWidget(d->shotCountLbl);
+
+    auto* clearBtn = new QPushButton("Clear shots");
+    clearBtn->setToolTip("Discard every shot captured so far, and any solve made from them.");
+    connect(clearBtn, &QPushButton::clicked, this, [this] {
+        d->manager.clear_shots();
+        shots_cleared(QString());
+    });
+    row1->addWidget(clearBtn);
     row1->addStretch();
     vlay->addLayout(row1);
 
@@ -479,6 +512,19 @@ void RoomCalibrationW::finalize_shot() {
         d->lastShotIndex = d->manager.shot_count() - 1;
     }
     d->shotCountLbl->setText(QString("Shots: %1").arg(d->manager.shot_count()));
+    lock_board(d->manager.shot_count() > 0);
+}
+
+void RoomCalibrationW::lock_board(bool locked) {
+    // While shots exist the board is fixed: a changed board would discard
+    // them (RoomCalibrationManager::set_board()), and a stray scroll over a
+    // spin box should not cost a calibration session. Clear shots unlocks.
+    for (QWidget* w :
+         std::initializer_list<QWidget*>{d->colsSpin, d->rowsSpin, d->squareSpin, d->markerSpin}) {
+        w->setEnabled(!locked);
+        w->setToolTip(locked ? "Clear the shots to change the board: they were taken with this one."
+                             : QString());
+    }
 }
 
 // ── Solve / plane / save ────────────────────────────────────────────────────
