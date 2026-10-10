@@ -35,6 +35,30 @@ jobs:
       - name: ruff format --check
         run: ruff format --config ruff.toml --check .
 
+  test-python:
+    # The analysis plugins' unit tests, plus the golden-session regression
+    # test (analysis/tests/test_golden_session.py). The tests need only
+    # numpy/scipy/OpenCV: the model libraries (torch, mediapipe, faster-whisper,
+    # pyannote, py-feat) are imported lazily by the plugins and never by the
+    # tests, so the job skips the multi-gigabyte `uv sync`. Windows, as on the
+    # lab machines the tests were written on.
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+
+      - name: Install the test environment
+        working-directory: analysis
+        run: |
+          uv venv --python 3.12 .venv-ci
+          uv pip install --python .venv-ci numpy scipy opencv-python-headless pytest
+
+      - name: pytest
+        working-directory: analysis
+        run: .venv-ci\Scripts\python.exe -m pytest tests -q -p no:cacheprovider
+
   lint-cpp:
     runs-on: ubuntu-latest
 

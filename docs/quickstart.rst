@@ -143,3 +143,29 @@ Running the tests
    cmake -S . -B build/Debug -DMOSAIC_BUILD_TESTS=ON
    cmake --build build/Debug --parallel
    cd build/Debug && ctest --output-on-failure
+
+The analysis plugins' tests need only numpy, scipy and OpenCV (CI runs them
+without the model libraries):
+
+.. code-block:: bash
+
+   cd analysis
+   uv run pytest tests -q
+
+**The golden session.** ``tests/golden/session`` holds what the analysis
+plugins write for a small synthetic interview, built by
+``analysis/tests/golden_session.py`` from their own analysis and output code.
+Two tests use it:
+
+- ``analysis/tests/test_golden_session.py`` rebuilds it and fails if any
+  plugin's output changed shape (a key renamed, removed or of another type) or
+  a headline number moved by more than 5%.
+- ``tests/test_golden_session.cpp`` loads it with the app's result readers and
+  checks they parse exactly what the files hold.
+
+After a deliberate change to a plugin's output, update the C++ reader if it
+needs it, then refresh the golden copy and commit it with the change:
+
+.. code-block:: bash
+
+   python analysis/tests/golden_session.py --update

@@ -1,0 +1,30 @@
+{
+ "schema": "mosaic-session-v1",
+ "bids": {
+  "sub": "golden",
+  "ses": "01",
+  "task": "interview",
+  "run": 1
+ },
+ "recorded_by": "ci",
+ "session_start_utc": "2026-10-10T09:00:00.000Z",
+ "session_start_elapsed_ns": 5000000000,
+ "recording": {
+  "mode": "interview",
+  "interview_camera": 2,
+  "interview_fps": 25
+ },
+ "cameras": [
+  {
+   "index": 2,
+   "name": "acA1920-25gc",
+   "width": 1280,
+   "height": 720
+  }
+ ],
+ "session_end": {
+  "utc": "2026-10-10T09:01:12.000Z",
+  "duration_ms": 72000,
+  "ended_cleanly": true
+ }
+}
