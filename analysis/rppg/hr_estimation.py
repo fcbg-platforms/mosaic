@@ -9,8 +9,21 @@ own correctness genuinely depends on.
 
 from __future__ import annotations
 
+import math
+
 import numpy as np
 from scipy.signal import butter, filtfilt, welch
+
+#: Spectrum zero-padding factor (finer frequency steps than the window gives).
+ZERO_PAD = 8
+#: Half the chosen frequency is the heart rate when it holds a peak with at
+#: least this share of the chosen peak's power (see _fundamental()).
+SUBHARMONIC_RATIO = 0.3
+#: ...and at least this multiple of the band's median power, so that in a
+#: noisy window a noise bump at half the rate does not halve a fast heart.
+SUBHARMONIC_FLOOR = 5.0
+#: How far from exactly half the subharmonic peak may lie, Hz.
+HARMONIC_TOL_HZ = 0.1
 
 
 def bandpass_filter(
@@ -91,14 +104,12 @@ def estimate_hr_welch(
 
     Notes
     -----
-    Minimum usable length is enforced implicitly by ``scipy.signal.welch``
-    (returns coarser resolution rather than raising for short input); a
-    signal shorter than roughly 2 seconds at typical camera frame rates
-    will usually not resolve a meaningful frequency at all, in which case
-    both return values are ``None``.
+    A signal shorter than one cycle of ``low_hz`` (about 1.4 s for the
+    default band) cannot resolve any frequency in the band, so both return
+    values are ``None``.
     """
     n = len(signal)
-    if n < 4:
+    if n < 4 or n < fs / low_hz:
         return None, None
 
     # Use the whole available signal as one Welch segment (equivalent to a
@@ -111,16 +122,20 @@ def estimate_hr_welch(
     # compute cost on a pathologically long input, well above any real
     # window size this is ever called with.
     nperseg = min(n, int(fs * 60))
-    freqs, psd = welch(signal, fs=fs, nperseg=nperseg)
+    # Zero-padding: a 10 s window has bins 0.1 Hz (6 bpm) apart, so a heart
+    # at 75 bpm could only read 72 or 78. Padding interpolates the spectrum;
+    # the parabola below then places the peak between bins.
+    nfft = max(nperseg, 1 << int(math.ceil(math.log2(nperseg * ZERO_PAD))))
+    freqs, psd = welch(signal, fs=fs, nperseg=nperseg, nfft=nfft)
 
     band_mask = (freqs >= low_hz) & (freqs <= high_hz)
     if not np.any(band_mask):
         return None, None
 
-    band_freqs = freqs[band_mask]
-    band_psd = psd[band_mask]
-    peak_idx = int(np.argmax(band_psd))
-    peak_freq = float(band_freqs[peak_idx])
+    band_idx = np.flatnonzero(band_mask)
+    k = int(band_idx[np.argmax(psd[band_idx])])
+    k = _fundamental(freqs, psd, band_mask, k)
+    peak_freq = min(max(_refine_peak(freqs, psd, k), low_hz), high_hz)
     bpm = peak_freq * 60.0
 
     ext_high = min(high_hz * 2.0, fs / 2.0)
@@ -148,6 +163,38 @@ def estimate_hr_welch(
 
     snr_db = 10.0 * np.log10(signal_power / noise_power)
     return bpm, snr_db
+
+
+def _fundamental(freqs: np.ndarray, psd: np.ndarray, band_mask: np.ndarray, k: int) -> int:
+    """The index of the heartbeat's fundamental, given the strongest peak.
+
+    A pulse wave is not a sine: its sharp upstroke puts power at twice the
+    heart rate, and in a short noisy window that second harmonic can come out
+    stronger than the fundamental. When there is a clear peak at half the
+    chosen frequency (at least :data:`SUBHARMONIC_RATIO` of its power, and
+    well above the band's noise floor, :data:`SUBHARMONIC_FLOOR`), that is the
+    heart rate. A real fast heart has only noise at half its rate, which
+    rarely passes both tests.
+    """
+    near = np.flatnonzero(band_mask & (np.abs(freqs - freqs[k] / 2.0) <= HARMONIC_TOL_HZ))
+    if near.size == 0:
+        return k
+    j = int(near[np.argmax(psd[near])])
+    is_peak = 0 < j < len(psd) - 1 and psd[j] >= psd[j - 1] and psd[j] >= psd[j + 1]
+    strong = psd[j] >= SUBHARMONIC_RATIO * psd[k]
+    above_noise = psd[j] >= SUBHARMONIC_FLOOR * float(np.median(psd[band_mask]))
+    return j if is_peak and strong and above_noise else k
+
+
+def _refine_peak(freqs: np.ndarray, psd: np.ndarray, k: int) -> float:
+    """Peak frequency between bins: a parabola through the log power of the
+    peak bin and its neighbours (exact for a Gaussian-shaped peak)."""
+    if not 0 < k < len(psd) - 1:
+        return float(freqs[k])
+    a, b, c = (math.log(max(float(v), 1e-300)) for v in psd[k - 1 : k + 2])
+    den = a - 2.0 * b + c
+    shift = 0.5 * (a - c) / den if den < 0 else 0.0
+    return float(freqs[k] + max(-0.5, min(0.5, shift)) * (freqs[1] - freqs[0]))
 
 
 def median_smooth(values: np.ndarray, window: int = 3) -> np.ndarray:

@@ -38,7 +38,7 @@
  "ec_turn_start_aversion_pct": 100.0,
  "ec_turn_end_contact_pct": 100.0,
  "ec_partner": "auto",
- "hr_mean_bpm": 85.8,
+ "hr_mean_bpm": 75.0,
  "hrv_rmssd_ms": 88.1,
  "hrv_rmssd_corrected_ms": 72.6,
  "hrv_sdnn_ms": 55.2,

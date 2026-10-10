@@ -198,6 +198,29 @@ the peak power frequency :math:`f^\star` within the physiological band:
 
    \text{BPM} = 60 \, f^\star
 
+Two refinements keep a short window accurate:
+
+- **Finer than one bin.** A window of :math:`T` seconds resolves frequency
+  in steps of :math:`1/T` Hz: 0.1 Hz, i.e. 6 bpm, for the default 10 s
+  window, so a 75 bpm pulse would read as 72 or 78. The spectrum is
+  zero-padded 8x (``ZERO_PAD``), which interpolates between those steps,
+  and the peak is then placed by a parabola through the log-power of the
+  peak bin and its two neighbours (exact for a Gaussian-shaped peak, close
+  for the Hann window's main lobe). Rates between bins are read to well
+  under 1 bpm.
+- **Not the harmonic.** The pulse wave is not a sinusoid: its sharp
+  systolic upstroke puts power at twice the heart rate, and in some
+  windows that harmonic is the stronger peak, which would double the
+  reading (150 bpm for a 75 bpm heart). When half the chosen frequency
+  still lies in the band and holds a local peak (within 0.1 Hz of exactly
+  half) with at least 30 % of the chosen peak's power
+  (``SUBHARMONIC_RATIO``) and at least 5 times the band's median power
+  (``SUBHARMONIC_FLOOR``), that lower peak is the heart rate. Below a
+  genuinely fast heart there is only noise, which rarely passes both tests:
+  in simulated windows at an SNR around -15 dB, 1 to 4 % of fast-heart
+  windows are halved, which the median smoothing across windows absorbs.
+  The reported rate is always kept inside the band.
+
 **Pulse SNR.** The plugin reports a confidence metric in dB: the ratio of
 spectral power concentrated at the peak frequency and its first harmonic
 versus everything else in the analyzed band (:math:`[0.7, 6.0]` Hz,

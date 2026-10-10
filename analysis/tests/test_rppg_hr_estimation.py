@@ -122,3 +122,64 @@ class TestMedianSmooth:
         values = np.array([np.nan, np.nan, np.nan])
         result = median_smooth(values, window=3)
         assert np.all(np.isnan(result))
+
+
+class TestWindowAccuracy:
+    """The two errors the golden session exposed in 10 s windows."""
+
+    FS = 25.0
+
+    @staticmethod
+    def _pulse(bpm, seconds, fs, harmonic=0.0, noise=0.0, seed=0):
+        rng = np.random.default_rng(seed)
+        t = np.arange(int(seconds * fs)) / fs
+        f = bpm / 60.0
+        return (
+            np.sin(2 * np.pi * f * t)
+            + harmonic * np.sin(2 * np.pi * 2 * f * t + 0.7)
+            + rng.normal(0, noise, t.size)
+        )
+
+    def test_rates_between_frequency_bins_are_read_to_within_a_bpm(self):
+        # 10 s windows have 6 bpm bins: 75 used to read as 72 or 78.
+        for bpm in (63.0, 75.0, 87.5, 101.0, 118.0):
+            est, _ = estimate_hr_welch(self._pulse(bpm, 10.0, self.FS), self.FS)
+            assert est == pytest.approx(bpm, abs=1.0), bpm
+
+    def test_a_strong_second_harmonic_is_not_taken_for_the_heart_rate(self):
+        # A sharp pulse wave can put more power at twice the rate.
+        sig = self._pulse(75.0, 10.0, self.FS, harmonic=1.3, noise=0.2, seed=1)
+        est, _ = estimate_hr_welch(sig, self.FS)
+        assert est == pytest.approx(75.0, abs=1.5)
+
+    def test_a_genuinely_fast_heart_stays_fast(self):
+        sig = self._pulse(150.0, 10.0, self.FS, harmonic=0.3, noise=0.2, seed=2)
+        est, _ = estimate_hr_welch(sig, self.FS)
+        assert est == pytest.approx(150.0, abs=1.5)
+
+    def test_noise_rarely_halves_a_fast_heart(self):
+        # The halving rule must not mistake a noise bump at half the rate for
+        # the fundamental; 30 fps, heavy noise, many windows.
+        fs, ok = 30.0, 0
+        for seed in range(100):
+            sig = bandpass_filter(self._pulse(150.0, 10.0, fs, 0.3, 2.0, seed), fs)
+            est, _ = estimate_hr_welch(sig, fs)
+            ok += abs(est - 150.0) < 6.0
+        assert ok >= 85
+
+    def test_noisy_rates_between_bins_are_read_closely(self):
+        fs = 30.0
+        for seed, bpm in enumerate((58.0, 75.0, 93.0)):
+            sig = bandpass_filter(self._pulse(bpm, 10.0, fs, 0.3, 0.5, seed), fs)
+            est, _ = estimate_hr_welch(sig, fs)
+            assert est == pytest.approx(bpm, abs=2.0), bpm
+
+    def test_shorter_than_one_cycle_of_the_band_gives_nothing(self):
+        for n in (4, 8, 20, 40):
+            assert estimate_hr_welch(np.sin(np.arange(n)), 30.0) == (None, None)
+
+    def test_the_rate_stays_inside_the_band(self):
+        rng = np.random.default_rng(5)
+        for _ in range(50):
+            est, _ = estimate_hr_welch(rng.normal(size=300), 30.0, 0.7, 3.0)
+            assert 42.0 <= est <= 180.0
