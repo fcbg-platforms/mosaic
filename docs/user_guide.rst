@@ -374,6 +374,26 @@ For a selected session you can:
 - **Annotate it:** add timestamped labels during playback, exported as CSV.
 - **Run Motion tracking:** the one plugin that runs only from here, not from
   the Analysis tab (see :ref:`the note below <motion-tracking-note>`).
+- **Make a session report:** **📄 Session report** writes one page with
+  everything the analyses found and opens it in your browser
+  (``report/session_report.html``; print it to PDF to share). It shows:
+
+  - the session's details and notes;
+  - headline numbers;
+  - a time-aligned timeline per camera: who speaks, eye contact, blinks,
+    smiles, nods and heart rate;
+  - a section for each analysis;
+  - the analyses not run yet, so run those first and make the report again.
+
+  It also writes the session's numbers as one row
+  (``report/session_summary.csv`` and ``.json``).
+- **Combine sessions for statistics:** **📊 Summary CSV** at the bottom of
+  the list writes that row for every session the list shows (an admin's
+  includes the other profiles' sessions) into one ``sessions_summary.csv``
+  in your recordings folder, and opens it. Sessions with one camera
+  (interview mode) share the same column names; sessions with several
+  cameras get one set of columns per camera (``cam1_…``, ``cam2_…``). Close
+  the file in Excel before running it again.
 - **See its state at a glance** from the coloured badges:
 
   - **INTERRUPTED** (red): the recording never finished; its files end where

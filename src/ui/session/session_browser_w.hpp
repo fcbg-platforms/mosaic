@@ -45,7 +45,19 @@ class SessionBrowserW : public QDialog {
     void export_annot_csv();
     void run_pose_analysis();
     void run_motion_analysis();
-    void launch_analysis(const QString& exe, const QStringList& args);
+    /// Writes the session's report (analysis/run_session_report.py) and
+    /// opens it in the browser.
+    void make_session_report();
+    /// Combines every session's summary row into one CSV and opens it.
+    void export_sessions_summary();
+    /// analysis/<name> next to the app or in the source tree, or empty.
+    [[nodiscard]] QString find_analysis_script(const QString& name) const;
+    /// Runs one analysis script at a time; @p openWhenDone (if any) is
+    /// opened when it succeeds.
+    void launch_analysis(const QString& exe, const QStringList& args,
+                         const QString& openWhenDone = QString());
+    /// Enables or disables every button that starts a job.
+    void set_job_running(bool running);
     [[nodiscard]] QString find_python() const;
 
     struct Impl;

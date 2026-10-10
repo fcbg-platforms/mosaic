@@ -87,6 +87,13 @@ algorithm behind its output.
       Turns, response times, pauses, overlaps and backchannels from the
       audio and the face on camera.
 
+   .. grid-item-card:: 📄 Session report
+      :link: analysis-api-report
+      :link-type: ref
+
+      Every analysis of a session in one HTML page and one summary row;
+      combined across sessions for statistics.
+
    .. grid-item-card:: 🐭 Motion Tracking
       :link: analysis-api-motion
       :link-type: ref
@@ -875,6 +882,39 @@ transfer offsets, pauses, overlaps and backchannels follow
 .. autofunction:: conversation.turns.build_turns
 
 .. autofunction:: conversation.turns.summarise
+
+.. _analysis-api-report:
+
+Session report
+--------------
+
+``run_session_report.py`` reads what the analysis plugins wrote for a session
+(:mod:`report.collect`; any of them may be missing), writes one self-contained
+HTML page (:mod:`report.render`: inline CSS and SVG, no scripts, light and
+dark themes, printable), and the session's numbers as one flat row
+(:mod:`report.summary`). ``--sessions-root`` does this for every session
+below a folder and combines the rows into ``sessions_summary.csv``.
+
+.. code-block:: python
+
+   from report.collect import collect
+   from report.render import render
+   from report.summary import session_row, write_rows
+
+   data = collect(session_path)
+   html = render(data)
+   write_rows("summary.csv", [session_row(data)])
+
+.. automodule:: report
+   :no-members:
+
+.. autofunction:: report.collect.collect
+
+.. autofunction:: report.summary.session_row
+
+.. autofunction:: report.summary.write_rows
+
+.. autofunction:: report.render.render
 
 .. _analysis-api-motion:
 
