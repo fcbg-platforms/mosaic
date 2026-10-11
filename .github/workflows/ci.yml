@@ -53,11 +53,31 @@ jobs:
         working-directory: analysis
         run: |
           uv venv --python 3.12 .venv-ci
-          uv pip install --python .venv-ci numpy scipy opencv-python-headless pytest
+          uv pip install --python .venv-ci numpy scipy opencv-python-headless pytest pytest-cov
 
+      # Coverage settings are in analysis/pyproject.toml ([tool.coverage.run]).
       - name: pytest
         working-directory: analysis
-        run: .venv-ci\Scripts\python.exe -m pytest tests -q -p no:cacheprovider
+        run: .venv-ci\Scripts\python.exe -m pytest tests -q -p no:cacheprovider --cov --cov-report=xml:py-coverage.xml
+
+      # Covered lines per plugin folder, on the run's summary page. Only what
+      # this light environment can run is measured: code that needs the model
+      # libraries (mediapipe, torch, ...) counts as not run.
+      - name: Coverage summary
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        working-directory: analysis
+        shell: pwsh
+        run: .venv-ci\Scripts\python.exe ..\scripts\coverage_summary.py py-coverage.xml --title "Python (analysis plugins)" >> $env:GITHUB_STEP_SUMMARY
+
+      - name: Upload the coverage report
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: python-coverage
+          path: analysis/py-coverage.xml
+          retention-days: 14
 
   lint-cpp:
     runs-on: ubuntu-latest
@@ -444,6 +464,42 @@ jobs:
       - name: Run tests
         shell: pwsh
         run: ctest --test-dir build -C Release --output-on-failure
+
+      # C++ coverage: the whole test binary once more, under OpenCppCoverage.
+      # It needs debug symbols, which the Release build already has (/Zi and
+      # /DEBUG in cmake/CompilerOptions.cmake); it is still the optimised
+      # build, so a few inlined lines may show as not run. Pass/fail is
+      # ctest's job above; these steps never fail the build.
+      - name: Install OpenCppCoverage
+        continue-on-error: true
+        run: choco install opencppcoverage -y --no-progress
+
+      - name: C++ coverage
+        id: cpp-coverage
+        continue-on-error: true
+        shell: pwsh
+        run: >
+          & "C:\Program Files\OpenCppCoverage\OpenCppCoverage.exe" --quiet
+          --sources "${{ github.workspace }}\src"
+          --export_type "cobertura:cpp-coverage.xml"
+          -- build\bin\Release\mosaic_tests.exe --gtest_brief=1
+
+      # Also when a test failed under coverage (OpenCppCoverage then exits
+      # with the tests' failure code): the report is still written.
+      - name: C++ coverage summary
+        if: ${{ !cancelled() && hashFiles('cpp-coverage.xml') != '' }}
+        continue-on-error: true
+        shell: pwsh
+        run: python scripts\coverage_summary.py cpp-coverage.xml --title "C++ (src/)" --root src >> $env:GITHUB_STEP_SUMMARY
+
+      - name: Upload the C++ coverage report
+        if: ${{ !cancelled() && hashFiles('cpp-coverage.xml') != '' }}
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: cpp-coverage
+          path: cpp-coverage.xml
+          retention-days: 14
 
   docs:
     runs-on: ubuntu-latest
