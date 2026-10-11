@@ -203,10 +203,83 @@ def test_session_mode_plots(tmp_path):
     pytest.importorskip("matplotlib")
     session = make_session(tmp_path)
     run_motion.process_session(session_args(session))
-    for name in ("motion_heatmap.png", "motion_trajectories.png", "motion_velocity_hist.png"):
+    for name in (
+        "motion_heatmap_cam0.png",
+        "motion_trajectories_cam0.png",
+        "motion_velocity_hist_cam0.png",
+    ):
         png = session / name
         assert png.exists() and png.stat().st_size > 1000, name
         assert png.read_bytes()[:8] == b"\x89PNG\r\n\x1a\n"
+
+
+def test_each_camera_keeps_its_own_animals_and_plots(tmp_path, monkeypatch):
+    # Cameras 0 and 2 (camera 1 missing): both see "animal 0", which must
+    # stay two animals, one per camera.
+    session = make_session(tmp_path)
+    write_video(
+        session / "video" / "video_2.avi",
+        70,
+        lambda i: [] if i < 30 else [(250 - 3 * (i - 30), 40)],
+    )
+    plots = []
+    monkeypatch.setattr(
+        run_motion,
+        "generate_heatmap",
+        lambda traj, size, out, **k: plots.append((out, sorted(traj))),
+    )
+    monkeypatch.setattr(run_motion, "generate_trajectory_plot", lambda *a, **k: None)
+    monkeypatch.setattr(run_motion, "generate_velocity_histogram", lambda *a, **k: None)
+
+    run_motion.process_session(session_args(session))
+
+    with (session / "motion_results.csv").open() as f:
+        rows = list(csv.DictReader(f))
+    by_cam = {}
+    for r in rows:
+        by_cam.setdefault(int(r["camera_index"]), set()).add(int(r["animal_id"]))
+    assert by_cam == {0: {0}, 2: {0}}
+    # Camera 2 has no timestamps file: video time, not camera 0's clock.
+    assert all(int(r["timestamp_ns"]) < 7_000_000_000 for r in rows if r["camera_index"] == "2")
+    assert [Path(out).name for out, _ in plots] == [
+        "motion_heatmap_cam0.png",
+        "motion_heatmap_cam2.png",
+    ]
+
+
+def test_the_step_after_a_gap_is_not_a_speed_spike(tmp_path):
+    # Seen frames 30-49, hidden 50-59, back at 60 where it would have been:
+    # 3 px per frame throughout, so the speed stays near 60 px/s.
+    def blinking(i):
+        if i < 30 or 50 <= i < 60:
+            return []
+        return [(20 + 3 * (i - 30), 100)]
+
+    video = write_video(tmp_path / "v.avi", 80, blinking)
+    rows, traj, *_ = run_motion.process_video(video, tracker(max_lost=20), None, 1, False)
+    assert len(traj) == 1  # the same animal after the gap
+    after = [r for r in rows if r["frame"] >= 60]
+    assert after
+    assert max(r["velocity_mm_s"] for r in after) < 100
+
+
+def test_camera_index_from_the_file_name():
+    assert run_motion.camera_index_from_filename(Path("video_2.avi")) == 2
+    assert run_motion.camera_index_from_filename(Path("video_12.mp4")) == 12
+    assert run_motion.camera_index_from_filename(Path("clip.avi")) is None
+    assert run_motion.camera_index_from_filename(Path("video_0_old.mp4")) is None
+
+
+def test_session_skips_files_that_are_not_camera_recordings(tmp_path, no_histogram):
+    session = make_session(tmp_path)
+    write_video(session / "video" / "video_0_old.avi", 70, one_square)
+    write_video(session / "video" / "clip.avi", 70, one_square)
+    run_motion.process_session(session_args(session, "--no-heatmap", "--no-trajectory"))
+    with (session / "motion_results.csv").open() as f:
+        rows = list(csv.DictReader(f))
+    # Only video_0.avi: one animal, one row per frame it was seen.
+    frames = [r["frame"] for r in rows]
+    assert len(frames) == len(set(frames))
 
 
 def test_single_video_mode_writes_next_to_the_video(tmp_path, no_histogram):

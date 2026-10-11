@@ -39,6 +39,10 @@ class Track:
         Recent per-frame timestamps (ns), parallel to ``positions``.
     areas : collections.deque
         Recent per-frame contour areas (px²), parallel to ``positions``.
+    frames : collections.deque
+        The tracker update (frame) each position came from, parallel to
+        ``positions``, so a step across frames where the animal was lost is
+        not read as one frame's movement.
     lost_count : int, default 0
         Consecutive frames since this track was last matched to a
         detection; pruned once this exceeds
@@ -49,6 +53,7 @@ class Track:
     positions: deque = field(default_factory=lambda: deque(maxlen=90))
     timestamps_ns: deque = field(default_factory=lambda: deque(maxlen=90))
     areas: deque = field(default_factory=lambda: deque(maxlen=90))
+    frames: deque = field(default_factory=lambda: deque(maxlen=90))
     lost_count: int = 0
 
     @property
@@ -58,11 +63,16 @@ class Track:
 
     @property
     def velocity_px_per_frame(self) -> float:
-        """float: Euclidean distance between the last two centroids, px/frame."""
+        """float: Distance between the last two centroids divided by the
+        frames between them (more than one after the animal was lost for a
+        while), px/frame."""
         if len(self.positions) < 2:
             return 0.0
         p1, p2 = self.positions[-2], self.positions[-1]
-        return math.hypot(p2[0] - p1[0], p2[1] - p1[1])
+        gap = 1
+        if len(self.frames) == len(self.positions):
+            gap = max(1, self.frames[-1] - self.frames[-2])
+        return math.hypot(p2[0] - p1[0], p2[1] - p1[1]) / gap
 
     def velocity_mm_per_s(self, mm_per_px: float, fps: float) -> float:
         """Convert :attr:`velocity_px_per_frame` to a real-world speed.
@@ -179,6 +189,7 @@ class CentroidTracker:
 
         self._fgbg = self._new_background_model()
         self._next_id: int = 0
+        self._frame: int = 0  # update() calls so far
         self._tracks: dict[int, Track] = {}
 
         # Pre-build kernels once
@@ -214,6 +225,7 @@ class CentroidTracker:
             Every currently active (not-yet-pruned) track, including
             ones not matched this frame.
         """
+        self._frame += 1
         detections = self._detect(frame)
         self._assign(detections, timestamp_ns, fps)
         self._prune_lost()
@@ -227,6 +239,7 @@ class CentroidTracker:
         """Clear all tracks and rebuild the background model from scratch."""
         self._tracks.clear()
         self._next_id = 0
+        self._frame = 0
         # With this tracker's own settings: reset() runs before every video,
         # so fixed values here would replace history/var_threshold for good.
         self._fgbg = self._new_background_model()
@@ -334,6 +347,7 @@ class CentroidTracker:
         t.positions.append((det.cx, det.cy))
         t.timestamps_ns.append(ts_ns)
         t.areas.append(det.area)
+        t.frames.append(self._frame)
         self._tracks[self._next_id] = t
         self._next_id += 1
         return t
@@ -342,6 +356,7 @@ class CentroidTracker:
         track.positions.append((det.cx, det.cy))
         track.timestamps_ns.append(ts_ns)
         track.areas.append(det.area)
+        track.frames.append(self._frame)
         track.lost_count = 0
 
     def _prune_lost(self) -> None:

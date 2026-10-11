@@ -55,6 +55,15 @@ without one it is the frame's time in the video (frame index over frame
 rate). With ``--skip N`` the speed is the distance moved over the N frames,
 per second.
 
+Each video is tracked on its own, and animal ids start again at 0 in every
+video, so a row names its camera too: ``camera_index`` (from the file name,
+``video_2.mp4`` is 2, shown as Camera 3), and an animal is the pair
+``(camera_index, animal_id)``. In session mode the heat map, trajectory plot
+and speed histogram are drawn per camera (``motion_heatmap_cam2.png`` and so
+on), since positions from different cameras are in different views. Session mode reads only the
+camera recordings, files named exactly ``video_N``; anything else in
+``video/`` (a copy, an export) is skipped and named in the log.
+
 .. note::
 
    Greedy assignment is simpler than an optimal solver and works well when
@@ -74,12 +83,15 @@ elapsed time:
 
 .. math::
 
-   v = \lVert p_i - p_{i-1} \rVert_{\text{px}} \cdot (\text{mm/px}) \cdot \text{fps}
+   v = \frac{\lVert p_i - p_{i-1} \rVert_{\text{px}}}{n_i - n_{i-1}} \cdot (\text{mm/px}) \cdot \text{fps}
 
-Contrast this with :doc:`pose_kinematics`, which uses each sample's *real*
-timestamp delta specifically to stay correct across detection gaps. Motion
-tracking's simpler fixed-fps estimate is a deliberate, lower-overhead
-choice for this plugin, not a bug, but worth knowing if comparing speed
+where :math:`n` is the frame each position came from: right after a gap
+(the animal was lost for a few frames, then found again) the step is
+divided over the frames it really took, rather than read as one frame's
+movement. Contrast this with :doc:`pose_kinematics`, which uses each
+sample's *real* timestamp delta. Motion tracking's frame-count estimate is a
+deliberate, simpler choice for this plugin; it matches the real time when
+the camera kept its frame rate, which is worth knowing if comparing speed
 figures between the two plugins.
 
 Practical recommendations
