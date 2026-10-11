@@ -334,7 +334,9 @@ the cameras are open, whether or not a recording is running.
 **Per-camera tiles.** One tile per camera, each with a live thumbnail, a
 real-time pose skeleton and gaze-direction overlay, a pose-detection quality
 badge, a gaze-on-target percentage and a small sparkline of recent detection
-rate. An **Analyze** checkbox per tile takes one camera out of live analysis
+rate. On-target is the share of frames with a face where the gaze offset is
+within 0.35 of straight at the camera, the same rule the Gaze 2D plugin
+uses; it shows ``--`` when no face has been seen for 5 seconds. An **Analyze** checkbox per tile takes one camera out of live analysis
 without affecting the others, leaving more of the shared processing budget
 for the rest.
 

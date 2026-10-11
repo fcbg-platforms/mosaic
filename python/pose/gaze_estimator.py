@@ -10,7 +10,8 @@ The standard face_landmarker model outputs 478 landmarks:
   473-477: right iris (center + 4 cardinal points)
 
 Gaze direction is estimated from the iris-centre offset relative to the
-eye-socket centre, normalised by the inter-canthus width of that eye.
+eye-socket centre, normalised by the eye width: see pose/iris_offset.py,
+shared byte for byte with the Gaze 2D analysis plugin.
 """
 
 from __future__ import annotations
@@ -25,19 +26,7 @@ import numpy as np
 from mediapipe.tasks import python as _mp_python
 from mediapipe.tasks.python import vision as _mp_vision
 
-# ── Landmark indices ───────────────────────────────────────────────────────
-_LEFT_IRIS_CENTER = 468
-_RIGHT_IRIS_CENTER = 473
-
-_LEFT_EYE_OUTER = 33
-_LEFT_EYE_INNER = 133
-_LEFT_EYE_TOP = 159
-_LEFT_EYE_BOTTOM = 145
-
-_RIGHT_EYE_INNER = 362
-_RIGHT_EYE_OUTER = 263
-_RIGHT_EYE_TOP = 386
-_RIGHT_EYE_BOTTOM = 374
+from pose.iris_offset import LEFT_IRIS_CENTER, RIGHT_IRIS_CENTER, compute_iris_offset
 
 _HERE = Path(__file__).parent
 _MODEL_FILE = _HERE / "face_landmarker.task"
@@ -114,29 +103,12 @@ class GazeEstimator:
         fx, fy = min(xs), min(ys)
         fw, fh = max(xs) - fx, max(ys) - fy
 
-        # ── Iris centres ───────────────────────────────────────────────────
-        li_x, li_y = lm[_LEFT_IRIS_CENTER].x, lm[_LEFT_IRIS_CENTER].y
-        ri_x, ri_y = lm[_RIGHT_IRIS_CENTER].x, lm[_RIGHT_IRIS_CENTER].y
-
-        # ── Eye-socket geometry for normalisation ──────────────────────────
-        left_cx = (lm[_LEFT_EYE_OUTER].x + lm[_LEFT_EYE_INNER].x) / 2
-        left_cy = (lm[_LEFT_EYE_TOP].y + lm[_LEFT_EYE_BOTTOM].y) / 2
-        left_w = abs(lm[_LEFT_EYE_OUTER].x - lm[_LEFT_EYE_INNER].x)
-
-        right_cx = (lm[_RIGHT_EYE_INNER].x + lm[_RIGHT_EYE_OUTER].x) / 2
-        right_cy = (lm[_RIGHT_EYE_TOP].y + lm[_RIGHT_EYE_BOTTOM].y) / 2
-        right_w = abs(lm[_RIGHT_EYE_INNER].x - lm[_RIGHT_EYE_OUTER].x)
-
-        eye_w = (left_w + right_w) / 2
-        if eye_w < 1e-6:
+        # ── Iris centres and the gaze offset (pose/iris_offset.py) ─────────
+        li_x, li_y = lm[LEFT_IRIS_CENTER].x, lm[LEFT_IRIS_CENTER].y
+        ri_x, ri_y = lm[RIGHT_IRIS_CENTER].x, lm[RIGHT_IRIS_CENTER].y
+        dx, dy = compute_iris_offset(lm)
+        if dx is None:
             return None
-
-        # ── Gaze offset: iris vs socket centre, normalised by eye width ────
-        dx = ((li_x - left_cx) / eye_w + (ri_x - right_cx) / eye_w) / 2
-        dy = ((li_y - left_cy) / eye_w + (ri_y - right_cy) / eye_w) / 2
-
-        dx = float(max(-1.0, min(1.0, dx)))
-        dy = float(max(-1.0, min(1.0, dy)))
 
         return GazeResult(
             face_box=(float(fx), float(fy), float(fw), float(fh)),

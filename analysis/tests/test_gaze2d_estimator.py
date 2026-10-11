@@ -1,13 +1,9 @@
 """
-Pure-logic tests for gaze2d/estimator.py's compute_iris_offset()/
-gaze_on_target() — no mediapipe/cv2 import required.
-
-The heuristic's other copy (python/pose/gaze_estimator.py's
-GazeEstimator.estimate()) has no dedicated unit test — this is the first real test
-of the actual math, made possible here specifically because
-compute_iris_offset() is pulled out as a non-underscore-prefixed, directly
-testable function taking a plain list of (x, y)-like objects, no
-mediapipe/cv2 dependency required to exercise it.
+Pure-logic tests for the 2D gaze heuristic, compute_iris_offset() and
+gaze_on_target() (gaze2d/iris_offset.py, re-exported by gaze2d.estimator).
+No mediapipe or OpenCV needed. The live worker runs the identical file
+(python/pose/iris_offset.py), so these cover it too;
+test_iris_offset_shared.py checks the two copies match.
 """
 
 import sys
@@ -104,7 +100,15 @@ def test_extreme_offset_is_clamped_to_unit_range():
 
 def test_gaze_on_target_within_threshold():
     assert gaze_on_target(0.1, -0.2) is True
-    assert gaze_on_target(0.35, 0.35) is True  # exactly at the boundary
+    assert gaze_on_target(0.35, 0.0) is True  # exactly at the boundary
+    assert gaze_on_target(0.2, -0.28) is True  # distance 0.344
+
+
+def test_gaze_on_target_is_a_radius_not_a_box():
+    # Each axis within 0.35 but 0.39 from the centre: off target, as in the
+    # live view (gaze_on_target_for in realtime_metrics.hpp).
+    assert gaze_on_target(0.3, 0.25) is False
+    assert gaze_on_target(0.35, 0.35) is False
 
 
 def test_gaze_on_target_outside_threshold():
@@ -113,5 +117,5 @@ def test_gaze_on_target_outside_threshold():
 
 
 def test_gaze_on_target_custom_threshold():
-    assert gaze_on_target(0.6, 0.6, threshold=0.7) is True
-    assert gaze_on_target(0.6, 0.6, threshold=0.5) is False
+    assert gaze_on_target(0.6, 0.6, threshold=0.9) is True
+    assert gaze_on_target(0.6, 0.6, threshold=0.8) is False

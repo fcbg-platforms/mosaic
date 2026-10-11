@@ -242,8 +242,16 @@ struct RealtimeCameraTileW::Impl {
     QLabel* gazeOnTargetLbl = nullptr;
 
     DetectionRateTracker detectionTracker;
+    // Share of frames with a gaze reading that were on target
+    // (gaze_on_target_for()); frames without a face are not counted, as in
+    // the Gaze 2D plugin's pct_on_target.
     DetectionRateTracker gazeTracker;
-    bool gazeSeenThisTick = false;
+    bool gazeSeenThisTick     = false;
+    bool gazeOnTargetThisTick = false;
+    // When a gaze last arrived. The tracker only ages out old buckets on a
+    // push, and frames without a face push nothing, so without this the
+    // figure would freeze at its last value once the subject leaves.
+    qint64 lastGazeMs = -1;
 
     bool haveQuality       = false;
     RmsQuality lastQuality = RmsQuality::Poor;
@@ -329,6 +337,11 @@ std::optional<double> RealtimeCameraTileW::detection_rate() const {
 }
 
 std::optional<double> RealtimeCameraTileW::gaze_on_target_rate() const {
+    // No face for a while: no figure, rather than the last one frozen.
+    constexpr qint64 kStaleMs = 5000;
+    if (d->lastGazeMs < 0 || QDateTime::currentMSecsSinceEpoch() - d->lastGazeMs > kStaleMs) {
+        return std::nullopt;
+    }
     return d->gazeTracker.rate();
 }
 
@@ -347,8 +360,10 @@ void RealtimeCameraTileW::on_pose_ready(QVariantList keypoints) {
 
     // Attribute the PREVIOUS frame's gaze presence: gaze_ready (if any) for
     // that frame fired between the previous pose_ready call and this one.
-    d->gazeTracker.push(d->gazeSeenThisTick, now);
-    if (!d->gazeSeenThisTick) {
+    if (d->gazeSeenThisTick) {
+        d->gazeTracker.push(d->gazeOnTargetThisTick, now);
+        d->lastGazeMs = now;
+    } else {
         d->thumb->set_gaze(std::nullopt);
     }
     d->gazeSeenThisTick = false;
@@ -394,13 +409,15 @@ void RealtimeCameraTileW::on_pose_ready(QVariantList keypoints) {
         d->badgeAnim = anim;
     }
 
-    const auto gRate = d->gazeTracker.rate();
+    const auto gRate = gaze_on_target_rate();
     d->gazeOnTargetLbl->setText(gRate ? QString("On-target: %1%").arg(qRound(*gRate * 100))
                                       : QStringLiteral("On-target: --"));
 }
 
 void RealtimeCameraTileW::on_gaze_ready(QVariantMap gazeData) {
-    d->gazeSeenThisTick = true;
+    d->gazeSeenThisTick     = true;
+    d->gazeOnTargetThisTick = gaze_on_target_for(gazeData.value("gaze_dx").toDouble(),
+                                                 gazeData.value("gaze_dy").toDouble());
     d->thumb->set_gaze(gazeData);
 }
 

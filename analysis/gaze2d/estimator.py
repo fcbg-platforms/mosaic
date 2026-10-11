@@ -2,11 +2,11 @@
 Calibration-free, single-camera 2D gaze estimation for the post-hoc
 Analysis-tab plugin (analysis/run_gaze2d.py).
 
-Reuses the exact iris-centre-offset-from-eye-socket-centre heuristic
-already running live in the Real-time tab (python/pose/gaze_estimator.py's
-GazeEstimator.estimate()). This is a copy of that heuristic, not a shared
-import: python/ and analysis/ are separate uv projects with independent
-dependency trees.
+Uses the same iris-centre-offset-from-eye-socket-centre heuristic as the
+live gaze arrow in the Real-time tab: both come from iris_offset.py, a file
+kept byte for byte identical in python/pose/ and here (python/ and analysis/
+are separate uv projects, so neither can import the other; a test checks the
+copies match).
 
 Unlike the Multi-Camera Gaze Fusion plugin (analysis/run_gaze_fusion.py,
 the analysis/gaze package), which needs each camera's intrinsics for a
@@ -25,22 +25,16 @@ from pathlib import Path
 
 import numpy as np
 
+from .iris_offset import compute_iris_offset, gaze_on_target
+
+__all__ = ["Gaze2dEstimator", "Gaze2dSample", "compute_iris_offset", "gaze_on_target"]
+
 _MODELS_DIR = Path(__file__).parent / "models"
 
 _MEDIAPIPE_MODEL_URL = (
     "https://storage.googleapis.com/mediapipe-models/"
     "face_landmarker/face_landmarker/float16/1/face_landmarker.task"
 )
-
-# ── Landmark indices ─────────────────────────────────────────────────────
-# Same MediaPipe FaceLandmarker 478-point mesh python/pose/gaze_estimator.py
-# uses for this identical heuristic; duplicated rather than imported (see
-# module docstring).
-_LEFT_IRIS_CENTER, _RIGHT_IRIS_CENTER = 468, 473
-_LEFT_EYE_OUTER, _LEFT_EYE_INNER = 33, 133
-_LEFT_EYE_TOP, _LEFT_EYE_BOTTOM = 159, 145
-_RIGHT_EYE_INNER, _RIGHT_EYE_OUTER = 362, 263
-_RIGHT_EYE_TOP, _RIGHT_EYE_BOTTOM = 386, 374
 
 
 @dataclass
@@ -133,77 +127,6 @@ class Gaze2dEstimator:
         bbox = (min(xs) * w, min(ys) * h, max(xs) * w, max(ys) * h)
 
         return Gaze2dSample(bbox_xyxy=bbox, gaze_dx=gaze_dx, gaze_dy=gaze_dy)
-
-
-def compute_iris_offset(landmarks) -> tuple[float, float] | tuple[None, None]:
-    """Compute the 2D iris-centre-offset-from-eye-socket-centre heuristic.
-
-    Parameters
-    ----------
-    landmarks : sequence
-        MediaPipe FaceLandmarker's 478-point face-mesh landmark list for one
-        detected face (each entry exposing ``.x``/``.y`` in [0,1] normalized
-        image coordinates).
-
-    Returns
-    -------
-    tuple of (float, float) or tuple of (None, None)
-        ``(gaze_dx, gaze_dy)``, each clamped to ``[-1, 1]``, or
-        ``(None, None)`` if the eye width is too small to normalise by
-        (a degenerate detection).
-
-    Notes
-    -----
-    Identical heuristic to ``python/pose/gaze_estimator.py``'s
-    ``GazeEstimator.estimate()``: iris-centre offset from eye-socket centre,
-    normalised by eye width, averaged across both eyes. A public,
-    directly testable function (the live copy keeps it private); see
-    analysis/tests/test_gaze2d_estimator.py.
-    """
-    li_x, li_y = landmarks[_LEFT_IRIS_CENTER].x, landmarks[_LEFT_IRIS_CENTER].y
-    ri_x, ri_y = landmarks[_RIGHT_IRIS_CENTER].x, landmarks[_RIGHT_IRIS_CENTER].y
-
-    left_cx = (landmarks[_LEFT_EYE_OUTER].x + landmarks[_LEFT_EYE_INNER].x) / 2
-    left_cy = (landmarks[_LEFT_EYE_TOP].y + landmarks[_LEFT_EYE_BOTTOM].y) / 2
-    left_w = abs(landmarks[_LEFT_EYE_OUTER].x - landmarks[_LEFT_EYE_INNER].x)
-
-    right_cx = (landmarks[_RIGHT_EYE_INNER].x + landmarks[_RIGHT_EYE_OUTER].x) / 2
-    right_cy = (landmarks[_RIGHT_EYE_TOP].y + landmarks[_RIGHT_EYE_BOTTOM].y) / 2
-    right_w = abs(landmarks[_RIGHT_EYE_INNER].x - landmarks[_RIGHT_EYE_OUTER].x)
-
-    eye_w = (left_w + right_w) / 2
-    if eye_w < 1e-6:
-        return None, None
-
-    dx = ((li_x - left_cx) / eye_w + (ri_x - right_cx) / eye_w) / 2
-    dy = ((li_y - left_cy) / eye_w + (ri_y - right_cy) / eye_w) / 2
-    return float(max(-1.0, min(1.0, dx))), float(max(-1.0, min(1.0, dy)))
-
-
-def gaze_on_target(gaze_dx: float, gaze_dy: float, threshold: float = 0.35) -> bool:
-    """Whether a (gaze_dx, gaze_dy) reading counts as "looking at target".
-
-    Parameters
-    ----------
-    gaze_dx, gaze_dy : float
-        Normalized gaze offset, each in ``[-1, 1]`` (see
-        ``compute_iris_offset()``).
-    threshold : float, default 0.35
-        Maximum per-axis offset magnitude still considered "on target".
-
-    Returns
-    -------
-    bool
-
-    Notes
-    -----
-    Intentionally mirrors ``src/analysis/realtime_metrics.hpp``'s
-    ``kGazeOnTargetThreshold = 0.35`` / ``gaze_on_target_for()`` — the two
-    can't literally share code across the C++/Python boundary, so the
-    threshold is duplicated here with this explicit cross-reference rather
-    than silently risking the two drifting apart.
-    """
-    return abs(gaze_dx) <= threshold and abs(gaze_dy) <= threshold
 
 
 def _ensure_download(dest: Path, url: str) -> Path:

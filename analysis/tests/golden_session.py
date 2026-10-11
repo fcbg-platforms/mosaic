@@ -337,6 +337,7 @@ def heart_rate(root: Path, rng) -> None:
 
 def gaze2d(root: Path) -> None:
     import run_gaze2d
+    from gaze2d.iris_offset import gaze_on_target
 
     t = frame_times_s()
     talking = subject_speaking(t - 0.12)
@@ -353,7 +354,7 @@ def gaze2d(root: Path) -> None:
                 "gaze_dy": dy,
             }
         )
-        on += abs(dx) < 0.2 and abs(dy) < 0.2
+        on += gaze_on_target(dx, dy)
         dx_sum += dx
         dy_sum += dy
     n = len(frames)
