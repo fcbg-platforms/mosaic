@@ -20,6 +20,7 @@ from diarize.pipeline import (
     assign_speakers,
     resolve_device,
     resolve_diarization_status,
+    resolve_whisper_device,
 )
 
 
@@ -87,6 +88,78 @@ def test_resolve_device_auto_falls_back_to_cpu():
     pytest.importorskip("torch")  # CI runs the suite without the model libraries
     with patch("torch.cuda.is_available", return_value=False):
         assert resolve_device(None) == "cpu"
+
+
+# ── resolve_whisper_device ────────────────────────────────────────────────────
+#
+# faster-whisper's ctranslate2 needs its own CUDA libraries: with CUDA torch
+# installed but no CUDA 12 cuBLAS, a model loads on the GPU and then fails at
+# the first transcription. These run without ctranslate2 (a stub stands in).
+
+
+class _FakeCt2:
+    __file__ = None
+
+    def __init__(self, gpus):
+        self._gpus = gpus
+
+    def get_cuda_device_count(self):
+        return self._gpus
+
+
+def test_whisper_device_explicit_arg_is_kept():
+    assert resolve_whisper_device("cuda") == "cuda"
+    assert resolve_whisper_device("cpu") == "cpu"
+
+
+def test_whisper_device_is_cpu_without_a_gpu():
+    with patch.dict(sys.modules, {"ctranslate2": _FakeCt2(0)}):
+        assert resolve_whisper_device(None) == "cpu"
+
+
+def test_whisper_device_is_cpu_when_its_cuda_libraries_do_not_load():
+    with (
+        patch.dict(sys.modules, {"ctranslate2": _FakeCt2(1)}),
+        patch("diarize.pipeline._library_loads", return_value=False),
+    ):
+        assert resolve_whisper_device(None) == "cpu"
+
+
+def test_whisper_device_is_cuda_when_gpu_and_libraries_are_there():
+    with (
+        patch.dict(sys.modules, {"ctranslate2": _FakeCt2(1)}),
+        patch("diarize.pipeline._library_loads", return_value=True),
+        patch("diarize.pipeline.sys.platform", "win32"),
+    ):
+        assert resolve_whisper_device(None) == "cuda"
+
+
+def test_library_is_found_in_the_ctranslate2_folder(tmp_path):
+    # A file copied into the ctranslate2 folder is found there (loading is mocked).
+    from diarize.pipeline import _library_loads
+
+    (tmp_path / "mosaic_fake_lib_12.dll").write_bytes(b"not a dll")
+    with (
+        patch("diarize.pipeline.sys.platform", "win32"),
+        patch("diarize.pipeline.ctypes.CDLL") as cdll,
+    ):
+        assert _library_loads("mosaic_fake_lib_12", str(tmp_path)) is True
+        cdll.assert_called_once_with(str(tmp_path / "mosaic_fake_lib_12.dll"))
+
+
+def test_whisper_device_is_cpu_when_ctranslate2_fails():
+    class Broken:
+        def get_cuda_device_count(self):
+            raise RuntimeError("no CUDA driver")
+
+    with patch.dict(sys.modules, {"ctranslate2": Broken()}):
+        assert resolve_whisper_device(None) == "cpu"
+
+
+def test_library_loads_is_false_for_a_missing_library():
+    from diarize.pipeline import _library_loads
+
+    assert _library_loads("mosaic_no_such_library_12") is False
 
 
 # ── resolve_diarization_status ────────────────────────────────────────────────

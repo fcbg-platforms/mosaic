@@ -38,6 +38,7 @@ from diarize.pipeline import (  # noqa: E402
     load_whisper_model,
     resolve_device,
     resolve_diarization_status,
+    resolve_whisper_device,
     transcribe_audio,
 )
 
@@ -95,15 +96,17 @@ def _load_models(model_size: str, device: str | None, hf_token: str | None, skip
     fresh on every call, which reloaded weights from disk/cache once per
     microphone in a multi-mic session instead of once per run. Returns
     (resolved_device, whisper_model, diarization_pipeline_or_None)."""
+    # Diarization runs on torch, transcription on ctranslate2, and each has
+    # its own CUDA requirement, so each gets its own device.
     resolved_device = resolve_device(device)
+    whisper_device = resolve_whisper_device(device)
     token = hf_token or os.environ.get("HF_TOKEN") or os.environ.get("HUGGINGFACE_TOKEN")
 
     print(
-        f"[run_diarize] Loading whisper model (model={model_size}, "
-        f"device={resolved_device})...",
+        f"[run_diarize] Loading whisper model (model={model_size}, " f"device={whisper_device})...",
         flush=True,
     )
-    whisper_model = load_whisper_model(model_size, resolved_device)
+    whisper_model = load_whisper_model(model_size, whisper_device)
 
     diarization_pipeline = None
     load_status = "ok"
@@ -126,7 +129,9 @@ def _load_models(model_size: str, device: str | None, hf_token: str | None, skip
             flush=True,
         )
     else:
-        print("[run_diarize] Loading diarization pipeline...", flush=True)
+        print(
+            f"[run_diarize] Loading diarization pipeline (device={resolved_device})...", flush=True
+        )
         try:
             diarization_pipeline = load_diarization_pipeline(token, resolved_device)
         except Exception as exc:  # noqa: BLE001 - degrade to transcript-only, not a hard failure
