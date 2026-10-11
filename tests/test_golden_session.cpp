@@ -17,6 +17,7 @@
 #include "analysis/eye_contact_result.hpp"
 #include "analysis/face_dynamics_result.hpp"
 #include "analysis/gaze2d_result.hpp"
+#include "analysis/realtime_metrics.hpp"
 #include "analysis/rppg_result.hpp"
 
 using namespace mosaic;
@@ -168,4 +169,19 @@ TEST(GoldenSession, Gaze2d) {
                      j["summary"].toObject()["pct_frames_with_face"].toDouble());
     ASSERT_TRUE(r.pct_on_target().has_value());
     EXPECT_DOUBLE_EQ(*r.pct_on_target(), j["summary"].toObject()["pct_on_target"].toDouble());
+
+    // The plugin (Python, gaze2d/iris_offset.py) and the live view (C++,
+    // gaze_on_target_for) must call the same frames on target.
+    int withFace = 0;
+    int onTarget = 0;
+    for (const auto& frame : r.frames()) {
+        if (frame.faceDetected) {
+            ++withFace;
+            onTarget += gaze_on_target_for(frame.gazeDx, frame.gazeDy) ? 1 : 0;
+        }
+    }
+    ASSERT_GT(withFace, 0);
+    EXPECT_GT(onTarget, 0);
+    EXPECT_LT(onTarget, withFace); // the golden session looks away at times
+    EXPECT_NEAR(static_cast<double>(onTarget) / withFace, *r.pct_on_target(), 0.0005);
 }
