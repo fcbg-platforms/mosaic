@@ -490,7 +490,7 @@ jobs:
         if: ${{ !cancelled() && hashFiles('cpp-coverage.xml') != '' }}
         continue-on-error: true
         shell: pwsh
-        run: python scripts\coverage_summary.py cpp-coverage.xml --title "C++ (src/)" --root src >> $env:GITHUB_STEP_SUMMARY
+        run: python scripts\coverage_summary.py cpp-coverage.xml --title "C++ (the src/ files built into the test program)" --root src >> $env:GITHUB_STEP_SUMMARY
 
       - name: Upload the C++ coverage report
         if: ${{ !cancelled() && hashFiles('cpp-coverage.xml') != '' }}
