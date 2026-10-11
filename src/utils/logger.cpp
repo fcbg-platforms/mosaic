@@ -1,7 +1,9 @@
 #include "utils/logger.hpp"
 
 #include <QDebug>
+#include <QDir>
 #include <QFile>
+#include <QFileInfo>
 #include <QMutex>
 #include <QMutexLocker>
 #include <QTextStream>
@@ -32,6 +34,7 @@ struct Logger::Impl {
     QMutex mutex;
     LogLevel minLevel{LogLevel::Debug};
     QFile logFile;
+    std::function<void(const QString&, const QString&, const QString&)> problemSink;
 };
 
 Logger& Logger::instance() {
@@ -64,6 +67,17 @@ void Logger::log(LogLevel level, const QString& message, std::source_location lo
     qDebug().noquote() << fullLine;
 #endif
 
+    if (static_cast<int>(level) >= static_cast<int>(LogLevel::Warning)) {
+        std::function<void(const QString&, const QString&, const QString&)> sink;
+        {
+            QMutexLocker lock(&d->mutex);
+            sink = d->problemSink;
+        }
+        if (sink) {
+            sink(QString::fromLatin1(log_level_label(level)).trimmed(), locStr, message);
+        }
+    }
+
     emit entry_added(static_cast<int>(level), ts, locStr, message);
 }
 
@@ -75,8 +89,37 @@ void Logger::set_min_level(LogLevel level) {
 bool Logger::open_log_file(const QString& path) {
     QMutexLocker lock(&d->mutex);
     if (d->logFile.isOpen()) d->logFile.close();
+    // Keep the previous run's log (the one that matters after a crash)
+    // instead of truncating it away.
+    const QFileInfo info(path);
+    bool appendInstead = false;
+    if (info.exists() && info.size() > 0) {
+        // Set aside first, then the copy before it goes. If the rename fails
+        // (another MOSAIC on this profile has the file open), keep writing at
+        // its end rather than wiping a log that is still in use.
+        const QString previous = info.dir().filePath(info.completeBaseName() + ".previous.log");
+        const QString older    = previous + ".old";
+        QFile::remove(older);
+        const bool hadPrevious = QFile::exists(previous) && QFile::rename(previous, older);
+        if (QFile::rename(path, previous)) {
+            QFile::remove(older);
+        } else {
+            if (hadPrevious) {
+                QFile::rename(older, previous);
+            }
+            appendInstead = true;
+        }
+    }
     d->logFile.setFileName(path);
-    return d->logFile.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate);
+    const auto mode = QIODevice::WriteOnly | QIODevice::Text |
+                      (appendInstead ? QIODevice::Append : QIODevice::Truncate);
+    return d->logFile.open(mode);
+}
+
+void Logger::set_problem_sink(
+    std::function<void(const QString& level, const QString& source, const QString& message)> sink) {
+    QMutexLocker lock(&d->mutex);
+    d->problemSink = std::move(sink);
 }
 
 void Logger::close_log_file() {

@@ -277,6 +277,28 @@ A session being recorded right now, on this machine or another one sharing
 the recordings folder, is tagged **RECORDING** instead. See
 :doc:`recording` for the details.
 
+**Finding out what went wrong.** When MOSAIC did not shut down normally, the
+next start of the profile that was in use (or of any admin) says so, once,
+even if other profiles used MOSAIC in between. **Help > Problems on this PC** then lists it with every warning and
+error MOSAIC has logged on this PC, newest first, kept across restarts: your
+own profile's, or every profile's for an admin. A warning that repeats (once
+per frame, say) is listed with how many times it fired instead of thousands
+of times; a failed analysis names the plugin, the session and the end of its
+error output. **Export…** saves what the list shows, with the logs, as one
+``.zip`` to send to someone; an admin can add the crash dumps, which hold a
+copy of MOSAIC's memory at the crash (participant names included).
+
+Where things are kept, in the app-data folder (``%LOCALAPPDATA%\CSRU\MOSAIC``):
+
+- ``problems.jsonl``: the problem journal, one entry per line, with
+  ``problems.1.jsonl`` holding the older part once it passes 5 MB;
+- each profile's ``mosaic.log`` (this run) and ``mosaic.previous.log`` (the
+  run before, so the log of a run that crashed survives the restart);
+- ``crashes\<profile>_<run>.log``: a copy of the log of each run that did
+  not shut down normally, kept whatever happens to the profile's own logs;
+- ``crashes\mosaic_crash_<date>-<time>.dmp``: a crash dump per crash, for
+  a developer to open in Visual Studio or WinDbg.
+
 .. _acquisition-troubleshooting:
 
 Troubleshooting acquisition

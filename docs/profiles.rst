@@ -16,7 +16,9 @@ configurations, recording directories, or calibration data.
 Each profile gets:
 
 - An isolated ``settings.json`` (cameras, audio, triggers, recording paths).
-- A separate ``mosaic.log``.
+- A separate ``mosaic.log`` (and ``mosaic.previous.log``, the run before).
+  The PC's problem journal (**Help > Problems on this PC**) shows each
+  profile its own warnings and errors; see :doc:`user_guide`.
 - A distinct colour and initials avatar in the login dialog.
 - Its username embedded in every ``session_meta.json`` as ``recorded_by``.
 
