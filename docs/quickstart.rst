@@ -212,7 +212,11 @@ needs it, then refresh the golden copy and commit it with the change:
 **Coverage.** CI puts two tables on each run's summary page (the run's
 page on GitHub, under *Summary*): the share of lines the tests run, per
 analysis plugin folder for the Python tests and per ``src/`` folder for the
-C++ tests (when the C++ tests passed), followed by the least covered files. The reports themselves are
+C++ tests (when the C++ tests passed), followed by the least covered files.
+The C++ table only lists the ``src/`` files built into the test program
+(``tests/CMakeLists.txt``), mostly the app's logic; the user interface and
+camera code are not built into it, so they do not appear and do not count
+against the figure. The reports themselves are
 attached to the run (``python-coverage``, ``cpp-coverage``). The Python
 figures count only what CI's light test environment can run, so code that
 needs the model libraries shows as not run; the C++ ones come from the
