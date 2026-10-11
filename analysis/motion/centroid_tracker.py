@@ -174,12 +174,10 @@ class CentroidTracker:
         self.open_kernel = open_kernel
         self.mm_per_px = mm_per_px
         self.n_animals = n_animals
+        self.history = history
+        self.var_threshold = var_threshold
 
-        self._fgbg = cv2.createBackgroundSubtractorMOG2(
-            history=history,
-            varThreshold=var_threshold,
-            detectShadows=True,
-        )
+        self._fgbg = self._new_background_model()
         self._next_id: int = 0
         self._tracks: dict[int, Track] = {}
 
@@ -229,8 +227,13 @@ class CentroidTracker:
         """Clear all tracks and rebuild the background model from scratch."""
         self._tracks.clear()
         self._next_id = 0
-        self._fgbg = cv2.createBackgroundSubtractorMOG2(
-            history=500, varThreshold=16.0, detectShadows=True
+        # With this tracker's own settings: reset() runs before every video,
+        # so fixed values here would replace history/var_threshold for good.
+        self._fgbg = self._new_background_model()
+
+    def _new_background_model(self):
+        return cv2.createBackgroundSubtractorMOG2(
+            history=self.history, varThreshold=self.var_threshold, detectShadows=True
         )
 
     # ── Internal ────────────────────────────────────────────────────────────

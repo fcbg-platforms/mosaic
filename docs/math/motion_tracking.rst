@@ -44,7 +44,16 @@ and column from further consideration (by setting them to :math:`+\infty`)
 and repeat. Tracks left unmatched after this loop get their
 ``lost_count`` incremented (and are pruned once it exceeds ``max_lost``);
 detections left unmatched become new tracks (subject to the optional
-``n_animals`` cap).
+``n_animals`` cap). A track that was not matched in a frame keeps its
+identity while it waits, but writes no row for that frame: the output holds
+only animals actually seen, never a repeated last position.
+
+Each row's ``timestamp_ns`` is the frame's ``elapsed_ns`` from the camera's
+``timestamps_camN.csv`` (the session's clock). Frames past the end of that
+file continue from its last time at the video's frame rate; for a video
+without one it is the frame's time in the video (frame index over frame
+rate). With ``--skip N`` the speed is the distance moved over the N frames,
+per second.
 
 .. note::
 
