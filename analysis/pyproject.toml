@@ -101,3 +101,9 @@ explicit = true
 torch = [{ index = "pytorch-cu130", marker = "sys_platform == 'win32' or sys_platform == 'linux'" }]
 torchvision = [{ index = "pytorch-cu130", marker = "sys_platform == 'win32' or sys_platform == 'linux'" }]
 torchaudio = [{ index = "pytorch-cu130", marker = "sys_platform == 'win32' or sys_platform == 'linux'" }]
+
+# Coverage of the tests (CI's test-python job runs pytest --cov and puts a
+# per-folder table on the run's summary page, via scripts/coverage_summary.py).
+[tool.coverage.run]
+source = ["."]
+omit = ["tests/*", ".venv*/*"]

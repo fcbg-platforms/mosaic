@@ -89,3 +89,9 @@ docs/_autosummary/
 # Sphinx build output (rebuild via `sphinx-build` / MOSAIC_BUILD_DOCS)
 docs/_build/
 build-docs/
+
+# Coverage reports (see docs/quickstart.rst, Running the tests)
+py-coverage.xml
+cpp-coverage.xml
+.coverage
+LastCoverageResults.log
