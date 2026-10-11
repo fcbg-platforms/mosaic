@@ -31,7 +31,6 @@ import argparse
 import csv
 import json
 import sys
-import time
 from pathlib import Path
 
 import cv2
@@ -52,18 +51,27 @@ from motion.heatmap import (  # noqa: E402
 
 
 def load_timestamps(csv_path: str | None) -> list[int] | None:
-    """Return list of per-frame nanosecond timestamps from a MOSAIC timestamps CSV."""
+    """Per-frame nanosecond timestamps from a MOSAIC timestamps CSV.
+
+    The file's columns are ``frame_id,elapsed_ns,wall_ns,hw_timestamp_ns``:
+    the time is ``elapsed_ns`` (the first column is the frame number). A file
+    without that header is read from its first column.
+    """
     if not csv_path:
         return None
     p = Path(csv_path)
     if not p.exists():
         return None
     ts: list[int] = []
-    with p.open() as f:
-        reader = csv.reader(f)
-        for row in reader:
-            if row and row[0].lstrip("-").isdigit():
-                ts.append(int(row[0]))
+    with p.open(newline="") as f:
+        rows = list(csv.reader(f))
+    if not rows:
+        return None
+    header = [h.strip() for h in rows[0]]
+    col = header.index("elapsed_ns") if "elapsed_ns" in header else 0
+    for row in rows:
+        if len(row) > col and row[col].strip().lstrip("-").isdigit():
+            ts.append(int(row[col]))
     return ts if ts else None
 
 
@@ -117,20 +125,28 @@ def process_video(
         if not ret:
             break
 
-        ts_ns = (
-            timestamps[frame_idx]
-            if timestamps and frame_idx < len(timestamps)
-            else int(time.time_ns())
-        )
+        # The frame's time from the timestamps file; past its end (or with
+        # none), continued from its last time at the video's frame rate, so
+        # the times never jump back. Never the time it is analysed.
+        if timestamps and frame_idx < len(timestamps):
+            ts_ns = timestamps[frame_idx]
+        elif timestamps:
+            ts_ns = timestamps[-1] + round((frame_idx - len(timestamps) + 1) * 1e9 / fps)
+        else:
+            ts_ns = round(frame_idx * 1e9 / fps)
 
         if frame_idx % skip == 0:
             tracks = tracker.update(frame, timestamp_ns=ts_ns, fps=fps)
 
             for t in tracks:
-                if t.position == (0.0, 0.0):
+                # Only animals seen in this frame: a track kept alive while
+                # lost would repeat its last position, and its last speed,
+                # for up to max_lost frames.
+                if t.lost_count > 0 or t.position == (0.0, 0.0):
                     continue
                 cx, cy = t.position
-                vel_mm = t.velocity_mm_per_s(tracker.mm_per_px, fps)
+                # Consecutive positions are `skip` frames apart.
+                vel_mm = t.velocity_mm_per_s(tracker.mm_per_px, fps / skip)
 
                 rows.append(
                     {
