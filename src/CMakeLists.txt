@@ -208,6 +208,7 @@ qt_add_executable(mosaic MACOSX_BUNDLE
     session/session_health.hpp
     session/session_end.hpp
     session/session_end.cpp
+    session/session_archive.cpp
     session/session_health.cpp
     session/preflight.hpp
     session/preflight.cpp
@@ -219,6 +220,8 @@ qt_add_executable(mosaic MACOSX_BUNDLE
     ui/session/session_player_w.cpp
     ui/session/session_health_dialog.hpp
     ui/session/session_health_dialog.cpp
+    ui/session/session_archive_dialog.hpp
+    ui/session/session_archive_dialog.cpp
     ui/session/session_identity_dialog.hpp
     ui/session/session_identity_dialog.cpp
 

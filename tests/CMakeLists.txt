@@ -56,12 +56,14 @@ add_executable(mosaic_tests
     test_frame_shortfall.cpp
     test_session_name.cpp
     test_preflight.cpp
+    test_session_archive.cpp
     test_crash_safety.cpp
     test_time_axis.cpp
     test_spectrogram_colormap.cpp
     test_voice_result.cpp
     test_analysis_plugins.cpp
     "${CMAKE_SOURCE_DIR}/src/session/session_end.cpp"
+    "${CMAKE_SOURCE_DIR}/src/session/session_archive.cpp"
     "${CMAKE_SOURCE_DIR}/src/session/session_health.cpp"
     "${CMAKE_SOURCE_DIR}/src/session/preflight.cpp"
     "${CMAKE_SOURCE_DIR}/src/audio/wav_writer.cpp"

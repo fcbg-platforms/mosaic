@@ -5,6 +5,7 @@
 #include <memory>
 
 #include "analysis/analysis_manager.hpp"
+#include "core/settings.hpp"
 
 namespace mosaic {
 
@@ -31,7 +32,17 @@ class SessionBrowserW : public QDialog {
                              const QStringList& extraDirectories = {}, QWidget* parent = nullptr);
     ~SessionBrowserW() override;
 
+    /// Turns on archiving: the Archive button, the profile's archived
+    /// sessions in the list (only its own unless `isAdmin`) and Move back.
+    /// `record` is the live settings object (archive folder and suggestion
+    /// age are edited in place). `activeSessionPath`: the session being
+    /// recorded, if any, which can never be moved.
+    void set_archive(RecordSettings* record, const QString& username, bool isAdmin,
+                     const QString& activeSessionPath);
+
    private:
+    void open_archive_dialog();
+    void move_back_current();
     void build_left_panel();
     void build_right_panel();
     void rebuild_session_list();

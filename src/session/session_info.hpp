@@ -17,6 +17,10 @@
 
 namespace mosaic {
 
+/// Written into a session folder when it is archived (see
+/// session/session_archive.hpp); its presence marks the session as archived.
+inline constexpr char kArchiveManifestFile[] = "archive_manifest.json";
+
 // ── AnnotationCategory ─────────────────────────────────────────────────────
 
 struct AnnotationCategory {
@@ -82,8 +86,12 @@ struct SessionInfo {
     // Being recorded right now, here or on another machine sharing the
     // folder: not finished, but not interrupted either.
     bool recordingNow = false;
-    int cameraCount   = 0;
-    int micCount      = 0;
+    // Moved to an archive folder (it holds kArchiveManifestFile), and the
+    // profile that moved it there.
+    bool archived = false;
+    QString archivedBy;
+    int cameraCount = 0;
+    int micCount    = 0;
     QString mosaicVersion;
     QString videoCodec;
     QString audioCodec;
@@ -109,11 +117,22 @@ struct SessionInfo {
     /// moment inside the recording.
     QString notes;
 
+    /// The profile the session belongs to: who recorded it, or for an older
+    /// session that does not say, who archived it.
+    [[nodiscard]] QString owner() const { return recordedBy.isEmpty() ? archivedBy : recordedBy; }
+
     // Load from a session directory.
     static SessionInfo load(const QString& dir) {
         SessionInfo info;
-        info.path = QDir::cleanPath(dir);
-        info.name = QDir(dir).dirName();
+        info.path     = QDir::cleanPath(dir);
+        info.name     = QDir(dir).dirName();
+        info.archived = QFile::exists(dir + "/" + QLatin1String(kArchiveManifestFile));
+        if (info.archived) {
+            QFile mf(dir + "/" + QLatin1String(kArchiveManifestFile));
+            if (mf.open(QIODevice::ReadOnly)) {
+                info.archivedBy = QJsonDocument::fromJson(mf.readAll())["archived_by"].toString();
+            }
+        }
 
         int recordedDurationMs = -1;
         QFile metaFile(dir + "/session_meta.json");
@@ -306,6 +325,11 @@ struct SessionInfo {
         // applied below, once each session's start time has been read.
         const auto dirs = root.entryInfoList(QDir::Dirs | QDir::NoDotAndDotDot, QDir::Name);
         for (const auto& di : dirs) {
+            // Left-overs of an interrupted archive move: a copy not yet
+            // verified, or an original being deleted. Never sessions.
+            if (di.fileName().endsWith(".partial") || di.fileName().endsWith(".removing")) {
+                continue;
+            }
             if (QFile::exists(di.filePath() + "/session_meta.json")) {
                 result.append(load(di.filePath()));
             }

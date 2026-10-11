@@ -1,11 +1,13 @@
 #include "ui/session/session_browser_w.hpp"
 
 #include <QAbstractScrollArea>
+#include <QCloseEvent>
 #include <QComboBox>
 #include <QCoreApplication>
 #include <QDesktopServices>
 #include <QDir>
 #include <QEvent>
+#include <QEventLoop>
 #include <QFile>
 #include <QFileDialog>
 #include <QFileInfo>
@@ -14,10 +16,12 @@
 #include <QHeaderView>
 #include <QLabel>
 #include <QLineEdit>
+#include <QMessageBox>
 #include <QMouseEvent>
 #include <QPainter>
 #include <QPlainTextEdit>
 #include <QProcess>
+#include <QProgressDialog>
 #include <QPushButton>
 #include <QScrollArea>
 #include <QScrollBar>
@@ -27,14 +31,18 @@
 #include <QTableWidgetItem>
 #include <QTextEdit>
 #include <QTextStream>
+#include <QThread>
 #include <QTime>
 #include <QTimeEdit>
 #include <QTimer>
 #include <QVBoxLayout>
 #include <utility>
 
+#include "session/session_archive.hpp"
 #include "session/session_info.hpp"
+#include "ui/session/session_archive_dialog.hpp"
 #include "ui/session/session_player_w.hpp"
+#include "utils/logger.hpp"
 
 namespace mosaic {
 
@@ -137,6 +145,9 @@ class SessionRow : public QWidget {
         } else if (m_info.recordingNow) {
             drawBadge("RECORDING", QColor("#0a2410"), QColor("#44dd66"));
         }
+        if (m_info.archived) {
+            drawBadge("ARCHIVED", QColor("#1a1a24"), QColor("#9aa0c0"));
+        }
         if (m_info.hasPoseAnalysis) {
             drawBadge("POSE", QColor("#0a2a0a"), QColor("#44cc44"));
         }
@@ -205,12 +216,32 @@ class SessionRow : public QWidget {
     bool m_hovered  = false;
 };
 
+// A progress dialog that stays up until the work is done: Esc or the
+// window's close button would otherwise hide it and hand the browser back
+// while a move is still running.
+class FixedProgressDialog : public QProgressDialog {
+   public:
+    using QProgressDialog::QProgressDialog;
+
+   protected:
+    void reject() override {}
+    void closeEvent(QCloseEvent* e) override { e->ignore(); }
+};
+
 // ── Impl ──────────────────────────────────────────────────────────────────
 
 struct SessionBrowserW::Impl {
     QString recordsDir;
     QStringList extraDirectories; // item 27 — admin-only aggregate view
     AnalysisManager* analysisMgr = nullptr;
+
+    // Archiving (set_archive()); off while `record` is null.
+    RecordSettings* record = nullptr;
+    QString username;
+    bool isAdmin = false;
+    QString activeSessionPath;
+    QPushButton* archiveBtn  = nullptr;
+    QPushButton* moveBackBtn = nullptr;
 
     QList<SessionInfo> sessions;
     int currentIndex = -1;
@@ -425,8 +456,15 @@ void SessionBrowserW::build_left_panel() {
         "One row of numbers per session, for every session in this folder, combined into "
         "sessions_summary.csv (also writes each session's report files).");
     auto* refreshBtn = new QPushButton("⟳ Refresh");
+    d->archiveBtn    = new QPushButton("🗄 Archive…");
+    d->archiveBtn->setToolTip(
+        "Move finished sessions to an archive folder to free the recordings drive; each "
+        "copy is verified before the original is deleted.");
+    d->archiveBtn->hide(); // until set_archive()
+    connect(d->archiveBtn, &QPushButton::clicked, this, &SessionBrowserW::open_archive_dialog);
     footerBox->addWidget(openFolderBtn);
     footerBox->addWidget(summaryBtn);
+    footerBox->addWidget(d->archiveBtn);
     connect(summaryBtn, &QPushButton::clicked, this, &SessionBrowserW::export_sessions_summary);
     footerBox->addStretch();
     footerBox->addWidget(refreshBtn);
@@ -514,7 +552,16 @@ void SessionBrowserW::build_right_panel() {
         d->rightStack->setCurrentIndex(0);
     });
 
+    d->moveBackBtn = new QPushButton("Move back");
+    d->moveBackBtn->setFixedHeight(28);
+    d->moveBackBtn->setToolTip(
+        "Move this archived session back into your recordings folder (verified, like "
+        "archiving).");
+    d->moveBackBtn->hide();
+    connect(d->moveBackBtn, &QPushButton::clicked, this, &SessionBrowserW::move_back_current);
+
     titleBar->addWidget(d->nameLbl, 1);
+    titleBar->addWidget(d->moveBackBtn);
     titleBar->addWidget(d->playBtn);
     titleBar->addWidget(openBtn);
     titleBar->addWidget(closeBtn);
@@ -724,6 +771,22 @@ void SessionBrowserW::rebuild_session_list() {
     for (const QString& extraDir : d->extraDirectories) {
         d->sessions += SessionInfo::list_all(extraDir);
     }
+    // The profile's archive. It may be a folder several profiles share, so
+    // only this profile's own sessions are shown, unless an admin is looking.
+    if (d->record && !d->record->archiveDirectory.isEmpty()) {
+        const QString archive = QDir::cleanPath(d->record->archiveDirectory);
+        bool listed = archive.compare(QDir::cleanPath(d->recordsDir), Qt::CaseInsensitive) == 0;
+        for (const QString& extra : d->extraDirectories) {
+            listed = listed || archive.compare(QDir::cleanPath(extra), Qt::CaseInsensitive) == 0;
+        }
+        if (!listed) {
+            for (const auto& s : SessionInfo::list_all(archive)) {
+                if (d->isAdmin || s.owner() == d->username) {
+                    d->sessions << s;
+                }
+            }
+        }
+    }
     // Each list_all() is sorted, but concatenating sorted lists is not — so
     // without this an admin with extra directories configured saw one ordered
     // block per directory rather than one ordered list.
@@ -841,6 +904,18 @@ void SessionBrowserW::select_session(const QString& path) {
 }
 
 void SessionBrowserW::populate_detail() {
+    if (d->moveBackBtn) {
+        const auto* cur = d->current();
+        const bool own =
+            cur && d->record && !d->record->archiveDirectory.isEmpty() &&
+            QDir::cleanPath(QFileInfo(cur->path).absolutePath())
+                    .compare(
+                        QDir::cleanPath(QFileInfo(d->record->archiveDirectory).absoluteFilePath()),
+                        Qt::CaseInsensitive) == 0;
+        // Only the profile's own: an admin moving someone else's session back
+        // would put it in the admin's recordings folder, out of its owner's.
+        d->moveBackBtn->setVisible(cur && cur->archived && own && cur->owner() == d->username);
+    }
     auto* info = d->current();
     if (!info) {
         return;
@@ -1167,6 +1242,107 @@ void SessionBrowserW::export_sessions_summary() {
     }
     args << "--summary-only";
     launch_analysis(python, args, QDir(d->recordsDir).filePath("sessions_summary.csv"));
+}
+
+void SessionBrowserW::set_archive(RecordSettings* record, const QString& username, bool isAdmin,
+                                  const QString& activeSessionPath) {
+    d->record            = record;
+    d->username          = username;
+    d->isAdmin           = isAdmin;
+    d->activeSessionPath = activeSessionPath;
+    if (d->archiveBtn) {
+        d->archiveBtn->setVisible(record != nullptr);
+    }
+    rebuild_session_list();
+}
+
+void SessionBrowserW::open_archive_dialog() {
+    if (!d->record) {
+        return;
+    }
+    if (d->proc && d->proc->state() != QProcess::NotRunning) {
+        d->analysisStatus->setText("Wait for the running analysis to finish before archiving.");
+        return;
+    }
+    if (d->analysisMgr && d->analysisMgr->is_running()) {
+        QMessageBox::information(this, "Archive sessions",
+                                 "An analysis is running. Archive once it has finished, so no "
+                                 "session is moved while it is being written.");
+        return;
+    }
+    // Only this profile's own recordings folder: other profiles' sessions
+    // (an admin's aggregate view) and archived ones are not offered.
+    SessionArchiveDialog dlg(SessionInfo::list_all(d->recordsDir), d->recordsDir, d->record,
+                             d->activeSessionPath, d->username, this);
+    dlg.exec();
+    d->currentIndex = -1;
+    if (d->rightStack) {
+        d->rightStack->setCurrentIndex(0);
+    }
+    rebuild_session_list();
+}
+
+void SessionBrowserW::move_back_current() {
+    auto* info = d->current();
+    if (!info || !info->archived || !d->record) {
+        return;
+    }
+    if (d->proc && d->proc->state() != QProcess::NotRunning) {
+        d->analysisStatus->setText("Wait for the running analysis to finish before moving.");
+        return;
+    }
+    if (d->analysisMgr && d->analysisMgr->is_running()) {
+        QMessageBox::information(this, "Move back",
+                                 "An analysis is running. Move the session back once it has "
+                                 "finished.");
+        return;
+    }
+    const QString path = info->path;
+    if (QMessageBox::question(this, "Move back",
+                              QString("Move %1 back into your recordings folder?\n\n%2")
+                                  .arg(info->name, QDir::toNativeSeparators(d->recordsDir))) !=
+        QMessageBox::Yes) {
+        return;
+    }
+
+    FixedProgressDialog progress("Moving the session back…", QString(), 0, 1000, this);
+    progress.setWindowModality(Qt::WindowModal);
+    progress.setMinimumDuration(0);
+    progress.setValue(0);
+
+    ArchiveResult result;
+    ArchiveOptions opt;
+    opt.writeManifest = false;
+    opt.progress      = [&progress](const ArchiveProgress& p) {
+        const double total = p.bytesTotal > 0 ? static_cast<double>(p.bytesTotal) : 1.0;
+        const double share = (p.verifying ? 0.5 : 0.0) + p.bytesDone / total / 2.0;
+        QMetaObject::invokeMethod(&progress, [&progress, share] {
+            progress.setValue(static_cast<int>(1000.0 * std::min(1.0, share)));
+        });
+    };
+    const QString recordsDir = d->recordsDir;
+    QThread* worker          = QThread::create([&result, path, recordsDir, opt] {
+        result = move_session_verified(path, recordsDir, opt);
+    });
+    QEventLoop loop;
+    connect(worker, &QThread::finished, &loop, &QEventLoop::quit);
+    worker->start();
+    loop.exec();
+    worker->wait();
+    delete worker;
+    progress.setValue(1000);
+
+    if (result.status == ArchiveResult::Status::Moved) {
+        log_info("[Archive] Moved back: " + result.message);
+    } else {
+        log_warning("[Archive] Move back failed: " + result.message);
+        QMessageBox::warning(this, "Move back", result.message);
+    }
+    d->currentIndex = -1;
+    if (d->rightStack) {
+        d->rightStack->setCurrentIndex(0);
+    }
+    rebuild_session_list();
 }
 
 void SessionBrowserW::set_job_running(bool running) {

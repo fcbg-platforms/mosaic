@@ -101,6 +101,11 @@ QStringList resolve_other_user_directories(const mosaic::ProfileManager& profile
         const QString settingsPath = mosaic::ProfileManager::settings_path(profile.username);
         if (auto loaded = mosaic::AppSettings::load(settingsPath)) {
             dirs << loaded->record.directory;
+            // Its archive too (Session Browser, Archive), when it has one.
+            if (!loaded->record.archiveDirectory.isEmpty() &&
+                !dirs.contains(loaded->record.archiveDirectory, Qt::CaseInsensitive)) {
+                dirs << loaded->record.archiveDirectory;
+            }
         } else {
             // Profile registered but never actually logged in yet (no
             // settings.json written) — its future recordings will still
