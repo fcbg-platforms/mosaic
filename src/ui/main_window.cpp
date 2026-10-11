@@ -190,6 +190,9 @@ void MainWindow::build_menu_bar() {
     connect(browseAction, &QAction::triggered, this, [this] {
         SessionBrowserW browser(d->settings.record.directory, d->analysisMgr,
                                 d->isAdmin ? d->otherUserDirectories : QStringList{}, this);
+        const bool recording = d->recordMgr && d->recordMgr->is_recording();
+        browser.set_archive(&d->settings.record, d->username, d->isAdmin,
+                            recording ? d->recordMgr->current_session_path() : QString());
         browser.exec();
     });
     file->addAction(browseAction);

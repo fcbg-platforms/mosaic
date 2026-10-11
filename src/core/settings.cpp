@@ -529,6 +529,8 @@ QJsonObject RecordSettings::to_json() const {
         {"hide_previews_while_recording", hidePreviewsWhileRecording},
         {"auto_sync_repair", autoSyncRepair},
         {"run_preflight_checks", runPreflightChecks},
+        {"archive_directory", archiveDirectory},
+        {"archive_after_days", archiveAfterDays},
         {"last_identity", lastIdentity.to_json()},
     };
 }
@@ -558,6 +560,11 @@ std::optional<RecordSettings> RecordSettings::from_json(const QJsonObject& o) {
         s.autoSyncRepair = o["auto_sync_repair"].toBool(s.autoSyncRepair);
     if (o.contains("run_preflight_checks"))
         s.runPreflightChecks = o["run_preflight_checks"].toBool(s.runPreflightChecks);
+    if (o.contains("archive_directory"))
+        s.archiveDirectory = o["archive_directory"].toString(s.archiveDirectory);
+    if (o.contains("archive_after_days"))
+        s.archiveAfterDays =
+            std::clamp(o["archive_after_days"].toInt(s.archiveAfterDays), 1, kMaxArchiveAfterDays);
     // from_json re-sanitizes every label, which matters here: settings.json is
     // a plain file a user can edit, and these values go on to form a directory
     // name.

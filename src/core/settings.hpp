@@ -441,6 +441,15 @@ struct RecordSettings {
     // session/preflight.hpp. Never applies to trigger-started recordings.
     bool runPreflightChecks = true;
 
+    // Session archiving (Session Browser, Archive): where finished sessions
+    // are moved to free the recording drive (empty = not set up yet), and the
+    // age in days from which a session is pre-ticked there as a suggestion.
+    // Nothing is ever archived without the operator clicking Archive. See
+    // session/session_archive.hpp.
+    QString archiveDirectory;
+    int archiveAfterDays                      = 30;
+    static constexpr int kMaxArchiveAfterDays = 3650;
+
     // Upper bound for startDelaySec, shared by the settings UI's spinbox and
     // MonitorBridge's clamp so the two can't disagree.
     static constexpr int kMaxStartDelaySec = 10;

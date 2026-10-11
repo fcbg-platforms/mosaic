@@ -401,6 +401,8 @@ For a selected session you can:
   - **INTERRUPTED** (red): the recording never finished; its files end where
     MOSAIC stopped.
   - **RECORDING** (green): it is being recorded right now.
+  - **ARCHIVED** (grey): it has been moved to your archive folder (see
+    below).
   - **SYNCED**: the equal-length videos in ``synced/`` exist.
   - **POSE**, **MOTION**, **TRANSCRIPT** (Speaker Diarization),
     **EXPRESSION**, **GAZE**, **3D POSE**, **HR** (Remote Heart Rate),
@@ -418,6 +420,56 @@ For a selected session you can:
    ``@username`` badge; see :doc:`profiles`. This is a real separation on
    disk, not only a display filter: a regular profile's recordings folder
    setting is read-only, so it cannot be pointed at another profile's folder.
+
+Archiving sessions
+~~~~~~~~~~~~~~~~~~
+
+Six cameras fill a drive quickly. **🗄 Archive…** at the bottom of the
+Session Browser moves finished sessions to an archive folder, ideally on
+another drive or a network share, to free the recordings drive.
+
+1. **Choose…** the archive folder once. It is saved with your profile's
+   settings; it cannot be inside your recordings folder.
+2. The dialog lists your sessions with their age and size, and shows the
+   free space on both drives. Sessions older than the **Suggest sessions
+   older than** age (30 days by default) are ticked for you; tick or untick
+   any session. **Tick them** applies the age again.
+3. **Archive** moves the ticked sessions one after another. Nothing moves
+   until you click it. **Cancel** stops at once; the session being copied
+   stays where it was, and the ones already moved stay archived.
+
+Each session is moved safely:
+
+- every file is copied, then read back from the archive and compared with
+  the original (size and SHA-256 checksum); any difference stops the move
+  and keeps the original;
+- ``archive_manifest.json`` in the archived folder lists every file with its
+  checksum, so the copy can be checked again later;
+- the original is deleted only after that, and only if nothing in it
+  changed while it was being copied (an analysis still writing, for
+  example); otherwise everything is put back as it was and nothing is
+  moved;
+- if one of its files is open (a video playing), the move usually stops
+  with nothing moved: close it and try again. If Windows lets the move
+  through anyway, the part of the original it cannot delete is left in a
+  ``.removing`` folder and MOSAIC says so;
+- a session holding a link or a junction (a folder that points elsewhere)
+  is refused, so nothing outside the session is ever copied or deleted;
+- a session being recorded, here or on another PC sharing the folder, cannot
+  be archived, and **Archive** is refused while an analysis is running.
+
+Archived sessions stay in the Session Browser with an **ARCHIVED** badge
+while the archive folder is reachable, and every analysis can still run on
+them. **Move back** in a session's details moves it into your recordings
+folder again, checked the same way. Several profiles can share one archive
+folder: each sees only its own sessions there, and an admin sees them all
+(but can move back only their own).
+
+A folder ending in ``.partial`` (a copy that was interrupted; its name
+includes the computer that made it) or
+``.removing`` (an original whose deletion was interrupted) is never shown
+as a session. Once you have checked that the session itself is fine, you
+can delete such a folder.
 
 .. _running-an-analysis-tab-plugin:
 
