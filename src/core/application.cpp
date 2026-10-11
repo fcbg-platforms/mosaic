@@ -1,8 +1,11 @@
 #include "core/application.hpp"
 
 #include <QCoreApplication>
+#include <QDateTime>
 #include <QDir>
+#include <QMessageBox>
 #include <QSet>
+#include <QTimer>
 #include <array>
 
 #include "analysis/analysis_manager.hpp"
@@ -12,6 +15,7 @@
 #include "trigger/trigger_types.hpp"
 #include "ui/main_window.hpp"
 #include "utils/logger.hpp"
+#include "utils/problem_journal.hpp"
 #include "utils/timestamp.hpp"
 #include "video/camera_label.hpp"
 
@@ -266,11 +270,30 @@ struct Application::Impl {
     std::unique_ptr<RecordManager> recordManager;
     std::unique_ptr<AnalysisManager> analysisManager;
     std::unique_ptr<MainWindow> mainWindow;
+    // This PC's warnings, errors and unclean exits, kept across restarts
+    // (utils/problem_journal.hpp); fed by the logger.
+    std::shared_ptr<ProblemJournal> journal;
 };
 
 Application::Application(QObject* parent) : QObject(parent), d(std::make_unique<Impl>()) {}
 
-Application::~Application() = default;
+Application::~Application() {
+    // Tear everything down in the usual order first, so a crash while the
+    // cameras, audio or analyses stop still counts as an unclean exit; only
+    // then is this run's marker removed.
+    d->mainWindow.reset();
+    d->analysisManager.reset();
+    d->recordManager.reset();
+    d->videoManager.reset();
+    d->audioManager.reset();
+    d->triggerManager.reset();
+    if (d->journal) {
+        d->journal->end_run();
+    }
+    // The logger outlives this object. The sink holds its own reference to
+    // the journal, so a thread logging right now cannot outlive it.
+    Logger::instance().set_problem_sink({});
+}
 
 void Application::initialize(const QString& username, bool isAdmin) {
     d->username = username.isEmpty() ? "guest" : username;
@@ -287,6 +310,22 @@ void Application::initialize(const QString& username, bool isAdmin) {
 
     QDir().mkpath(QFileInfo(logPath).absolutePath());
     Logger::instance().open_log_file(logPath);
+
+    // The problem journal: earlier runs that never shut down are recorded
+    // first, then every warning and error of this run is added to it.
+    d->journal        = std::make_shared<ProblemJournal>(ProfileManager::root_dir());
+    const qint64 pid  = QCoreApplication::applicationPid();
+    const QString run = QString("%1-%2")
+                            .arg(QDateTime::currentDateTimeUtc().toString("yyyyMMdd'T'hhmmss"))
+                            .arg(pid);
+    d->journal->set_context(d->username, QCoreApplication::applicationVersion(), run, logPath);
+    const QList<ProblemEntry> unclean =
+        d->journal->begin_run(pid, QDateTime::currentDateTimeUtc(), process_is_alive, d->isAdmin);
+    Logger::instance().set_problem_sink([journal = d->journal](const QString& level,
+                                                               const QString& source,
+                                                               const QString& message) {
+        journal->record(level, source, message);
+    });
 
     log_info(QString("MOSAIC v%1 — user: @%2 — elapsed: %3 ms")
                  .arg(QCoreApplication::applicationVersion())
@@ -485,6 +524,22 @@ void Application::initialize(const QString& username, bool isAdmin) {
                                                  d->isAdmin, d->otherUserDirectories);
     d->mainWindow->show();
 
+    // A run that closed unexpectedly: said once, to the profile it was (an
+    // admin hears about every profile's); begin_run() already chose.
+    for (const ProblemEntry& e : unclean) {
+        log_info("[Problems] " + e.message);
+        QTimer::singleShot(0, d->mainWindow.get(), [w = d->mainWindow.get(), e] {
+            QMessageBox::warning(
+                w, "MOSAIC closed unexpectedly",
+                QString("MOSAIC did not shut down normally the last time it ran%1.\n\n%2\n\n"
+                        "Help > Problems lists it with this PC's other errors, and can export "
+                        "them with the logs to send to someone.")
+                    .arg(e.profile.isEmpty() ? QString() : " (profile " + e.profile + ")",
+                         e.message));
+        });
+        break;
+    }
+
     log_info("Initialisation complete.");
 }
 
@@ -502,6 +557,7 @@ void Application::shutdown() {
     if (d->mainWindow) {
         d->mainWindow->close();
     }
+    Logger::instance().set_problem_sink({});
     Logger::instance().close_log_file();
 }
 

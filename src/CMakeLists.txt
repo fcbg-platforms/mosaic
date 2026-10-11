@@ -60,6 +60,8 @@ qt_add_executable(mosaic MACOSX_BUNDLE
     # ── Foundation ────────────────────────────────────────────────────────
     utils/logger.hpp
     utils/logger.cpp
+    utils/problem_journal.hpp
+    utils/problem_journal.cpp
     utils/timestamp.hpp
     utils/ring_buffer.hpp
     utils/dpapi_crypt.hpp
@@ -85,6 +87,8 @@ qt_add_executable(mosaic MACOSX_BUNDLE
     # ── Logger panel ──────────────────────────────────────────────────────
     ui/logger/logger_panel_w.hpp
     ui/logger/logger_panel_w.cpp
+    ui/problems/problems_dialog.hpp
+    ui/problems/problems_dialog.cpp
 
     # ── Video settings panel ──────────────────────────────────────────────
     ui/video/video_settings_w.hpp

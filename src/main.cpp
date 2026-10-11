@@ -1,4 +1,5 @@
 #include <QApplication>
+#include <QDir>
 #include <exception>
 
 #include "auth/profile_manager.hpp"
@@ -19,10 +20,48 @@
 // clang-format on
 #pragma comment(lib, "dbghelp.lib")
 
+// Where crash dumps go: <app data>/crashes, set once the app's name is
+// known (see main()). Filled in advance because the filter below runs in a
+// crashed process, where allocating or calling into Qt is not safe.
+static wchar_t g_crash_dir[MAX_PATH] = L"";
+
 static LONG WINAPI mosaic_exception_filter(EXCEPTION_POINTERS* ep) {
-    // Write mosaic_crash.dmp next to the executable so the developer can open
-    // it in Visual Studio or WinDbg to get the full thread call stacks.
-    HANDLE file = ::CreateFileA("mosaic_crash.dmp", GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS,
+    // A minidump the developer can open in Visual Studio or WinDbg for the
+    // full thread call stacks: crashes/mosaic_crash_<local time>.dmp, so a
+    // second crash does not overwrite the first. Help > Problems points at it.
+    wchar_t path[MAX_PATH] = L"mosaic_crash.dmp";
+    if (g_crash_dir[0] != L'\0') {
+        SYSTEMTIME t;
+        ::GetLocalTime(&t);
+        // Built by hand: the C runtime's formatting can take locks a crashed
+        // process may never get back.
+        size_t n = 0;
+        for (const wchar_t* c = g_crash_dir; *c != L'\0' && n < MAX_PATH - 40; ++c) {
+            path[n++] = *c;
+        }
+        for (const wchar_t* c = L"\\mosaic_crash_"; *c != L'\0'; ++c) {
+            path[n++] = *c;
+        }
+        auto digits = [&](unsigned v, int width) {
+            for (int i = width - 1; i >= 0; --i) {
+                path[n + i] = static_cast<wchar_t>(L'0' + v % 10);
+                v /= 10;
+            }
+            n += width;
+        };
+        digits(t.wYear, 4);
+        digits(t.wMonth, 2);
+        digits(t.wDay, 2);
+        path[n++] = L'-';
+        digits(t.wHour, 2);
+        digits(t.wMinute, 2);
+        digits(t.wSecond, 2);
+        for (const wchar_t* c = L".dmp"; *c != L'\0'; ++c) {
+            path[n++] = *c;
+        }
+        path[n] = L'\0';
+    }
+    HANDLE file = ::CreateFileW(path, GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS,
                                 FILE_ATTRIBUTE_NORMAL, nullptr);
     if (file != INVALID_HANDLE_VALUE) {
         MINIDUMP_EXCEPTION_INFORMATION info{};
@@ -80,6 +119,16 @@ int main(int argc, char* argv[]) {
     app.setApplicationVersion("0.1.0");
     app.setOrganizationName("CSRU");
     app.setOrganizationDomain("csru.lab");
+#ifdef _WIN32
+    {
+        const QString crashDir = mosaic::ProfileManager::root_dir() + "/crashes";
+        QDir().mkpath(crashDir);
+        const std::wstring w = QDir::toNativeSeparators(crashDir).toStdWString();
+        if (w.size() < MAX_PATH - 40) {
+            ::wcsncpy_s(g_crash_dir, MAX_PATH, w.c_str(), _TRUNCATE);
+        }
+    }
+#endif
     app.setStyleSheet(mosaic::dark_stylesheet());
 
     mosaic::ProfileManager profileMgr;

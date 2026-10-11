@@ -72,6 +72,9 @@ struct AnalysisManager::Impl {
     int frameSkip = 1;
 
     QString currentSession;
+    // The running script and its last error output, to name a failure.
+    QString currentScript;
+    QStringList recentStderr;
     QProcess* process = nullptr;
     QQueue<Job> queue; // jobs waiting to be processed
 };
@@ -379,7 +382,9 @@ void AnalysisManager::launch(const QString& sessionPath, const QString& scriptRe
     }
 
     d->currentSession = sessionPath;
-    d->process        = new QProcess(this);
+    d->currentScript  = QFileInfo(scriptRelPath).fileName();
+    d->recentStderr.clear();
+    d->process = new QProcess(this);
     d->process->setProcessChannelMode(QProcess::SeparateChannels);
 
     // env is additive (e.g. HF_TOKEN for run_diarize.py) on top of the full
@@ -468,6 +473,10 @@ void AnalysisManager::on_stderr_ready() {
         if (!line.isEmpty()) {
             // Python prints progress to stderr — forward as normal output
             emit output_received("[stderr] " + line);
+            d->recentStderr << line;
+            while (d->recentStderr.size() > 6) {
+                d->recentStderr.removeFirst();
+            }
         }
     }
 }
@@ -478,6 +487,15 @@ void AnalysisManager::on_process_finished(int exitCode, int exitStatus) {
     log_info(QString("[AnalysisManager] Process finished — exit code %1 (%2)")
                  .arg(exitCode)
                  .arg(success ? "success" : "error"));
+    if (!success) {
+        // A warning, so it reaches the problem journal (Help > Problems) with
+        // the script, the session and the end of its error output.
+        log_warning(QString("[AnalysisManager] %1 failed on %2 (exit code %3). Last output: %4")
+                        .arg(d->currentScript, QFileInfo(d->currentSession).fileName())
+                        .arg(exitCode)
+                        .arg(d->recentStderr.isEmpty() ? QStringLiteral("none")
+                                                       : d->recentStderr.join(" | ")));
+    }
 
     emit analysis_finished(d->currentSession, success);
 

@@ -27,6 +27,7 @@
 #include "analysis/pose_worker.hpp"
 #include "analysis/sync_manifest.hpp"
 #include "analysis/transcript_worker.hpp"
+#include "auth/profile_manager.hpp"
 #include "session/session_health.hpp"
 #include "ui/analysis/analysis_tab_w.hpp"
 #include "ui/audio/audio_settings_w.hpp"
@@ -34,6 +35,7 @@
 #include "ui/help_dialog.hpp"
 #include "ui/logger/logger_panel_w.hpp"
 #include "ui/monitor_bridge.hpp"
+#include "ui/problems/problems_dialog.hpp"
 #include "ui/realtime/realtime_tab_w.hpp"
 #include "ui/record/record_settings_w.hpp"
 #include "ui/session/session_browser_w.hpp"
@@ -262,6 +264,10 @@ void MainWindow::build_menu_bar() {
     record->addAction(stopAction);
 
     auto* help = menuBar()->addMenu("&Help");
+    help->addAction("&Problems on this PC…", this, [this] {
+        ProblemsDialog dlg(ProfileManager::root_dir(), d->username, d->isAdmin, this);
+        dlg.exec();
+    });
     help->addAction("&About MOSAIC…", this, [this] {
         HelpDialog dlg(this);
         dlg.exec();

@@ -57,6 +57,7 @@ add_executable(mosaic_tests
     test_session_name.cpp
     test_preflight.cpp
     test_session_archive.cpp
+    test_problem_journal.cpp
     test_crash_safety.cpp
     test_time_axis.cpp
     test_spectrogram_colormap.cpp
@@ -102,6 +103,7 @@ add_executable(mosaic_tests
     "${CMAKE_SOURCE_DIR}/src/analysis/realtime_metrics.cpp"
     "${CMAKE_SOURCE_DIR}/src/analysis/analysis_manager.cpp"
     "${CMAKE_SOURCE_DIR}/src/utils/logger.cpp"
+    "${CMAKE_SOURCE_DIR}/src/utils/problem_journal.cpp"
     "${CMAKE_SOURCE_DIR}/src/utils/dpapi_crypt.cpp"
     "${CMAKE_SOURCE_DIR}/src/core/settings.cpp"
     "${CMAKE_SOURCE_DIR}/src/auth/profile_manager.cpp"

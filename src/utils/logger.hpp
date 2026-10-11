@@ -1,6 +1,7 @@
 #pragma once
 #include <QObject>
 #include <QString>
+#include <functional>
 #include <memory>
 #include <source_location>
 
@@ -66,11 +67,23 @@ class Logger : public QObject {
     /// @param level  New minimum level.
     void set_min_level(LogLevel level);
 
-    /// @brief Opens a log file for writing (appending if it already exists).
+    /// @brief Opens a new log file for this run.
+    ///
+    /// The previous run's file, if any, is kept as `<name>.previous.log`
+    /// (replacing the one before it) rather than overwritten, so the log of a
+    /// run that crashed survives the restart.
     ///
     /// @param path  Absolute file path.
     /// @returns     @c true on success.
     bool open_log_file(const QString& path);
+
+    /// @brief Also hands every Warning, Error and Critical entry to `sink`
+    /// (level label, "file:line", message), e.g. the problem journal. Called
+    /// from the logging thread, outside the logger's own lock. Pass an empty
+    /// function to stop.
+    void set_problem_sink(
+        std::function<void(const QString& level, const QString& source, const QString& message)>
+            sink);
 
     /// @brief Flushes and closes the log file.
     void close_log_file();
