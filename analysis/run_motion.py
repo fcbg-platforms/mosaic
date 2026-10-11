@@ -30,6 +30,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -75,6 +76,15 @@ def load_timestamps(csv_path: str | None) -> list[int] | None:
     return ts if ts else None
 
 
+def camera_index_from_filename(video_path: Path) -> int | None:
+    """The camera a session video belongs to, from its name: "video_2.mp4"
+    is camera index 2 (shown as Camera 3). ``None`` for any other name
+    ("video_2_old.mp4", "clip.avi"), the same strict rule as the app's
+    camera_index_from_video_file() (src/video/camera_label.hpp)."""
+    m = re.fullmatch(r"video_(\d+)", video_path.stem)
+    return int(m.group(1)) if m else None
+
+
 # ── Core video processor ──────────────────────────────────────────────────────
 
 
@@ -84,6 +94,7 @@ def process_video(
     timestamps: list[int] | None,
     skip: int,
     preview: bool,
+    camera_index: int = 0,
 ) -> tuple[list[dict], dict[int, list[tuple[float, float]]], list[float], tuple[int, int]]:
     """
     Run the tracker on a single video file.
@@ -152,6 +163,9 @@ def process_video(
                     {
                         "frame": frame_idx,
                         "timestamp_ns": ts_ns,
+                        # Animal ids restart in every video: an animal is
+                        # (camera_index, animal_id).
+                        "camera_index": camera_index,
                         "animal_id": t.id,
                         "cx_px": round(cx, 2),
                         "cy_px": round(cy, 2),
@@ -167,7 +181,7 @@ def process_video(
                     velocities.append(vel_mm)
 
             if preview:
-                annotated = draw_tracks(frame, tracks, mm_per_px=tracker.mm_per_px, fps=fps)
+                annotated = draw_tracks(frame, tracks, mm_per_px=tracker.mm_per_px, fps=fps / skip)
                 cv2.imshow(f"MOSAIC Motion — {video_path.name}", annotated)
                 if cv2.waitKey(1) & 0xFF == ord("q"):
                     break
@@ -240,25 +254,26 @@ def process_session(args: argparse.Namespace) -> None:
     )
 
     all_rows: list[dict] = []
-    all_trajectories: dict[int, list[tuple[float, float]]] = {}
-    all_velocities: list[float] = []
-    frame_size = (640, 480)
+    # Per camera: each video is its own view and its own set of animal ids,
+    # so their positions never share one picture.
+    per_camera: dict[int, tuple] = {}
 
     for vid in video_files:
-        # Look for matching timestamps CSV (timestamps_cam0.csv for video_0.mp4)
-        stem = vid.stem  # e.g. "video_0"
-        idx = stem.split("_")[-1] if "_" in stem else "0"
-        ts_csv = video_dir / f"timestamps_cam{idx}.csv"
+        cam = camera_index_from_filename(vid)
+        if cam is None:
+            # Not a camera recording (a copy, an export): it would be read as
+            # camera 0 and mixed with that camera's animals.
+            print(f"[motion] Skipping {vid.name}: not named video_N", flush=True)
+            continue
+        ts_csv = video_dir / f"timestamps_cam{cam}.csv"
         timestamps = load_timestamps(str(ts_csv) if ts_csv.exists() else None)
 
         rows, trajectories, velocities, frame_size = process_video(
-            vid, tracker, timestamps, skip=args.skip, preview=args.preview
+            vid, tracker, timestamps, skip=args.skip, preview=args.preview, camera_index=cam
         )
 
         all_rows.extend(rows)
-        all_velocities.extend(velocities)
-        for aid, pts in trajectories.items():
-            all_trajectories.setdefault(aid, []).extend(pts)
+        per_camera[cam] = (trajectories, velocities, frame_size)
 
     # ── Write output data ──────────────────────────────────────────────────────
     stem_prefix = session_dir / "motion_results"
@@ -276,33 +291,23 @@ def process_session(args: argparse.Namespace) -> None:
         write_hdf5(all_rows, out)
         print(f"[motion] Wrote {out}", flush=True)
 
-    # ── Visualisations ─────────────────────────────────────────────────────────
-    if not args.no_heatmap and all_trajectories:
-        heatmap_out = str(session_dir / "motion_heatmap.png")
-        generate_heatmap(
-            all_trajectories,
-            frame_size,
-            heatmap_out,
-            title=f"Position Heatmap — {session_dir.name}",
-        )
-        print(f"[motion] Wrote {heatmap_out}", flush=True)
-
-    if not args.no_trajectory and all_trajectories:
-        traj_out = str(session_dir / "motion_trajectories.png")
-        generate_trajectory_plot(
-            all_trajectories, frame_size, traj_out, title=f"Trajectories — {session_dir.name}"
-        )
-        print(f"[motion] Wrote {traj_out}", flush=True)
-
-    if all_velocities:
-        vel_out = str(session_dir / "motion_velocity_hist.png")
-        generate_velocity_histogram(
-            all_velocities,
-            vel_out,
-            mm_per_px=args.mm_per_px,
-            title=f"Velocity Distribution — {session_dir.name}",
-        )
-        print(f"[motion] Wrote {vel_out}", flush=True)
+    # ── Visualisations, one set per camera ─────────────────────────────────────
+    for cam, (trajectories, velocities, frame_size) in sorted(per_camera.items()):
+        label = f"{session_dir.name}, Camera {cam + 1}"
+        if not args.no_heatmap and trajectories:
+            out = str(session_dir / f"motion_heatmap_cam{cam}.png")
+            generate_heatmap(trajectories, frame_size, out, title=f"Position heatmap: {label}")
+            print(f"[motion] Wrote {out}", flush=True)
+        if not args.no_trajectory and trajectories:
+            out = str(session_dir / f"motion_trajectories_cam{cam}.png")
+            generate_trajectory_plot(trajectories, frame_size, out, title=f"Trajectories: {label}")
+            print(f"[motion] Wrote {out}", flush=True)
+        if velocities:
+            out = str(session_dir / f"motion_velocity_hist_cam{cam}.png")
+            generate_velocity_histogram(
+                velocities, out, mm_per_px=args.mm_per_px, title=f"Speeds: {label}"
+            )
+            print(f"[motion] Wrote {out}", flush=True)
 
     print(f"[motion] Done. {len(all_rows)} total detections.", flush=True)
 
@@ -324,7 +329,12 @@ def process_single(args: argparse.Namespace) -> None:
 
     timestamps = load_timestamps(args.timestamps)
     rows, trajectories, velocities, frame_size = process_video(
-        video_path, tracker, timestamps, skip=args.skip, preview=args.preview
+        video_path,
+        tracker,
+        timestamps,
+        skip=args.skip,
+        preview=args.preview,
+        camera_index=camera_index_from_filename(video_path) or 0,
     )
 
     stem = out_dir / f"motion_{video_path.stem}"

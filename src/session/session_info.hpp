@@ -166,7 +166,7 @@ struct SessionInfo {
         // its own gaze2d/ subfolder (analysis/run_gaze2d.py's gaze2d_dir);
         // per-video motion output still lands beside its source video in
         // video/; session-level aggregate motion output (motion_results.*,
-        // motion_heatmap.png, …) stays at the session root — so analysis
+        // motion_heatmap_camN.png, …) stays at the session root, so analysis
         // files are scanned across all seven locations. Entries are stored
         // as paths relative to the session dir (e.g. "video/video_0.mp4",
         // "pose/video_0.pose.json") so callers can join them onto `path`
