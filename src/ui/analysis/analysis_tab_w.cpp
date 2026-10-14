@@ -858,6 +858,7 @@ struct AnalysisTabW::Impl {
     QComboBox* whisperModelCombo             = nullptr; // diarize
     QComboBox* languageCombo                 = nullptr; // diarize
     QLineEdit* hfTokenEdit                   = nullptr; // diarize
+    QCheckBox* hfTokenOwnCheck               = nullptr; // diarize
     QSpinBox* minSpeakersSpin                = nullptr; // diarize
     QSpinBox* maxSpeakersSpin                = nullptr; // diarize
     QCheckBox* skipDiarizationCheck          = nullptr; // diarize
@@ -1505,22 +1506,50 @@ void AnalysisTabW::build_ui() {
     d->hfTokenEdit = new QLineEdit;
     d->hfTokenEdit->setEchoMode(QLineEdit::Password);
     d->hfTokenEdit->setPlaceholderText("Hugging Face token (optional — enables speaker labels)");
-    d->hfTokenEdit->setText(d->settings.analysis.hfToken);
+    d->hfTokenEdit->setText(d->settings.analysis.effective_hf_token());
     d->hfTokenEdit->setToolTip(
         "Required only for speaker diarization (transcription always works without "
         "it). Create a free account at huggingface.co, accept the terms of use for "
         "pyannote/speaker-diarization-community-1, then generate a token at "
-        "huggingface.co/settings/tokens. Saved to this profile's settings so you "
-        "don't need to re-enter it next time.");
+        "huggingface.co/settings/tokens. Saved for every profile on this PC, so "
+        "nobody needs to enter it again.");
+    // Off (the usual case): the field is the PC's token, shared by every
+    // profile. On: this profile keeps a token of its own.
+    d->hfTokenOwnCheck = new QCheckBox("This profile only");
+    d->hfTokenOwnCheck->setChecked(!d->settings.analysis.hfToken.isEmpty());
+    d->hfTokenOwnCheck->setToolTip(
+        "Off: the token is shared by every profile on this PC.\n"
+        "On: this profile uses its own token; the other profiles keep the shared one.");
     connect(d->hfTokenEdit, &QLineEdit::textChanged, this, [this](const QString& text) {
         // Trimmed at the point of storage, so the pre-run guard and the value
         // actually handed to the script can never disagree. A token pasted
         // with a trailing newline would otherwise pass the guard and then fail
         // at load with a 401 indistinguishable from a wrong token — the exact
         // confusion this feature exists to remove.
-        d->settings.analysis.hfToken = text.trimmed();
+        if (d->hfTokenOwnCheck->isChecked()) {
+            d->settings.analysis.hfToken = text.trimmed();
+            if (d->settings.analysis.hfToken.isEmpty()) {
+                // A profile without a token of its own uses the shared one;
+                // show that, rather than an empty field the run then ignores.
+                d->hfTokenOwnCheck->setChecked(false);
+            }
+        } else {
+            d->settings.analysis.pcHfToken = text.trimmed();
+        }
+    });
+    connect(d->hfTokenOwnCheck, &QCheckBox::toggled, this, [this](bool own) {
+        auto& a = d->settings.analysis;
+        if (own) {
+            // Starts as a copy of the shared token, to be replaced.
+            a.hfToken = d->hfTokenEdit->text().trimmed();
+        } else {
+            a.hfToken.clear();
+            QSignalBlocker block(d->hfTokenEdit);
+            d->hfTokenEdit->setText(a.pcHfToken);
+        }
     });
     diarizeLay->addWidget(d->hfTokenEdit, 1);
+    diarizeLay->addWidget(d->hfTokenOwnCheck);
 
     d->minSpeakersSpin = new QSpinBox;
     d->minSpeakersSpin->setRange(0, 20);
@@ -5618,7 +5647,7 @@ void AnalysisTabW::run_analysis() {
         // process inherits QProcessEnvironment::systemEnvironment(), so an
         // operator who exports HF_TOKEN in their shell has a working setup
         // this guard must not refuse.
-        const bool tokenAvailable = !d->settings.analysis.hfToken.trimmed().isEmpty() ||
+        const bool tokenAvailable = !d->settings.analysis.effective_hf_token().isEmpty() ||
                                     qEnvironmentVariableIsSet("HF_TOKEN") ||
                                     qEnvironmentVariableIsSet("HUGGINGFACE_TOKEN");
         if (!tokenAvailable && !d->skipDiarizationCheck->isChecked()) {
@@ -5661,7 +5690,7 @@ void AnalysisTabW::run_analysis() {
     } else if (plugin == "diarize") {
         d->analysisMgr->run_diarization(
             d->currentSessionPath, d->whisperModelCombo->currentData().toString(),
-            d->languageCombo->currentData().toString(), d->settings.analysis.hfToken,
+            d->languageCombo->currentData().toString(), d->settings.analysis.effective_hf_token(),
             d->minSpeakersSpin->value(), d->maxSpeakersSpin->value(),
             d->skipDiarizationCheck->isChecked());
     } else if (plugin == "face_mask") {

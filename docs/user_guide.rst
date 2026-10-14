@@ -652,6 +652,17 @@ sitting alongside **Live**. The workflow is always the same shape:
          like a bad token, and is the most common reason a correct-looking
          setup still produces no speakers.
 
+         The token is entered once per PC: every profile uses the same
+         one, so nobody needs to enter it again. Strictly it is once per
+         Windows account, since it is stored encrypted for the account
+         MOSAIC runs under; on a PC where every profile runs under one
+         account, as in room 11, that is the same thing. Tick **This
+         profile only** beside the field to give one profile its own token;
+         the others keep the shared one. Emptying that profile's own token
+         unticks the box and goes back to the shared one. A profile that
+         already had a token from before shares it with the PC the first
+         time it logs in, if the PC had none.
+
          MOSAIC will not start a run that cannot produce speaker labels: if
          the token field is empty and "Transcript only" is unticked, Run
          stops immediately rather than spending minutes on transcription to
