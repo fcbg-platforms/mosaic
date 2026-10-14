@@ -72,6 +72,8 @@ qt_add_executable(mosaic MACOSX_BUNDLE
     core/settings.cpp
     core/recording_access_control.hpp
     core/recording_access_control.cpp
+    core/data_root.hpp
+    core/data_root.cpp
     core/application.hpp
     core/application.cpp
 

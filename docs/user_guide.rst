@@ -1124,8 +1124,15 @@ Tips and troubleshooting
    .. grid-item-card:: 📁  Where recordings actually live
 
       Each profile's sessions live under its own
-      ``recordings/<username>/`` folder, resolved relative to wherever the
-      app is running from, not a single shared folder. Only an admin
+      ``recordings/<username>/`` folder in MOSAIC's data folder: the checkout
+      it runs from (``D:\mosaic\recordings\<username>`` in room 11), or
+      ``Documents\MOSAIC`` for an installed copy, whichever way MOSAIC is
+      started. (Before, a relative folder followed wherever MOSAIC was started
+      from, so sessions could land inside the build output, where a rebuild
+      deletes them. When MOSAIC finds sessions there it offers, at login and
+      before the cameras start, to move them into the data folder: on the same
+      drive each is simply moved, otherwise copied and checked before the old
+      copy is removed. A profile moves its own; an admin, every profile's.) Only an admin
       profile sees every profile's sessions at once (see the note above);
       a regular profile's Record Settings directory field is read-only for
       exactly this reason.

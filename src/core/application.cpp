@@ -1,16 +1,23 @@
 #include "core/application.hpp"
 
+#include <QCloseEvent>
 #include <QCoreApplication>
 #include <QDateTime>
 #include <QDir>
+#include <QEventLoop>
+#include <QFileInfo>
 #include <QMessageBox>
+#include <QProgressDialog>
 #include <QSet>
+#include <QThread>
 #include <QTimer>
 #include <array>
 
 #include "analysis/analysis_manager.hpp"
 #include "auth/profile_manager.hpp"
+#include "core/data_root.hpp"
 #include "core/recording_access_control.hpp"
+#include "session/session_archive.hpp"
 #include "session/session_info.hpp"
 #include "trigger/trigger_types.hpp"
 #include "ui/main_window.hpp"
@@ -138,6 +145,120 @@ QStringList resolve_other_user_directories(const mosaic::ProfileManager& profile
     }
     dirs << mosaic::unassigned_record_directory();
     return dirs;
+}
+
+// A progress dialog Esc and the close button cannot dismiss while sessions
+// are being moved.
+class FixedProgress : public QProgressDialog {
+   public:
+    using QProgressDialog::QProgressDialog;
+
+   protected:
+    void reject() override {}
+    void closeEvent(QCloseEvent* e) override { e->ignore(); }
+};
+
+// Asks, then moves `moves` into the data folder with the archive's verified
+// move (copy, read back and compare, then delete the original), reporting
+// what moved and what did not. Asked again at the next start if declined.
+void offer_to_move_stranded(QWidget* parent, const QList<mosaic::SessionMove>& moves,
+                            const QString& oldDir, const QString& newDir) {
+    qint64 bytes = 0;
+    for (const auto& m : moves) {
+        bytes += mosaic::directory_size(m.session);
+    }
+    const QString question =
+        QString(
+            "%1 recorded session%2 (%3) are in MOSAIC's program folder:\n\n%4\n\n"
+            "That folder is part of the build, and rebuilding MOSAIC can delete it. Move "
+            "them to the data folder now?\n\n%5\n\nOn the same drive each session is "
+            "simply moved; otherwise it is copied, checked file by file, and only then "
+            "removed from the old place.")
+            .arg(moves.size())
+            .arg(moves.size() == 1 ? "" : "s")
+            .arg(mosaic::format_bytes(bytes), QDir::toNativeSeparators(oldDir),
+                 QDir::toNativeSeparators(newDir));
+    if (QMessageBox::question(parent, "Move recordings to the data folder", question) !=
+        QMessageBox::Yes) {
+        mosaic::log_warning(QString("[Application] %1 session(s) left in %2; MOSAIC will offer "
+                                    "to move them at the next start.")
+                                .arg(moves.size())
+                                .arg(QDir::toNativeSeparators(oldDir)));
+        return;
+    }
+
+    FixedProgress progress("Moving recordings…", QString(), 0, 1000, parent);
+    progress.setWindowModality(Qt::WindowModal);
+    progress.setMinimumDuration(0);
+    progress.setValue(0);
+
+    QStringList failed;
+    int moved       = 0;
+    QThread* worker = QThread::create([&] {
+        qint64 done = 0;
+        for (const auto& m : moves) {
+            const qint64 size = mosaic::directory_size(m.session);
+            // On the same disk a rename moves the folder at once, nothing
+            // copied, so nothing to check. It fails across disks or when a
+            // file is in use; then the checked copy below.
+            const QString dest = m.destParent + "/" + QFileInfo(m.session).fileName();
+            QDir().mkpath(m.destParent);
+            if (!QFileInfo::exists(dest) && QDir().rename(m.session, dest)) {
+                ++moved;
+                mosaic::log_info(QString("[Application] Moved %1 to %2.")
+                                     .arg(m.session, QDir::toNativeSeparators(m.destParent)));
+                done += size;
+                continue;
+            }
+            mosaic::ArchiveOptions opt;
+            opt.writeManifest = false; // a move, not archiving
+            opt.progress      = [&, done, size](const mosaic::ArchiveProgress& p) {
+                const double share =
+                    bytes > 0 ? (done + (p.verifying ? size / 2.0 : 0.0) + p.bytesDone / 2.0) /
+                                    static_cast<double>(bytes)
+                                   : 1.0;
+                const QString label = QString("%1 %2").arg(p.verifying ? "Checking" : "Copying",
+                                                           QFileInfo(m.session).fileName());
+                QMetaObject::invokeMethod(&progress, [&progress, share, label] {
+                    progress.setLabelText(label);
+                    progress.setValue(static_cast<int>(1000.0 * std::min(1.0, share)));
+                });
+            };
+            const auto r = mosaic::move_session_verified(m.session, m.destParent, opt);
+            if (r.status == mosaic::ArchiveResult::Status::Moved) {
+                ++moved;
+                mosaic::log_info("[Application] " + r.message);
+            } else {
+                failed << QFileInfo(m.session).fileName() + ": " + r.message;
+                mosaic::log_warning("[Application] Not moved: " + r.message);
+            }
+            done += size;
+        }
+    });
+    QEventLoop loop;
+    QObject::connect(worker, &QThread::finished, &loop, &QEventLoop::quit);
+    worker->start();
+    loop.exec();
+    worker->wait();
+    delete worker;
+    progress.setValue(1000);
+
+    QString summary = QString("%1 of %2 sessions moved to %3.")
+                          .arg(moved)
+                          .arg(moves.size())
+                          .arg(QDir::toNativeSeparators(newDir));
+    if (!failed.isEmpty()) {
+        summary += "\n\nNot moved (they stay where they were):\n" + failed.join("\n");
+        QMessageBox::warning(parent, "Move recordings", summary);
+    } else {
+        QMessageBox::information(parent, "Move recordings", summary);
+    }
+    // Empty profile folders left behind are removed; anything else stays.
+    QDir old(oldDir);
+    for (const QString& sub : old.entryList(QDir::Dirs | QDir::NoDotAndDotDot)) {
+        old.rmdir(sub); // only succeeds when empty
+    }
+    old.rmdir(old.absolutePath());
 }
 
 // One-time, naturally-idempotent migration of sessions still sitting loose
@@ -393,6 +514,27 @@ void Application::initialize(const QString& username, bool isAdmin) {
         profileMgr.load();
         d->otherUserDirectories = resolve_other_user_directories(profileMgr, d->username);
         migrate_flat_session_folders(profileMgr);
+    }
+
+    log_info("Data folder: " + QDir::toNativeSeparators(QDir::currentPath()));
+
+    // Sessions recorded into the old place (recordings\ beside the program,
+    // inside build\ when started from the build output): offer to move them
+    // into the data folder, before the cameras, audio and triggers start, so
+    // nothing can record while they move. A profile moves its own; an admin,
+    // everyone's.
+    {
+        QString ownSub;
+        const QString dir = QDir::cleanPath(d->settings.record.directory);
+        if (QDir::isRelativePath(dir) && dir.startsWith("recordings/")) {
+            ownSub = dir.mid(QStringLiteral("recordings/").size()).section('/', 0, 0);
+        }
+        const QString oldDir           = QCoreApplication::applicationDirPath() + "/recordings";
+        const QString newDir           = QDir::current().filePath("recordings");
+        const QList<SessionMove> moves = stranded_sessions(oldDir, newDir, ownSub, d->isAdmin);
+        if (!moves.isEmpty()) {
+            offer_to_move_stranded(nullptr, moves, oldDir, newDir);
+        }
     }
 
     // Guarantee reference stability before videoManager->open() below binds
