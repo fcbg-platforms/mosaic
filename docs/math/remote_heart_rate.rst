@@ -268,6 +268,20 @@ literal interpolate-onto-a-uniform-grid approach, justified by the
 density gate already filtering out windows sparse enough for irregular
 sampling to matter.
 
+Every window lies inside the recording: the first starts on the first
+frame, and when the hop leaves more than half a hop uncovered at the end,
+one more window ends exactly on the last frame (that frame included), so
+at most half a hop at the end lies outside every window. A recording
+shorter than one window gets a single window over all of it. Windows never
+run past the end of the video.
+
+In the Analysis tab each window's rate is drawn as a flat step over the
+stretch of time it stands for: from halfway to the previous window's centre
+to halfway to the next one, with the first step reaching back to the
+recording's start and the last on to its end. Plotted only at window
+centres, a 10 s window would leave the first and last 5 s blank. A window
+with no estimate leaves a gap; nothing is filled in.
+
 An optional centered median filter (:func:`~rppg.hr_estimation.median_smooth`)
 smooths the per-window ``bpm`` series into a separate ``smoothed_bpm``
 column for display. The raw column is always kept alongside it, so

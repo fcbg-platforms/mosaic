@@ -255,44 +255,12 @@
       "smoothed_bpm": 74.8
     },
     {
-      "start_ms": 67120,
-      "end_ms": 77120,
+      "start_ms": 67080,
+      "end_ms": 77080,
       "bpm": 75.2,
       "snr_db": 4.8,
       "valid_frame_fraction": 1.0,
-      "smoothed_bpm": 75.2
-    },
-    {
-      "start_ms": 69120,
-      "end_ms": 79120,
-      "bpm": 75.7,
-      "snr_db": 3.4,
-      "valid_frame_fraction": 1.0,
-      "smoothed_bpm": 75.2
-    },
-    {
-      "start_ms": 71120,
-      "end_ms": 81120,
-      "bpm": 74.9,
-      "snr_db": 0.9,
-      "valid_frame_fraction": 1.0,
-      "smoothed_bpm": 74.9
-    },
-    {
-      "start_ms": 73120,
-      "end_ms": 83120,
-      "bpm": 72.6,
-      "snr_db": -0.5,
-      "valid_frame_fraction": 1.0,
-      "smoothed_bpm": 72.6
-    },
-    {
-      "start_ms": 75120,
-      "end_ms": 85120,
-      "bpm": 70.9,
-      "snr_db": -5.4,
-      "valid_frame_fraction": 1.0,
-      "smoothed_bpm": 71.8
+      "smoothed_bpm": 75.0
     }
   ],
   "frames": [
@@ -20098,9 +20066,9 @@
     }
   ],
   "summary": {
-    "mean_bpm": 75.0,
+    "mean_bpm": 75.2,
     "median_bpm": 75.2,
-    "min_bpm": 70.9,
+    "min_bpm": 74.0,
     "max_bpm": 76.2,
     "pct_windows_good": 1.0
   },

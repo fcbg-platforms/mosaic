@@ -854,7 +854,11 @@ sitting alongside **Live**. The workflow is always the same shape:
       **Beats and heart-rate variability (HRV)**: the plugin also finds
       every heartbeat and reports HRV: RMSSD, SDNN, pNN50 and LF/HF. The
       chart dropdown switches between the windowed heart rate, the
-      beat-to-beat heart rate and RMSSD over a sliding minute. Camera
+      beat-to-beat heart rate and RMSSD over a sliding minute. The
+      windowed rate is drawn as steps covering the whole video, each step
+      the rate of the window around it; gaps are windows without a
+      reliable face. The beat-to-beat view shows every detected beat in a
+      dim line and, over it, the clean beats used for HRV. Camera
       timing noise inflates HRV. The plugin measures that noise by finding
       the beats separately in the two halves of the face, and the stats
       line gives the noise-corrected RMSSD next to the raw one. HRV is not
