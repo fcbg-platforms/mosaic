@@ -59,6 +59,7 @@ add_executable(mosaic_tests
     test_session_archive.cpp
     test_problem_journal.cpp
     test_data_root.cpp
+    test_pc_settings.cpp
     test_crash_safety.cpp
     test_time_axis.cpp
     test_spectrogram_colormap.cpp
@@ -73,6 +74,7 @@ add_executable(mosaic_tests
     "${CMAKE_SOURCE_DIR}/src/session/session_name.cpp"
     "${CMAKE_SOURCE_DIR}/src/core/recording_access_control.cpp"
     "${CMAKE_SOURCE_DIR}/src/core/data_root.cpp"
+    "${CMAKE_SOURCE_DIR}/src/core/pc_settings.cpp"
     "${CMAKE_SOURCE_DIR}/src/ui/audio/speaker_palette.cpp"
     "${CMAKE_SOURCE_DIR}/src/ui/audio/spectrogram_colormap.cpp"
     "${CMAKE_SOURCE_DIR}/src/video/fps_readout.cpp"

@@ -16,6 +16,7 @@
 #include "analysis/analysis_manager.hpp"
 #include "auth/profile_manager.hpp"
 #include "core/data_root.hpp"
+#include "core/pc_settings.hpp"
 #include "core/recording_access_control.hpp"
 #include "session/session_archive.hpp"
 #include "session/session_info.hpp"
@@ -378,6 +379,9 @@ namespace mosaic {
 struct Application::Impl {
     QString username;
     bool isAdmin = false;
+    // The PC's Hugging Face token as last loaded or saved, so shutdown
+    // writes pc_settings.json only when it changed.
+    QString pcHfTokenSaved;
     // Every OTHER known profile's own record.directory (plus the shared
     // "_unassigned" fallback) — only ever populated when isAdmin is true;
     // stays empty for a regular user, whose session browsing is already
@@ -508,6 +512,31 @@ void Application::initialize(const QString& username, bool isAdmin) {
     // Here, on the settings this session adopts — never in from_json(), which
     // also peeks at other profiles' settings. See the method's doc comment.
     d->settings.video.migrate_legacy_exposure_limit();
+
+    // The Hugging Face token is one per PC. A profile that still has its own
+    // gives it to the PC when the PC has none yet, and drops its copy when
+    // it is the same as the PC's.
+    {
+        const QString pcPath = pc_settings_path(ProfileManager::root_dir());
+        const HfTokens t =
+            adopt_profile_hf_token(load_pc_hf_token(pcPath), d->settings.analysis.hfToken);
+        d->settings.analysis.pcHfToken = t.pc;
+        d->pcHfTokenSaved              = t.pcChanged ? QString() : t.pc;
+        if (!t.pcChanged) {
+            d->settings.analysis.hfToken = t.profile;
+        } else if (save_pc_hf_token(pcPath, t.pc)) {
+            d->settings.analysis.hfToken = t.profile;
+            d->pcHfTokenSaved            = t.pc;
+            log_info(
+                "Hugging Face token: this profile's token is now shared by every profile "
+                "on this PC.");
+        } else {
+            // The profile keeps its copy until the PC has one, so the token is
+            // never in memory only.
+            log_warning("Hugging Face token: could not save it for the whole PC (" +
+                        QDir::toNativeSeparators(pcPath) + "); this profile keeps its own.");
+        }
+    }
 
     if (d->isAdmin) {
         ProfileManager profileMgr;
@@ -692,6 +721,19 @@ void Application::shutdown() {
                                      ? AppSettings::default_path()
                                      : ProfileManager::settings_path(d->username);
 
+    // The PC's Hugging Face token first: if it cannot be saved, the profile
+    // keeps a copy, so the token is not lost with this run.
+    if (d->settings.analysis.pcHfToken != d->pcHfTokenSaved) {
+        if (save_pc_hf_token(pc_settings_path(ProfileManager::root_dir()),
+                             d->settings.analysis.pcHfToken)) {
+            d->pcHfTokenSaved = d->settings.analysis.pcHfToken;
+        } else {
+            log_error("Failed to save the PC's Hugging Face token; this profile keeps a copy.");
+            if (d->settings.analysis.hfToken.isEmpty()) {
+                d->settings.analysis.hfToken = d->settings.analysis.pcHfToken;
+            }
+        }
+    }
     if (!d->settings.save(settingsPath)) {
         log_error("Failed to save settings on shutdown.");
     }

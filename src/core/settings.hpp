@@ -484,7 +484,20 @@ struct AnalysisSettings {
     // Note also that this value doesn't survive AdminPanelDialog's
     // Export/Import Configuration feature across a different Windows
     // account or machine — see that dialog's own handling.
+    //
+    // This is the profile's own token, kept only when it differs from the
+    // PC's (see core/pc_settings.hpp); usually empty, and pcHfToken applies.
     QString hfToken;
+
+    /// The token every profile on this PC shares. Not part of the profile's
+    /// settings.json: Application loads it from pc_settings.json and saves it
+    /// back there.
+    QString pcHfToken;
+
+    /// The token diarization uses: the profile's own, else the PC's.
+    [[nodiscard]] QString effective_hf_token() const {
+        return hfToken.isEmpty() ? pcHfToken : hfToken;
+    }
 
     [[nodiscard]] QJsonObject to_json() const;
     [[nodiscard]] static std::optional<AnalysisSettings> from_json(const QJsonObject&);

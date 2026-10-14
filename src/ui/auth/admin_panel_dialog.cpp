@@ -694,8 +694,9 @@ void AdminPanelDialog::import_config() {
             note =
                 "\n\nNote: this file's Hugging Face diarization token was "
                 "encrypted on a different Windows account or machine and "
-                "could not be decrypted here — re-enter it in the "
-                "Diarization plugin if needed.";
+                "could not be decrypted here. This profile uses the PC's "
+                "shared token instead, if one is saved; otherwise enter it in the "
+                "Diarization plugin.";
         }
     }
 
