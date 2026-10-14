@@ -447,22 +447,22 @@ def _compute_windows(
     # duration would still report a low "good" percentage, since most of
     # the counted "windows" never had a chance to contain a single frame.
     windows: list[dict] = []
-    start_ms = float(all_ts[0])
-    while start_ms < end_ms:
-        win_end_ms = start_ms + window_ms
-
+    for start_ms, win_end_ms in window_spans(float(all_ts[0]), end_ms, window_ms, hop_ms):
         # Both timestamp arrays are already ascending (frames are processed
         # in sequential order, real or synthesized) — searchsorted finds
         # each window's [start_ms, win_end_ms) slice in O(log n) instead of
         # the O(n) full-array boolean mask this replaced, which made this
         # "fast, pure numpy" pass actually O(windows * total_frames) on a
         # long session (caught in code review).
+        # [start, end), except that the window ending on the last frame
+        # includes it.
+        side = "right" if win_end_ms >= end_ms else "left"
         total_lo = int(np.searchsorted(all_ts, start_ms, side="left"))
-        total_hi = int(np.searchsorted(all_ts, win_end_ms, side="left"))
+        total_hi = int(np.searchsorted(all_ts, win_end_ms, side=side))
         total_in_window = total_hi - total_lo
 
         lo = int(np.searchsorted(ts, start_ms, side="left"))
-        hi = int(np.searchsorted(ts, win_end_ms, side="left"))
+        hi = int(np.searchsorted(ts, win_end_ms, side=side))
         valid_count = hi - lo
         valid_fraction = (valid_count / total_in_window) if total_in_window > 0 else 0.0
 
@@ -500,9 +500,33 @@ def _compute_windows(
                 "valid_frame_fraction": round(valid_fraction, 3),
             }
         )
-        start_ms += hop_ms
 
     return windows
+
+
+def window_spans(
+    first_ms: float, last_ms: float, window_ms: float, hop_ms: float
+) -> list[tuple[float, float]]:
+    """The analysis windows of a recording from `first_ms` to `last_ms`: every
+    `hop_ms`, `window_ms` long, all inside the recording, the last one ending
+    on its last frame or at most half a hop before it. A recording shorter
+    than one window is one window.
+
+    Windows used to run on past the end, so the last few held only a few
+    seconds of data (a 22 s recording with 10 s windows got estimates from 6,
+    4 and 2 s of signal) and were drawn past the end of the video.
+    """
+    if last_ms - first_ms <= window_ms:
+        return [(first_ms, last_ms)]
+    spans = []
+    start = first_ms
+    while start + window_ms <= last_ms + 1e-6:
+        spans.append((start, start + window_ms))
+        start += hop_ms
+    # One more ending on the last frame, unless the last one nearly does.
+    if last_ms - spans[-1][1] > hop_ms / 2:
+        spans.append((last_ms - window_ms, last_ms))
+    return spans
 
 
 def _write_results(
@@ -581,4 +605,12 @@ def main() -> None:
 
 
 if __name__ == "__main__":
+    # Started from a terminal, Windows' console code page cannot print the
+    # arrows and other characters in this script's messages; inside MOSAIC
+    # PYTHONIOENCODING already makes it UTF-8.
+    for _stream in (sys.stdout, sys.stderr):
+        try:
+            _stream.reconfigure(encoding="utf-8")
+        except (AttributeError, ValueError):
+            pass
     main()

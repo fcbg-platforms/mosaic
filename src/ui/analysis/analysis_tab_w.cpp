@@ -272,6 +272,8 @@ struct NamedSeries {
     QColor color;
     QVector<QPointF> points; ///< x in ms, like every other setter.
     bool showPoints = false;
+    bool inLegend   = true; ///< false: another piece of a series already listed
+    int width       = 2;    ///< line width, px
 };
 
 class MetricsChartW : public QChartView {
@@ -493,7 +495,7 @@ class MetricsChartW : public QChartView {
         for (const auto& ns : series) {
             auto* s = new QLineSeries();
             s->setName(ns.name);
-            s->setPen(QPen(ns.color, 2));
+            s->setPen(QPen(ns.color, ns.width));
             s->setPointsVisible(ns.showPoints);
             for (const auto& p : ns.points) {
                 const double tSec = p.x() / 1000.0;
@@ -503,6 +505,11 @@ class MetricsChartW : public QChartView {
                 maxY = std::max(maxY, p.y());
             }
             add_subject_series(s);
+            if (!ns.inLegend) {
+                for (QLegendMarker* m : chart()->legend()->markers(s)) {
+                    m->setVisible(false);
+                }
+            }
         }
         apply_ranges(minY <= maxY, minY, maxY, maxT);
     }
@@ -4862,15 +4869,33 @@ void AnalysisTabW::update_rppg_view() {
     const QString metric = d->rppgMetricCombo->currentData().toString();
     // Smoothing applies to the windowed series only.
     d->rppgShowSmoothedCheck->setEnabled(metric == "windows");
-    const double lastAnalyzedMs = static_cast<double>(result.windows().last().endMs - t0);
+    // The axis spans the video (its last frame), like every other chart here;
+    // windows used to be allowed past the end and set it.
+    const double lastAnalyzedMs =
+        result.frames().isEmpty() ? static_cast<double>(result.windows().last().endMs - t0)
+                                  : static_cast<double>(result.frames().last().timestampMs - t0);
     QVector<QPointF> points;
     if (metric == "beats") {
+        // Every detected beat, and over it the ones that passed the clean-beat
+        // (NN) check. When none passed (short or noisy recordings) the line of
+        // all beats still shows the rate, rather than an empty chart.
+        QVector<QPointF> all;
         for (const auto& iv : result.intervals()) {
-            if (iv.nn && iv.ibiMs > 0.0) {
-                points.append(QPointF(static_cast<double>(iv.tMs - t0), 60000.0 / iv.ibiMs));
+            if (iv.ibiMs <= 0.0) {
+                continue;
+            }
+            const QPointF p(static_cast<double>(iv.tMs - t0), 60000.0 / iv.ibiMs);
+            all.append(p);
+            if (iv.nn) {
+                points.append(p);
             }
         }
-        d->chart->set_single_series(points, "BPM", "Beat to beat", lastAnalyzedMs);
+        QVector<NamedSeries> series;
+        series.append({"All detected beats", QColor("#6a5a80"), all, true, true, 1});
+        if (!points.isEmpty()) {
+            series.append({"Clean beats", QColor("#ff5577"), points, true, true, 2});
+        }
+        d->chart->set_named_series(series, "BPM", lastAnalyzedMs);
     } else if (metric == "rmssd") {
         for (const auto& w : result.hrv_windows()) {
             if (!std::isnan(w.rmssdMs)) {
@@ -4880,18 +4905,42 @@ void AnalysisTabW::update_rppg_view() {
         d->chart->set_single_series(points, "RMSSD (ms)", "RMSSD, 60 s", lastAnalyzedMs);
     } else {
         const bool showSmoothed = d->rppgShowSmoothedCheck->isChecked();
-        points.reserve(result.windows().size());
-        for (const auto& win : result.windows()) {
-            // Plotted at the window's midpoint, the conventional way to
-            // represent a sliding-window estimate.
-            const double bpm = showSmoothed ? win.smoothedBpm : win.bpm;
+        // Each window's estimate is drawn as a step over the stretch it
+        // stands for: from halfway to the previous window's centre to halfway
+        // to the next, the first reaching back to its window's start and the
+        // last on to its end. Plotted at centres only, a 10 s window left the
+        // first and last 5 s of every recording blank. A window with no
+        // estimate leaves its stretch empty (never filled in).
+        const auto& wins = result.windows();
+        QVector<NamedSeries> series;
+        QVector<QPointF> run;
+        const QColor color("#ff5577");
+        const QString name = showSmoothed ? "Smoothed BPM" : "BPM (each window)";
+        auto flush         = [&] {
+            if (!run.isEmpty()) {
+                series.append({name, color, run, false, series.isEmpty(), 2});
+                run.clear();
+            }
+        };
+        for (int i = 0; i < wins.size(); ++i) {
+            const double bpm = showSmoothed ? wins[i].smoothedBpm : wins[i].bpm;
             if (std::isnan(bpm)) {
+                flush();
                 continue;
-            } // no reliable estimate this window — skip, don't fabricate
-            points.append(QPointF((win.startMs + win.endMs) / 2.0 - t0, bpm));
+            }
+            const double centre = (wins[i].startMs + wins[i].endMs) / 2.0 - t0;
+            const double from =
+                i == 0 ? static_cast<double>(wins[i].startMs - t0)
+                       : (centre + ((wins[i - 1].startMs + wins[i - 1].endMs) / 2.0 - t0)) / 2.0;
+            const double to =
+                i + 1 == wins.size()
+                    ? lastAnalyzedMs // the last window ends at most half a hop before
+                    : (centre + ((wins[i + 1].startMs + wins[i + 1].endMs) / 2.0 - t0)) / 2.0;
+            run.append(QPointF(std::max(0.0, from), bpm));
+            run.append(QPointF(std::min(lastAnalyzedMs, to), bpm));
         }
-        d->chart->set_single_series(points, "BPM", showSmoothed ? "Smoothed BPM" : "Raw BPM",
-                                    lastAnalyzedMs);
+        flush();
+        d->chart->set_named_series(series, "BPM", lastAnalyzedMs);
     }
     d->chart->set_title(QString("Heart rate — %1").arg(result.backend().toUpper()));
     d->chart->set_playhead_ms(d->player->position_ms());

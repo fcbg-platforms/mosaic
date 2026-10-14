@@ -294,4 +294,12 @@ def main() -> None:
 
 
 if __name__ == "__main__":
+    # Started from a terminal, Windows' console code page cannot print the
+    # arrows and other characters in this script's messages; inside MOSAIC
+    # PYTHONIOENCODING already makes it UTF-8.
+    for _stream in (sys.stdout, sys.stderr):
+        try:
+            _stream.reconfigure(encoding="utf-8")
+        except (AttributeError, ValueError):
+            pass
     main()
