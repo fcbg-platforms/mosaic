@@ -4,6 +4,7 @@
 
 #include "auth/profile_manager.hpp"
 #include "core/application.hpp"
+#include "core/data_root.hpp"
 #include "ui/auth/admin_panel_dialog.hpp"
 #include "ui/auth/login_dialog.hpp"
 #include "ui/style.hpp"
@@ -130,6 +131,15 @@ int main(int argc, char* argv[]) {
     }
 #endif
     app.setStyleSheet(mosaic::dark_stylesheet());
+
+    // Relative recording folders ("./recordings/<profile>") mean the data
+    // folder whichever way MOSAIC was started (core/data_root.hpp): started
+    // from the build output, they used to land inside build\.
+    {
+        const QString root = mosaic::data_root();
+        QDir().mkpath(root);
+        QDir::setCurrent(root);
+    }
 
     mosaic::ProfileManager profileMgr;
     profileMgr.load();

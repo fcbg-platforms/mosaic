@@ -374,12 +374,20 @@ if ($hfToken) {
 # Storage
 # ---------------------------------------------------------------------------
 Write-Section "Storage"
+# Sessions recorded before MOSAIC fixed its data folder could land inside the
+# build output, which a rebuild deletes. MOSAIC offers to move them at login.
+$stranded = @(Get-ChildItem (Join-Path $repo "build") -Recurse -Filter session_meta.json -ErrorAction SilentlyContinue |
+    Where-Object { $_.FullName -match '[\\/]recordings[\\/]' -and $_.Directory.Name -notmatch '\.(partial|removing)$' })
+if ($stranded.Count -gt 0) {
+    $where = ($stranded | ForEach-Object { ($_.FullName -split '[\\/]recordings[\\/]')[0] + '\recordings' } | Sort-Object -Unique) -join ", "
+    Add-Result "Storage" "WARN" "Recordings in build folder" "$($stranded.Count) session(s) in $where, where a rebuild deletes them. Log in to MOSAIC (as an admin to move every profile's) and accept the offer to move them"
+}
 $recDir = [string](Get-Prop $record "directory" "")
 if (-not $recDir) {
     Add-Result "Storage" "WARN" "Recordings folder" "not set in the settings"
 } else {
-    # A relative folder is relative to where MOSAIC starts: the repository
-    # when it is run from a build here.
+    # A relative folder is relative to MOSAIC's data folder: the checkout
+    # it runs from (src/core/data_root.hpp).
     if (-not [System.IO.Path]::IsPathRooted($recDir)) { $recDir = Join-Path $repo $recDir }
     $recDir = [System.IO.Path]::GetFullPath($recDir)
     $existing = $recDir

@@ -67,9 +67,10 @@ Recording access control (admin vs. per-user)
 --------------------------------------------------
 
 Beyond isolated *settings*, each profile also gets its own isolated
-**recordings** folder: ``recordings/<username>/`` (resolved relative to
-wherever the app is running from), seeded automatically the first time a
-brand-new profile logs in. This is a real filesystem boundary, not just a
+**recordings** folder: ``recordings/<username>/`` in MOSAIC's data folder
+(the checkout it runs from, such as ``D:\mosaic``; ``Documents\MOSAIC`` for
+an installed copy), however MOSAIC is started, seeded automatically the first
+time a brand-new profile logs in. This is a real filesystem boundary, not just a
 display filter; see :doc:`recording`'s session-layout section for the
 full folder tree.
 
