@@ -155,6 +155,38 @@ serial of each camera). ``scripts/setup_nic_cameras.ps1`` reads the same file
 to apply the port settings, as administrator. On a new PC or in a new room,
 edit the map first.
 
+Checking a test recording
+-------------------------
+
+``analysis/run_session_check.py`` reads one or more recorded sessions and
+reports, as PASS / WARN / FAIL lines, what a test recording is judged on:
+
+- whether the session ended cleanly (or crashed, or is being recorded now;
+  sessions from before MOSAIC tracked this say "unknown");
+- for each camera: frames recorded, achieved frame rate, the pixel format it
+  really sent, and **frames missed against the trigger** (from Frame Sync
+  Repair's ``synced/sync_repair.json`` when it lined the cameras up on the
+  trigger ticks, else trigger ticks fired against frames recorded, allowing
+  up to two for the ends of the recording);
+- the trigger log: ticks fired, ticks per second and the trigger rate used;
+- whether the synced videos are all the same length, every camera's
+  timestamps have the exposure column, and each microphone has a steady
+  audio-timing file;
+- what the pre-recording check warned about, if the session was recorded
+  anyway.
+
+.. code-block:: powershell
+
+   analysis\.venv\Scripts\python.exe analysis\run_session_check.py recordings\guest --latest 4
+
+Each argument is a session folder or a folder of sessions (``--latest N``
+keeps the newest N). With several sessions it ends with one table of missed
+frames per camera, session by session, with each session's trigger rate:
+the trigger-rate test (Settings, Video, Camera sync) read in one go. A camera
+missing up to 2% of its frames is a warning, more fails the session.
+``--json FILE`` also writes the results; the exit code is 1 when any session
+fails. It only reads the sessions' files.
+
 Building the documentation
 --------------------------
 
