@@ -4926,6 +4926,7 @@ void AnalysisTabW::update_rppg_view() {
     const int64_t t0     = result.frames().isEmpty() ? result.windows().first().startMs
                                                      : result.frames().first().timestampMs;
     const QString metric = d->rppgMetricCombo->currentData().toString();
+    QString rmssdNote; // why the RMSSD chart is empty, when it is
     // Smoothing applies to the windowed series only.
     d->rppgShowSmoothedCheck->setEnabled(metric == "windows");
     // The axis spans the video (its last frame), like every other chart here;
@@ -4962,6 +4963,15 @@ void AnalysisTabW::update_rppg_view() {
             }
         }
         d->chart->set_single_series(points, "RMSSD (ms)", "RMSSD, 60 s", lastAnalyzedMs);
+        if (points.isEmpty()) {
+            // Say why rather than show an empty chart.
+            rmssdNote = lastAnalyzedMs < 60000.0
+                            ? QString(
+                                  "none: each value needs 60 s of beats, and this video is "
+                                  "%1 s")
+                                  .arg(lastAnalyzedMs / 1000.0, 0, 'f', 0)
+                            : QString("none: no 60 s stretch had 30 clean beat intervals");
+        }
     } else {
         const bool showSmoothed = d->rppgShowSmoothedCheck->isChecked();
         // Each window's estimate is drawn as a step over the stretch it
@@ -4995,13 +5005,23 @@ void AnalysisTabW::update_rppg_view() {
                 i + 1 == wins.size()
                     ? lastAnalyzedMs // the last window ends at most half a hop before
                     : (centre + ((wins[i + 1].startMs + wins[i + 1].endMs) / 2.0 - t0)) / 2.0;
-            run.append(QPointF(std::max(0.0, from), bpm));
-            run.append(QPointF(std::min(lastAnalyzedMs, to), bpm));
+            // Both ends inside the video: results made before windows were
+            // kept inside the recording have windows past its end, which
+            // would otherwise stretch the axis beyond the last frame.
+            const double a = std::clamp(from, 0.0, lastAnalyzedMs);
+            const double b = std::clamp(to, 0.0, lastAnalyzedMs);
+            if (b <= a) {
+                continue;
+            }
+            run.append(QPointF(a, bpm));
+            run.append(QPointF(b, bpm));
         }
         flush();
         d->chart->set_named_series(series, "BPM", lastAnalyzedMs);
     }
-    d->chart->set_title(QString("Heart rate — %1").arg(result.backend().toUpper()));
+    d->chart->set_title(rmssdNote.isEmpty()
+                            ? QString("Heart rate — %1").arg(result.backend().toUpper())
+                            : "RMSSD — " + rmssdNote);
     d->chart->set_playhead_ms(d->player->position_ms());
 
     QStringList parts;
