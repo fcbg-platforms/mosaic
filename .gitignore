@@ -95,3 +95,7 @@ py-coverage.xml
 cpp-coverage.xml
 .coverage
 LastCoverageResults.log
+
+# Model weights ultralytics downloads into the working folder (the checkout,
+# since MOSAIC runs from it)
+/*.pt

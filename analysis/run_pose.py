@@ -33,6 +33,7 @@ import cv2
 import numpy as np
 from pose.depth_estimator import DepthEstimator
 from pose.human_pose import TRACKER_NAME, HumanPoseEstimator
+from pose.identity import stitch_tracks
 from pose.keypoints import COCO_KEYPOINTS, COCO_SKELETON, PoseResult
 
 # ── CLI ───────────────────────────────────────────────────────────────────────
@@ -242,6 +243,13 @@ def process_video(
         f"({frame_idx/elapsed:.1f} fps throughput)",
         flush=True,
     )
+
+    # The tracker gives a person a new id after losing them for a moment
+    # (someone walking past); join those pieces back by place.
+    joined = stitch_tracks(results, fps=fps)
+    if joined:
+        pairs = ", ".join(f"{old} -> {new}" for old, new in sorted(joined.items()))
+        print(f"[run_pose] Same person after a lost track: {pairs}", flush=True)
 
     _write_results(video_path, results, out_format, model_name, output_dir)
 
