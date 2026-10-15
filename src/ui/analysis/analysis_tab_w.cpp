@@ -5284,9 +5284,16 @@ void AnalysisTabW::update_conversation_view() {
     const QString metric  = d->convMetricCombo->currentData().toString();
     const QColor subjectC = QColor("#5ac85a");
     const QColor otherC   = QColor("#3ca0e6");
-    double lastMs         = 0.0;
+    // The axis runs to the end of the signals (the video), not the last
+    // speech: the audio and mouth curves go on after it.
+    double lastMs = 0.0;
     for (const auto& s : r.spurts()) {
         lastMs = std::max(lastMs, s.endMs - t0);
+    }
+    const qsizetype nSignal = std::max(r.audio_db().size(), r.mouth_activity().size());
+    if (nSignal > 0) {
+        lastMs = std::max(lastMs, r.signal_start_ms() +
+                                      static_cast<double>(nSignal - 1) * r.signal_step_ms() - t0);
     }
 
     if (metric == "speaking") {

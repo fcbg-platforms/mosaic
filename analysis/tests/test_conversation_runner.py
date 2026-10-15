@@ -22,6 +22,7 @@ FPS = 50.0
 SESSION_START_NS = 5_000_000_000
 AUDIO_START_NS = SESSION_START_NS + 40_000_000  # audio really starts 40 ms later
 VIDEO_START_NS = SESSION_START_NS + 120_000_000
+MOUTH_LEAD_S = 0.15  # the jaw leads the voice
 
 # (speaker, start_s, end_s) in audio time. "S" is on camera.
 SCRIPT = [("I", 1.0, 4.0), ("S", 4.5, 9.0), ("I", 8.6, 11.0), ("S", 11.8, 15.0)]
@@ -75,7 +76,8 @@ def _make_session(root: Path, diarized: bool) -> None:
     mouth = 0.05 + rng.normal(0, 0.005, n_frames)
     for who, a, b in SCRIPT:
         if who == "S":
-            sel = (ta >= a) & (ta < b)
+            # The mouth moves just before the sound, as real speech does.
+            sel = (ta >= a - MOUTH_LEAD_S) & (ta < b - MOUTH_LEAD_S)
             mouth[sel] += 0.25 * np.abs(np.sin(2 * np.pi * 2.5 * ta[sel]))
     writer = cv2.VideoWriter(
         str(root / "video" / "video_0.mp4"), cv2.VideoWriter_fourcc(*"mp4v"), FPS, (64, 48)

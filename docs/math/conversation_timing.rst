@@ -90,14 +90,27 @@ window. A held smile or an open mouth at rest has no activity.
 
 **Threshold.** While nobody speaks, the subject cannot be speaking, so mouth
 activity during silence is this person's non-speech movement. The threshold
-is its 95th percentile. Silence within 0.5 s of speech is left out, because
-the window reaches into the speech. A conversation with less than 2 s of such
+is its median plus three robust standard deviations (1.4826 times the median
+absolute deviation), and at least twice the median. A median and spread
+rather than a high percentile, because silence often holds a few smiles,
+laughs or a hand at the chin: a high percentile lands on those, above the
+subject's own talking, and every word then goes to the other speaker. Silence
+within 0.5 s of speech is left out, because the window reaches into the
+speech. A conversation with less than 2 s of such
 silence falls back to Otsu's method instead: the activity during speech is
 split into two groups (the subject's speech and the other's), provided the
 groups' mean log activities differ by at least 1. Activity above the
 threshold is "mouth moving". Above twice the threshold it is "strongly
 moving". Both masks are then shrunk by half the window (0.2 s) at each end,
-which puts their edges back where the mouth started and stopped.
+which puts their edges back where the mouth started and stopped, but never
+below 0.2 s: activity just above the threshold barely spreads, and shrinking
+it in full deleted short words ("yes", a name); "mouth moving" stretches
+under 0.2 s are dropped, and "strongly moving" counts only inside "mouth
+moving". Last, each "mouth moving" stretch is lengthened by 0.15 s at its
+end. The jaw and lips move 0.1 to 0.3 s before
+the sound they make, so the mouth and the voice of the same word overlap
+only partly; seen side by side in the charts, the mouth curve rises a
+little before the audio.
 
 **With diarization.** If Speaker Diarization ran (``audio/<name>.transcript.json``
 has speaker labels), each label gets a score: the share of its speech, with
@@ -119,7 +132,7 @@ instead. With a matched label:
 - speech with the mouth moving is the subject's;
 - speech with the mouth still, face in view, is the other's;
 - a switch shorter than 0.25 s inside continuous speech goes back to the
-  speaker around it;
+  speaker around it, when that speaker's stretch is longer;
 - speech overlap cannot be seen, since only one label is possible per
   moment.
 
@@ -212,8 +225,10 @@ times, and a mouth signal that moves with the subject's speech.
   They are taken from the speech detector's edges.
 - **Overlaps** need diarization. Their edges come from where the diarized
   segments start and end, so they are typically 0.1 to 0.2 s short.
-- **No real interview has been checked yet.** The rules and thresholds are
-  population defaults.
+- **Checked on two short real recordings only** (17 and 22 s, a rest task
+  with a few spoken exchanges), against what the video shows. The rules and
+  thresholds are otherwise population defaults; a full interview still needs
+  checking.
 - **One microphone**: the first ``audio/*.wav`` unless ``--audio`` names
   another.
 - **One face per camera.** In a room recording, each camera's analysis is
