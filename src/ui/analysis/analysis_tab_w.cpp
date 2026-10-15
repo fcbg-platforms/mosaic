@@ -1101,6 +1101,11 @@ struct AnalysisTabW::Impl {
     // analysis_finished() skips the "Done."/"Failed" status text — it would
     // otherwise be shown against the now-selected (different) plugin's view.
     QString jobPlugin;
+    // The running job replaces a video this tab can show (an annotated,
+    // synced or depth video): the player keeps off it until the job ends,
+    // since on Windows a file open in the player cannot be replaced.
+    QString jobSession;
+    bool jobWritesVideo = false;
 
     Impl(AppSettings& s, AnalysisManager* mgr, const QStringList& extraDirs = {})
         : settings(s), analysisMgr(mgr), extraDirectories(extraDirs) {}
@@ -1254,12 +1259,21 @@ AnalysisTabW::AnalysisTabW(AppSettings& settings, AnalysisManager* analysisMgr,
         d->statusLbl->setStyleSheet("color:#cc4444; font-size:15px; font-weight:600;");
         d->runBtn->setEnabled(true);
         d->runVoiceBtn->setEnabled(true);
+        // The job never started: show the video run_analysis() let go of.
+        if (d->jobWritesVideo) {
+            d->jobWritesVideo = false;
+            if (d->currentSessionPath == d->jobSession && d->currentPlugin == d->jobPlugin) {
+                reload_current_camera_result();
+            }
+        }
     });
     connect(analysisMgr, &AnalysisManager::analysis_finished, this,
             [this](const QString& path, bool success) {
                 d->runBtn->setEnabled(true);
                 d->runVoiceBtn->setEnabled(true);
                 d->progressBar->setVisible(false);
+                const bool videoReleased = d->jobWritesVideo;
+                d->jobWritesVideo        = false;
                 d->cameraProgressBar->setVisible(false);
                 if (!d->jobIsMine) {
                     return;
@@ -1277,6 +1291,9 @@ AnalysisTabW::AnalysisTabW(AppSettings& settings, AnalysisManager* analysisMgr,
                 if (path == d->currentSessionPath) {
                     if (success) {
                         rebuild_session_list();
+                    } else if (videoReleased && d->currentPlugin == d->jobPlugin) {
+                        // run_analysis() released the video; show it again.
+                        reload_current_camera_result();
                     }
                     // Also on failure, and that is the point: a run that dies
                     // partway can still have written output for some cameras,
@@ -3241,6 +3258,19 @@ bool AnalysisTabW::is_pose_depth_selected() const {
 }
 
 void AnalysisTabW::reload_current_camera_result() {
+    load_camera_result_view();
+    // Choosing another camera, plugin or session and coming back while a job
+    // writes this view's video would open the old file again and make the
+    // job fail to replace it.
+    if (d->jobWritesVideo && d->analysisMgr->is_running() &&
+        d->currentSessionPath == d->jobSession && d->currentPlugin == d->jobPlugin) {
+        d->player->set_video(QString());
+        d->statusLbl->setText("Running: the video shows again when the run ends.");
+        d->statusLbl->setStyleSheet("color:#aaaaaa; font-size:15px;");
+    }
+}
+
+void AnalysisTabW::load_camera_result_view() {
     const auto* info = d->current_session();
     d->reset_all_results();
 
@@ -5682,7 +5712,16 @@ void AnalysisTabW::run_analysis() {
         }
     }
 
-    d->jobPlugin = plugin;
+    d->jobPlugin  = plugin;
+    d->jobSession = d->currentSessionPath;
+    // Let go of the video on show when this run replaces it (see
+    // jobWritesVideo). The view reloads when the run ends.
+    static const QStringList kVideoWriters = {"conversation", "eye_contact", "face_dynamics",
+                                              "face_mask",    "gaze_fusion", "sync_repair"};
+    d->jobWritesVideo = kVideoWriters.contains(plugin) || is_pose_depth_selected();
+    if (d->jobWritesVideo) {
+        d->player->set_video(QString());
+    }
     if (plugin == "pose") {
         d->analysisMgr->set_model(d->modelCombo->currentData().toString());
         d->analysisMgr->set_frame_skip(d->skipSpin->value());

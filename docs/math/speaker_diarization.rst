@@ -14,6 +14,13 @@ this page covers only the pure combination step.
 Max-overlap interval assignment
 ------------------------------------
 
+Segment times come from word timestamps. Whisper's own segment times often
+snap to whole seconds and can be up to a second away from where the speech
+starts and ends, so each segment runs instead from its first word's start
+to its last word's end (faster-whisper's ``word_timestamps``, aligned from
+the model's attention). Transcripts made before this change keep the
+whole-second times until diarization is run again.
+
 Given a transcribed segment :math:`w = [w_s, w_e]` (from faster-whisper)
 and a set of speaker turns :math:`\{t^{(j)} = [t^{(j)}_s, t^{(j)}_e]\}`
 (from pyannote.audio), each carrying a speaker label, the overlap between
