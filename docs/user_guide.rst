@@ -869,7 +869,11 @@ sitting alongside **Live**. The workflow is always the same shape:
       windowed rate is drawn as steps covering the whole video, each step
       the rate of the window around it; gaps are windows without a
       reliable face. The beat-to-beat view shows every detected beat in a
-      dim line and, over it, the clean beats used for HRV. Camera
+      dim line and, over it, the clean beats used for HRV. Beats need at
+      least 10 s of face without a break of over half a second, so a
+      stretch where the face was hidden, and a short stretch around it,
+      has no beats. RMSSD needs 60 s of beats per value: a shorter
+      recording has none, and the chart title says so. Camera
       timing noise inflates HRV. The plugin measures that noise by finding
       the beats separately in the two halves of the face, and the stats
       line gives the noise-corrected RMSSD next to the raw one. HRV is not
