@@ -26,8 +26,11 @@ import numpy as np
 
 #: Mouth activity window, seconds: a few syllables.
 ACTIVITY_WINDOW_S = 0.4
-#: The speaking threshold is this percentile of activity during silence.
-SILENCE_PERCENTILE = 95.0
+#: The speaking threshold sits this many robust standard deviations
+#: (1.4826 x the median absolute deviation) above the median activity during
+#: silence, and at least SILENCE_MIN_RATIO times that median.
+SILENCE_SPREAD = 3.0
+SILENCE_MIN_RATIO = 2.0
 #: Silence this close to speech is not used for the threshold, seconds.
 SILENCE_MARGIN_S = 0.5
 #: Fallback split: the two classes' mean log activity must differ by this
@@ -35,6 +38,10 @@ SILENCE_MARGIN_S = 0.5
 OTSU_MIN_SEPARATION = 1.0
 #: Visual speaking: fill gaps and drop bursts shorter than these, seconds.
 VIS_FILL_S, VIS_MIN_S = 0.3, 0.2
+#: The mouth moves before the sound it makes (jaw and lips lead the voice by
+#: about 0.1 to 0.3 s), so mouth movement still counts this long after it
+#: stops, seconds.
+MOUTH_LEAD_S = 0.15
 #: Activity this many times the threshold is speaking even over another voice.
 STRONG_FACTOR = 2.0
 #: A diarized label is the subject when the mouth moves during this share of
@@ -89,18 +96,32 @@ def mouth_activity(mouth_grid, hop_s: float, window_s: float = ACTIVITY_WINDOW_S
 
 
 def speaking_threshold(activity, speech_mask, hop_s: float = 0.01) -> float | None:
-    """Activity above which the mouth moves like speech: a high percentile
-    of the activity while nobody speaks. Silence within
-    :data:`SILENCE_MARGIN_S` of speech is left out (the activity window
-    reaches into the speech). ``None`` without enough silence with the face
-    in view (at least 2 s)."""
+    """Activity above which the mouth moves like speech: well above the
+    usual activity while nobody speaks (median plus :data:`SILENCE_SPREAD`
+    robust standard deviations). Silence within :data:`SILENCE_MARGIN_S` of
+    speech is left out (the activity window reaches into the speech).
+    ``None`` without enough silence with the face in view (at least 2 s).
+
+    A median and spread, not a high percentile: silence often holds a few
+    smiles, laughs or a hand at the chin. A high percentile lands on those,
+    above the subject's own talking, and every word then went to the other
+    speaker. They are outliers to the median and the median absolute
+    deviation."""
     a = np.asarray(activity, dtype=np.float64)
     speech = np.asarray(speech_mask, dtype=bool)
     reach = int(round(SILENCE_MARGIN_S / hop_s))
     near = np.convolve(speech.astype(np.int32), np.ones(2 * reach + 1, np.int32), mode="same") > 0
     quiet = ~near & np.isfinite(a)
     if quiet.sum() >= 200:
-        return float(np.percentile(a[quiet], SILENCE_PERCENTILE))
+        q = a[quiet]
+        med = float(np.median(q))
+        spread = 1.4826 * float(np.median(np.abs(q - med)))
+        thr = max(med + SILENCE_SPREAD * spread, SILENCE_MIN_RATIO * med)
+        if thr <= 0.0:
+            # A face still to the last digit for most of the silence (median
+            # and spread both 0): any noise would pass a zero threshold.
+            thr = float(np.percentile(q, 95.0))
+        return thr if thr > 0.0 else None
     # Too little silence (a dense conversation): split the activity during
     # speech into "mouth moving" and "mouth still" instead.
     talk = speech & np.isfinite(a) & (a > 0)
@@ -182,6 +203,8 @@ def _absorb_short_flips(subject: np.ndarray, other: np.ndarray, hop_s: float):
                 left = pieces[k - 1] if k > 0 else None
                 right = pieces[k + 1] if k + 1 < len(pieces) else None
                 nb = max((x for x in (left, right) if x), key=lambda x: x[1] - x[0])
+                if nb[1] - nb[0] <= b - a:
+                    continue  # only a longer neighbour takes a short run over
                 seg[a:b] = seg[nb[0]]
                 changed = True
         if not changed:
@@ -189,12 +212,22 @@ def _absorb_short_flips(subject: np.ndarray, other: np.ndarray, hop_s: float):
     return label == 1, label == 2
 
 
-def _erode(mask: np.ndarray, n: int) -> np.ndarray:
-    """Shrink every true run by ``n`` samples at each end."""
+def _erode(mask: np.ndarray, n: int, keep: int = 0) -> np.ndarray:
+    """Shrink every true run by ``n`` samples at each end, but leave at
+    least ``keep`` samples of it (a run already shorter stays as it is)."""
+    from .vad import runs
+
     if n <= 0:
         return mask
-    off = np.convolve((~mask).astype(np.int32), np.ones(2 * n + 1, np.int32), mode="same")
-    return mask & (off == 0)
+    out = np.zeros_like(mask)
+    for i0, i1 in runs(mask):
+        cut = min(n, max(0, (i1 - i0 - keep) // 2))
+        # A run reaching the start or end of the recording did not spread
+        # past it, so that side stays.
+        lo = i0 + cut if i0 > 0 else i0
+        hi = i1 - cut if i1 < len(mask) else i1
+        out[lo:hi] = True
+    return out
 
 
 def visual_speaking(activity, threshold: float, hop_s: float) -> tuple[np.ndarray, np.ndarray]:
@@ -203,15 +236,37 @@ def visual_speaking(activity, threshold: float, hop_s: float) -> tuple[np.ndarra
 
     The activity window reaches half its width past each end of a stretch of
     speech, so both masks are shrunk by that much to put their edges back
-    where the mouth started and stopped.
+    where the mouth started and stopped. ``speaking`` is then lengthened at
+    the end by :data:`MOUTH_LEAD_S`, since the sound comes after the mouth
+    movement that makes it; ``strong`` is kept inside ``speaking``, with no
+    tail. A short stretch keeps at least
+    :data:`VIS_MIN_S`: activity only just above the threshold barely
+    spreads, and shrinking it in full deleted every short word ("yes",
+    a name).
     """
     a = np.asarray(activity, dtype=np.float64)
     seen = np.isfinite(a)
     half = int(round(ACTIVITY_WINDOW_S / 2.0 / hop_s))
+    keep = int(round(VIS_MIN_S / hop_s))
+    lead = int(round(MOUTH_LEAD_S / hop_s))
     above = seen & (np.where(seen, a, 0.0) > threshold)
-    speaking = _clean(_erode(above, half), hop_s)
-    strong = _erode(seen & (np.where(seen, a, 0.0) > STRONG_FACTOR * threshold), half)
-    return speaking & seen, strong
+    speaking = _extend_ends(_clean(_erode(above, half, keep), hop_s), lead)
+    # Strong movement is a part of speaking (so a brief nod is not talking
+    # over someone), and gets no tail: it decides overlap with another
+    # voice, where a tail would run into the next speaker's turn.
+    strong = _erode(seen & (np.where(seen, a, 0.0) > STRONG_FACTOR * threshold), half, keep)
+    return speaking & seen, strong & speaking & seen
+
+
+def _extend_ends(mask: np.ndarray, n: int) -> np.ndarray:
+    """Lengthen every true run by ``n`` samples at its end (the sound
+    goes on after the mouth movement that made it)."""
+    from .vad import runs
+
+    out = mask.copy()
+    for _, i1 in runs(mask):
+        out[i1 : i1 + n] = True
+    return out
 
 
 def labels_on_grid(segments, grid_s, offset_s: float = 0.0) -> np.ndarray:

@@ -170,6 +170,59 @@ def test_speaking_threshold_comes_from_silence_and_attribution_follows_the_mouth
     assert not who["subject"][(g > 5.5) & (g < 7.5)].any()
 
 
+def test_smiles_in_the_silence_do_not_hide_the_subject_talking():
+    # Real short recordings: the silence holds a few smiles and a hand at the
+    # chin, bigger than the subject's quiet talking. A high percentile of the
+    # silence landed on those and gave every word to the other speaker.
+    g = np.arange(0, 20, 0.01)
+    subject_talks = (g >= 12) & (g < 14)
+    speech = subject_talks | ((g >= 3) & (g < 5))  # the other speaks 3-5 s
+    rng = np.random.default_rng(7)
+    activity = 0.004 + np.abs(rng.normal(0, 0.003, len(g)))
+    activity[subject_talks] = 0.08
+    for s0 in (0.3, 7.0, 16.0):  # smiles while nobody speaks
+        activity[(g >= s0) & (g < s0 + 0.5)] = 0.18
+    thr = spk.speaking_threshold(activity, speech)
+    assert thr < 0.04
+    vis, strong = spk.visual_speaking(activity, thr, 0.01)
+    who = spk.attribute(speech, np.ones(len(g), bool), vis, strong)
+    assert who["subject"][(g > 12.3) & (g < 13.7)].all()
+    assert who["other"][(g > 3.3) & (g < 4.7)].all()
+
+
+def test_a_short_word_after_the_mouth_moves_is_the_subjects():
+    # "Margot": the jaw moves 4.20-4.45 s, the sound comes 4.35-4.60 s. The
+    # mouth leads the voice, and a stretch this short used to be shrunk away.
+    g = np.arange(0, 20, 0.01)
+    speech = (g >= 4.35) & (g < 4.6)
+    rng = np.random.default_rng(8)
+    activity = 0.004 + np.abs(rng.normal(0, 0.002, len(g)))
+    activity[(g >= 4.2) & (g < 4.45)] = 0.05
+    thr = spk.speaking_threshold(activity, speech)
+    vis, strong = spk.visual_speaking(activity, thr, 0.01)
+    who = spk.attribute(speech, np.ones(len(g), bool), vis, strong)
+    assert who["subject"][speech].mean() > 0.9
+
+
+def test_a_brief_nod_is_not_talking_over_the_other():
+    g = np.arange(0, 20, 0.01)
+    speech = (g >= 5) & (g < 9)
+    rng = np.random.default_rng(9)
+    activity = 0.004 + np.abs(rng.normal(0, 0.002, len(g)))
+    activity[(g >= 6.0) & (g < 6.05)] = 0.06  # a nod while the other talks
+    thr = spk.speaking_threshold(activity, speech)
+    vis, strong = spk.visual_speaking(activity, thr, 0.01)
+    assert not strong.any() and not vis.any()
+
+
+def test_a_face_still_to_the_last_digit_gets_no_zero_threshold():
+    speech = np.zeros(1000, bool)
+    activity = np.zeros(1000)
+    activity[::7] = 1e-4
+    assert spk.speaking_threshold(activity, speech) == pytest.approx(1e-4)
+    assert spk.speaking_threshold(np.zeros(1000), speech) is None
+
+
 def test_diarized_labels_are_matched_and_then_decide():
     g, speech, activity = _scene()
     thr = spk.speaking_threshold(activity, speech)
