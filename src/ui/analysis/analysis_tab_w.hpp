@@ -98,6 +98,7 @@ class AnalysisTabW : public QWidget {
     /// run_analysis() so a spectrogram never costs a re-transcription.
     void run_voice_analysis();
     void reload_current_camera_result();
+    void load_camera_result_view();
     void update_kinematics_chart();
     void export_kinematics_csv();
     void rebuild_subject_chips(const QVector<SubjectChoice>& subjects);

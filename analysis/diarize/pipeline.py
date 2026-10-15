@@ -236,11 +236,26 @@ def transcribe_audio(
     tuple of (list of WhisperSegment, str)
         ``(segments, detected_language)``.
     """
-    segments_iter, info = model.transcribe(str(audio_path), language=language or None)
+    # Whisper's own segment times often snap to whole seconds, up to a second
+    # off where the speech really starts and ends. Word timestamps (aligned
+    # from the model's attention) give the real boundaries: a segment runs
+    # from its first word's start to its last word's end.
+    segments_iter, info = model.transcribe(
+        str(audio_path), language=language or None, word_timestamps=True
+    )
     segments: list[WhisperSegment] = [
-        {"start": seg.start, "end": seg.end, "text": seg.text.strip()} for seg in segments_iter
+        {**segment_bounds(seg), "text": seg.text.strip()} for seg in segments_iter
     ]
     return segments, info.language
+
+
+def segment_bounds(seg) -> dict[str, float]:
+    """A transcribed segment's start and end in seconds: its first word's
+    start to its last word's end, else the segment's own times."""
+    words = [w for w in (getattr(seg, "words", None) or []) if w.end > w.start]
+    if not words:
+        return {"start": seg.start, "end": seg.end}
+    return {"start": words[0].start, "end": words[-1].end}
 
 
 # ── Diarization (pyannote.audio) ──────────────────────────────────────────────

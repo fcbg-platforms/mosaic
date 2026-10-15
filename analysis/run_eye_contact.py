@@ -35,6 +35,7 @@ import traceback
 from pathlib import Path
 
 import numpy as np
+from video_publish import publish_video
 
 TAG = "[run_eye_contact]"
 SCHEMA = "mosaic-eye-contact-v1"
@@ -545,7 +546,7 @@ def render(
     if not done:
         log("The video ended early while drawing; no annotated video.")
         return False
-    partial.replace(out_path)
+    publish_video(partial, out_path)
     return True
 
 

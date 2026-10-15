@@ -23,6 +23,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 import numpy as np
+from video_publish import publish_video
 
 from .head_pose import project_points
 from .ray_math import unit
@@ -325,7 +326,7 @@ def render_camera_video(args) -> tuple[int, str | None]:
         writer.write(out)
     cap.release()
     writer.release()
-    tmp.replace(out_path)
+    publish_video(tmp, out_path)
     return cam_index, None
 
 
@@ -544,7 +545,7 @@ def render_topdown(out_path: Path, data: RenderData) -> None:
         )
         writer.write(frame)
     writer.release()
-    tmp.replace(out_path)
+    publish_video(tmp, out_path)
 
 
 def write_heatmaps(out_dir: Path, data: RenderData) -> list[Path]:

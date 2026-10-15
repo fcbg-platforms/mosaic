@@ -32,6 +32,7 @@ import traceback
 from pathlib import Path
 
 import numpy as np
+from video_publish import publish_video
 
 TAG = "[run_conversation]"
 SCHEMA = "mosaic-conversation-v1"
@@ -620,7 +621,7 @@ def render(video: Path, out_path: Path, frame_ms: np.ndarray, r: dict, progress)
     if not done:
         log("The video ended early while drawing; no annotated video.")
         return False
-    partial.replace(out_path)
+    publish_video(partial, out_path)
     return True
 
 

@@ -26,6 +26,7 @@ from facemask.masking import (
     rasterize_boxes,
 )
 from facemask.segmenters import DEFAULT_SEG_CONF, DEFAULT_SEG_MODEL, make_segmenter
+from video_publish import publish_video
 
 _MARGIN_FRAC = 0.25  # padding around each detected face box; not CLI-exposed
 
@@ -376,7 +377,7 @@ def process_video(
         return False
 
     # Publish only now that the whole video is written.
-    partial_path.replace(out_path)
+    publish_video(partial_path, out_path)
 
     elapsed = time.perf_counter() - t_start
     suffix = f", {error_frames} frame(s) had errors (see above)" if error_frames else ""
