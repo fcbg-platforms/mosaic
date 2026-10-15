@@ -128,9 +128,16 @@ Practical recommendations
       person was not detected is skipped exactly like a low-visibility one,
       using the real elapsed time across the gap.
 
-      What this does not promise: an occlusion longer than the tracker's
-      buffer ends the track, and the same person resumes under a new id, so
-      one physical individual can span several subjects. Each stats line
+      What this does not promise. The tracker gives a person it lost a new
+      id; after the run, a track that starts at most 5 s after another
+      ended, with their boxes overlapping (intersection over union at least
+      0.4, each the median over its first or last second), is joined to it.
+      The best overlaps are joined first, and a track continues at most one
+      other, so someone walking past on the same spot does not take the
+      hidden person's id when the person's own new track matches better. A
+      longer absence, or a return somewhere else in the picture, still gives
+      a new id, so one physical individual can span several subjects. Live
+      (pipe) mode is not joined. Each stats line
       therefore reports the time span it covers; check it before reading a
       total distance or an average speed as describing a whole recording.
       Ids restart per video, so they are never comparable across cameras.

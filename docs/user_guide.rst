@@ -568,9 +568,13 @@ sitting alongside **Live**. The workflow is always the same shape:
       row at all. Each **Subject** is one *tracked* person, followed across
       frames by BoT-SORT, so "Subject 1" stays the same physical person even
       when the detector reorders its output; the skeleton overlay labels
-      each person so you can watch this directly. Three limits remain:
-      someone who leaves the frame for long enough returns as a *new*
-      Subject (each stats line shows the time span it actually covers, so a
+      each person so you can watch this directly. When the tracker loses
+      someone for a moment (a person walking past in front of them) and
+      picks them up again under a new id, the pieces are joined back: a
+      track that starts within 5 s of another's end, in the same place,
+      keeps that track's Subject number. Three limits remain: someone who
+      leaves the frame for long enough, or comes back somewhere else,
+      returns as a *new* Subject (each stats line shows the time span it actually covers, so a
       fragment is not mistaken for a whole recording); subject ids are
       per-video, so they are never comparable between cameras or between
       re-runs; and a chip marked *(untracked)*, drawn with a dashed border,
@@ -1109,8 +1113,9 @@ Tips and troubleshooting
 
       **Pose** tracks identity across frames (BoT-SORT), and **3D Pose
       Reconstruction** does its own nearest-centroid matching per tick, but
-      neither is a guarantee: a long occlusion ends a track, and the person
-      returns under a new id. The two numbering systems are also unrelated,
+      neither is a guarantee. Pose joins a track back to one that ended up to
+      5 s earlier in the same place, so a person briefly hidden keeps their
+      Subject; a longer absence, or a return elsewhere, gives a new id. The two numbering systems are also unrelated,
       so Pose's "Subject 2" and the room view's "track 2" are not the same
       label. Ids are per-video and per-run: never comparable between
       cameras, or between two analyses of the same footage.
