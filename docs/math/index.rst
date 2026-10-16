@@ -71,6 +71,13 @@ conventions, matching
 
       Max-overlap interval assignment between transcript and speaker turns.
 
+   .. grid-item-card:: 🎵 Voice Acoustics
+      :link: voice_acoustics
+      :link-type: doc
+
+      The spectrogram as a time-frequency picture (window, dB scale, image
+      reduction), the pitch track and its clean-up, and intensity.
+
    .. grid-item-card:: 🫥 Face Masking
       :link: face_masking
       :link-type: doc
@@ -126,6 +133,7 @@ conventions, matching
    pose_kinematics
    facial_expression
    speaker_diarization
+   voice_acoustics
    face_masking
    motion_tracking
    pose3d_reconstruction
