@@ -55,6 +55,20 @@ struct ConversationSpeakerStats {
 /// analysis/run_conversation.py (schema mosaic-conversation-v1), for the
 /// Analysis tab's Conversation Timing plugin. Times are elapsed_ms, the
 /// clock of the video's timestamps; videoStartMs is the video's first frame.
+/// Response times binned for a histogram: bin b covers
+/// [loMs + b * binMs, loMs + (b + 1) * binMs). The range covers -1 to +2 s
+/// at least, widened to the data but never beyond -3 and +5 s; the outer
+/// bins also hold everything beyond them. binMs must divide 1000, so the
+/// bins line up with whole seconds.
+struct FtoHistogram {
+    int loMs  = 0;
+    int binMs = 250;
+    QVector<double> toSubject; ///< changes of speaker to the person on camera
+    QVector<double> toOther;
+};
+[[nodiscard]] FtoHistogram fto_histogram(const QVector<ConversationTransition>& transitions,
+                                         int binMs = 250);
+
 class ConversationResult {
    public:
     ConversationResult() = default;

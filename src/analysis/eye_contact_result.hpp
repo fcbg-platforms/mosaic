@@ -34,6 +34,7 @@ struct EyeContactSummary {
     std::optional<double> eyeContactPct;
     std::optional<double> listeningPct; ///< Needs Conversation Timing output.
     std::optional<double> speakingPct;
+    std::optional<double> silencePct; ///< Neither speaks (needs Conversation Timing).
     int aversions = 0;
     std::optional<double> aversionsPerMin;
     std::optional<double> aversionMedianS;

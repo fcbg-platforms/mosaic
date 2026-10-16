@@ -108,4 +108,27 @@ ConversationResult ConversationResult::load(const QString& jsonPath) {
     return r;
 }
 
+FtoHistogram fto_histogram(const QVector<ConversationTransition>& transitions, int binMs) {
+    auto floor_to = [binMs](int v) {
+        return (v >= 0 ? v / binMs : (v - binMs + 1) / binMs) * binMs;
+    };
+    int lo = -1000, hi = 2000;
+    for (const auto& x : transitions) {
+        lo = std::min(lo, floor_to(x.ftoMs));
+        hi = std::max(hi, floor_to(x.ftoMs) + binMs);
+    }
+    FtoHistogram h;
+    h.binMs        = binMs;
+    h.loMs         = std::max(lo, -3000);
+    hi             = std::min(hi, 5000);
+    const int bins = (hi - h.loMs) / binMs;
+    h.toSubject.fill(0.0, bins);
+    h.toOther.fill(0.0, bins);
+    for (const auto& x : transitions) {
+        const int b = std::clamp(floor_to(x.ftoMs - h.loMs) / binMs, 0, bins - 1);
+        (x.to == "subject" ? h.toSubject : h.toOther)[b] += 1.0;
+    }
+    return h;
+}
+
 } // namespace mosaic

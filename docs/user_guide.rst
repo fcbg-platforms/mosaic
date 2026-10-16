@@ -886,10 +886,15 @@ sitting alongside **Live**. The workflow is always the same shape:
       **Beats and heart-rate variability (HRV)**: the plugin also finds
       every heartbeat and reports HRV: RMSSD, SDNN, pNN50 and LF/HF. The
       chart dropdown switches between the windowed heart rate, the
-      beat-to-beat heart rate and RMSSD over a sliding minute. The
-      windowed rate is drawn as steps covering the whole video, each step
-      the rate of the window around it; gaps are windows without a
-      reliable face. The beat-to-beat view shows every detected beat in a
+      beat-to-beat heart rate, RMSSD over a sliding minute, and the signal
+      quality. The windowed rate is drawn as steps covering the whole
+      video, each step the rate of the window around it; gaps are windows
+      without a reliable face. Each step is coloured by its window's pulse
+      signal quality, with the quality badge's tiers: excellent (green, SNR
+      5 dB or more), good (yellow-green, 0 to 5 dB), acceptable (amber, -5
+      to 0 dB) and poor (red: below -5 dB, or the face found in under 60%
+      of the window's frames). Trust the green stretches most. **Signal quality (SNR, dB)** plots that number
+      itself. The beat-to-beat view shows every detected beat in a
       dim line and, over it, the clean beats used for HRV. Beats need at
       least 10 s of face without a break of over half a second, so a
       stretch where the face was hidden, and a short stretch around it,
@@ -953,9 +958,11 @@ sitting alongside **Live**. The workflow is always the same shape:
       arrow, the state, and a small map of the gaze around the partner).
 
       **Reading the output**: the **Metric** dropdown shows eye contact over
-      time (1 looking at the partner, 0 away), the angle from the partner,
-      or the gaze yaw and pitch. The stats line gives the overall eye contact
-      share, listening and speaking shares, the look-aways and their
+      time (1 looking at the partner, 0 away), eye contact while the person
+      on camera speaks, listens and while nobody speaks (bars; it needs
+      Conversation Timing run first, then Eye Contact again), the angle from
+      the partner, or the gaze yaw and pitch. The stats line gives the
+      overall eye contact share, listening, speaking and silence shares, the look-aways and their
       directions, the answer patterns, and where the partner was found.
       **Export look-aways CSV** saves one row per look-away. See
       :doc:`math/eye_contact` for every rule.
@@ -991,7 +998,11 @@ sitting alongside **Live**. The workflow is always the same shape:
 
       **Reading the output**: the **Metric** dropdown shows who is speaking
       over time (on camera above the axis, the other speaker below), each
-      response time as a point, the audio level, or the mouth movement. The
+      response time as a point, the response times as a histogram (0.25 s
+      bins: below 0 the next speaker started before the other stopped,
+      around 0.2 s a quick answer, beyond a second a long gap), the audio
+      level, or the mouth movement. With no change of speaker the
+      response-time charts are empty and their title says so. The
       stats line gives each speaker's speech time, turns and median response
       time, the count of speaker changes split into gaps, overlaps and
       interruptions, pauses and backchannels, and how speakers were

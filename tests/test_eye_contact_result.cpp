@@ -25,7 +25,7 @@ const char* kFixtureJson = R"JSON(
   "aversion_median_s": 2.9,
   "aversion_directions": {"up": 9, "down": 1, "left": 2, "right": 0},
   "eye_contact_speaking_pct": 29.4, "eye_contact_listening_pct": 98.8,
-  "eye_contact_silence_pct": null,
+  "eye_contact_silence_pct": 55.5,
   "turns": {"subject_turns": 6, "turn_start_aversion_pct": 100.0,
             "turn_end_contact_pct": null, "response_gaps": 0, "gap_aversion_pct": null}
  },
@@ -79,6 +79,7 @@ TEST(EyeContactResult, LoadsTargetFramesAversionsAndSummary) {
     ASSERT_TRUE(s.eyeContactPct.has_value());
     EXPECT_DOUBLE_EQ(*s.eyeContactPct, 64.2);
     EXPECT_DOUBLE_EQ(*s.listeningPct, 98.8);
+    EXPECT_DOUBLE_EQ(*s.silencePct, 55.5);
     EXPECT_EQ(s.aversions, 12);
     EXPECT_EQ(s.up, 9);
     EXPECT_EQ(s.left, 2);
@@ -95,6 +96,7 @@ TEST(EyeContactResult, WithoutConversationTheSplitsAreAbsent) {
             "summary": {"eye_contact_pct": 50.0, "aversions": 0}, "frames": []})"));
     ASSERT_TRUE(r.is_valid());
     EXPECT_FALSE(r.summary().listeningPct.has_value());
+    EXPECT_FALSE(r.summary().silencePct.has_value());
     EXPECT_FALSE(r.target_yaw().has_value());
     EXPECT_EQ(r.summary().subjectTurns, 0);
 }

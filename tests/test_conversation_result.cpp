@@ -138,3 +138,34 @@ TEST(AudioTimingLog, WritesHeaderAndRowsBesideTheWav) {
     EXPECT_EQ(QString::fromUtf8(f.readAll()),
               "sample_count,elapsed_ns\n4410,1100000000\n8820,1200000123\n");
 }
+
+TEST(ConversationResult, ResponseTimesAreBinnedForTheHistogram) {
+    auto t = [](const char* to, int fto) {
+        mosaic::ConversationTransition x;
+        x.to    = to;
+        x.ftoMs = fto;
+        return x;
+    };
+    // Quick answers, an overlap, one long gap, one far beyond the range.
+    const QVector<mosaic::ConversationTransition> xs = {
+        t("subject", 220), t("other", 180), t("subject", -300), t("other", 2700), t("other", 9000)};
+    const auto h = mosaic::fto_histogram(xs);
+    EXPECT_EQ(h.loMs, -1000);
+    EXPECT_EQ(h.binMs, 250);
+    ASSERT_EQ(h.toSubject.size(), (5000 + 1000) / 250); // widened to 2.75 s, capped at 5 s
+    // -300 ms falls in [-500, -250); 220 and 180 in [0, 250).
+    EXPECT_EQ(h.toSubject[(-500 + 1000) / 250], 1.0);
+    EXPECT_EQ(h.toSubject[(0 + 1000) / 250], 1.0);
+    EXPECT_EQ(h.toOther[(0 + 1000) / 250], 1.0);
+    EXPECT_EQ(h.toOther[(2500 + 1000) / 250], 1.0);
+    EXPECT_EQ(h.toOther.last(), 1.0); // 9 s: into the last bin
+    double total = 0.0;
+    for (int b = 0; b < h.toSubject.size(); ++b) {
+        total += h.toSubject[b] + h.toOther[b];
+    }
+    EXPECT_EQ(total, 5.0);
+    // No changes of speaker: the default -1 to +2 s, all empty.
+    const auto empty = mosaic::fto_histogram({});
+    EXPECT_EQ(empty.loMs, -1000);
+    EXPECT_EQ(empty.toSubject.size(), 12);
+}
