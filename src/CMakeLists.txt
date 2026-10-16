@@ -53,6 +53,8 @@ qt_add_executable(mosaic MACOSX_BUNDLE
     analysis/conversation_result.cpp
     analysis/eye_contact_result.hpp
     analysis/eye_contact_result.cpp
+    analysis/session_overview.hpp
+    analysis/session_overview.cpp
     analysis/sync_repair_result.hpp
     analysis/sync_repair_result.cpp
     analysis/nearest_by_key.hpp
@@ -243,6 +245,8 @@ qt_add_executable(mosaic MACOSX_BUNDLE
     ui/analysis/analysis_tab_w.cpp
     ui/analysis/plugin_rail_w.hpp
     ui/analysis/plugin_rail_w.cpp
+    ui/analysis/overview_timeline_w.hpp
+    ui/analysis/overview_timeline_w.cpp
     ui/analysis/gaze_room_view_w.hpp
     ui/analysis/gaze_room_view_w.cpp
     ui/analysis/skeleton3d_room_view_w.hpp
