@@ -46,6 +46,13 @@ cv::Mat checkerboard(int cols, int rows, int square = 40) {
     return img;
 }
 
+/// @p img on a larger white canvas, its top-left corner at (@p x, @p y).
+cv::Mat placed(const cv::Mat& img, int x, int y) {
+    cv::Mat canvas(900, 1200, CV_8UC1, cv::Scalar(255));
+    img.copyTo(canvas(cv::Rect(x, y, img.cols, img.rows)));
+    return canvas;
+}
+
 /// The room calibration's ChArUco board (same dictionary as the manager).
 cv::Mat charuco(const RoomCalibrationManager::BoardSpec& spec) {
     const cv::aruco::CharucoBoard board(
@@ -71,9 +78,9 @@ TEST(CalibrationBoardChange, IntrinsicViewsAreDiscardedWhenTheBoardChanges) {
     const CalibrationManager::BoardSpec spec{9, 6, 25.0};
     EXPECT_EQ(mgr.set_board(spec), 0); // the default board differs, but nothing was captured
 
-    const VideoFrame f = frame_from(checkerboard(9, 6), 0);
-    ASSERT_TRUE(mgr.feed_frame(f));
-    ASSERT_TRUE(mgr.feed_frame(f));
+    // Two views of the board in different places.
+    ASSERT_TRUE(mgr.feed_frame(frame_from(placed(checkerboard(9, 6), 0, 0), 0)));
+    ASSERT_TRUE(mgr.feed_frame(frame_from(placed(checkerboard(9, 6), 500, 300), 0)));
     ASSERT_EQ(mgr.view_count(), 2);
 
     EXPECT_EQ(mgr.set_board(spec), 0); // same board: views kept
@@ -82,6 +89,37 @@ TEST(CalibrationBoardChange, IntrinsicViewsAreDiscardedWhenTheBoardChanges) {
     EXPECT_EQ(mgr.set_board({9, 6, 30.0}), 2); // other square size: discarded
     EXPECT_EQ(mgr.view_count(), 0);
     EXPECT_EQ(mgr.set_board({9, 6, 30.0}), 0);
+}
+
+TEST(CalibrationBoardChange, AViewOfABoardThatHasNotMovedIsNotKept) {
+    CalibrationManager mgr;
+    mgr.set_board({9, 6, 25.0});
+    const VideoFrame f = frame_from(placed(checkerboard(9, 6), 100, 100), 0);
+    ASSERT_TRUE(mgr.feed_frame(f));
+    EXPECT_FALSE(mgr.feed_frame(f)); // the same pose again adds nothing
+    EXPECT_EQ(mgr.view_count(), 1);
+    // A frame of another size cannot join these views.
+    EXPECT_FALSE(mgr.feed_frame(frame_from(checkerboard(9, 6), 0)));
+    EXPECT_EQ(mgr.view_count(), 1);
+    EXPECT_GT(mgr.coverage(), 0.0);
+}
+
+TEST(CalibrationBoardChange, TiltingTheBoardInPlaceGivesANewView) {
+    CalibrationManager mgr;
+    mgr.set_board({9, 6, 25.0});
+    const cv::Mat flat = placed(checkerboard(9, 6), 300, 150);
+    ASSERT_TRUE(mgr.feed_frame(frame_from(flat, 0)));
+    // The same board turned about its vertical middle: the left side comes
+    // nearer (taller), the right goes away (shorter); the corners barely move.
+    const float top = 150, bottom = 150 + 380, l = 300, r = 300 + 560;
+    const std::vector<cv::Point2f> from = {{l, top}, {r, top}, {r, bottom}, {l, bottom}};
+    const std::vector<cv::Point2f> to   = {
+        {l + 20, top - 35}, {r - 20, top + 35}, {r - 20, bottom - 35}, {l + 20, bottom + 35}};
+    cv::Mat tilted;
+    cv::warpPerspective(flat, tilted, cv::getPerspectiveTransform(from, to), flat.size(),
+                        cv::INTER_LINEAR, cv::BORDER_CONSTANT, cv::Scalar(255));
+    EXPECT_TRUE(mgr.feed_frame(frame_from(tilted, 0)));
+    EXPECT_EQ(mgr.view_count(), 2);
 }
 
 TEST(CalibrationBoardChange, RoomShotsAndTheirSolveAreDiscardedWhenTheBoardChanges) {

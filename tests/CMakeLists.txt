@@ -138,6 +138,8 @@ if(MOSAIC_ENABLE_OPENCV)
         test_calibration_board_change.cpp
         "${CMAKE_SOURCE_DIR}/src/calibration/calibration_manager.cpp"
         "${CMAKE_SOURCE_DIR}/src/calibration/room_calibration_manager.cpp"
+        "${CMAKE_SOURCE_DIR}/src/calibration/marked_chessboard.cpp"
+        test_marked_chessboard.cpp
     )
     target_link_libraries(mosaic_tests PRIVATE
         Qt6::Gui  # CalibrationManager's QImage previews

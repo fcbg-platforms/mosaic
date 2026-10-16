@@ -1,7 +1,7 @@
 #include "calibration/room_frame_solver.hpp"
 
+#include <algorithm>
 #include <cmath>
-#include <queue>
 
 namespace mosaic::room_frame {
 
@@ -143,10 +143,75 @@ Mat4 average(const std::vector<Mat4>& samples) {
     return result;
 }
 
+double rotation_angle_deg(const Mat4& a, const Mat4& b) {
+    // trace(Ra^T Rb) = 1 + 2 cos(angle)
+    double trace = 0.0;
+    for (int i = 0; i < 3; ++i) {
+        for (int k = 0; k < 3; ++k) {
+            trace += a[k * 4 + i] * b[k * 4 + i];
+        }
+    }
+    const double c = std::clamp((trace - 1.0) / 2.0, -1.0, 1.0);
+    return std::acos(c) * 180.0 / 3.14159265358979323846;
+}
+
+Mat4 robust_average(const std::vector<Mat4>& samples, int* dropped) {
+    if (dropped != nullptr) {
+        *dropped = 0;
+    }
+    if (samples.size() < 3) {
+        return average(samples);
+    }
+    auto dist = [](const Mat4& a, const Mat4& b) {
+        return std::hypot(a[3] - b[3], a[7] - b[7], a[11] - b[11]);
+    };
+    // Distances are measured from the most typical sample (the one closest
+    // to all the others), not from the mean: one wrong sample pulls the
+    // mean towards itself, so with few samples it hid behind its own pull.
+    size_t centre   = 0;
+    double bestCost = 1e300;
+    for (size_t i = 0; i < samples.size(); ++i) {
+        double cost = 0.0;
+        for (size_t j = 0; j < samples.size(); ++j) {
+            cost += rotation_angle_deg(samples[i], samples[j]) / 2.0 +
+                    dist(samples[i], samples[j]) / 20.0;
+        }
+        if (cost < bestCost) {
+            bestCost = cost;
+            centre   = i;
+        }
+    }
+    std::vector<double> angle, offset;
+    for (const auto& m : samples) {
+        angle.push_back(rotation_angle_deg(samples[centre], m));
+        offset.push_back(dist(samples[centre], m));
+    }
+    auto median = [](std::vector<double> v) {
+        std::nth_element(v.begin(), v.begin() + static_cast<long>(v.size() / 2), v.end());
+        return v[v.size() / 2];
+    };
+    const double maxAngle = std::max(2.0, 3.0 * median(angle));
+    const double maxDist  = std::max(20.0, 3.0 * median(offset));
+    std::vector<Mat4> kept;
+    for (size_t i = 0; i < samples.size(); ++i) {
+        if (angle[i] <= maxAngle && offset[i] <= maxDist) {
+            kept.push_back(samples[i]);
+        }
+    }
+    if (kept.size() == samples.size() || kept.size() * 2 < samples.size()) {
+        return average(samples); // nothing stands out, or no clear majority to trust
+    }
+    if (dropped != nullptr) {
+        *dropped = static_cast<int>(samples.size() - kept.size());
+    }
+    return average(kept);
+}
+
 ResolveResult bfs_resolve(int cameraCount, int referenceIndex, const std::vector<Edge>& edges) {
     ResolveResult res;
     res.resolved.assign(static_cast<size_t>(cameraCount), false);
     res.extrinsicRt.assign(static_cast<size_t>(cameraCount), identity());
+    res.droppedShots.assign(static_cast<size_t>(cameraCount), 0);
 
     if (referenceIndex < 0 || referenceIndex >= cameraCount) {
         return res;
@@ -169,35 +234,47 @@ ResolveResult bfs_resolve(int cameraCount, int referenceIndex, const std::vector
         adj[static_cast<size_t>(e.camB)].push_back({e.camA, &e, false});
     }
 
-    std::queue<int> q;
+    // Grow the resolved set one camera at a time, each time taking the
+    // connection to an already-resolved camera with the most shared shots:
+    // a pose averaged over many shots is better than one from a single shot,
+    // even when that single shot links straight to the reference.
     res.resolved[static_cast<size_t>(referenceIndex)] = true;
-    q.push(referenceIndex);
-
-    while (!q.empty()) {
-        const int parent = q.front();
-        q.pop();
-
-        for (const auto& adjEntry : adj[static_cast<size_t>(parent)]) {
-            const int child = adjEntry.neighbor;
-            if (res.resolved[static_cast<size_t>(child)]) {
+    while (true) {
+        const AdjEntry* best = nullptr;
+        int bestParent       = -1;
+        for (int parent = 0; parent < cameraCount; ++parent) {
+            if (!res.resolved[static_cast<size_t>(parent)]) {
                 continue;
             }
-
-            const Edge& e = *adjEntry.edge;
-            std::vector<Mat4> candidates;
-            candidates.reserve(e.boardToCamA.size());
-            for (size_t k = 0; k < e.boardToCamA.size(); ++k) {
-                const Mat4& boardToParent = adjEntry.selfIsA ? e.boardToCamA[k] : e.boardToCamB[k];
-                const Mat4& boardToChild  = adjEntry.selfIsA ? e.boardToCamB[k] : e.boardToCamA[k];
-                candidates.push_back(
-                    compose(compose(res.extrinsicRt[static_cast<size_t>(parent)], boardToParent),
-                            invert(boardToChild)));
+            for (const auto& adjEntry : adj[static_cast<size_t>(parent)]) {
+                if (res.resolved[static_cast<size_t>(adjEntry.neighbor)]) {
+                    continue;
+                }
+                if (best == nullptr ||
+                    adjEntry.edge->boardToCamA.size() > best->edge->boardToCamA.size()) {
+                    best       = &adjEntry;
+                    bestParent = parent;
+                }
             }
-
-            res.extrinsicRt[static_cast<size_t>(child)] = average(candidates);
-            res.resolved[static_cast<size_t>(child)]    = true;
-            q.push(child);
         }
+        if (best == nullptr) {
+            break;
+        }
+        const int child = best->neighbor;
+        const Edge& e   = *best->edge;
+        std::vector<Mat4> candidates;
+        candidates.reserve(e.boardToCamA.size());
+        for (size_t k = 0; k < e.boardToCamA.size(); ++k) {
+            const Mat4& boardToParent = best->selfIsA ? e.boardToCamA[k] : e.boardToCamB[k];
+            const Mat4& boardToChild  = best->selfIsA ? e.boardToCamB[k] : e.boardToCamA[k];
+            candidates.push_back(
+                compose(compose(res.extrinsicRt[static_cast<size_t>(bestParent)], boardToParent),
+                        invert(boardToChild)));
+        }
+        int dropped                                  = 0;
+        res.extrinsicRt[static_cast<size_t>(child)]  = robust_average(candidates, &dropped);
+        res.droppedShots[static_cast<size_t>(child)] = dropped;
+        res.resolved[static_cast<size_t>(child)]     = true;
     }
 
     return res;

@@ -31,6 +31,22 @@ using Mat4 = std::array<double, 16>;
 /// @see docs/math/room_calibration.rst for the full derivation.
 [[nodiscard]] Mat4 average(const std::vector<Mat4>& samples);
 
+/// @brief Angle of the rotation between two transforms' rotation parts, degrees.
+[[nodiscard]] double rotation_angle_deg(const Mat4& a, const Mat4& b);
+
+/// @brief average() without the samples far from the most typical one.
+///
+/// One shot whose board pose was solved wrong (a flat board far away is
+/// easily solved as its mirror image, tilted the other way) would otherwise
+/// pull the average off. A sample is dropped when its rotation is more than
+/// max(2 deg, 3 x the median) from the most typical sample (the one closest
+/// to all others), or its position more
+/// than max(20 mm, 3 x the median). At least half the samples are always
+/// kept.
+///
+/// @param dropped  Optional: set to how many samples were left out.
+[[nodiscard]] Mat4 robust_average(const std::vector<Mat4>& samples, int* dropped = nullptr);
+
 /// @brief One ChArUco-board shot seen simultaneously by two cameras (camA, camB).
 ///
 /// boardToCamA[k]/boardToCamB[k] are the board→camera pose pair from the
@@ -49,10 +65,15 @@ struct ResolveResult {
     std::vector<bool> resolved; ///< true if this camera's pose was resolved.
     std::vector<Mat4>
         extrinsicRt; ///< pose relative to referenceIndex; identity() where !resolved[i]
+    /// Shots left out of each camera's pose as outliers (robust_average()).
+    std::vector<int> droppedShots;
 };
 
 /// @brief Resolves every camera's extrinsicRt (pose relative to referenceIndex) by
-/// BFS over the shared-shot graph described by edges.
+/// growing outward from referenceIndex over the shared-shot graph described by
+/// edges (the name is historical): each step adds the unresolved camera whose
+/// link to an already-resolved one has the most shared shots, its pose the
+/// robust_average() of that link's shots.
 ///
 /// referenceIndex always resolves to identity() (matching
 /// CalibrationData::extrinsicRt's own documented "camera 0 always has
