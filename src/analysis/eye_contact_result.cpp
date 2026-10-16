@@ -71,6 +71,7 @@ EyeContactResult EyeContactResult::load(const QString& jsonPath) {
     out.eyeContactPct        = optional_double(s["eye_contact_pct"]);
     out.listeningPct         = optional_double(s["eye_contact_listening_pct"]);
     out.speakingPct          = optional_double(s["eye_contact_speaking_pct"]);
+    out.silencePct           = optional_double(s["eye_contact_silence_pct"]);
     out.aversions            = s["aversions"].toInt();
     out.aversionsPerMin      = optional_double(s["aversions_per_min"]);
     out.aversionMedianS      = optional_double(s["aversion_median_s"]);
