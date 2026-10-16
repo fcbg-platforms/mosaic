@@ -48,7 +48,7 @@ class CalibrationW : public QWidget {
     void calibration_saved(int cameraIndex);
 
    private slots:
-    void on_corners_detected(int viewIndex, bool found, QImage preview);
+    void on_corners_detected(int viewCount, bool accepted, QImage preview, QString note);
     void on_calibration_done(double rmsError, bool success);
 
    private:

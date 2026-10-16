@@ -46,6 +46,7 @@ struct CalibrationW::Impl {
     // Capture controls
     QComboBox* cameraCombo = nullptr;
     QLabel* viewCountLabel = nullptr;
+    QLabel* frameNoteLabel = nullptr; // what happened to the last frame
 
     // Preview
     QLabel* previewLabel = nullptr;
@@ -58,6 +59,7 @@ struct CalibrationW::Impl {
     QLabel* cyLabel           = nullptr;
     QPushButton* saveBtn      = nullptr;
     QPushButton* calibrateBtn = nullptr;
+    QPushButton* clearBtn     = nullptr;
 
     explicit Impl(VideoSettings& vs) : videoSettings(vs) {}
 };
@@ -117,9 +119,11 @@ CalibrationW::CalibrationW(VideoSettings& videoSettings, RoomSettings& roomSetti
     // Views captured with the old board are discarded by set_board(): their
     // stored corner positions use the old board's size and layout.
     const auto sync_board_spec = [this] {
+        // The spin boxes count squares, as one does looking at a board; the
+        // detector wants the inner corners, one fewer each way.
         CalibrationManager::BoardSpec spec;
-        spec.cols           = d->colsSpin->value();
-        spec.rows           = d->rowsSpin->value();
+        spec.cols           = d->colsSpin->value() - 1;
+        spec.rows           = d->rowsSpin->value() - 1;
         spec.squareSizeMm   = d->squareSpin->value();
         const int discarded = d->manager.set_board(spec);
         if (discarded > 0 && d->viewCountLabel != nullptr) {
@@ -154,6 +158,9 @@ CalibrationW::CalibrationW(VideoSettings& videoSettings, RoomSettings& roomSetti
     connect(&d->manager, &CalibrationManager::calibration_started, this, [this] {
         d->calibrateBtn->setEnabled(false);
         d->calibrateBtn->setText("Calibrating…");
+        // The result belongs to these views and this camera: keep them
+        // (and the camera lock) until it arrives.
+        d->clearBtn->setEnabled(false);
     });
 
     // A fresh intrinsic calibration must be visible to the Room tab's
@@ -260,29 +267,36 @@ void CalibrationW::build_board_section(QVBoxLayout* parent) {
         return lbl;
     };
 
-    row->addWidget(make_label("Cols:"));
+    const QString countTip =
+        "Count the squares (black and white) along this side of the board: a 9 x 9 "
+        "chessboard is 9 and 9.";
+    row->addWidget(make_label("Squares across:"));
     d->colsSpin = new QSpinBox;
-    d->colsSpin->setRange(3, 20);
-    d->colsSpin->setValue(9);
+    d->colsSpin->setRange(4, 21);
+    d->colsSpin->setValue(10);
     d->colsSpin->setFixedWidth(55);
+    d->colsSpin->setToolTip(countTip);
     row->addWidget(d->colsSpin);
 
     row->addSpacing(8);
-    row->addWidget(make_label("Rows:"));
+    row->addWidget(make_label("down:"));
     d->rowsSpin = new QSpinBox;
-    d->rowsSpin->setRange(3, 20);
-    d->rowsSpin->setValue(6);
+    d->rowsSpin->setRange(4, 21);
+    d->rowsSpin->setValue(7);
     d->rowsSpin->setFixedWidth(55);
+    d->rowsSpin->setToolTip(countTip);
     row->addWidget(d->rowsSpin);
 
     row->addSpacing(8);
     row->addWidget(make_label("Square:"));
     d->squareSpin = new QDoubleSpinBox;
-    d->squareSpin->setRange(1.0, 500.0);
-    // Matches the generated, print-ready checkerboard's actual physical
-    // square size (9x6 inner corners, 22mm squares) — was 25mm, a mismatch
-    // with the size the printed board is now generated at. Cols/Rows
-    // already defaulted to 9/6, matching correctly.
+    d->squareSpin->setRange(1.0, 1000.0);
+    d->squareSpin->setDecimals(1);
+    d->squareSpin->setToolTip(
+        "One square's side, measured on the board with a ruler (measure across several "
+        "squares and divide, for accuracy).");
+    // The print-ready board's squares: 10 x 7 squares (9 x 6 inner corners),
+    // 22 mm.
     d->squareSpin->setValue(22.0);
     d->squareSpin->setSuffix("  mm");
     d->squareSpin->setFixedWidth(95);
@@ -323,11 +337,13 @@ void CalibrationW::build_capture_section(QVBoxLayout* parent) {
     row2->addWidget(d->viewCountLabel, 1);
 
     auto* clearBtn = new QPushButton("Clear views");
+    d->clearBtn    = clearBtn;
     connect(clearBtn, &QPushButton::clicked, this, [this] {
         d->manager.clear_views();
         lock_board(false);
         d->capturedOffsetX = d->capturedOffsetY = -1;
         d->viewCountLabel->setText("Views accepted: 0");
+        d->frameNoteLabel->clear();
         d->previewLabel->clear();
         d->previewLabel->setText("(no preview)");
         update_result_labels();
@@ -335,9 +351,17 @@ void CalibrationW::build_capture_section(QVBoxLayout* parent) {
     row2->addWidget(clearBtn);
     vlay->addLayout(row2);
 
+    d->frameNoteLabel = new QLabel;
+    d->frameNoteLabel->setWordWrap(true);
+    vlay->addWidget(d->frameNoteLabel);
+
     auto* noteLabel = new QLabel(
-        "Tip: Supply frames to the calibration manager from the video grabber "
-        "by calling CalibrationManager::feed_frame() as frames arrive.");
+        "Pick the camera, then hold the whole board in its view: about once a second a "
+        "frame is checked and, when the board has moved, kept. Move it between views: "
+        "near and far, all four corners and the edges of the picture, tilted about 30 "
+        "degrees left, right, up and down. Aim for 15 to 25 views and most of the frame "
+        "covered, then Calibrate, and Save. One camera at a time: switching camera needs "
+        "Clear views first.");
     noteLabel->setProperty("role", "muted");
     noteLabel->setWordWrap(true);
     vlay->addWidget(noteLabel);
@@ -412,16 +436,27 @@ void CalibrationW::build_result_section(QVBoxLayout* parent) {
 // ── Slots ──────────────────────────────────────────────────────────────────
 
 void CalibrationW::lock_board(bool locked) {
-    for (QWidget* w : std::initializer_list<QWidget*>{d->colsSpin, d->rowsSpin, d->squareSpin}) {
+    // The camera too: views from two cameras would be mixed into one lens.
+    for (QWidget* w :
+         std::initializer_list<QWidget*>{d->colsSpin, d->rowsSpin, d->squareSpin, d->cameraCombo}) {
+        if (!w->property("ownTip").isValid()) {
+            w->setProperty("ownTip", w->toolTip());
+        }
         w->setEnabled(!locked);
-        w->setToolTip(locked ? "Clear the views to change the board: they were taken with this one."
-                             : QString());
+        w->setToolTip(locked ? "Clear the views first: they were taken with this board and camera."
+                             : w->property("ownTip").toString());
     }
 }
 
-void CalibrationW::on_corners_detected(int /*viewIndex*/, bool found, QImage preview) {
+void CalibrationW::on_corners_detected(int /*viewCount*/, bool found, QImage preview,
+                                       QString note) {
     const int cnt = d->manager.view_count();
-    d->viewCountLabel->setText(QString("Views accepted: %1  (need ≥10)").arg(cnt));
+    d->viewCountLabel->setText(QString("Views accepted: %1  (aim for 15 to 25)  ·  frame "
+                                       "covered: %2%")
+                                   .arg(cnt)
+                                   .arg(qRound(d->manager.coverage() * 100.0)));
+    d->frameNoteLabel->setText(note);
+    d->frameNoteLabel->setStyleSheet(found ? "color: #44cc66;" : "color: #c8a040;");
     // While views exist the board is fixed: a changed board would discard
     // them (CalibrationManager::set_board()), and a stray scroll over a spin
     // box should not cost the views. Clear views unlocks.
@@ -433,15 +468,12 @@ void CalibrationW::on_corners_detected(int /*viewIndex*/, bool found, QImage pre
         d->previewLabel->setPixmap(px);
     }
 
-    if (!found) {
-        d->previewLabel->setToolTip("No checkerboard corners detected in this frame.");
-    } else {
-        d->previewLabel->setToolTip(QString("View %1 accepted.").arg(cnt));
-    }
+    d->previewLabel->setToolTip(note);
 }
 
 void CalibrationW::on_calibration_done(double rmsError, bool success) {
     d->calibrateBtn->setEnabled(true);
+    d->clearBtn->setEnabled(true);
     d->calibrateBtn->setText("▶  Calibrate");
 
     if (!success) {
@@ -458,10 +490,15 @@ void CalibrationW::on_calibration_done(double rmsError, bool success) {
                                : quality == RmsQuality::Good       ? "good"
                                : quality == RmsQuality::Acceptable ? "acceptable"
                                                                    : "poor";
+    QString views            = QString("\nFrom %1 view(s)").arg(d->manager.used_view_count());
+    if (d->manager.dropped_view_count() > 0) {
+        views += QString(", %1 left out: they fit far worse than the rest")
+                     .arg(d->manager.dropped_view_count());
+    }
     d->rmsLabel->setToolTip(QString("Reprojection error: %1 px (%2)\n"
-                                    "< 0.5 px = excellent, 1–2 px = acceptable, > 2 px = poor")
+                                    "< 0.5 px = excellent, 1–2 px = acceptable, > 2 px = poor%3")
                                 .arg(rmsError, 0, 'f', 3)
-                                .arg(qualityStr));
+                                .arg(qualityStr, views));
 }
 
 void CalibrationW::update_result_labels() {

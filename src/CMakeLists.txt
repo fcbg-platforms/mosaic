@@ -202,6 +202,8 @@ qt_add_executable(mosaic MACOSX_BUNDLE
     calibration/room_frame_solver.cpp
     calibration/room_calibration_manager.hpp
     calibration/room_calibration_manager.cpp
+    calibration/marked_chessboard.hpp
+    calibration/marked_chessboard.cpp
     ui/calibration/calibration_w.hpp
     ui/calibration/calibration_w.cpp
     ui/calibration/room_calibration_w.hpp

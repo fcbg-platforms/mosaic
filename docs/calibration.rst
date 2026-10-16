@@ -10,8 +10,9 @@ Overview
 
 MOSAIC uses OpenCV's checkerboard calibration to compute per-camera **intrinsic
 parameters** (focal length, principal point, distortion coefficients), and a
-separate ChArUco-based procedure to compute each camera's **extrinsic
-pose** (position/orientation in one shared room coordinate frame). Results
+separate procedure, with a ChArUco board or a plain chessboard with one
+marked corner square, to compute each camera's **extrinsic pose**
+(position/orientation in one shared room coordinate frame). Results
 are stored in each camera's :cpp:struct:`mosaic::CalibrationData` field
 inside the group's ``settings.json`` and are automatically embedded in
 ``session_meta.json`` so downstream pose-estimation and gaze-fusion tools can
@@ -26,10 +27,17 @@ Checkerboard setup
 ------------------
 
 Print or display a checkerboard pattern and measure the physical size of one
-square in millimetres.  The recommended starting point is:
+square in millimetres. MOSAIC asks for the number of **squares** along each
+side (black and white together), as one counts them on the board. The
+recommended starting point is:
 
-- **9 × 6 inner corners** (a 10 × 7 square board)
-- **25 mm squares** (A4 sheet printed at 100 %)
+- **10 × 7 squares** (9 × 6 inner corners)
+- **22 mm squares** (A4 sheet printed at 100 %)
+
+A large board (for example a 9 × 9 chessboard with 80 to 100 mm squares)
+works as well and is easier to see from across the room. Measure across
+several squares and divide, rather than one square: every distance MOSAIC
+measures later is in proportion to this number.
 
 Ensure the board is:
 
@@ -41,17 +49,27 @@ Intrinsic calibration procedure
 --------------------------------
 
 1. Open the **Calibrate** tab in the settings sidebar, **Intrinsics** page.
-2. Set **Cols**, **Rows**, and **Square size** to match your board. Each
-   captured view stores its corners in this board's size, so the board
-   fields are locked once a view is captured; click **Clear views** to start
-   over with another board.
-3. Select the camera to calibrate from the **Camera** dropdown.
-4. Move the board to different positions, orientations, and distances in front
-   of the camera.  Each time a good view appears, click **Capture frame** (or
-   call :cpp:func:`mosaic::CalibrationManager::feed_frame` from code).
-   The preview updates to show detected corners.
-5. Collect at least **10 accepted views**; aim for 20–30 at varied angles.
-6. Click **▶ Calibrate**.  The result appears within a few seconds:
+2. Set **Squares across**, **down** and **Square** to match your board.
+3. Select the camera to calibrate from the **Camera** dropdown. Each
+   captured view stores its corners in this board's size and belongs to this
+   camera, so the board fields and the camera are locked once a view is
+   captured; click **Clear views** to start over with another board or
+   camera.
+4. Hold the whole board in the camera's view. About once a second a full
+   resolution frame is checked; when the board is found and has moved since
+   the last kept view, the view is kept. The line under the view count says
+   what happened to each frame (not found, not moved, a different image
+   size). Move the board between views: near and far, into all four corners
+   and along the edges of the picture, tilted about 30 degrees left, right,
+   up and down. **Frame covered** is the share of the picture where corners
+   have been seen; the lens distortion is only measured there, so aim for
+   most of it.
+5. Collect at least **10 accepted views**; aim for 15–25.
+6. Click **▶ Calibrate**.  The result appears within a few seconds. Views
+   that fit far worse than the rest (over 1 px and over 3 times the median,
+   a blurred frame for example) are left out and the calibration is run
+   again, when there are at least 8 views and 6 remain; the RMS tooltip says
+   how many.
 
    - **RMS error < 0.5 px**: excellent.
    - **0.5 – 1.0 px**: good; acceptable for most pose-estimation tasks.
@@ -75,22 +93,45 @@ Every camera used here must already have a valid **intrinsic** calibration
 been calibrated.
 
 1. Open the **Calibrate** tab, **Room (Extrinsics)** page.
-2. Set the ChArUco board's **Cols**, **Rows**, **Square size**, and
-   **Marker size** (a ChArUco board tolerates partial views, unlike the plain
-   checkerboard above, useful since wide-FOV cameras around a room see the
-   board from very different angles). Each shot stores the board's pose in
-   this board's size, so the board fields are locked once a shot is
-   captured; click **Clear shots** to start over with another board (it also
-   discards any solve made from the old shots).
-3. Hold the board somewhere visible to at least two cameras and click
-   **▶ Capture shot**. Repeat, moving the board through overlapping pairs of
-   camera fields of view, until every camera has been in at least one shot
-   shared with an already-resolved camera; 8+ shots is a reasonable start.
+2. Choose the board and set its **Squares across**, **down** and
+   **Square** size:
+
+   - **ChArUco**: a chessboard with codes in its white squares (also set
+     **Marker**). It may be partly out of a camera's view.
+   - **Chessboard, one corner square marked**: a plain black-and-white
+     chessboard with a mark (a sticker, a dot, a patch of colour) on one
+     corner square. A plain chessboard looks the same turned round (a square
+     one by a quarter turn), so without the mark two cameras could number
+     its corners differently and disagree about where it is; every camera
+     numbers them from the marked corner. The whole board, including its
+     outer squares, must be in a camera's view for that camera to use it.
+
+   Each shot stores the board's pose in this board's size, so the board
+   fields are locked once a shot is captured; click **Clear shots** to start
+   over with another board (it also discards any solve made from the old
+   shots).
+3. Hold the board still somewhere at least two cameras see it and click
+   **▶ Capture shot** (the cameras' frames are taken within half a second,
+   so a moving board is seen in different places). A green dot under a
+   camera means it used the shot; the line under the buttons says why a
+   camera that saw something did not (the mark unclear, a corner square cut
+   off, the corners fitting poorly, over 2 px). Repeat, moving the board,
+   until every camera shares several shots with another camera, and is
+   linked to the reference camera through them; 10 to 20 shots at different
+   places and tilts is a good start.
 4. Pick a **reference camera** (its pose becomes the room's origin, identity
-   transform) and click **▶ Solve**. The per-camera result table shows which
-   cameras resolved and their reprojection RMS (aim for < 2 px, same guidance
-   as intrinsics above); an unresolved camera means no shared-shot chain back
-   to the reference camera was found; capture another shot linking it in.
+   transform) and click **▶ Solve**. The result table shows, per camera:
+
+   - **Resolved**: no means no chain of shared shots back to the reference
+     camera; capture another shot linking it in.
+   - **Fit to own view (px)**: how well the board's solved pose fits the
+     corners this camera saw (aim for under 1 px).
+   - **Agreement with other cameras (mm)**: where this camera puts the
+     board in the room, against where the other cameras put it in the same
+     shots. This is the check that the calibration is right: a few mm is
+     good; over 20 mm (shown in red) means something is wrong, usually a
+     square size that does not match the board, a lens calibration that no
+     longer fits, or a camera that moved.
 5. To define the room's shared reference plane (used by gaze-fusion's
    target-point intersection): lay the board flat on the target surface,
    capture one more shot, then click **Use last shot as plane**.
@@ -127,7 +168,7 @@ What is stored
    * - ``extrinsicRt[16]``
      - 4 × 4 homogeneous RT, row-major, relative to the chosen reference
        camera (identity for the reference camera itself). Populated by the
-       **Room (Extrinsics)** ChArUco procedure above; stays at its default
+       **Room (Extrinsics)** procedure above; stays at its default
        identity for any camera that hasn't been resolved yet.
    * - ``extrinsicCalibrated``
      - ``true`` once this camera's extrinsics were successfully resolved by

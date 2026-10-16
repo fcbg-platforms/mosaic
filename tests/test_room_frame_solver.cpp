@@ -12,6 +12,7 @@ using mosaic::room_frame::Edge;
 using mosaic::room_frame::identity;
 using mosaic::room_frame::invert;
 using mosaic::room_frame::Mat4;
+using mosaic::room_frame::robust_average;
 
 namespace {
 
@@ -172,4 +173,65 @@ TEST(RoomFrameSolver, ReferenceCameraAlwaysResolvesToIdentity) {
     const auto result = bfs_resolve(1, 0, {});
     ASSERT_TRUE(result.resolved[0]);
     expect_mat4_near(result.extrinsicRt[0], identity());
+}
+
+TEST(RoomFrameSolver, RobustAverageLeavesOutAShotSolvedWrong) {
+    // Five shots agree within a few mm and a fraction of a degree; one is
+    // tilted 25 degrees and 300 mm off (a flat board solved as its mirror).
+    std::vector<Mat4> shots = {
+        rot_z_translate(10.0, 100.0, 0.0, 0.0), rot_z_translate(10.3, 102.0, 1.0, 0.0),
+        rot_z_translate(9.8, 99.0, -1.0, 0.0),  rot_z_translate(10.1, 101.0, 0.5, 0.0),
+        rot_z_translate(9.9, 100.5, -0.5, 0.0), rot_z_translate(35.0, 400.0, 0.0, 0.0),
+    };
+    int dropped     = 0;
+    const Mat4 mean = robust_average(shots, &dropped);
+    EXPECT_EQ(dropped, 1);
+    expect_mat4_near(mean, rot_z_translate(10.0, 100.5, 0.0, 0.0), 2.0);
+    // The plain average is pulled far off by it.
+    EXPECT_GT(std::abs(average(shots)[3] - 100.5), 40.0);
+}
+
+TEST(RoomFrameSolver, RobustAverageKeepsAgreeingShots) {
+    std::vector<Mat4> shots = {rot_z_translate(5.0, 0, 0, 0), rot_z_translate(5.5, 3, 0, 0),
+                               rot_z_translate(4.5, -3, 0, 0)};
+    int dropped             = -1;
+    expect_mat4_near(robust_average(shots, &dropped), average(shots));
+    EXPECT_EQ(dropped, 0);
+}
+
+TEST(RoomFrameSolver, ACameraIsPlacedThroughTheLinkWithMostShots) {
+    // Camera 2 shares one poor shot with the reference, and three good ones
+    // with camera 1. Its pose comes from camera 1's link.
+    const Mat4 e1 = rot_z_translate(30.0, 1000.0, 0.0, 0.0);
+    const Mat4 e2 = rot_z_translate(-20.0, 0.0, 800.0, 0.0);
+    Edge edge01;
+    edge01.camA        = 0;
+    edge01.camB        = 1;
+    edge01.boardToCamA = {identity(), identity(), identity()};
+    edge01.boardToCamB = {invert(e1), invert(e1), invert(e1)};
+    Edge edge12;
+    edge12.camA        = 1;
+    edge12.camB        = 2;
+    edge12.boardToCamA = {invert(e1), invert(e1), invert(e1)};
+    edge12.boardToCamB = {invert(e2), invert(e2), invert(e2)};
+    Edge edge02; // one shot, 50 mm off
+    edge02.camA        = 0;
+    edge02.camB        = 2;
+    edge02.boardToCamA = {identity()};
+    edge02.boardToCamB = {invert(rot_z_translate(-20.0, 50.0, 800.0, 0.0))};
+    const auto result  = bfs_resolve(3, 0, {edge01, edge02, edge12});
+    ASSERT_TRUE(result.resolved[2]);
+    expect_mat4_near(result.extrinsicRt[2], e2, 1e-6);
+}
+
+TEST(RoomFrameSolver, RobustAverageCatchesAWrongShotAmongThree) {
+    // Few shots: the wrong one pulls the mean towards itself, so it is
+    // measured from the most typical shot instead.
+    std::vector<Mat4> shots = {rot_z_translate(10.0, 100.0, 0.0, 0.0),
+                               rot_z_translate(10.4, 103.0, 0.0, 0.0),
+                               rot_z_translate(35.0, 400.0, 0.0, 0.0)};
+    int dropped             = 0;
+    const Mat4 mean         = robust_average(shots, &dropped);
+    EXPECT_EQ(dropped, 1);
+    EXPECT_NEAR(mean[3], 101.5, 1.0);
 }

@@ -22,7 +22,7 @@ namespace mosaic {
 /// cal.set_board({9, 6, 25.0});          // 9×6 inner corners, 25 mm squares
 ///
 /// connect(&cal, &CalibrationManager::corners_detected, this,
-///         [](int viewIdx, bool found, QImage preview) {
+///         [](int viewCount, bool accepted, QImage preview, QString note) {
 ///             // update a preview label in the UI
 ///         });
 /// connect(&cal, &CalibrationManager::calibration_done, this,
@@ -78,9 +78,25 @@ class CalibrationManager : public QObject {
     /// corners were found.
     ///
     /// @param frame  A valid VideoFrame in BGR8 format.
+    /// A found board is still not used when the frame's size differs from the
+    /// views so far, or when the board has not moved since an accepted view
+    /// (a near copy adds nothing and over-weights that pose); the note in
+    /// corners_detected() says which.
+    ///
     /// @returns      @c true if a complete checkerboard was detected and the
     ///               view was accepted into the calibration set.
     bool feed_frame(const VideoFrame& frame);
+
+    /// @returns The share of the image (0..1, an 8 x 6 grid) where the
+    ///          accepted views put at least one corner. The lens' distortion
+    ///          is only measured where corners were seen: aim for most of it,
+    ///          edges and corners included.
+    [[nodiscard]] double coverage() const;
+
+    /// @returns How many views the last calibration used, and how many it
+    ///          left out because they fit far worse than the rest.
+    [[nodiscard]] int used_view_count() const;
+    [[nodiscard]] int dropped_view_count() const;
 
     /// @returns The number of successfully detected views accumulated so far.
     ///          At least 10 views are recommended before calling calibrate().
@@ -92,7 +108,11 @@ class CalibrationManager : public QObject {
     /// @brief Runs @c cv::calibrateCamera() on a background thread.
     ///
     /// Emits calibration_started() and then calibration_done().  The caller must wait for
-    /// calibration_done() before reading result().
+    /// calibration_done() before reading result(). The thread works on a copy
+    /// of the views (frames may keep arriving); views fitting far worse than
+    /// the rest (over max(1 px, 3 x the median)) are left out and the
+    /// calibration run once more, when there are at least 8 views and at
+    /// least 6 remain. A call while one is running is ignored.
     ///
     /// Requires at least 5 accepted views (10+ recommended).
     void calibrate();
@@ -106,10 +126,11 @@ class CalibrationManager : public QObject {
 
    signals:
     /// Emitted after each call to feed_frame().
-    /// @param viewIndex  Running index of this detection attempt.
-    /// @param found      @c true if all corners were detected and the view was accepted.
-    /// @param preview    BGR frame with detected corners drawn on it (RGB for Qt).
-    void corners_detected(int viewIndex, bool found, QImage preview);
+    /// @param viewCount  Views accepted so far.
+    /// @param accepted   @c true if this frame's view was accepted.
+    /// @param preview    The frame with any detected corners drawn on it (RGB).
+    /// @param note       What happened to this frame, in words.
+    void corners_detected(int viewCount, bool accepted, QImage preview, QString note);
 
     /// Emitted when calibrate() starts its background thread.
     void calibration_started();

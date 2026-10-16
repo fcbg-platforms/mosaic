@@ -21,12 +21,47 @@ pose (its position and orientation relative to one shared "room" origin),
 so gaze rays, or any other per-camera 3D signal, from different cameras
 can be combined in one coordinate system (see :doc:`gaze_fusion`).
 
-This is solved by moving a ChArUco board through the room, capturing
-"shots" where two or more cameras see the board simultaneously. For each
-camera that sees the board in a given shot, ``cv2.solvePnP`` against that
-camera's real intrinsics gives a board→camera pose. The remaining problem
-is: given many pairwise board→camera poses scattered across many shots,
-find one consistent camera→room pose per camera.
+This is solved by moving a board through the room, capturing "shots"
+where two or more cameras see the board simultaneously. For each camera
+that sees the board in a given shot, a perspective-n-point solve against
+that camera's real intrinsics gives a board→camera pose. The remaining
+problem is: given many pairwise board→camera poses scattered across many
+shots, find one consistent camera→room pose per camera.
+
+The board's pose in each camera
+--------------------------------
+
+**Board points.** A ChArUco board names each corner by the codes around
+it. A plain chessboard does not: its corners come back in an order that
+depends on how the board is turned (a square board is the same after a
+quarter turn, any board after a half turn), and, with some detectors, in
+mirror order. Two cameras could then number the same corner differently
+and solve the board in different places. With one corner square marked,
+``detect_marked_chessboard()`` (``src/calibration/marked_chessboard.hpp``)
+fixes the order:
+
+1. The inner corners are found (OpenCV's sector-based detector, falling
+   back to the classic one) and put in front-view handedness: the first row
+   must run to the right of the first column, :math:`e_1 \times e_2 > 0`
+   for the image vectors along them, else every row is reversed.
+2. A homography from grid units to the image places the four corner
+   squares, which lie outside the inner corners. Each is sampled over the
+   middle 60% of the square and compared with the square diagonally inside
+   it, which always has the same colour: the difference in mean grey plus
+   the difference in spread. The marked square is the one that differs; it
+   must differ by at least 18 grey levels and twice as much as the next
+   corner square, else the view is not used.
+3. The corners are renumbered by a turn (never a mirror) so the marked
+   corner comes first. The board points start at the board's outer corner
+   at the marked square, :math:`x` along the first row, :math:`y` down the
+   first column, :math:`z` into the board, as for a ChArUco board.
+
+**Pose.** A flat target seen from a distance has two poses that fit almost
+equally well, the true one and one tilted the other way. The solve uses
+IPPE (``SOLVEPNP_IPPE``), which returns both ranked by their fit, takes the
+better and refines it (Levenberg-Marquardt). A pose whose reprojected
+corners miss the detected ones by more than 2 px RMS is not used (blur, a
+misdetection, a wrong board size).
 
 Rotation averaging
 -----------------------
@@ -90,7 +125,7 @@ The averaged quaternion is converted back to a 3×3 rotation matrix by the
 standard formula, and combined with the arithmetic-mean translation into
 one averaged rigid transform.
 
-Pose-graph resolution (BFS)
+Pose-graph resolution
 --------------------------------
 
 With one averaged relative pose available for every camera *pair* that
@@ -123,14 +158,38 @@ then from the parent camera's frame to the room frame by
 :math:`T_{\text{child}\to\text{room}}`.
 
 Every shared shot between the same camera pair produces one such candidate
-via :eq:`bfs-composition`; these are combined with the quaternion-mean
-:eq:`quat-mean` above into a single edge pose. Starting from the reference
-camera (identity), a breadth-first traversal of the shared-shot graph
-propagates a resolved pose outward to every reachable camera. A camera
+via :eq:`bfs-composition`. They are combined with the quaternion mean
+:eq:`quat-mean` above, robustly (``robust_average()``): after a first mean,
+any candidate whose rotation differs from it by more than 2 degrees or three
+times the median difference (whichever is larger), or whose position
+differs by more than 20 mm or three times the median distance, is left out
+and the mean taken again (always keeping at least half). One shot solved
+as the mirror pose would otherwise pull the camera off.
+
+Starting from the reference camera (identity), the resolved set grows one
+camera at a time: each step resolves the unresolved camera whose link to an
+already-resolved camera has the **most** shared shots, through that link. A
+plain breadth-first traversal would take whichever link it met first, and
+place a camera from a single shot with the reference camera when a dozen
+shots with a neighbour were there. A camera
 with **no** shot-chain back to the reference camera (e.g. it never shared
 a simultaneous board view with anything already resolved) is reported
 **unresolved** rather than silently assigned a meaningless identity pose,
 so the calibration UI can flag it and ask for more overlapping shots.
+
+Agreement between the cameras
+------------------------------
+
+The fit of each pose to its own view says nothing about whether the
+cameras agree. After the solve, for every shot two or more resolved cameras
+saw, each camera's view of the board is carried into the room,
+:math:`T_{\text{cam}\to\text{room}} \circ T_{\text{board}\to\text{cam}}`,
+and the board's four outer corners and centre compared with the mean of
+the other cameras' (leave one out). The RMS distance over all such shots
+is that camera's **agreement**, in millimetres: how far apart the cameras
+put the same object, at the distances and angles the board was shown at. It
+is a lower bound for what to expect: the board was seen clearly, from
+fewer than all cameras at a time, and only where it was shown.
 
 The room's reference plane
 -------------------------------

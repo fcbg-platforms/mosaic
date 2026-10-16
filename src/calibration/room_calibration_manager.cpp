@@ -2,8 +2,10 @@
 
 #include <cmath>
 #include <map>
+#include <optional>
 #include <utility>
 
+#include "calibration/marked_chessboard.hpp"
 #include "utils/logger.hpp"
 
 #if defined(MOSAIC_HAVE_OPENCV)
@@ -95,6 +97,7 @@ struct RoomCalibrationManager::Impl {
     std::vector<bool> resolved;
     std::vector<Mat4> extrinsicRt;
     std::vector<double> reprojectionRms;
+    std::vector<double> agreementMm;
 
 #if defined(MOSAIC_HAVE_OPENCV)
     cv::Ptr<cv::aruco::CharucoBoard> charucoBoard;
@@ -147,10 +150,15 @@ QVector<RoomCalibrationManager::CameraShotResult> RoomCalibrationManager::feed_s
     QVector<CameraShotResult> results;
 
 #if defined(MOSAIC_HAVE_OPENCV)
-    d->ensure_board();
-    cv::aruco::CharucoParameters charucoParams;
-    cv::aruco::DetectorParameters detectorParams;
-    cv::aruco::CharucoDetector detector(*d->charucoBoard, charucoParams, detectorParams);
+    const bool chessboard = d->board.type == BoardType::MarkedChessboard;
+    // Only a ChArUco board needs its markers (and a ChArUco board object
+    // refuses markers as big as the squares, a size a chessboard never uses).
+    std::optional<cv::aruco::CharucoDetector> detector;
+    if (!chessboard) {
+        d->ensure_board();
+        detector.emplace(*d->charucoBoard, cv::aruco::CharucoParameters(),
+                         cv::aruco::DetectorParameters());
+    }
 
     Shot shot;
     for (const VideoFrame& frame : frames) {
@@ -167,6 +175,7 @@ QVector<RoomCalibrationManager::CameraShotResult> RoomCalibrationManager::feed_s
             log_warning(QString("[RoomCalibration] Camera %1 has no intrinsic calibration — "
                                 "shot skipped for this camera.")
                             .arg(frame.cameraIndex));
+            r.problem = "no lens calibration yet (Intrinsics tab)";
             results.push_back(r);
             continue;
         }
@@ -177,33 +186,109 @@ QVector<RoomCalibrationManager::CameraShotResult> RoomCalibrationManager::feed_s
         cv::Mat grey;
         cv::cvtColor(bgr, grey, cv::COLOR_BGR2GRAY);
 
-        cv::Mat charucoCorners, charucoIds;
-        std::vector<std::vector<cv::Point2f>> markerCorners;
-        std::vector<int> markerIds;
-        detector.detectBoard(grey, charucoCorners, charucoIds, markerCorners, markerIds);
-
-        r.cornerCount = charucoCorners.rows;
-        if (charucoCorners.rows < 4) {
-            results.push_back(r);
-            continue;
-        }
-
         std::vector<cv::Point3f> objPoints;
         std::vector<cv::Point2f> imgPoints;
-        d->charucoBoard->matchImagePoints(charucoCorners, charucoIds, objPoints, imgPoints);
-        if (objPoints.size() < 4) {
-            results.push_back(r);
-            continue;
+        if (chessboard) {
+            MarkedBoard found;
+            const MarkedBoardStatus status = detect_marked_chessboard(
+                grey, d->board.cols, d->board.rows, d->board.squareLengthMm, found);
+            if (status != MarkedBoardStatus::Found) {
+                r.problem = status == MarkedBoardStatus::NoBoard
+                                ? "board not found (the whole board must be in view)"
+                            : status == MarkedBoardStatus::OffImage
+                                ? "a corner square is cut off at the image edge"
+                                : QString(
+                                      "cannot tell which corner square is marked "
+                                      "(contrast %1, next %2)")
+                                      .arg(found.markContrast, 0, 'f', 0)
+                                      .arg(found.runnerUpContrast, 0, 'f', 0);
+                results.push_back(r);
+                continue;
+            }
+            objPoints = std::move(found.object);
+            imgPoints = std::move(found.corners);
+        } else {
+            cv::Mat charucoCorners, charucoIds;
+            std::vector<std::vector<cv::Point2f>> markerCorners;
+            std::vector<int> markerIds;
+            detector->detectBoard(grey, charucoCorners, charucoIds, markerCorners, markerIds);
+            if (charucoCorners.rows >= 4) {
+                d->charucoBoard->matchImagePoints(charucoCorners, charucoIds, objPoints, imgPoints);
+            }
+            if (objPoints.size() < 4) {
+                r.cornerCount = static_cast<int>(objPoints.size());
+                r.problem     = "board not found (fewer than 4 ChArUco corners)";
+                results.push_back(r);
+                continue;
+            }
+        }
+        r.cornerCount = static_cast<int>(objPoints.size());
+        // Corners nearly in one line (a ChArUco board mostly out of view)
+        // leave the board's tilt about that line undetermined.
+        {
+            cv::Mat pts(static_cast<int>(objPoints.size()), 2, CV_64F);
+            for (int k = 0; k < pts.rows; ++k) {
+                pts.at<double>(k, 0) = objPoints[static_cast<size_t>(k)].x;
+                pts.at<double>(k, 1) = objPoints[static_cast<size_t>(k)].y;
+            }
+            cv::Mat cov, mean;
+            cv::calcCovarMatrix(pts, cov, mean,
+                                cv::COVAR_NORMAL | cv::COVAR_ROWS | cv::COVAR_SCALE);
+            cv::Mat eig;
+            cv::eigen(cov, eig);
+            const double sq = d->board.squareLengthMm;
+            if (eig.at<double>(1) < 0.25 * sq * sq) {
+                r.problem = "the corners seen lie nearly in one line: show more of the board";
+                results.push_back(r);
+                continue;
+            }
         }
 
         const CalibrationData& intr = intrinsicsIt->second;
         const cv::Mat K             = make_camera_matrix(intr.cameraMatrix);
         const cv::Mat dist          = make_dist_coeffs(intr.distCoeffs);
 
+        // The board is flat: IPPE gives both poses a flat target can have
+        // (seen from a distance, a board and its mirror tilt look alike) and
+        // ranks them by fit; the better one is then refined.
+        std::vector<cv::Mat> rvecs, tvecs;
+        std::vector<double> errs;
         cv::Mat rvec, tvec;
-        const bool solved =
-            cv::solvePnP(objPoints, imgPoints, K, dist, rvec, tvec, false, cv::SOLVEPNP_ITERATIVE);
+        bool solved = false;
+        try {
+            solved = cv::solvePnPGeneric(objPoints, imgPoints, K, dist, rvecs, tvecs, false,
+                                         cv::SOLVEPNP_IPPE, cv::noArray(), cv::noArray(), errs) > 0;
+        } catch (const cv::Exception&) {
+            solved = false;
+        }
+        try {
+            if (solved) {
+                rvec = rvecs[0];
+                tvec = tvecs[0];
+                cv::solvePnPRefineLM(objPoints, imgPoints, K, dist, rvec, tvec);
+            } else {
+                solved = cv::solvePnP(objPoints, imgPoints, K, dist, rvec, tvec, false,
+                                      cv::SOLVEPNP_ITERATIVE);
+            }
+        } catch (const cv::Exception&) {
+            solved = false;
+        }
         if (!solved) {
+            r.problem = "the board's position could not be solved";
+            results.push_back(r);
+            continue;
+        }
+        std::vector<cv::Point2f> projected;
+        cv::projectPoints(objPoints, rvec, tvec, K, dist, projected);
+        double sq = 0.0;
+        for (size_t k = 0; k < projected.size(); ++k) {
+            const cv::Point2f e = projected[k] - imgPoints[k];
+            sq += e.x * e.x + e.y * e.y;
+        }
+        r.rmsPx = std::sqrt(sq / static_cast<double>(projected.size()));
+        if (r.rmsPx > kMaxShotRmsPx) {
+            r.problem = QString("the corners fit poorly (%1 px): blur, or a wrong board size")
+                            .arg(r.rmsPx, 0, 'f', 1);
             results.push_back(r);
             continue;
         }
@@ -240,6 +325,7 @@ void RoomCalibrationManager::clear_shots() {
     d->resolved.clear();
     d->extrinsicRt.clear();
     d->reprojectionRms.clear();
+    d->agreementMm.clear();
 }
 
 RoomCalibrationManager::SolveResult RoomCalibrationManager::solve(int cameraCount,
@@ -325,8 +411,74 @@ RoomCalibrationManager::SolveResult RoomCalibrationManager::solve(int cameraCoun
         }
     }
 
+    // Agreement: in every shot two or more resolved cameras saw, where each
+    // camera puts the board in the room, against where the others put it.
+    // The board's four outer corners and centre stand for it (ChArUco views
+    // may show different corners in each camera).
+    const double W                                    = d->board.cols * d->board.squareLengthMm;
+    const double H                                    = d->board.rows * d->board.squareLengthMm;
+    const std::array<std::array<double, 3>, 5> probes = {
+        {{0, 0, 0}, {W, 0, 0}, {0, H, 0}, {W, H, 0}, {W / 2, H / 2, 0}}};
+    std::vector<double> agreeSq(static_cast<size_t>(cameraCount), 0.0);
+    std::vector<int> agreeN(static_cast<size_t>(cameraCount), 0);
+    for (const auto& shot : d->shots) {
+        std::vector<std::pair<int, std::array<std::array<double, 3>, 5>>> where;
+        for (const auto& cam : shot.cameras) {
+            if (cam.cameraIndex < 0 || cam.cameraIndex >= cameraCount ||
+                !d->resolved[static_cast<size_t>(cam.cameraIndex)]) {
+                continue;
+            }
+            const Mat4 m = room_frame::compose(d->extrinsicRt[static_cast<size_t>(cam.cameraIndex)],
+                                               cam.boardToCam);
+            std::array<std::array<double, 3>, 5> pts{};
+            for (size_t p = 0; p < probes.size(); ++p) {
+                for (int row = 0; row < 3; ++row) {
+                    pts[p][static_cast<size_t>(row)] =
+                        m[static_cast<size_t>(row * 4)] * probes[p][0] +
+                        m[static_cast<size_t>(row * 4 + 1)] * probes[p][1] +
+                        m[static_cast<size_t>(row * 4 + 2)] * probes[p][2] +
+                        m[static_cast<size_t>(row * 4 + 3)];
+                }
+            }
+            where.emplace_back(cam.cameraIndex, pts);
+        }
+        if (where.size() < 2) {
+            continue;
+        }
+        for (size_t i = 0; i < where.size(); ++i) {
+            for (size_t p = 0; p < probes.size(); ++p) {
+                // Leave-one-out: against the mean of the other cameras.
+                std::array<double, 3> others{};
+                for (size_t j = 0; j < where.size(); ++j) {
+                    if (j == i) {
+                        continue;
+                    }
+                    for (size_t k = 0; k < 3; ++k) {
+                        others[k] += where[j].second[p][k] / static_cast<double>(where.size() - 1);
+                    }
+                }
+                double sq = 0.0;
+                for (size_t k = 0; k < 3; ++k) {
+                    const double e = where[i].second[p][k] - others[k];
+                    sq += e * e;
+                }
+                agreeSq[static_cast<size_t>(where[i].first)] += sq;
+                ++agreeN[static_cast<size_t>(where[i].first)];
+            }
+        }
+    }
+    d->agreementMm.assign(static_cast<size_t>(cameraCount), -1.0);
+    for (int i = 0; i < cameraCount; ++i) {
+        if (agreeN[static_cast<size_t>(i)] > 0) {
+            d->agreementMm[static_cast<size_t>(i)] =
+                std::sqrt(agreeSq[static_cast<size_t>(i)] / agreeN[static_cast<size_t>(i)]);
+        }
+    }
+
     out.resolved          = d->resolved;
     out.reprojectionRmsPx = d->reprojectionRms;
+    out.agreementMm       = d->agreementMm;
+    out.droppedShots      = result.droppedShots;
 #else
     (void)cameraCount;
     (void)referenceCameraIndex;
@@ -356,6 +508,13 @@ double RoomCalibrationManager::reprojection_rms_for(int cameraIndex) const {
     return d->reprojectionRms[static_cast<size_t>(cameraIndex)];
 }
 
+double RoomCalibrationManager::agreement_mm_for(int cameraIndex) const {
+    if (cameraIndex < 0 || cameraIndex >= static_cast<int>(d->agreementMm.size())) {
+        return -1.0;
+    }
+    return d->agreementMm[static_cast<size_t>(cameraIndex)];
+}
+
 bool RoomCalibrationManager::use_shot_as_plane(int shotIndex, int cameraIndex,
                                                std::array<double, 3>& outPoint,
                                                std::array<double, 3>& outNormal) const {
@@ -381,8 +540,8 @@ bool RoomCalibrationManager::use_shot_as_plane(int shotIndex, int cameraIndex,
     const Mat4 boardToRoom = room_frame::compose(extrinsic_for(cameraIndex), entry->boardToCam);
 
     outPoint = {boardToRoom[3], boardToRoom[7], boardToRoom[11]};
-    // The board's printed-face normal is its local Z axis (ChArUco object
-    // points lie in the board's own Z=0 plane) — the 3rd column of the
+    // The board's printed-face normal is its local Z axis (both boards'
+    // object points lie in the board's own Z=0 plane) — the 3rd column of the
     // rotation part.
     outNormal = {boardToRoom[2], boardToRoom[6], boardToRoom[10]};
     return true;

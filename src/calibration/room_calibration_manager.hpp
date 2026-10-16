@@ -1,4 +1,5 @@
 #pragma once
+#include <QString>
 #include <QVector>
 #include <array>
 #include <memory>
@@ -9,7 +10,9 @@
 
 namespace mosaic {
 
-/// @brief Multi-camera extrinsic ("room") calibration via a shared ChArUco board.
+/// @brief Multi-camera extrinsic ("room") calibration via a shared board: a
+/// ChArUco board, or a plain chessboard with one corner square marked
+/// (calibration/marked_chessboard.hpp).
 ///
 /// Companion to CalibrationManager, which only handles single-camera
 /// intrinsics. A camera must already have a valid intrinsic CalibrationData
@@ -37,12 +40,19 @@ namespace mosaic {
 /// @endcode
 class RoomCalibrationManager {
    public:
-    /// @brief ChArUco board geometry.
+    /// @brief The kind of board.
+    enum class BoardType {
+        Charuco,         ///< ChArUco (DICT_5X5_100): partial views work
+        MarkedChessboard ///< plain chessboard, one corner square marked: the whole board must show
+    };
+
+    /// @brief Board geometry. Both kinds count squares, not inner corners.
     struct BoardSpec {
         int cols              = 7;    ///< Number of squares, horizontally.
         int rows              = 5;    ///< Number of squares, vertically.
         double squareLengthMm = 40.0; ///< Physical side length of one square, in mm.
-        double markerLengthMm = 30.0; ///< Physical side length of one ArUco marker, in mm.
+        double markerLengthMm = 30.0; ///< ArUco marker side, mm (ChArUco only).
+        BoardType type        = BoardType::Charuco;
 
         bool operator==(const BoardSpec&) const = default;
     };
@@ -50,15 +60,27 @@ class RoomCalibrationManager {
     /// @brief Outcome of one camera's board detection within a single shot.
     struct CameraShotResult {
         int cameraIndex = -1;
-        bool found      = false; ///< true if enough ChArUco corners were found to solve a pose.
+        bool found      = false; ///< true if the board's pose was solved and kept.
         int cornerCount = 0;
+        double rmsPx    = -1.0; ///< how well the solved pose fits the corners, px
+        QString problem;        ///< why not found, in words; empty when found
     };
 
     /// @brief Outcome of a solve() call.
     struct SolveResult {
         std::vector<bool> resolved;            ///< index = cameraIndex
         std::vector<double> reprojectionRmsPx; ///< index = cameraIndex; -1 = never directly seen
+        /// How far this camera's view of the board is from the other
+        /// cameras' views of it in the same shots, in the room frame, mm
+        /// (RMS over the board's corners and centre). -1 = never seen with
+        /// another resolved camera. The direct check that the cameras agree.
+        std::vector<double> agreementMm;
+        std::vector<int> droppedShots; ///< outlier shots left out of each pose
     };
+
+    /// A board pose that fits its own corners worse than this is not used:
+    /// a misdetection, or motion blur.
+    static constexpr double kMaxShotRmsPx = 2.0;
 
     RoomCalibrationManager();
     ~RoomCalibrationManager();
@@ -101,6 +123,7 @@ class RoomCalibrationManager {
     [[nodiscard]] bool is_resolved(int cameraIndex) const;
     [[nodiscard]] std::array<double, 16> extrinsic_for(int cameraIndex) const;
     [[nodiscard]] double reprojection_rms_for(int cameraIndex) const;
+    [[nodiscard]] double agreement_mm_for(int cameraIndex) const;
 
     /// Uses the board's own pose from a specific (shot, camera) pair — where
     /// the board was presumably lying flat on the target surface — as the

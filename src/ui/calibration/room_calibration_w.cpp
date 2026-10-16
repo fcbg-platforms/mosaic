@@ -31,6 +31,7 @@ struct RoomCalibrationW::Impl {
     RoomCalibrationManager manager;
 
     // Board configuration
+    QComboBox* typeCombo       = nullptr;
     QSpinBox* colsSpin         = nullptr;
     QSpinBox* rowsSpin         = nullptr;
     QDoubleSpinBox* squareSpin = nullptr;
@@ -43,6 +44,7 @@ struct RoomCalibrationW::Impl {
     // Capture
     QPushButton* captureBtn = nullptr;
     QLabel* shotCountLbl    = nullptr;
+    QLabel* shotNoteLbl     = nullptr; // per camera, why the last shot was not used
     QTimer captureTimer;
     // Extra grace period after captureTimer closes a shot's acceptance
     // window, before the button re-enables a NEW capture — purely a UX
@@ -156,7 +158,7 @@ void RoomCalibrationW::refresh_intrinsics() {
 // ── Board section ──────────────────────────────────────────────────────────
 
 void RoomCalibrationW::build_board_section(QVBoxLayout* parent) {
-    auto* box = new QGroupBox("ChArUco board");
+    auto* box = new QGroupBox("Calibration board");
     auto* row = new QHBoxLayout(box);
     row->setSpacing(12);
 
@@ -166,7 +168,18 @@ void RoomCalibrationW::build_board_section(QVBoxLayout* parent) {
         return lbl;
     };
 
-    row->addWidget(make_label("Cols:"));
+    d->typeCombo = new QComboBox;
+    d->typeCombo->addItem("ChArUco");
+    d->typeCombo->addItem("Chessboard, one corner square marked");
+    d->typeCombo->setToolTip(
+        "ChArUco: a chessboard with codes in its white squares; the board may be partly "
+        "out of view.\nChessboard with a marked corner: a plain black-and-white board with "
+        "a sticker, dot or colour on one corner square, so every camera numbers its "
+        "corners the same way. The whole board must be in each camera's view.");
+    row->addWidget(d->typeCombo);
+    row->addSpacing(8);
+
+    row->addWidget(make_label("Squares across:"));
     d->colsSpin = new QSpinBox;
     d->colsSpin->setRange(3, 20);
     d->colsSpin->setValue(7);
@@ -174,7 +187,7 @@ void RoomCalibrationW::build_board_section(QVBoxLayout* parent) {
     row->addWidget(d->colsSpin);
 
     row->addSpacing(8);
-    row->addWidget(make_label("Rows:"));
+    row->addWidget(make_label("down:"));
     d->rowsSpin = new QSpinBox;
     d->rowsSpin->setRange(3, 20);
     d->rowsSpin->setValue(5);
@@ -184,8 +197,12 @@ void RoomCalibrationW::build_board_section(QVBoxLayout* parent) {
     row->addSpacing(8);
     row->addWidget(make_label("Square:"));
     d->squareSpin = new QDoubleSpinBox;
-    d->squareSpin->setRange(1.0, 500.0);
+    d->squareSpin->setRange(1.0, 1000.0);
+    d->squareSpin->setDecimals(1);
     d->squareSpin->setValue(40.0);
+    d->squareSpin->setToolTip(
+        "One square's side, measured on the board (across several squares, divided). Every "
+        "distance in the room comes out in proportion to it.");
     d->squareSpin->setSuffix("  mm");
     d->squareSpin->setFixedWidth(95);
     row->addWidget(d->squareSpin);
@@ -203,6 +220,8 @@ void RoomCalibrationW::build_board_section(QVBoxLayout* parent) {
     for (auto* spin : {d->colsSpin, d->rowsSpin}) {
         connect(spin, &QSpinBox::valueChanged, this, &RoomCalibrationW::rebuild_board_spec);
     }
+    connect(d->typeCombo, &QComboBox::currentIndexChanged, this,
+            &RoomCalibrationW::rebuild_board_spec);
     for (auto* spin : {d->squareSpin, d->markerSpin}) {
         connect(spin, &QDoubleSpinBox::valueChanged, this, &RoomCalibrationW::rebuild_board_spec);
     }
@@ -212,10 +231,15 @@ void RoomCalibrationW::build_board_section(QVBoxLayout* parent) {
 
 void RoomCalibrationW::rebuild_board_spec() {
     RoomCalibrationManager::BoardSpec spec;
+    spec.type           = d->typeCombo->currentIndex() == 1
+                              ? RoomCalibrationManager::BoardType::MarkedChessboard
+                              : RoomCalibrationManager::BoardType::Charuco;
     spec.cols           = d->colsSpin->value();
     spec.rows           = d->rowsSpin->value();
     spec.squareLengthMm = d->squareSpin->value();
     spec.markerLengthMm = d->markerSpin->value();
+    const bool locked   = d->manager.shot_count() > 0;
+    d->markerSpin->setEnabled(!locked && spec.type == RoomCalibrationManager::BoardType::Charuco);
     // Shots taken with the old board are discarded by set_board(): their
     // board poses were solved with the old board's size and layout, and
     // mixing them with new ones would give a wrong solve.
@@ -230,6 +254,7 @@ void RoomCalibrationW::shots_cleared(const QString& note) {
     d->lastShotIndex = -1;
     d->shotCountLbl->setText(note.isEmpty() ? QString("Shots: 0")
                                             : QString("Shots: 0  (%1)").arg(note));
+    d->shotNoteLbl->clear();
     for (auto* dot : d->foundDots) {
         dot->setText("○");
         dot->setStyleSheet("color: #606080;"); // as built: no shot yet
@@ -316,6 +341,8 @@ void RoomCalibrationW::build_capture_section(QVBoxLayout* parent) {
     d->shotCountLbl = new QLabel("Shots: 0");
     d->shotCountLbl->setProperty("role", "muted");
     row1->addWidget(d->shotCountLbl);
+    d->shotNoteLbl = new QLabel;
+    d->shotNoteLbl->setWordWrap(true);
 
     auto* clearBtn = new QPushButton("Clear shots");
     clearBtn->setToolTip("Discard every shot captured so far, and any solve made from them.");
@@ -326,17 +353,23 @@ void RoomCalibrationW::build_capture_section(QVBoxLayout* parent) {
     row1->addWidget(clearBtn);
     row1->addStretch();
     vlay->addLayout(row1);
+    vlay->addWidget(d->shotNoteLbl);
 
     auto* note = new QLabel(
-        "Move the board through overlapping pairs of camera views, capturing a shot each time "
-        "it's visible to at least two cameras. The reference camera chosen below defines the "
-        "room's origin and axes.");
+        "Hold the board still where at least two cameras see it (a chessboard: all of it), "
+        "and Capture shot; a green dot under a camera means it was used. Move the board "
+        "and repeat, so every camera shares several shots with another, and with the "
+        "reference camera through others. 10 to 20 shots, at different places and tilts. "
+        "The reference camera chosen below defines the room's origin and axes. After "
+        "Solve, \"agreement\" says how far, in mm, each camera puts the board from where "
+        "the other cameras put it: a few mm is good.");
     note->setProperty("role", "muted");
     note->setWordWrap(true);
     vlay->addWidget(note);
 
-    d->resultTable = new QTableWidget(0, 3);
-    d->resultTable->setHorizontalHeaderLabels({"Camera", "Resolved", "Reprojection RMS (px)"});
+    d->resultTable = new QTableWidget(0, 4);
+    d->resultTable->setHorizontalHeaderLabels(
+        {"Camera", "Resolved", "Fit to own view (px)", "Agreement with other cameras (mm)"});
     d->resultTable->horizontalHeader()->setStretchLastSection(true);
     d->resultTable->verticalHeader()->setVisible(false);
     d->resultTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
@@ -497,6 +530,8 @@ void RoomCalibrationW::finalize_shot() {
     const auto results    = d->manager.feed_shot(d->pendingFrames);
     d->pendingFrames.clear();
 
+    QStringList problems;
+    int used = 0;
     for (const auto& r : results) {
         if (r.cameraIndex < 0 || r.cameraIndex >= d->foundDots.size()) {
             continue;
@@ -504,9 +539,26 @@ void RoomCalibrationW::finalize_shot() {
         d->foundDots[r.cameraIndex]->setText(r.found ? "●" : "○");
         d->foundDots[r.cameraIndex]->setStyleSheet(r.found ? "color: #44cc44;" : "color: #cc4444;");
         d->foundDots[r.cameraIndex]->setToolTip(
-            r.found ? QString("%1 ChArUco corners found").arg(r.cornerCount)
-                    : "No usable board detection in this shot.");
+            r.found ? QString("%1 corners, fit %2 px").arg(r.cornerCount).arg(r.rmsPx, 0, 'f', 2)
+                    : r.problem);
+        if (r.found) {
+            ++used;
+        } else if (!r.problem.isEmpty() && !r.problem.startsWith("board not found")) {
+            // "Not in view" is normal for most cameras; anything else is
+            // worth saying.
+            problems << QString("%1: %2").arg(camera_short_label(r.cameraIndex), r.problem);
+        }
     }
+    QString shotNote = used >= 2   ? QString("Last shot: used by %1 cameras.").arg(used)
+                       : used == 1 ? QString(
+                                         "Last shot: only one camera saw the board; a shot "
+                                         "needs two to link them.")
+                                   : QString("Last shot: no camera saw the board.");
+    if (!problems.isEmpty()) {
+        shotNote += "  " + problems.join("  ·  ");
+    }
+    d->shotNoteLbl->setText(shotNote);
+    d->shotNoteLbl->setStyleSheet(used >= 2 ? "color: #44cc66;" : "color: #c8a040;");
 
     if (d->manager.shot_count() > shotsBefore) {
         d->lastShotIndex = d->manager.shot_count() - 1;
@@ -519,12 +571,18 @@ void RoomCalibrationW::lock_board(bool locked) {
     // While shots exist the board is fixed: a changed board would discard
     // them (RoomCalibrationManager::set_board()), and a stray scroll over a
     // spin box should not cost a calibration session. Clear shots unlocks.
-    for (QWidget* w :
-         std::initializer_list<QWidget*>{d->colsSpin, d->rowsSpin, d->squareSpin, d->markerSpin}) {
+    for (QWidget* w : std::initializer_list<QWidget*>{d->typeCombo, d->colsSpin, d->rowsSpin,
+                                                      d->squareSpin, d->markerSpin}) {
+        // Keep each control's own tooltip for when it is unlocked again.
+        if (!w->property("ownTip").isValid()) {
+            w->setProperty("ownTip", w->toolTip());
+        }
         w->setEnabled(!locked);
         w->setToolTip(locked ? "Clear the shots to change the board: they were taken with this one."
-                             : QString());
+                             : w->property("ownTip").toString());
     }
+    // A chessboard has no markers.
+    d->markerSpin->setEnabled(!locked && d->typeCombo->currentIndex() == 0);
 }
 
 // ── Solve / plane / save ────────────────────────────────────────────────────
@@ -558,16 +616,26 @@ void RoomCalibrationW::update_result_table() {
     for (int i = 0; i < n; ++i) {
         const bool resolved = d->manager.is_resolved(i);
         const double rms    = d->manager.reprojection_rms_for(i);
+        const double agree  = d->manager.agreement_mm_for(i);
 
         auto* camItem = new QTableWidgetItem(camera_label(i));
         auto* resItem = new QTableWidgetItem(resolved ? "Yes" : "No");
         auto* rmsItem = new QTableWidgetItem(rms >= 0.0 ? QString::number(rms, 'f', 3) : "—");
+        auto* agreeItem = new QTableWidgetItem(agree >= 0.0 ? QString::number(agree, 'f', 1) : "—");
         if (!resolved) {
             resItem->setForeground(QColor("#cc4444"));
+        }
+        // A few mm is good; over 20 mm something is wrong (a wrong square
+        // size, a lens calibration that does not fit, a camera that moved).
+        if (agree > 20.0) {
+            agreeItem->setForeground(QColor("#cc4444"));
+        } else if (agree > 8.0) {
+            agreeItem->setForeground(QColor("#c8a040"));
         }
         d->resultTable->setItem(i, 0, camItem);
         d->resultTable->setItem(i, 1, resItem);
         d->resultTable->setItem(i, 2, rmsItem);
+        d->resultTable->setItem(i, 3, agreeItem);
     }
 }
 
