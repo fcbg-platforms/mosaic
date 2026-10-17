@@ -26,6 +26,7 @@ namespace mosaic {
 /// repair, EEG/trigger alignment) beside real analyses with no visual
 /// distinction between them.
 enum class AnalysisPluginCategory {
+    Summary,
     BodyMotion,
     FaceGaze,
     Audio,
@@ -90,6 +91,11 @@ struct AnalysisPluginDesc {
          AnalysisPluginCategory::Audio},
         {"sync_repair", "Frame Sync Repair", "Equalizes camera frame counts into synced/.",
          AnalysisPluginCategory::DataPrep},
+        // Last in the list (the tab starts on the first entry, Pose, whose
+        // controls the startup view assumes); its category is shown first.
+        {"overview", "Session Overview",
+         "Speaking, eye contact, smile, head and heart rate on one timeline.",
+         AnalysisPluginCategory::Summary},
     };
     return kPlugins;
 }
@@ -100,14 +106,16 @@ struct AnalysisPluginDesc {
 /// actually in use are the same set.
 [[nodiscard]] inline QVector<AnalysisPluginCategory> analysis_plugin_categories() {
     return {
-        AnalysisPluginCategory::BodyMotion, AnalysisPluginCategory::FaceGaze,
-        AnalysisPluginCategory::Audio,      AnalysisPluginCategory::Privacy,
-        AnalysisPluginCategory::DataPrep,
+        AnalysisPluginCategory::Summary,  AnalysisPluginCategory::BodyMotion,
+        AnalysisPluginCategory::FaceGaze, AnalysisPluginCategory::Audio,
+        AnalysisPluginCategory::Privacy,  AnalysisPluginCategory::DataPrep,
     };
 }
 
 [[nodiscard]] inline QString analysis_plugin_category_label(AnalysisPluginCategory category) {
     switch (category) {
+        case AnalysisPluginCategory::Summary:
+            return "Summary";
         case AnalysisPluginCategory::BodyMotion:
             return "Body & motion";
         case AnalysisPluginCategory::FaceGaze:

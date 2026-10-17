@@ -515,6 +515,25 @@ sitting alongside **Live**. The workflow is always the same shape:
 
 .. tab-set::
 
+   .. tab-item:: Session Overview
+
+      **What it does**: puts one camera's analyses on a single timeline,
+      one lane each, so their moments can be read against each other: who
+      speaks (on camera above, the other speaker below; from Conversation
+      Timing), eye contact (looking at the partner, or away; from Eye
+      Contact), smile and head movement (from Face Dynamics), and heart rate
+      (from Remote Heart Rate). It reads the files those analyses already
+      wrote: there is nothing to run, so it has no Run button.
+
+      **Reading it**: the red line is the playhead, moving with the video;
+      click anywhere on the lanes to jump there. Hover to read every lane at
+      that moment (the time, who speaks, looking or away, the smile, head
+      speed and heart rate). Each line lane shows its range at the left
+      (smile 0 to 1; head movement up to the speed the head stays under 99% of
+      the time, at least 10 degrees per second; heart
+      rate rounded to 10 bpm). A lane whose analysis was not run for this
+      camera says which one to run; run it, then come back to the overview.
+
    .. tab-item:: Pose (YOLOv8)
 
       **What it does**: runs a YOLOv8-pose model over every camera's video,

@@ -66,6 +66,7 @@
 #include "analysis/pose_models.hpp"
 #include "analysis/realtime_metrics.hpp"
 #include "analysis/rppg_result.hpp"
+#include "analysis/session_overview.hpp"
 #include "analysis/skeleton3d_result.hpp"
 #include "analysis/sync_repair_result.hpp"
 #include "analysis/transcript_result.hpp"
@@ -74,6 +75,7 @@
 #include "audio/audio_envelope.hpp"
 #include "session/session_info.hpp"
 #include "ui/analysis/gaze_room_view_w.hpp"
+#include "ui/analysis/overview_timeline_w.hpp"
 #include "ui/analysis/plugin_rail_w.hpp"
 #include "ui/analysis/pose_overlay_player_w.hpp"
 #include "ui/analysis/skeleton3d_room_view_w.hpp"
@@ -1029,14 +1031,15 @@ struct AnalysisTabW::Impl {
     QWidget* blendshapeFieldW  = nullptr;
     QComboBox* blendshapeCombo = nullptr; // expression only
     QWidget* trackFieldW       = nullptr;
-    QComboBox* trackCombo      = nullptr; // pose3d only — filters the CSV export;
-                                          // the 3D room view always shows every track
-    PoseOverlayPlayerW* player = nullptr; // shared: video (pose/face_mask/expression),
-                                          // or audio (diarize)
-    QSplitter* resultsSplitter = nullptr; // holds player/chart/transcriptTable/
-                                          // roomView/skeleton3dRoomView/triggerSyncTable
-    MetricsChartW* chart       = nullptr; // pose + expression
-    QPushButton* openFolderBtn = nullptr; // face_mask only
+    QComboBox* trackCombo      = nullptr;  // pose3d only — filters the CSV export;
+                                           // the 3D room view always shows every track
+    PoseOverlayPlayerW* player = nullptr;  // shared: video (pose/face_mask/expression),
+                                           // or audio (diarize)
+    QSplitter* resultsSplitter = nullptr;  // holds player/chart/transcriptTable/
+                                           // roomView/skeleton3dRoomView/triggerSyncTable
+    MetricsChartW* chart        = nullptr; // pose + expression
+    OverviewTimelineW* overview = nullptr; // overview only: every analysis on one timeline
+    QPushButton* openFolderBtn  = nullptr; // face_mask only
 
     QWidget* micRowW                      = nullptr; // diarize only
     QComboBox* micCombo                   = nullptr; // diarize only
@@ -2041,6 +2044,22 @@ void AnalysisTabW::build_ui() {
     syncRepairCtlLay->addWidget(syncRepairHint, 1);
     add_plugin_page("sync_repair", syncRepairPage);
 
+    // Session Overview: nothing to run, it reads what the other analyses
+    // already wrote for the chosen camera.
+    auto* overviewPage = new QWidget;
+    auto* overviewLay  = new QVBoxLayout(overviewPage);
+    overviewLay->setContentsMargins(0, 0, 0, 0);
+    auto* overviewHint = new QLabel(
+        "One camera's analyses on one timeline: who speaks (Conversation Timing), eye "
+        "contact (Eye Contact), smile and head movement (Face Dynamics) and heart rate "
+        "(Remote Heart Rate). Nothing to run here: run those analyses, then come back. "
+        "Click a lane to move the video there; hover to read every lane at that moment.");
+    overviewHint->setWordWrap(true);
+    overviewHint->setProperty("role", "muted");
+    overviewLay->addWidget(overviewHint);
+    overviewLay->addStretch();
+    add_plugin_page("overview", overviewPage);
+
     // Q_ASSERT above compiles out in Release, so restate the invariant in a
     // form that survives: a registry entry with no page would silently vanish
     // from the picker rather than failing.
@@ -2748,6 +2767,11 @@ void AnalysisTabW::build_ui() {
     d->chart = new MetricsChartW;
     resultsSplitter->addWidget(d->chart);
 
+    d->overview = new OverviewTimelineW; // shown only for the overview
+    d->overview->setVisible(false);
+    d->overview->set_seek_callback([this](qint64 ms) { d->player->seek(ms); });
+    resultsSplitter->addWidget(d->overview);
+
     d->transcriptTable = new QTableWidget(0, 4);
     d->transcriptTable->setHorizontalHeaderLabels({"Start", "End", "Speaker", "Text"});
     d->transcriptTable->horizontalHeader()->setStretchLastSection(true);
@@ -2844,6 +2868,9 @@ void AnalysisTabW::build_ui() {
     d->chart->set_seek_callback([this](int64_t ms) { d->player->seek(ms); });
     connect(d->player, &PoseOverlayPlayerW::position_changed, this, [this](int64_t ms) {
         d->chart->set_playhead_ms(ms);
+        if (is_overview_plugin()) {
+            d->overview->set_playhead_ms(ms);
+        }
         highlight_active_transcript_row(ms);
         if (is_gaze_fusion_plugin()) {
             d->roomView->set_position_ms(ms);
@@ -3009,6 +3036,7 @@ void AnalysisTabW::select_plugin(const QString& pluginId) {
     const bool isConv        = is_conversation_plugin();
     const bool isEye         = is_eye_contact_plugin();
     const bool isSyncRepair  = is_sync_repair_plugin();
+    const bool isOverview    = is_overview_plugin();
     // A depth model selected within the Pose plugin produces a colorized
     // video, not keypoints — the keypoint/chart controls below need to stay
     // hidden for it, same as they are for every non-pose plugin.
@@ -3061,6 +3089,9 @@ void AnalysisTabW::select_plugin(const QString& pluginId) {
     set_visible_animated(d->eyeRowW, isEye);
     set_visible_animated(d->syncRepairRowW, isSyncRepair);
     set_visible_animated(d->syncRepairTable, isSyncRepair);
+    set_visible_animated(d->overview, isOverview);
+    // Nothing to run for the overview (its page explains why).
+    d->runBtn->setVisible(!isOverview);
     set_visible_animated(d->openFolderBtn, isFaceMask || is_pose_depth_selected() || isSyncRepair ||
                                                isGazeFusion || isFaceDyn || isConv || isEye);
     set_visible_animated(d->sourceRowW, !isDiarize);
@@ -3370,6 +3401,8 @@ bool AnalysisTabW::is_conversation_plugin() const { return d->currentPlugin == "
 bool AnalysisTabW::is_face_dynamics_plugin() const { return d->currentPlugin == "face_dynamics"; }
 
 bool AnalysisTabW::is_sync_repair_plugin() const { return d->currentPlugin == "sync_repair"; }
+
+bool AnalysisTabW::is_overview_plugin() const { return d->currentPlugin == "overview"; }
 
 bool AnalysisTabW::is_pose_depth_selected() const {
     return is_pose_plugin() && is_depth_model(d->modelCombo->currentData().toString());
@@ -3694,6 +3727,7 @@ void AnalysisTabW::load_camera_result_view() {
     }
 
     if (!info || d->cameraCombo->currentIndex() < 0) {
+        d->overview->set_overview({});
         d->player->set_video(QString()); // stop/clear any previously-loaded video
         d->player->set_pose_result(d->currentResult);
         rebuild_subject_chips({}); // no session selected — no chips to show
@@ -3870,6 +3904,47 @@ void AnalysisTabW::load_camera_result_view() {
                 "2D Gaze ran, but no face was detected in this camera's "
                 "footage — try a different camera, or check its framing/lighting.");
             d->statusLbl->setStyleSheet("color:#ddaa33; font-size:15px; font-weight:600;");
+        }
+        return;
+    }
+
+    if (is_overview_plugin()) {
+        // Every analysis this lane set uses, for this camera, from the files
+        // they wrote; a missing one becomes a lane that says it was not run.
+        auto load = [&](auto& into, const QString& rel) {
+            using T          = std::decay_t<decltype(into)>;
+            const QString ab = info->path + "/" + rel;
+            into             = QFileInfo::exists(ab) ? T::load(ab) : T();
+        };
+        load(d->currentConversation, conversation_json_path_for(videoRel));
+        load(d->currentEyeContact, eye_contact_json_path_for(videoRel));
+        load(d->currentFaceDynResult, face_dynamics_json_path_for(videoRel));
+        load(d->currentRppgResult, rppg_json_path_for(videoRel));
+        d->player->set_video(videoAbs);
+        d->player->set_pose_result(PoseAnalysisResult());
+        const SessionOverview ov =
+            build_session_overview({&d->currentConversation, &d->currentEyeContact,
+                                    &d->currentFaceDynResult, &d->currentRppgResult});
+        d->overview->set_overview(ov);
+        d->overview->set_playhead_ms(d->player->position_ms());
+        int missing = 0;
+        for (const auto& lane : ov.lanes) {
+            missing += lane.note.endsWith("not run") ? 1 : 0;
+        }
+        if (ov.durationMs <= 0.0) {
+            d->statusLbl->setText(
+                "No analysis for this camera yet: run Conversation Timing, Eye Contact, Face "
+                "Dynamics or Remote Heart Rate, then come back.");
+            d->statusLbl->setStyleSheet("color:#6060a0; font-size:15px; font-weight:600;");
+        } else if (missing > 0) {
+            d->statusLbl->setText(
+                QString("%1 of %2 lanes have no analysis yet: each says which to run.")
+                    .arg(missing)
+                    .arg(ov.lanes.size()));
+            d->statusLbl->setStyleSheet("color:#ddaa33; font-size:15px; font-weight:600;");
+        } else {
+            d->statusLbl->setText("Every lane has its analysis. Click a lane to move the video.");
+            d->statusLbl->setStyleSheet("color:#44cc66; font-size:15px; font-weight:600;");
         }
         return;
     }
