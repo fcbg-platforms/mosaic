@@ -87,6 +87,13 @@ algorithm behind its output.
       Turns, response times, pauses, overlaps and backchannels from the
       audio and the face on camera.
 
+   .. grid-item-card:: 🤝 Social Interaction
+      :link: analysis-api-social
+      :link-type: ref
+
+      Two people's movement and heart-rate synchrony, and smile and nod
+      mimicry, against chance.
+
    .. grid-item-card:: 📄 Session report
       :link: analysis-api-report
       :link-type: ref
@@ -891,6 +898,36 @@ transfer offsets, pauses, overlaps and backchannels follow
 .. autofunction:: conversation.turns.build_turns
 
 .. autofunction:: conversation.turns.summarise
+
+.. _analysis-api-social:
+
+Social Interaction
+------------------
+
+How two people's behaviour is coupled, from the analyses already run on the
+two cameras facing them (:mod:`social.signals`): windowed cross-correlation
+of head movement, body movement and heart rate against surrogate pairs
+(:mod:`social.synchrony`), and smile and nod mimicry against chance
+(:mod:`social.mimicry`). See :doc:`math/social_interaction`.
+
+.. code-block:: python
+
+   from social.synchrony import synchrony
+
+   # x, y: the two people's signals on one grid, 10 samples per second
+   res = synchrony(x, y, fs=10.0, window_s=5.0, step_s=0.5, max_lag_s=3.0)
+   res["summary"]["synchrony"], res["summary"]["p_value"]
+
+.. automodule:: social
+   :no-members:
+
+.. autofunction:: social.synchrony.wcc
+
+.. autofunction:: social.synchrony.synchrony
+
+.. autofunction:: social.mimicry.mimicry
+
+.. autofunction:: social.signals.on_grid
 
 .. _analysis-api-report:
 

@@ -91,6 +91,9 @@ struct AnalysisPluginDesc {
          AnalysisPluginCategory::Audio},
         {"sync_repair", "Frame Sync Repair", "Equalizes camera frame counts into synced/.",
          AnalysisPluginCategory::DataPrep},
+        {"social", "Social Interaction",
+         "Synchrony and mimicry between two people facing two cameras.",
+         AnalysisPluginCategory::Summary},
         // Last in the list (the tab starts on the first entry, Pose, whose
         // controls the startup view assumes); its category is shown first.
         {"overview", "Session Overview",

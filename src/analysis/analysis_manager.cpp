@@ -275,6 +275,13 @@ void AnalysisManager::run_conversation_analysis(const QString& sessionPath, bool
     enqueue_or_launch(sessionPath, "analysis/run_conversation.py", args, {});
 }
 
+void AnalysisManager::run_social_analysis(const QString& sessionPath, int cameraA, int cameraB) {
+    const QStringList args = {"--session",  sessionPath,
+                              "--camera-a", QString::number(cameraA),
+                              "--camera-b", QString::number(cameraB)};
+    enqueue_or_launch(sessionPath, "analysis/run_social.py", args, {});
+}
+
 void AnalysisManager::run_eye_contact_analysis(const QString& sessionPath, const QString& target,
                                                bool annotatedVideo) {
     QStringList args = {"--session", sessionPath, "--target", target};

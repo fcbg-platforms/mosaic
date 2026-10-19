@@ -552,6 +552,32 @@ sitting alongside **Live**. The workflow is always the same shape:
       rate rounded to 10 bpm). A lane whose analysis was not run for this
       camera says which one to run; run it, then come back to the overview.
 
+   .. tab-item:: Social Interaction
+
+      **What it does**: measures how two people's behaviour is coupled, each
+      seen by the camera facing them: whether their head movement, body
+      movement and heart rate move together (and who leads), and whether one
+      smiles or nods soon after the other more often than chance. It reads
+      what Face Dynamics, Pose and Remote Heart Rate wrote for those two
+      cameras, so run those on both first. Needs a room recording of at
+      least a few minutes (23 s at the very least for movement, 101 s for heart
+      rate); interview recordings show only one person and are refused. See
+      :doc:`math/social_interaction`.
+
+      **Settings**: **Person A** and **Person B**, the camera facing each
+      (Camera 2 and Camera 5 by default). If a camera does not face its
+      person, the notes say so and name it.
+
+      **Reading it**: **Show** picks a measure. *Synchrony* plots each 5 s
+      window's peak correlation (30 s for heart rate); the grey line is what
+      chance gives 95% of the time, so windows above it are coupled. *Who
+      leads* plots the lag of each window's peak: above zero, B follows A.
+      The line under the chart gives the mean against chance (and its p), who
+      leads, the smile and nod mimicry (how often one followed the other
+      within 3 s, against chance), and what could not be measured and why.
+      Results are in ``social/social.json`` and, per window,
+      ``social/synchrony.csv``.
+
    .. tab-item:: Pose (YOLOv8)
 
       **What it does**: runs a YOLOv8-pose model over every camera's video,

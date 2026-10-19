@@ -533,3 +533,42 @@ def test_quality_rows_timeline_tiers_and_response_bins(tmp_path):
     meta["cameras"][0]["calibration"]["rms_error"] = None
     _write(s / "session_meta.json", meta)
     assert "lens calibrated, k1 k2" in render.render(collect.collect(s))
+
+
+def test_social_section_in_room_sessions_only(tmp_path):
+    s = make_session(tmp_path / "a", mode="room", cams=(1, 4))
+    _write(
+        s / "social" / "social.json",
+        {
+            "schema": "mosaic-social-v1",
+            "cameras": {"a": 1, "b": 4},
+            "synchrony": {
+                "head": {
+                    "summary": {
+                        "mean_peak_r": 0.62,
+                        "surrogate_mean_peak_r": 0.41,
+                        "p_value": 0.01,
+                        "a_leads_pct": 80.0,
+                        "b_leads_pct": 20.0,
+                        "median_lag_s": 0.8,
+                    },
+                    "series": {"t_s": [1.0]},
+                }
+            },
+            "mimicry": {
+                "smile": {
+                    "a_to_b": {"events": 10, "rate": 0.6, "chance_rate": 0.3, "p_value": 0.02},
+                    "b_to_a": {"events": 0, "rate": None},
+                }
+            },
+            "notes": ["Heart rate: run Remote Heart Rate on Camera 2 and Camera 5."],
+        },
+    )
+    page = render.render(collect.collect(s))
+    assert "(A: Camera 2, B: Camera 5)" in page
+    assert "peak r 0.62 vs 0.41 by chance (p = 0.01); A leads 80%" in page
+    assert "Smile mimicry, B after A" in page and "60% of 10 (chance 30%" in page
+    assert "Smile mimicry, A after B" not in page and "run Remote Heart Rate" in page
+    # An interview session never lists it as not run.
+    one = render.render(collect.collect(make_session(tmp_path / "b")))
+    assert "<li>Social Interaction</li>" not in one

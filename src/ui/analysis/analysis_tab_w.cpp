@@ -68,6 +68,7 @@
 #include "analysis/rppg_result.hpp"
 #include "analysis/session_overview.hpp"
 #include "analysis/skeleton3d_result.hpp"
+#include "analysis/social_result.hpp"
 #include "analysis/sync_repair_result.hpp"
 #include "analysis/transcript_result.hpp"
 #include "analysis/trigger_frame_map.hpp"
@@ -1148,6 +1149,11 @@ struct AnalysisTabW::Impl {
     QLabel* convStatsLbl          = nullptr; // conversation only
     QPushButton* exportConvBtn    = nullptr; // conversation only
     QWidget* eyeRowW              = nullptr; // eye_contact only
+    QComboBox* socialCamACombo    = nullptr; // social only: camera facing person A
+    QComboBox* socialCamBCombo    = nullptr; // social only: camera facing person B
+    QWidget* socialRowW           = nullptr; // social only
+    QComboBox* socialMetricCombo  = nullptr; // social only
+    QLabel* socialStatsLbl        = nullptr; // social only
     QComboBox* eyeMetricCombo     = nullptr; // eye_contact only
     QLabel* eyeStatsLbl           = nullptr; // eye_contact only
     QPushButton* exportEyeBtn     = nullptr; // eye_contact only
@@ -1202,6 +1208,7 @@ struct AnalysisTabW::Impl {
     FaceDynamicsResult currentFaceDynResult; // face_dynamics only
     ConversationResult currentConversation;  // conversation only
     EyeContactResult currentEyeContact;      // eye_contact only
+    SocialResult currentSocial;              // social only
     SyncRepairResult currentSyncRepair;      // sync_repair only
 
     // AnalysisManager is a single shared instance (also used by
@@ -2044,6 +2051,31 @@ void AnalysisTabW::build_ui() {
     syncRepairCtlLay->addWidget(syncRepairHint, 1);
     add_plugin_page("sync_repair", syncRepairPage);
 
+    // Social Interaction: which camera faces each of the two people.
+    auto* socialPage   = new QWidget;
+    auto* socialCtlLay = new QHBoxLayout(socialPage);
+    socialCtlLay->setContentsMargins(0, 0, 0, 0);
+    d->socialCamACombo = new QComboBox;
+    d->socialCamBCombo = new QComboBox;
+    for (auto* combo : {d->socialCamACombo, d->socialCamBCombo}) {
+        combo->setToolTip(
+            "The camera that faces this person. It reads the Face Dynamics, Pose and Remote "
+            "Heart Rate results of that camera, so run those on both cameras first.");
+    }
+    socialCtlLay->addWidget(new QLabel("Person A:"));
+    socialCtlLay->addWidget(d->socialCamACombo);
+    socialCtlLay->addWidget(new QLabel("Person B:"));
+    socialCtlLay->addWidget(d->socialCamBCombo);
+    auto* socialHint = new QLabel(
+        "How two people's head movement, body movement and heart rate move together, and "
+        "whether one smiles or nods after the other more often than chance. Run Face "
+        "Dynamics, Pose and Remote Heart Rate on both cameras first; a room recording of "
+        "at least a few minutes.");
+    socialHint->setWordWrap(true);
+    socialHint->setProperty("role", "muted");
+    socialCtlLay->addWidget(socialHint, 1);
+    add_plugin_page("social", socialPage);
+
     // Session Overview: nothing to run, it reads what the other analyses
     // already wrote for the chosen camera.
     auto* overviewPage = new QWidget;
@@ -2710,6 +2742,22 @@ void AnalysisTabW::build_ui() {
     d->convRowW->setVisible(false); // shown only for the conversation plugin
     rightLay->addWidget(d->convRowW);
 
+    // Social Interaction row: which measure the chart shows, and the numbers.
+    d->socialRowW      = new QWidget;
+    auto* socialRowLay = new QHBoxLayout(d->socialRowW);
+    socialRowLay->setContentsMargins(0, 0, 0, 0);
+    d->socialMetricCombo = new QComboBox;
+    connect(d->socialMetricCombo, &QComboBox::currentIndexChanged, this,
+            &AnalysisTabW::update_social_view);
+    socialRowLay->addWidget(new QLabel("Show:"));
+    socialRowLay->addWidget(d->socialMetricCombo);
+    d->socialStatsLbl = new QLabel;
+    d->socialStatsLbl->setStyleSheet("color:#7070a0; font-size:11px;");
+    d->socialStatsLbl->setWordWrap(true);
+    socialRowLay->addWidget(d->socialStatsLbl, 1);
+    d->socialRowW->setVisible(false); // shown only for the social plugin
+    rightLay->addWidget(d->socialRowW);
+
     // Eye Contact row: chart choice, numbers, look-aways CSV export.
     d->eyeRowW      = new QWidget;
     auto* eyeRowLay = new QHBoxLayout(d->eyeRowW);
@@ -2991,6 +3039,31 @@ void AnalysisTabW::select_session(const QString& path) {
     }
     d->cameraCombo->blockSignals(false);
 
+    // The two people's cameras: those this session has; Camera 2 and Camera 5
+    // by default (where the room's two seats are usually seen from).
+    for (auto* combo : {d->socialCamACombo, d->socialCamBCombo}) {
+        const int want = combo == d->socialCamACombo ? 1 : 4;
+        combo->clear();
+        if (info) {
+            for (const QString& v : info->videoFiles) {
+                combo->addItem(camera_label_for_video(v), camera_index_from_video_file(v));
+            }
+        }
+        const int at = combo->findData(want);
+        if (at >= 0) {
+            combo->setCurrentIndex(at);
+        }
+    }
+    // Without one of the defaults, B takes the first camera that is not A's.
+    if (d->socialCamBCombo->currentData() == d->socialCamACombo->currentData()) {
+        for (int i = 0; i < d->socialCamBCombo->count(); ++i) {
+            if (d->socialCamBCombo->itemData(i) != d->socialCamACombo->currentData()) {
+                d->socialCamBCombo->setCurrentIndex(i);
+                break;
+            }
+        }
+    }
+
     d->micCombo->blockSignals(true);
     d->micCombo->clear();
     if (info) {
@@ -3037,6 +3110,7 @@ void AnalysisTabW::select_plugin(const QString& pluginId) {
     const bool isEye         = is_eye_contact_plugin();
     const bool isSyncRepair  = is_sync_repair_plugin();
     const bool isOverview    = is_overview_plugin();
+    const bool isSocial      = is_social_plugin();
     // A depth model selected within the Pose plugin produces a colorized
     // video, not keypoints — the keypoint/chart controls below need to stay
     // hidden for it, same as they are for every non-pose plugin.
@@ -3065,7 +3139,7 @@ void AnalysisTabW::select_plugin(const QString& pluginId) {
     // series — pose3d's own room-view/2D-overlay results view never needed
     // it before Dyad Analysis was added.
     set_visible_animated(d->chart, isPoseKeypoints || isExpression || isRppg || isGaze2d ||
-                                       isPose3D || isFaceDyn || isConv || isEye);
+                                       isPose3D || isFaceDyn || isConv || isEye || isSocial);
     set_visible_animated(d->kinematicsRowW, isPoseKeypoints);
     // subjectPickerRowW's own further narrowing (hidden when the session has
     // <=1 detected subject) happens inside rebuild_subject_chips(), called
@@ -3086,6 +3160,7 @@ void AnalysisTabW::select_plugin(const QString& pluginId) {
     set_visible_animated(d->gaze2dRowW, isGaze2d);
     set_visible_animated(d->faceDynRowW, isFaceDyn);
     set_visible_animated(d->convRowW, isConv);
+    set_visible_animated(d->socialRowW, isSocial);
     set_visible_animated(d->eyeRowW, isEye);
     set_visible_animated(d->syncRepairRowW, isSyncRepair);
     set_visible_animated(d->syncRepairTable, isSyncRepair);
@@ -3093,7 +3168,8 @@ void AnalysisTabW::select_plugin(const QString& pluginId) {
     // Nothing to run for the overview (its page explains why).
     d->runBtn->setVisible(!isOverview);
     set_visible_animated(d->openFolderBtn, isFaceMask || is_pose_depth_selected() || isSyncRepair ||
-                                               isGazeFusion || isFaceDyn || isConv || isEye);
+                                               isGazeFusion || isFaceDyn || isConv || isEye ||
+                                               isSocial);
     set_visible_animated(d->sourceRowW, !isDiarize);
     set_visible_animated(d->micRowW, isDiarize);
     set_visible_animated(d->transcriptTable, isDiarize);
@@ -3246,6 +3322,9 @@ PluginRunState AnalysisTabW::run_state_for(const QString& pluginId) const {
     }
     if (pluginId == "pose3d") {
         return session_level("skeleton3d.json");
+    }
+    if (pluginId == "social") {
+        return session_level("social/social.json");
     }
     if (pluginId == "trigger_sync") {
         // Written by TriggerFrameMap::save() — this plugin computes in-process
@@ -3403,6 +3482,7 @@ bool AnalysisTabW::is_face_dynamics_plugin() const { return d->currentPlugin == 
 bool AnalysisTabW::is_sync_repair_plugin() const { return d->currentPlugin == "sync_repair"; }
 
 bool AnalysisTabW::is_overview_plugin() const { return d->currentPlugin == "overview"; }
+bool AnalysisTabW::is_social_plugin() const { return d->currentPlugin == "social"; }
 
 bool AnalysisTabW::is_pose_depth_selected() const {
     return is_pose_plugin() && is_depth_model(d->modelCombo->currentData().toString());
@@ -3904,6 +3984,44 @@ void AnalysisTabW::load_camera_result_view() {
                 "2D Gaze ran, but no face was detected in this camera's "
                 "footage — try a different camera, or check its framing/lighting.");
             d->statusLbl->setStyleSheet("color:#ddaa33; font-size:15px; font-weight:600;");
+        }
+        return;
+    }
+
+    if (is_social_plugin()) {
+        const QString jsonAbs = info->path + "/social/social.json";
+        d->currentSocial =
+            QFileInfo::exists(jsonAbs) ? SocialResult::load(jsonAbs) : SocialResult();
+        d->player->set_video(videoAbs);
+        d->player->set_pose_result(PoseAnalysisResult());
+        d->openFolderBtn->setEnabled(d->currentSocial.is_valid());
+        // The measures this result has, keeping the choice when it still applies.
+        const QString was = d->socialMetricCombo->currentData().toString();
+        d->socialMetricCombo->blockSignals(true);
+        d->socialMetricCombo->clear();
+        for (const auto& m : d->currentSocial.measures()) {
+            const QString name = m.id == "head"   ? "Head movement"
+                                 : m.id == "body" ? "Body movement"
+                                                  : "Heart rate";
+            d->socialMetricCombo->addItem(name + ": synchrony", m.id + "|r");
+            d->socialMetricCombo->addItem(name + ": who leads (lag)", m.id + "|lag");
+        }
+        const int keep = d->socialMetricCombo->findData(was);
+        d->socialMetricCombo->setCurrentIndex(keep >= 0 ? keep : 0);
+        d->socialMetricCombo->blockSignals(false);
+        update_social_view();
+        if (!d->currentSocial.is_valid()) {
+            d->statusLbl->setText(
+                "No analysis yet: choose the camera facing each person and click Run.");
+            d->statusLbl->setStyleSheet("color:#6060a0; font-size:15px; font-weight:600;");
+        } else if (d->currentSocial.measures().isEmpty()) {
+            d->statusLbl->setText("Only mimicry could be measured: see the notes.");
+            d->statusLbl->setStyleSheet("color:#ddaa33; font-size:15px; font-weight:600;");
+        } else {
+            d->statusLbl->setText(QString("Person A: %1; person B: %2.")
+                                      .arg(camera_label(d->currentSocial.camera_a()),
+                                           camera_label(d->currentSocial.camera_b())));
+            d->statusLbl->setStyleSheet("color:#44cc66; font-size:15px; font-weight:600;");
         }
         return;
     }
@@ -5575,6 +5693,82 @@ void AnalysisTabW::export_eye_contact_csv() {
     });
 }
 
+void AnalysisTabW::update_social_view() {
+    const auto& r = d->currentSocial;
+    auto pct      = [](const std::optional<double>& v) {
+        return v ? QString::number(100.0 * *v, 'f', 0) + "%" : QString("–");
+    };
+    auto pval = [](const std::optional<double>& v) {
+        return v ? QString("p = %1").arg(*v, 0, 'f', 2) : QString("p –");
+    };
+    QStringList lines;
+    const QStringList key = d->socialMetricCombo->currentData().toString().split('|');
+    const auto* m         = key.size() == 2 ? r.measure(key[0]) : nullptr;
+    if (m == nullptr) {
+        d->chart->set_single_series({}, "Social Interaction");
+        d->chart->set_title(r.is_valid() ? "No synchrony measured" : "No analysis yet");
+    } else {
+        // On the shown video's clock: its own first frame, or person A's (for a
+        // third camera, off by however much later or earlier it started).
+        double start = r.video_start_ms(combo_camera_index(d->cameraCombo));
+        if (!std::isfinite(start)) {
+            start = r.video_start_ms(r.camera_a());
+        }
+        if (!std::isfinite(start)) {
+            start = m->t0Ms;
+        }
+        const bool lag = key[1] == "lag";
+        QVector<QPointF> pts;
+        double lastMs = 0.0;
+        for (int i = 0; i < m->tS.size() && i < m->peakR.size() && i < m->lagS.size(); ++i) {
+            const double v = lag ? m->lagS[i] : m->peakR[i];
+            if (std::isfinite(v)) {
+                const double x = m->t0Ms + 1000.0 * m->tS[i] - start;
+                pts << QPointF(x, v);
+                lastMs = std::max(lastMs, x);
+            }
+        }
+        QVector<NamedSeries> series{
+            {lag ? "Lag of the peak" : "Peak correlation", QColor("#5ac85a"), pts, lag}};
+        if (!lag && m->surrogateP95 && !pts.isEmpty()) {
+            // A window above this line is coupled more than chance would give.
+            series.append({"Chance, 95th percentile",
+                           QColor("#a0a0c8"),
+                           {QPointF(pts.first().x(), *m->surrogateP95),
+                            QPointF(pts.last().x(), *m->surrogateP95)},
+                           false,
+                           true,
+                           1});
+        }
+        d->chart->set_named_series(series, lag ? "Lag (s): + B follows A" : "Peak correlation",
+                                   lastMs);
+        d->chart->set_title(d->socialMetricCombo->currentText());
+        lines << QString("Mean peak r %1 against %2 by chance (%3)")
+                     .arg(m->meanPeakR, 0, 'f', 2)
+                     .arg(m->surrogateMeanPeakR ? QString::number(*m->surrogateMeanPeakR, 'f', 2)
+                                                : QString("–"),
+                          pval(m->pValue));
+        if (m->aLeadsPct && m->bLeadsPct) {
+            lines << QString(
+                         "of the strongly coupled moments, A leads %1%, B leads %2% "
+                         "(median lag %3 s)")
+                         .arg(*m->aLeadsPct, 0, 'f', 0)
+                         .arg(*m->bLeadsPct, 0, 'f', 0)
+                         .arg(m->medianLagS ? *m->medianLagS : 0.0, 0, 'f', 1);
+        }
+    }
+    for (const auto& x : r.mimicry()) {
+        if (x.rate) {
+            lines << QString("%1s: %2 followed %3 %4 of the time (chance %5, %6)")
+                         .arg(x.kind == "smile" ? "Smile" : "Nod", x.aToB ? "B" : "A",
+                              x.aToB ? "A" : "B", pct(x.rate), pct(x.chanceRate), pval(x.pValue));
+        }
+    }
+    lines += r.notes();
+    d->socialStatsLbl->setText(lines.join("  ·  "));
+    d->chart->set_playhead_ms(d->player->position_ms());
+}
+
 void AnalysisTabW::update_conversation_view() {
     const auto& r = d->currentConversation;
     if (!r.is_valid()) {
@@ -6099,6 +6293,10 @@ void AnalysisTabW::run_analysis() {
                                                    d->faceDynVideoCheck->isChecked());
     } else if (plugin == "sync_repair") {
         d->analysisMgr->run_sync_repair(d->currentSessionPath, d->syncRepairMasterFpsSpin->value());
+    } else if (plugin == "social") {
+        d->analysisMgr->run_social_analysis(d->currentSessionPath,
+                                            d->socialCamACombo->currentData().toInt(),
+                                            d->socialCamBCombo->currentData().toInt());
     } else {
         // Defensive: pluginCombo only ever offers the ids handled above, but
         // a silent fallthrough here would otherwise launch face-masking with
@@ -6126,6 +6324,8 @@ void AnalysisTabW::open_output_folder() {
         folder = "conversation";
     } else if (is_eye_contact_plugin()) {
         folder = "eye_contact";
+    } else if (is_social_plugin()) {
+        folder = "social";
     }
     QDesktopServices::openUrl(QUrl::fromLocalFile(info->path + "/" + folder));
 }

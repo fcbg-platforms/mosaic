@@ -99,7 +99,7 @@ TEST(AnalysisPlugins, RegistryMatchesTheKnownPluginIdSet) {
 
     QStringList expected{"conversation", "diarize", "expression",  "eye_contact", "face_dynamics",
                          "face_mask",    "gaze2d",  "gaze_fusion", "overview",    "pose",
-                         "pose3d",       "rppg",    "sync_repair", "trigger_sync"};
+                         "pose3d",       "rppg",    "social",      "sync_repair", "trigger_sync"};
     expected.sort();
 
     EXPECT_EQ(ids, expected);
