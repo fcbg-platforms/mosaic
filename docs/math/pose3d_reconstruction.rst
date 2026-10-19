@@ -102,17 +102,30 @@ directly-comparable pixel-distance metric) and reports the Euclidean
 distance to that camera's actual observed pixel.
 
 :func:`~pose3d.triangulation.triangulate_with_rejection` is the function
-``run_pose3d.py`` actually calls: it triangulates once from every
-visibility-filtered view, computes each view's reprojection error, and, if
-any view exceeds ``max_reprojection_error_px`` (default 15 px), drops the
-offending view(s) and re-triangulates **once** from the remainder. This is
-deliberately a single pass, not an iterative RANSAC-style loop: matching
-this codebase's "skip, don't fabricate" discipline (the same one
-:doc:`pose_kinematics` applies to detection gaps), a genuinely bad
-observation is better excluded once than chased through repeated refits
-that could overfit to noise. If fewer than 2 views survive rejection, the
-function returns ``None``: a keypoint with insufficient agreement across
-cameras is left absent, never guessed.
+``run_pose3d.py`` actually calls. It triangulates once from every
+visibility-filtered view and computes each view's reprojection error.
+If every view is within ``max_reprojection_error_px`` (default 15 px) of
+the point, that is the result. Otherwise, with 3 or more views, every pair
+of views proposes a point (two rays, triangulated), and the largest set of
+views that agree with one of those points within the threshold (ties: the
+smallest total error) is kept. The point is refitted from that set, and any
+view that then no longer fits is dropped too. The obvious rule, dropping the
+view with the largest error, is wrong: a gross outlier pulls the
+least-squares point towards itself, so a good view can end up with the
+largest error (the observation behind ``triangulate_robust`` in the 4by4k
+pipeline, ``fourk/geometry.py``, MIT licence, which drops one view by
+leave-one-out). With six cameras two views can be wrong at once, and then
+every leave-one-out refit still holds the other one; searching pairs does
+not have that problem, and with at most 15 pairs it stays cheap. It runs
+only for keypoints whose first fit fails.
+
+Two views that still disagree cannot say which of them is wrong, so the
+keypoint is left absent (``None``) rather than guessed, the same
+"skip, don't fabricate" discipline :doc:`pose_kinematics` applies to
+detection gaps. Every kept view therefore reprojects within the threshold.
+The views dropped are returned (``dropped_views``) and counted per camera
+in ``skeleton3d.json``'s ``quality`` block (below): a camera dropped far more
+often than the others is usually miscalibrated or moved.
 
 Stage 2: cross-camera person association
 ------------------------------------------------
@@ -218,6 +231,46 @@ or triangulation-poor for a few ticks keeps its identity) before being
 dropped. Any centroid left unmatched after the greedy pass (a new person,
 or a track that aged out) receives a fresh, monotonically-increasing
 ``track_id``.
+
+Quality checks
+---------------
+
+``skeleton3d.json`` carries a ``quality`` block, written by
+:mod:`pose3d.audit`, and the run's log prints its totals. Frame by frame,
+geometry cannot tell whether track 1 at one tick is the same person as
+track 1 at the next; physics can. The checks follow ``temporal_audit`` in
+the 4by4k pipeline (``fourk/assoc.py``, MIT licence).
+
+``quality.identity`` (:func:`~pose3d.identity_audit`), per track and in
+total:
+
+- **jumps**: the body moving faster than 3 m/s between two observations
+  at most 0.5 s apart. Its movement is the mean movement of the shoulders
+  and hips seen both times (any keypoint seen both times when none of
+  those is), so hips going in and out of view behind a table are not a
+  jump. A seated
+  or walking person stays well under 2 m/s, so a jump is a wrong
+  association or a track that picked up someone else.
+- **swaps**: two tracks jumping at the same tick where exchanging their
+  labels would remove both jumps (the exchanged distances under half the
+  kept ones): the tracker swapped their names.
+- **size_violations**: ticks where a bone is more than 25% away from that
+  track's median length. A person's bones do not change length, so these
+  are bad keypoints or someone else's.
+- **bone_length_cv**: per track, the median over bones of the standard
+  deviation divided by the median length; a few percent is normal keypoint
+  noise.
+- **short_tracks**: tracks lasting under 1 s, usually fragments of a
+  longer one.
+
+``quality.views`` (:func:`~pose3d.view_agreement`), per camera: the
+keypoints it contributed to (``used``), those it saw but was dropped from
+as disagreeing with the other cameras (``dropped``, and the percentage),
+and those it saw that no two cameras agreed on, so none was triangulated
+(``unresolved``: with two cameras, which one is wrong cannot be told). A
+camera dropped far more often than the others, or with many unresolved
+keypoints, has usually moved since the room calibration, or was
+calibrated poorly.
 
 .. _pose3d-recommendations:
 

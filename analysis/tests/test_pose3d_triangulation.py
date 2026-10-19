@@ -213,3 +213,54 @@ def test_triangulate_with_rejection_returns_none_when_fewer_than_two_survive_rej
     observations = {0: (good_a, 1.0), 1: (bad_b, 1.0)}
     # Only 2 views total; rejecting one leaves just 1 — can't re-triangulate.
     assert triangulate_with_rejection(observations, cameras, max_reprojection_error_px=15.0) is None
+
+
+def _ring_cameras(n):
+    """n cameras on a 2 m ring around the origin, all looking at it."""
+    cams = {}
+    k = np.array([[1000.0, 0.0, 960.0], [0.0, 1000.0, 540.0], [0.0, 0.0, 1.0]])
+    for i in range(n):
+        a = 2 * np.pi * i / n
+        position = [2000.0 * np.cos(a), 300.0 * (i % 2), 2000.0 * np.sin(a)]
+        cams[i] = CameraGeom(
+            index=i,
+            camera_matrix=k,
+            dist_coeffs=np.zeros(5),
+            extrinsic_rt=_look_at_camera(position),
+        )
+    return cams
+
+
+def test_triangulate_with_rejection_reports_the_dropped_view():
+    point = np.array([50.0, -50.0, 100.0])
+    cameras = _ring_cameras(4)
+    observations = {i: (project_point_px(point, cam), 1.0) for i, cam in cameras.items()}
+    observations[3] = (observations[3][0] + np.array([300.0, -200.0]), 1.0)
+    result = triangulate_with_rejection(observations, cameras, max_reprojection_error_px=5.0)
+    assert result is not None
+    assert result.dropped_views == [3]
+    assert set(result.used_views) == {0, 1, 2}
+    assert np.allclose(result.point_room, point, atol=1e-2)
+
+
+def test_triangulate_with_rejection_drops_two_bad_views_of_six():
+    point = np.array([-80.0, 40.0, 60.0])
+    cameras = _ring_cameras(6)
+    observations = {i: (project_point_px(point, cam), 1.0) for i, cam in cameras.items()}
+    observations[1] = (observations[1][0] + np.array([400.0, 100.0]), 1.0)
+    observations[4] = (observations[4][0] + np.array([-250.0, 300.0]), 1.0)
+    result = triangulate_with_rejection(observations, cameras, max_reprojection_error_px=5.0)
+    assert result is not None
+    assert sorted(result.dropped_views) == [1, 4]
+    assert np.allclose(result.point_room, point, atol=1e-2)
+    assert all(e <= 5.0 for e in result.per_view_error_px.values())
+
+
+def test_triangulate_with_rejection_never_keeps_views_that_disagree():
+    # Three views, two of them wrong in different ways: no two agree.
+    point = np.array([0.0, 0.0, 0.0])
+    cameras = _ring_cameras(3)
+    observations = {i: (project_point_px(point, cam), 1.0) for i, cam in cameras.items()}
+    observations[1] = (observations[1][0] + np.array([300.0, 0.0]), 1.0)
+    observations[2] = (observations[2][0] + np.array([0.0, -300.0]), 1.0)
+    assert triangulate_with_rejection(observations, cameras, max_reprojection_error_px=5.0) is None

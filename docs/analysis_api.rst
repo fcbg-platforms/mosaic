@@ -516,8 +516,8 @@ See :doc:`math/room_calibration` for the room calibration this plugin uses.
 
 Triangulates each camera's already-computed 2D COCO keypoints (from the
 Pose plugin above) into one 3D skeleton per detected person, per frame.
-Three stages: multi-view DLT triangulation with one-shot reprojection-
-error outlier rejection (:func:`~pose3d.triangulate_with_rejection`),
+Three stages: multi-view DLT triangulation that leaves out the views
+disagreeing with the rest (:func:`~pose3d.triangulate_with_rejection`),
 cross-camera person association by reusing that same triangulation cost
 as a matching score (:func:`~pose3d.cluster_people`), and greedy
 nearest-centroid tracking across frames (:class:`~pose3d.PersonTracker3D`).
@@ -547,6 +547,8 @@ nearest-centroid tracking across frames (:class:`~pose3d.PersonTracker3D`).
    match_camera_pair
    cluster_people
    PersonTracker3D
+   identity_audit
+   view_agreement
 
 .. autoclass:: pose3d.CameraGeom
    :members:
@@ -567,6 +569,10 @@ nearest-centroid tracking across frames (:class:`~pose3d.PersonTracker3D`).
    :members:
 
 .. autofunction:: pose3d.triangulate_with_rejection
+
+.. autofunction:: pose3d.identity_audit
+
+.. autofunction:: pose3d.view_agreement
 
 .. autoclass:: pose3d.PersonObservation
    :members:

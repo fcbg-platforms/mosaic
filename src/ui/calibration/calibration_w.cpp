@@ -495,6 +495,10 @@ void CalibrationW::on_calibration_done(double rmsError, bool success) {
         views += QString(", %1 left out: they fit far worse than the rest")
                      .arg(d->manager.dropped_view_count());
     }
+    if (!d->manager.lens_model_report().isEmpty()) {
+        views += QString("\nLens model, error on views left out of the fit: %1")
+                     .arg(d->manager.lens_model_report());
+    }
     d->rmsLabel->setToolTip(QString("Reprojection error: %1 px (%2)\n"
                                     "< 0.5 px = excellent, 1–2 px = acceptable, > 2 px = poor%3")
                                 .arg(rmsError, 0, 'f', 3)
@@ -544,6 +548,8 @@ void CalibrationW::save_to_settings() {
     stored.imageHeight      = intrinsics.imageHeight;
     stored.imageOffsetX     = d->capturedOffsetX;
     stored.imageOffsetY     = d->capturedOffsetY;
+    stored.distortionModel  = intrinsics.distortionModel;
+    stored.holdoutRmsError  = intrinsics.holdoutRmsError;
     emit calibration_saved(camIdx);
 
     QMessageBox::information(this, "Calibration saved",

@@ -97,6 +97,10 @@ class CalibrationManager : public QObject {
     ///          left out because they fit far worse than the rest.
     [[nodiscard]] int used_view_count() const;
     [[nodiscard]] int dropped_view_count() const;
+    /// Each candidate lens model's error on views left out of its fit,
+    /// the chosen one marked (calibration/lens_model.hpp); empty before a
+    /// calibration.
+    [[nodiscard]] QString lens_model_report() const;
 
     /// @returns The number of successfully detected views accumulated so far.
     ///          At least 10 views are recommended before calling calibrate().

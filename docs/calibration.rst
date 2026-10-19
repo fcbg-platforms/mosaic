@@ -71,6 +71,22 @@ Intrinsic calibration procedure
    again, when there are at least 8 views and 6 remain; the RMS tooltip says
    how many.
 
+   The lens distortion model is chosen too. More distortion terms always
+   fit the views better, even when they only fit noise, and then bend the
+   picture's edges, where few corners were seen, in ways the lens does not.
+   So three models are compared, simplest first: *k1 k2, square pixels*
+   (fx = fy), *k1 k2*, and *k1 k2 k3*. Each is fitted on most of the views
+   and scored on the views it did not see (5-fold cross-validation), and the
+   simplest model within max(0.05 px, 10%) of the best held-out error is
+   used. The RMS tooltip lists each model's held-out error, and the settings
+   store the model (``distortion_model``) and its held-out error
+   (``holdout_rms_error``). Every model keeps the five coefficients the rest
+   of MOSAIC reads; a simpler one holds k3 at zero. With fewer than 8 views
+   nothing is compared and *k1 k2 k3* is used, as before. The k3 term only
+   earns its place when corners near the picture's edges were seen, so
+   cover the edges and corners of the picture. The method comes from the
+   4by4k pipeline (``scripts/calib_intrinsics.py``, MIT licence).
+
    - **RMS error < 0.5 px**: excellent.
    - **0.5 – 1.0 px**: good; acceptable for most pose-estimation tasks.
    - **> 2.0 px**: poor; recapture with better coverage.

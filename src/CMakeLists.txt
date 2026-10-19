@@ -196,6 +196,8 @@ qt_add_executable(mosaic MACOSX_BUNDLE
     # ── Calibration ───────────────────────────────────────────────────────
     calibration/calibration_manager.hpp
     calibration/calibration_manager.cpp
+    calibration/lens_model.hpp
+    calibration/lens_model.cpp
     calibration/rms_quality.hpp
     calibration/rms_quality.cpp
     ui/calibration/badge_style.hpp
