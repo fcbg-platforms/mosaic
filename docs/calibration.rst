@@ -149,6 +149,15 @@ been calibrated.
      camera; capture another shot linking it in.
    - **Fit to own view (px)**: how well the board's solved pose fits the
      corners this camera saw (aim for under 1 px).
+   - **Fit to the room (px)**: after Solve, every camera's pose and every
+     shot's board are refined together (bundle adjustment, see
+     :doc:`math/room_calibration`). This is how far this camera's corners
+     land from where it saw them in that joint model, with one board pose
+     per shot shared by all cameras, so it is only small when the cameras
+     agree: under 1 px is good, over 2 px is red. Views left out as far off
+     (a misdetection, a board solved the wrong way round) are not counted,
+     and the cell says how many: a camera that lost several is worth a
+     look. The line under the buttons gives the fit before and after.
    - **Agreement with other cameras (mm)**: where this camera puts the
      board in the room, against where the other cameras put it in the same
      shots. This is the check that the calibration is right: a few mm is

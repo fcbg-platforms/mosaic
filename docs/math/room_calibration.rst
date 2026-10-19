@@ -194,6 +194,69 @@ a simultaneous board view with anything already resolved) is reported
 **unresolved** rather than silently assigned a meaningless identity pose,
 so the calibration UI can flag it and ask for more overlapping shots.
 
+Joint refinement (bundle adjustment)
+-------------------------------------
+
+The chained poses rest on averaged pairwise links: each camera is placed
+through one link, and the errors along a chain add up, so a camera three
+links from the reference carries three links' error. The chained poses are
+therefore only the starting point of a **bundle adjustment**
+(``room_ba::refine()``, ``src/calibration/room_bundle_adjust.hpp``), which
+refines every camera and every shot together.
+
+**Unknowns**: for each resolved camera except the reference, its
+room-to-camera pose :math:`W_c`; for each shot that two or more resolved
+cameras (with a lens calibration) saw, the board's pose in the room :math:`B_s`. Six numbers each
+(a Rodrigues vector and a translation). The reference camera stays at its
+pose, which fixes the room's frame; the board's printed size fixes the
+scale; the lens calibrations are held fixed.
+
+**Objective**: every corner :math:`X_k` that camera :math:`c` detected at
+:math:`x_{sck}` in shot :math:`s` should reproject there,
+
+.. math::
+
+   \min_{\{W_c\},\{B_s\}} \sum_{s,c,k}
+   \rho\big(\lVert \pi_c(W_c\, B_s\, X_k) - x_{sck} \rVert\big),
+
+with :math:`\pi_c` the camera's projection including its lens distortion,
+and :math:`\rho` the Huber loss (quadratic up to 2 px, linear beyond), so a
+corner far off pulls with bounded force. It is solved by Levenberg-Marquardt
+on the Gauss-Newton normal equations, the Huber loss as reweighting at each
+step. The derivatives are exact: OpenCV's ``composeRT`` gives
+:math:`W_c B_s`'s derivatives with respect to each factor, and
+``projectPoints`` those of the pixel with respect to the composed pose.
+
+**Start**: the chained camera poses. Each shot's board starts where the
+camera that explains the whole shot best puts it (one camera may have solved
+the board as its mirror image, and an average would mix the two).
+
+**Bad views**: a view whose corners are all far off (a misdetection, a board
+solved the wrong way round, a camera nudged mid-way) pulls with all its
+corners together, which a per-corner loss cannot stop. After the first
+solve, the worst view is left out when its RMS is over 3 px and over four
+times the median view's, and the solve is run again, one view at a time
+(a bad view first drags its shot's board, so the other cameras' views of
+that shot look bad too until it is gone). At most a tenth of the views go
+(none when there are fewer than 10), and never one whose loss would leave a
+shot without a view, a camera with fewer than two, or a camera no longer
+tied to the reference camera through shared shots.
+
+**Kept only if better**: the refined poses replace the chained ones only if
+the robust cost went down and no camera moved more than 150 mm or 8°
+(the chained poses are a few mm off at most; a larger move means the
+problem was ill-posed, too few or too similar shots). Otherwise the chained
+poses stay, and the UI says so.
+
+The result table's **fit to the room** is each camera's RMS reprojection
+error against this joint model, one board pose per shot shared by every
+camera: unlike the fit to its own view, it is only small when the cameras
+agree. Under 1 px is good. Views left out as far off are not in it; the
+table says how many each camera lost.
+
+Bundle adjustment is the standard last step of multi-camera calibration
+(Triggs et al., *Bundle Adjustment: A Modern Synthesis*, 2000).
+
 Agreement between the cameras
 ------------------------------
 
