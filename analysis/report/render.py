@@ -608,6 +608,54 @@ def voice_svg(v: dict) -> str | None:
     return "".join(out)
 
 
+SOCIAL_NAMES = {"head": "Head movement", "body": "Body movement", "heart_rate": "Heart rate"}
+
+
+def social_html(so: dict) -> str:
+    """Synchrony and mimicry between the two people (run_social.py)."""
+    cams = so.get("cameras") or {}
+    a = f"Camera {cams['a'] + 1}" if isinstance(cams.get("a"), int) else "A"
+    b = f"Camera {cams['b'] + 1}" if isinstance(cams.get("b"), int) else "B"
+    rows = []
+    for key, s in (so.get("synchrony") or {}).items():
+        lead = ""
+        if s.get("a_leads_pct") is not None:
+            lead = (
+                f"; A leads {num(s['a_leads_pct'], 0, '%')}, B leads "
+                f"{num(s.get('b_leads_pct'), 0, '%')} (median lag "
+                f"{num(s.get('median_lag_s'), 1, ' s')})"
+            )
+        rows.append(
+            (
+                f"{SOCIAL_NAMES.get(key, key)} synchrony",
+                f"peak r {num(s.get('mean_peak_r'), 2)} vs "
+                f"{num(s.get('surrogate_mean_peak_r'), 2)} by chance "
+                f"(p = {num(s.get('p_value'), 2)}){esc(lead)}",
+            )
+        )
+    for kind, d in (so.get("mimicry") or {}).items():
+        for direction, who in (("a_to_b", "B after A"), ("b_to_a", "A after B")):
+            m = d.get(direction) or {}
+            if m.get("rate") is None:
+                continue
+            rows.append(
+                (
+                    f"{kind.capitalize()} mimicry, {who}",
+                    f"{num(100 * m['rate'], 0, '%')} of {num(m.get('events'))} "
+                    f"(chance {num(100 * (m.get('chance_rate') or 0), 0, '%')}, "
+                    f"p = {num(m.get('p_value'), 2)})",
+                )
+            )
+    notes = "".join(f"<p class='note'>{esc(n)}</p>" for n in so.get("notes") or [])
+    return (
+        f"<h3>Social interaction <span class='note'>(A: {esc(a)}, B: {esc(b)})</span></h3>"
+        + (table(rows) if rows else "")
+        + notes
+        + "<p class='note'>Synchrony: windowed cross-correlation, against surrogate pairs (one "
+        "person's signal shifted in time). Mimicry: the other starts the same within 3 s.</p>"
+    )
+
+
 def stills_html(cam: CameraResults) -> str:
     if not cam.stills:
         return ""
@@ -1034,6 +1082,9 @@ def session_sections(data: SessionData) -> str:
                 ],
             )
         )
+    so = data.session_results.get("social")
+    if so:
+        out.append(social_html(so))
     sy = data.session_results.get("sync_repair")
     if sy:
         cams = sy.get("cameras") or []
@@ -1060,7 +1111,7 @@ def not_run(data: SessionData) -> str:
             missing.append(label)
     single = len(data.cameras) < 2
     for key, label in SESSION_ANALYSES:
-        if key in ("gaze_fusion", "pose3d") and single:
+        if key in ("gaze_fusion", "pose3d", "social") and single:
             continue  # needs several calibrated cameras
         if key not in data.session_results:
             missing.append(label)

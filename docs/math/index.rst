@@ -125,6 +125,13 @@ conventions, matching
       Audio on the video clock, mouth-based speaker attribution, and floor
       transfer offsets, pauses, overlaps and backchannels.
 
+   .. grid-item-card:: 🤝 Social Interaction
+      :link: social_interaction
+      :link-type: doc
+
+      Windowed cross-correlation of two people's movement and heart rate,
+      and smile and nod mimicry, each against surrogate pairs.
+
 .. toctree::
    :hidden:
 
@@ -140,4 +147,5 @@ conventions, matching
    remote_heart_rate
    face_dynamics
    conversation_timing
+   social_interaction
    eye_contact

@@ -37,6 +37,7 @@ SESSION_ANALYSES = (
     ("voice", "Voice analysis"),
     ("gaze_fusion", "3D Gaze"),
     ("pose3d", "3D Pose Reconstruction"),
+    ("social", "Social Interaction"),
     ("sync_repair", "Frame Sync Repair"),
 )
 
@@ -337,6 +338,19 @@ def _pose3d(session: Path) -> dict | None:
     return {"quality": d.get("quality") if isinstance(d, dict) else None}
 
 
+def _social(session: Path) -> dict | None:
+    d = read_json(session / "social" / "social.json")
+    if d is None or d.get("schema") != "mosaic-social-v1":
+        return None
+    # The summaries only; the per-window series stay in social/synchrony.csv.
+    return {
+        "cameras": d.get("cameras", {}),
+        "synchrony": {k: v.get("summary", {}) for k, v in d.get("synchrony", {}).items()},
+        "mimicry": d.get("mimicry", {}),
+        "notes": d.get("notes", []),
+    }
+
+
 def _sync_repair(session: Path) -> dict | None:
     d = read_json(session / "synced" / "sync_repair.json")
     if d is None:
@@ -355,6 +369,7 @@ SESSION_READERS = {
     "voice": _voice,
     "gaze_fusion": _gaze_fusion,
     "pose3d": _pose3d,
+    "social": _social,
     "sync_repair": _sync_repair,
 }
 

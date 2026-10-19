@@ -136,6 +136,7 @@ class AnalysisTabW : public QWidget {
     void update_eye_contact_view();
     void export_eye_contact_csv();
     void update_sync_repair_view();
+    void update_social_view();
     void export_sync_repair_csv();
     [[nodiscard]] bool is_pose_plugin() const;
     [[nodiscard]] bool is_diarize_plugin() const;
@@ -151,6 +152,7 @@ class AnalysisTabW : public QWidget {
     [[nodiscard]] bool is_eye_contact_plugin() const;
     [[nodiscard]] bool is_sync_repair_plugin() const;
     [[nodiscard]] bool is_overview_plugin() const;
+    [[nodiscard]] bool is_social_plugin() const;
     [[nodiscard]] bool is_pose_depth_selected() const;
     [[nodiscard]] QString slug_for_model(const QString& modelId) const;
     [[nodiscard]] QString pose_json_path_for(const QString& videoRelPath) const;

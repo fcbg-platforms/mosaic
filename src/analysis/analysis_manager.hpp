@@ -290,6 +290,16 @@ class AnalysisManager : public QObject {
     void run_face_dynamics_analysis(const QString& sessionPath, double minConfidence,
                                     bool annotatedVideo);
 
+    /// @brief Social Interaction: synchrony of two people's head movement, body
+    /// movement and heart rate, and smile and nod mimicry, from the analyses
+    /// already run on the cameras facing them (analysis/run_social.py), written
+    /// to the session's social/ folder.
+    ///
+    /// @param sessionPath  Absolute path to the recorded session directory.
+    /// @param cameraA      Camera facing person A (0-based index).
+    /// @param cameraB      Camera facing person B.
+    void run_social_analysis(const QString& sessionPath, int cameraA, int cameraB);
+
     /// @brief Conversation Timing: who speaks when, turns, response times
     /// (floor transfer offsets), pauses, overlaps and backchannels, from the
     /// session's audio and each camera's view of a face, written to the
