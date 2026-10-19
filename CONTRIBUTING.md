@@ -1,5 +1,7 @@
 # Contributing to Mosaic
 
+AI coding agents: read [`AGENTS.md`](AGENTS.md) first (Claude Code loads it through `CLAUDE.md`).
+
 ## Workflow
 
 - All changes land via a pull request against `main` — no direct pushes to `main` except for
