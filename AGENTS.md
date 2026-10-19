@@ -42,8 +42,6 @@ speed.
 
 A big diff is a cost. Every line is reviewed, then maintained by a small lab team.
 
-- **Stop and re-plan at roughly 150 new lines of implementation**, or when reaching for a new
-  module, test file or dependency. Offer the smaller version.
 - **YAGNI:** no options, config keys, schema versions, retries or extension points that nothing
   needs yet. Hard-code the one behaviour that is wanted.
 - **DRY:** look for existing helpers first, for example `analysis/*/` shared modules, the
