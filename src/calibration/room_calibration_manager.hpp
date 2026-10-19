@@ -77,6 +77,20 @@ class RoomCalibrationManager {
         /// another resolved camera. The direct check that the cameras agree.
         std::vector<double> agreementMm;
         std::vector<int> droppedShots; ///< outlier shots left out of each pose
+        /// Joint refinement (room_bundle_adjust.hpp): whether it was used,
+        /// and per camera the RMS reprojection error of its corners against
+        /// the room model (every camera's pose and one board pose per shot),
+        /// before and after, px (-1 = not in it), and how far it moved each
+        /// camera.
+        bool bundleAdjusted = false;
+        std::vector<double> roomFitBeforePx;
+        std::vector<double> roomFitPx;
+        std::vector<double> bundleMovedMm;
+        std::vector<double> bundleMovedDeg;
+        double totalRoomFitBefore = -1.0;
+        double totalRoomFit       = -1.0;
+        int bundleOutlierCorners  = 0;
+        int bundleDroppedViews    = 0; ///< views left out as fitting far worse
     };
 
     /// A board pose that fits its own corners worse than this is not used:
@@ -125,6 +139,12 @@ class RoomCalibrationManager {
     [[nodiscard]] std::array<double, 16> extrinsic_for(int cameraIndex) const;
     [[nodiscard]] double reprojection_rms_for(int cameraIndex) const;
     [[nodiscard]] double agreement_mm_for(int cameraIndex) const;
+    /// RMS reprojection error of this camera's corners against the jointly
+    /// refined room, px; -1 when it was not part of the refinement.
+    [[nodiscard]] double room_fit_px_for(int cameraIndex) const;
+    /// This camera's views left out of the joint refinement as far off
+    /// (not in room_fit_px_for()).
+    [[nodiscard]] int room_fit_dropped_views_for(int cameraIndex) const;
 
     /// Uses the board's own pose from a specific (shot, camera) pair — where
     /// the board was presumably lying flat on the target surface — as the

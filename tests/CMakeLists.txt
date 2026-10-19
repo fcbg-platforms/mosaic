@@ -142,6 +142,8 @@ if(MOSAIC_ENABLE_OPENCV)
         "${CMAKE_SOURCE_DIR}/src/calibration/lens_model.cpp"
         test_lens_model.cpp
         "${CMAKE_SOURCE_DIR}/src/calibration/room_calibration_manager.cpp"
+        "${CMAKE_SOURCE_DIR}/src/calibration/room_bundle_adjust.cpp"
+        test_room_bundle_adjust.cpp
         "${CMAKE_SOURCE_DIR}/src/calibration/marked_chessboard.cpp"
         test_marked_chessboard.cpp
     )

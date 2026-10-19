@@ -369,9 +369,14 @@ void RoomCalibrationW::build_capture_section(QVBoxLayout* parent) {
     note->setWordWrap(true);
     vlay->addWidget(note);
 
-    d->resultTable = new QTableWidget(0, 4);
-    d->resultTable->setHorizontalHeaderLabels(
-        {"Camera", "Resolved", "Fit to own view (px)", "Agreement with other cameras (mm)"});
+    d->resultTable = new QTableWidget(0, 5);
+    d->resultTable->setHorizontalHeaderLabels({"Camera", "Resolved", "Fit to own view (px)",
+                                               "Fit to the room (px)",
+                                               "Agreement with other cameras (mm)"});
+    d->resultTable->horizontalHeaderItem(3)->setToolTip(
+        "After Solve every camera and every shot's board are refined together (bundle "
+        "adjustment). This is how far this camera's corners land from where it saw them "
+        "in that joint room model: under 1 px is good.");
     d->resultTable->horizontalHeader()->setStretchLastSection(true);
     d->resultTable->verticalHeader()->setVisible(false);
     d->resultTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
@@ -596,8 +601,29 @@ void RoomCalibrationW::solve() {
     }
 
     const int refIdx = d->referenceCombo->currentIndex();
-    d->manager.solve(cameraCount, refIdx < 0 ? 0 : refIdx);
+    const auto res   = d->manager.solve(cameraCount, refIdx < 0 ? 0 : refIdx);
     update_result_table();
+    if (res.bundleAdjusted) {
+        QString extra;
+        if (res.bundleDroppedViews > 0) {
+            extra += QString(
+                         ", %1 camera view(s) left out (far off: a misdetection or a "
+                         "board solved the wrong way round)")
+                         .arg(res.bundleDroppedViews);
+        }
+        d->shotNoteLbl->setText(QString("Refined jointly: fit to the room %1 px -> %2 px%3.")
+                                    .arg(res.totalRoomFitBefore, 0, 'f', 2)
+                                    .arg(res.totalRoomFit, 0, 'f', 2)
+                                    .arg(extra));
+        d->shotNoteLbl->setStyleSheet(QString());
+    } else if (res.totalRoomFitBefore >= 0.0) {
+        d->shotNoteLbl->setText(
+            "Joint refinement not used (it did not fit better, or moved a camera "
+            "implausibly far): the chained poses are kept.");
+        d->shotNoteLbl->setStyleSheet("color:#c8a040;");
+    } else {
+        d->shotNoteLbl->clear();
+    }
 
     const bool anyResolved = [&] {
         for (int i = 0; i < cameraCount; ++i) {
@@ -619,11 +645,22 @@ void RoomCalibrationW::update_result_table() {
         const bool resolved = d->manager.is_resolved(i);
         const double rms    = d->manager.reprojection_rms_for(i);
         const double agree  = d->manager.agreement_mm_for(i);
+        const double fit    = d->manager.room_fit_px_for(i);
 
         auto* camItem = new QTableWidgetItem(camera_label(i));
         auto* resItem = new QTableWidgetItem(resolved ? "Yes" : "No");
         auto* rmsItem = new QTableWidgetItem(rms >= 0.0 ? QString::number(rms, 'f', 3) : "—");
         auto* agreeItem = new QTableWidgetItem(agree >= 0.0 ? QString::number(agree, 'f', 1) : "—");
+        const int left = d->manager.room_fit_dropped_views_for(i);
+        auto* fitItem  = new QTableWidgetItem(
+            fit < 0.0  ? QString("—")
+            : left > 0 ? QString("%1  (%2 view(s) left out)").arg(fit, 0, 'f', 2).arg(left)
+                       : QString::number(fit, 'f', 2));
+        if (fit > 2.0) {
+            fitItem->setForeground(QColor("#cc4444"));
+        } else if (fit > 1.0) {
+            fitItem->setForeground(QColor("#c8a040"));
+        }
         if (!resolved) {
             resItem->setForeground(QColor("#cc4444"));
         }
@@ -637,7 +674,8 @@ void RoomCalibrationW::update_result_table() {
         d->resultTable->setItem(i, 0, camItem);
         d->resultTable->setItem(i, 1, resItem);
         d->resultTable->setItem(i, 2, rmsItem);
-        d->resultTable->setItem(i, 3, agreeItem);
+        d->resultTable->setItem(i, 3, fitItem);
+        d->resultTable->setItem(i, 4, agreeItem);
     }
 }
 

@@ -6,6 +6,7 @@
 #include <utility>
 
 #include "calibration/marked_chessboard.hpp"
+#include "calibration/room_bundle_adjust.hpp"
 #include "utils/logger.hpp"
 
 #if defined(MOSAIC_HAVE_OPENCV)
@@ -98,6 +99,8 @@ struct RoomCalibrationManager::Impl {
     std::vector<Mat4> extrinsicRt;
     std::vector<double> reprojectionRms;
     std::vector<double> agreementMm;
+    std::vector<double> roomFit;     // per camera, px, against the jointly refined room
+    std::vector<int> roomFitDropped; // per camera, views left out of that fit
 
 #if defined(MOSAIC_HAVE_OPENCV)
     cv::Ptr<cv::aruco::CharucoBoard> charucoBoard;
@@ -331,6 +334,8 @@ void RoomCalibrationManager::clear_shots() {
     d->extrinsicRt.clear();
     d->reprojectionRms.clear();
     d->agreementMm.clear();
+    d->roomFit.clear();
+    d->roomFitDropped.clear();
 }
 
 RoomCalibrationManager::SolveResult RoomCalibrationManager::solve(int cameraCount,
@@ -372,6 +377,54 @@ RoomCalibrationManager::SolveResult RoomCalibrationManager::solve(int cameraCoun
     const auto result = room_frame::bfs_resolve(cameraCount, referenceCameraIndex, edges);
     d->resolved       = result.resolved;
     d->extrinsicRt    = result.extrinsicRt;
+
+    // Then every camera and every shot's board refined together, so each
+    // corner reprojects where every camera saw it (room_bundle_adjust.hpp).
+    {
+        std::map<int, room_ba::Lens> lenses;
+        for (const auto& [idx, intr] : d->intrinsics) {
+            if (intr.calibrated) {
+                lenses[idx] = {cv::Matx33d(intr.cameraMatrix.data()),
+                               make_dist_coeffs(intr.distCoeffs)};
+            }
+        }
+        std::vector<room_ba::Observation> observations;
+        for (size_t s = 0; s < d->shots.size(); ++s) {
+            for (const auto& cam : d->shots[s].cameras) {
+                observations.push_back({static_cast<int>(s), cam.cameraIndex, cam.corners3d,
+                                        cam.corners2d, cam.boardToCam});
+            }
+        }
+        const room_ba::Result ba = room_ba::refine(cameraCount, referenceCameraIndex, d->resolved,
+                                                   d->extrinsicRt, lenses, observations);
+        if (ba.applied) {
+            d->extrinsicRt = ba.cameraToRoom;
+            log_info(QString("[RoomCalibration] Refined jointly (bundle adjustment): %1 shots, "
+                             "%2 corners, room fit %3 px -> %4 px, %5 view(s) left out, %6 outlier "
+                             "corner(s).")
+                         .arg(ba.shotsUsed)
+                         .arg(ba.cornersUsed)
+                         .arg(ba.totalRmsBeforePx, 0, 'f', 3)
+                         .arg(ba.totalRmsAfterPx, 0, 'f', 3)
+                         .arg(ba.droppedViews)
+                         .arg(ba.outlierCorners));
+        } else if (ba.shotsUsed > 0) {
+            log_warning(
+                "[RoomCalibration] Joint refinement not used (it did not fit better, "
+                "or moved a camera implausibly far); keeping the chained poses.");
+        }
+        out.bundleAdjusted       = ba.applied;
+        out.roomFitBeforePx      = ba.rmsBeforePx;
+        out.roomFitPx            = ba.rmsAfterPx;
+        out.bundleMovedMm        = ba.movedMm;
+        out.bundleMovedDeg       = ba.movedDeg;
+        out.totalRoomFitBefore   = ba.totalRmsBeforePx;
+        out.totalRoomFit         = ba.totalRmsAfterPx;
+        out.bundleOutlierCorners = ba.outlierCorners;
+        out.bundleDroppedViews   = ba.droppedViews;
+        d->roomFit               = ba.rmsAfterPx;
+        d->roomFitDropped        = ba.droppedPerCamera;
+    }
 
     // Per-camera reprojection RMS: how well each camera's OWN solvePnP
     // solution (from every shot where it directly saw the board) fits its
@@ -511,6 +564,20 @@ double RoomCalibrationManager::reprojection_rms_for(int cameraIndex) const {
         return -1.0;
     }
     return d->reprojectionRms[static_cast<size_t>(cameraIndex)];
+}
+
+int RoomCalibrationManager::room_fit_dropped_views_for(int cameraIndex) const {
+    if (cameraIndex < 0 || cameraIndex >= static_cast<int>(d->roomFitDropped.size())) {
+        return 0;
+    }
+    return d->roomFitDropped[static_cast<size_t>(cameraIndex)];
+}
+
+double RoomCalibrationManager::room_fit_px_for(int cameraIndex) const {
+    if (cameraIndex < 0 || cameraIndex >= static_cast<int>(d->roomFit.size())) {
+        return -1.0;
+    }
+    return d->roomFit[static_cast<size_t>(cameraIndex)];
 }
 
 double RoomCalibrationManager::agreement_mm_for(int cameraIndex) const {
