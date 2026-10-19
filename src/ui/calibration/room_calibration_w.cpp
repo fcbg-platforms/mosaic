@@ -170,12 +170,14 @@ void RoomCalibrationW::build_board_section(QVBoxLayout* parent) {
 
     d->typeCombo = new QComboBox;
     d->typeCombo->addItem("ChArUco");
-    d->typeCombo->addItem("Chessboard, one corner square marked");
+    d->typeCombo->addItem("Chessboard (odd x even squares, or one corner marked)");
     d->typeCombo->setToolTip(
         "ChArUco: a chessboard with codes in its white squares; the board may be partly "
-        "out of view.\nChessboard with a marked corner: a plain black-and-white board with "
-        "a sticker, dot or colour on one corner square, so every camera numbers its "
-        "corners the same way. The whole board must be in each camera's view.");
+        "out of view.\nChessboard: a plain black-and-white board. With one side odd and one "
+        "even (9 x 8 squares, say) no mark is needed: one edge has black corner squares, the "
+        "other white, and every camera numbers the corners from the black-cornered edge. "
+        "Any other size needs a mark on one corner square (a white disc on a black square "
+        "is clearest). The whole board must be in each camera's view.");
     row->addWidget(d->typeCombo);
     row->addSpacing(8);
 

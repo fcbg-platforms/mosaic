@@ -17,11 +17,24 @@ namespace {
 // than any other corner square does.
 constexpr double kMinMarkContrast = 18.0;
 constexpr double kMarkMargin      = 2.0;
+// On a board with one odd and one even side: the black-cornered edge must be
+// darker than the white-cornered one by at least this much (grey levels).
+constexpr double kMinColourDifference = 30.0;
 
 struct Patch {
     double mean   = 0.0;
     double spread = 0.0;
+    std::vector<double> values; // every sample, for medians
 };
+
+double median(std::vector<double> v) {
+    if (v.empty()) {
+        return 0.0;
+    }
+    const auto mid = v.begin() + static_cast<std::ptrdiff_t>(v.size() / 2);
+    std::nth_element(v.begin(), mid, v.end());
+    return *mid;
+}
 
 // Grey levels inside one square of the board: a lattice over its middle
 // 60%, mapped into the image by the grid-to-image homography. False when any
@@ -39,6 +52,8 @@ bool sample_square(const cv::Mat& grey, const cv::Mat& H, double gx, double gy, 
     std::vector<cv::Point2f> img;
     cv::perspectiveTransform(grid, img, H);
     double sum = 0.0, sum2 = 0.0;
+    out.values.clear();
+    out.values.reserve(img.size());
     for (const auto& p : img) {
         if (p.x < 1.0f || p.y < 1.0f || p.x > grey.cols - 2.0f || p.y > grey.rows - 2.0f) {
             return false;
@@ -52,6 +67,7 @@ bool sample_square(const cv::Mat& grey, const cv::Mat& H, double gx, double gy, 
                          fx * fy * grey.at<uchar>(y0 + 1, x0 + 1);
         sum += v;
         sum2 += v * v;
+        out.values.push_back(v);
     }
     const double n = static_cast<double>(img.size());
     out.mean       = sum / n;
@@ -166,27 +182,54 @@ MarkedBoardStatus detect_marked_chessboard(const cv::Mat& grey, int squaresX, in
         {cols - 1.0, rows - 1.0, cols - 2.0, rows - 2.0, n - 1}, // last row, end
         {-1.0, rows - 1.0, 0.0, rows - 2.0, (rows - 1) * cols},  // last row, start
     }};
+    std::array<Patch, 4> squares;
     std::array<double, 4> contrast{};
     for (size_t k = 0; k < cornersOfBoard.size(); ++k) {
         const Corner& cb = cornersOfBoard[k];
-        Patch square, reference;
-        if (!sample_square(grey, H, cb.gx, cb.gy, square) ||
+        Patch reference;
+        if (!sample_square(grey, H, cb.gx, cb.gy, squares[k]) ||
             !sample_square(grey, H, cb.refX, cb.refY, reference)) {
             return MarkedBoardStatus::OffImage;
         }
-        contrast[k] =
-            std::abs(square.mean - reference.mean) + std::abs(square.spread - reference.spread);
+        contrast[k] = std::abs(squares[k].mean - reference.mean) +
+                      std::abs(squares[k].spread - reference.spread);
     }
-    std::array<size_t, 4> order = {0, 1, 2, 3};
-    std::sort(order.begin(), order.end(),
-              [&](size_t a, size_t b) { return contrast[a] > contrast[b]; });
-    out.markContrast     = contrast[order[0]];
-    out.runnerUpContrast = contrast[order[1]];
-    if (out.markContrast < kMinMarkContrast ||
-        out.markContrast < kMarkMargin * out.runnerUpContrast) {
-        return MarkedBoardStatus::MarkUnclear;
+
+    int marked = 0;
+    if ((squaresX % 2) != (squaresY % 2)) {
+        // One side odd, one even: the two corner squares along the odd side
+        // share a colour, and the two such edges differ (one black-cornered,
+        // one white), so the colours alone say which way round the board is
+        // and no mark is needed (any mark is ignored). The black-cornered
+        // edge comes first, from its corner square 0 or 2 (opposite corners,
+        // always of different colours). Medians over both squares of an
+        // edge, so a mark covering part of one square does not matter.
+        out.byColour         = true;
+        const bool alongRows = squaresX % 2 == 1; // the first row's corners alike
+        auto edge            = [&](size_t a, size_t b) {
+            std::vector<double> v = squares[a].values;
+            v.insert(v.end(), squares[b].values.begin(), squares[b].values.end());
+            return median(std::move(v));
+        };
+        const double edge0   = edge(0, alongRows ? 1 : 3);
+        const double edge2   = edge(2, alongRows ? 3 : 1);
+        out.colourDifference = std::abs(edge0 - edge2);
+        if (out.colourDifference < kMinColourDifference) {
+            return MarkedBoardStatus::ColoursUnclear;
+        }
+        marked = edge0 < edge2 ? cornersOfBoard[0].cornerIndex : cornersOfBoard[2].cornerIndex;
+    } else {
+        std::array<size_t, 4> order = {0, 1, 2, 3};
+        std::sort(order.begin(), order.end(),
+                  [&](size_t a, size_t b) { return contrast[a] > contrast[b]; });
+        out.markContrast     = contrast[order[0]];
+        out.runnerUpContrast = contrast[order[1]];
+        if (out.markContrast < kMinMarkContrast ||
+            out.markContrast < kMarkMargin * out.runnerUpContrast) {
+            return MarkedBoardStatus::MarkUnclear;
+        }
+        marked = cornersOfBoard[order[0]].cornerIndex;
     }
-    const int marked = cornersOfBoard[order[0]].cornerIndex;
 
     // Renumber so the marked corner comes first. Turns only (a mirror would
     // undo the handedness fixed above): a half turn on any board, quarter

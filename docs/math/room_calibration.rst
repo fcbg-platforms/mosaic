@@ -36,25 +36,42 @@ it. A plain chessboard does not: its corners come back in an order that
 depends on how the board is turned (a square board is the same after a
 quarter turn, any board after a half turn), and, with some detectors, in
 mirror order. Two cameras could then number the same corner differently
-and solve the board in different places. With one corner square marked,
+and solve the board in different places.
 ``detect_marked_chessboard()`` (``src/calibration/marked_chessboard.hpp``)
-fixes the order:
+fixes the order, from the corner colours on a board with one odd and one
+even side, else from one marked corner square:
 
 1. The inner corners are found (OpenCV's sector-based detector, falling
    back to the classic one) and put in front-view handedness: the first row
    must run to the right of the first column, :math:`e_1 \times e_2 > 0`
    for the image vectors along them, else every row is reversed.
 2. A homography from grid units to the image places the four corner
-   squares, which lie outside the inner corners. Each is sampled over the
-   middle 60% of the square and compared with the square diagonally inside
-   it, which always has the same colour: the difference in mean grey plus
+   squares, which lie outside the inner corners, and each is sampled over
+   the middle 60% of the square.
+
+   *One side odd, one even* (9 x 8 squares, say): along the odd side both
+   corner squares have the same colour, and the opposite edge has the other
+   colour, so a half turn (the only turn that keeps the board's shape) swaps
+   a black-cornered edge for a white one. The black-cornered edge is put
+   first. Its brightness is the median over both of its corner squares, so
+   a mark covering part of one square does not change it; it must be at
+   least 30 grey levels darker than the opposite edge, else the view is not
+   used. Any mark is ignored.
+
+   *Otherwise* each corner square is compared with the square diagonally
+   inside it, which always has the same colour: the difference in mean grey plus
    the difference in spread. The marked square is the one that differs; it
    must differ by at least 18 grey levels and twice as much as the next
    corner square, else the view is not used.
 3. The corners are renumbered by a turn (never a mirror) so the marked
-   corner comes first. The board points start at the board's outer corner
-   at the marked square, :math:`x` along the first row, :math:`y` down the
-   first column, :math:`z` into the board, as for a ChArUco board.
+   corner, or the black-cornered edge, comes first. The board points start
+   at the board's outer corner at the marked square, :math:`x` along the
+   first row, :math:`y` down the first column, :math:`z` into the board, as
+   for a ChArUco board. On an odd by even board they start at the outer
+   corner of the black-cornered edge's first square: of its two ends, the one
+   from which the board, seen from the front, has :math:`x` along that edge
+   and :math:`y` across it in the image's handedness. The board decides which
+   corner; a mark cannot choose it.
 
 **Pose.** A flat target seen from a distance has two poses that fit almost
 equally well, the true one and one tilted the other way. The solve uses

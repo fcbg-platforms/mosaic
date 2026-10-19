@@ -10,8 +10,8 @@ Overview
 
 MOSAIC uses OpenCV's checkerboard calibration to compute per-camera **intrinsic
 parameters** (focal length, principal point, distortion coefficients), and a
-separate procedure, with a ChArUco board or a plain chessboard with one
-marked corner square, to compute each camera's **extrinsic pose**
+separate procedure, with a ChArUco board or a plain chessboard (odd by
+even squares, or with one marked corner square), to compute each camera's **extrinsic pose**
 (position/orientation in one shared room coordinate frame). Results
 are stored in each camera's :cpp:struct:`mosaic::CalibrationData` field
 inside the group's ``settings.json`` and are automatically embedded in
@@ -98,13 +98,20 @@ been calibrated.
 
    - **ChArUco**: a chessboard with codes in its white squares (also set
      **Marker**). It may be partly out of a camera's view.
-   - **Chessboard, one corner square marked**: a plain black-and-white
-     chessboard with a mark (a sticker, a dot, a patch of colour) on one
-     corner square. A plain chessboard looks the same turned round (a square
-     one by a quarter turn), so without the mark two cameras could number
-     its corners differently and disagree about where it is; every camera
-     numbers them from the marked corner. The whole board, including its
-     outer squares, must be in a camera's view for that camera to use it.
+   - **Chessboard (odd x even squares, or one corner marked)**: a plain
+     black-and-white chessboard. A plain chessboard can look the same turned
+     round (a square one by a quarter turn), so two cameras could number its
+     corners differently and disagree about where it is. A board with one
+     side odd and one even (9 x 8 squares, say) does not: one edge has black
+     corner squares, the opposite edge white ones, and every camera numbers
+     the corners from the black-cornered edge. No mark is needed, and any
+     mark is ignored. Any other size needs a mark on one corner square, and
+     every camera numbers the corners from it. The mark is judged in grey
+     levels, so make it bright on dark: a white disc about half a square
+     wide, centred on a black corner square. A coloured mark (red on black,
+     say) is barely lighter in grey and may not be found. The whole board,
+     including its outer squares, must be in a camera's view for that camera
+     to use it.
 
    Each shot stores the board's pose in this board's size, so the board
    fields are locked once a shot is captured; click **Clear shots** to start
@@ -114,7 +121,7 @@ been calibrated.
    **▶ Capture shot** (the cameras' frames are taken within half a second,
    so a moving board is seen in different places). A green dot under a
    camera means it used the shot; the line under the buttons says why a
-   camera that saw something did not (the mark unclear, a corner square cut
+   camera that saw something did not (the mark or the corner colours unclear, a corner square cut
    off, the corners fitting poorly, over 2 px). Repeat, moving the board,
    until every camera shares several shots with another camera, and is
    linked to the reference camera through them; 10 to 20 shots at different

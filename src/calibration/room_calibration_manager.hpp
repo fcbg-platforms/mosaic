@@ -11,8 +11,8 @@
 namespace mosaic {
 
 /// @brief Multi-camera extrinsic ("room") calibration via a shared board: a
-/// ChArUco board, or a plain chessboard with one corner square marked
-/// (calibration/marked_chessboard.hpp).
+/// ChArUco board, or a plain chessboard, odd by even squares or with one
+/// corner square marked (calibration/marked_chessboard.hpp).
 ///
 /// Companion to CalibrationManager, which only handles single-camera
 /// intrinsics. A camera must already have a valid intrinsic CalibrationData
@@ -43,7 +43,8 @@ class RoomCalibrationManager {
     /// @brief The kind of board.
     enum class BoardType {
         Charuco,         ///< ChArUco (DICT_5X5_100): partial views work
-        MarkedChessboard ///< plain chessboard, one corner square marked: the whole board must show
+        MarkedChessboard ///< plain chessboard, odd x even or one corner marked: the whole board
+                         ///< must show
     };
 
     /// @brief Board geometry. Both kinds count squares, not inner corners.
