@@ -404,12 +404,30 @@ For a selected session you can:
   everything the analyses found and opens it in your browser
   (``report/session_report.html``; print it to PDF to share). It shows:
 
+  - a bar of links to its sections, kept at the top while scrolling;
   - the session's details and notes;
   - headline numbers;
-  - a time-aligned timeline per camera: who speaks, eye contact, blinks,
-    smiles, nods and heart rate;
-  - a section for each analysis;
+  - **data quality**, before any numbers are read: whether the recording
+    ended cleanly, frames missing per camera, how much of the video a face
+    was seen, how clear the heart-rate signal was, each camera's lens and
+    room calibration, whether speakers were told apart, and, for 3D pose,
+    identity jumps and swaps and how often each camera disagreed. Green is
+    fine, amber means read the numbers with care, red is worth fixing first;
+  - a time-aligned timeline per camera, one colour per lane: who speaks,
+    eye contact (faint while looking away), blinks, smiles (a second shade
+    for a Duchenne smile), brow raises, nods, head shakes, and heart rate with
+    its scale, coloured by signal quality as in the Analysis tab;
+  - a section for each analysis, with the response-time distribution and
+    eye contact while speaking, listening and in silence. An empty value
+    says why (for example, run Eye Contact again after Conversation Timing);
+  - the transcript itself, with times and speakers, and the voice
+    spectrogram with its pitch track;
   - the analyses not run yet, so run those first and make the report again.
+
+  The page prints cleanly to PDF (the link bar is left out, the transcript
+  printed in full). From a terminal, ``python analysis/run_session_report.py
+  --session <folder> --stills`` also adds three still frames from each
+  video; they show the participants, so the app's button leaves them out.
 
   It also writes the session's numbers as one row
   (``report/session_summary.csv`` and ``.json``).
