@@ -49,6 +49,8 @@ QJsonObject CalibrationData::to_json() const {
         {"image_height", imageHeight},
         {"offset_x", imageOffsetX},
         {"offset_y", imageOffsetY},
+        {"distortion_model", distortionModel},
+        {"holdout_rms_error", holdoutRmsError},
     };
 }
 
@@ -72,10 +74,12 @@ std::optional<CalibrationData> CalibrationData::from_json(const QJsonObject& o) 
     if (o.contains("extrinsic_calibrated")) {
         cal.extrinsicCalibrated = o["extrinsic_calibrated"].toBool();
     }
-    cal.imageWidth   = o["image_width"].toInt(-1);
-    cal.imageHeight  = o["image_height"].toInt(-1);
-    cal.imageOffsetX = o["offset_x"].toInt(-1);
-    cal.imageOffsetY = o["offset_y"].toInt(-1);
+    cal.imageWidth      = o["image_width"].toInt(-1);
+    cal.imageHeight     = o["image_height"].toInt(-1);
+    cal.imageOffsetX    = o["offset_x"].toInt(-1);
+    cal.imageOffsetY    = o["offset_y"].toInt(-1);
+    cal.distortionModel = o["distortion_model"].toString();
+    cal.holdoutRmsError = o["holdout_rms_error"].toDouble(-1.0);
     return cal;
 }
 

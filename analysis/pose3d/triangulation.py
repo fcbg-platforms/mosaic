@@ -24,6 +24,7 @@ in millimetres.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from itertools import combinations
 
 import cv2
 import numpy as np
@@ -269,22 +270,25 @@ class TriangulationResult:
         The triangulated 3D point in room space (mm), shape ``(3,)``.
     used_views : list of int
         Camera indices that actually contributed to `point_room`, after
-        visibility filtering and, if a re-triangulation happened, after
-        outlier rejection too.
+        visibility filtering and outlier rejection.
     per_view_error_px : dict of int to float
         Each entry in `used_views`' own reprojection error (px) against
         `point_room`, keyed by camera index.
+    dropped_views : list of int
+        Camera indices that saw the keypoint (visibility filtering passed)
+        but were left out as disagreeing with the others, in camera order.
     """
 
     point_room: np.ndarray
     used_views: list
     per_view_error_px: dict
+    dropped_views: list = field(default_factory=list)
 
 
 def triangulate_with_rejection(
     observations, cameras, max_reprojection_error_px: float = 15.0, min_visibility: float = 0.1
 ) -> TriangulationResult | None:
-    """Triangulate one keypoint across cameras, rejecting bad views once.
+    """Triangulate one keypoint across cameras, dropping views that disagree.
 
     Parameters
     ----------
@@ -294,8 +298,7 @@ def triangulate_with_rejection(
     cameras : dict of int to CameraGeom
         Every calibrated camera available for this session, keyed by index.
     max_reprojection_error_px : float, default 15.0
-        A view whose reprojection error exceeds this (px) after the first
-        triangulation pass is dropped before a single re-triangulation.
+        Every view kept must reproject within this (px) of what it saw.
     min_visibility : float, default 0.1
         Observations below this visibility/confidence are excluded before
         triangulation even starts.
@@ -303,18 +306,25 @@ def triangulate_with_rejection(
     Returns
     -------
     TriangulationResult or None
-        ``None`` if fewer than 2 views survive visibility filtering, the
-        initial triangulation fails, or fewer than 2 views survive outlier
-        rejection, never a fabricated point.
+        ``None`` if fewer than 2 views survive visibility filtering, a
+        triangulation fails, or no 2 or more views agree, never a fabricated
+        point.
 
     Notes
     -----
-    Filters by `min_visibility`, requires ``>=2`` remaining cameras,
-    triangulates via :func:`normalize_point` + :func:`triangulate_point_dlt`,
-    then drops any view whose real reprojection error exceeds
-    `max_reprojection_error_px` and re-triangulates **once** from the
-    remainder, with no iterative chase, matching ``pose_kinematics.cpp``'s
-    "skip, don't fabricate" discipline (see :doc:`/math/pose_kinematics`).
+    Triangulates from every visible view. If every view reprojects within
+    `max_reprojection_error_px`, that is the point. Otherwise (3 or more
+    views) each pair of views proposes a point, and the largest set of views
+    that agree with one of them (ties: the smallest total error) is kept,
+    refitted, and trimmed of any view that then no longer fits. Dropping the
+    view with the largest error instead would be wrong: a gross outlier
+    pulls the point towards itself, so a good view can end up with the
+    largest error (the observation behind ``triangulate_robust`` in the
+    4by4k pipeline, ``fourk/geometry.py``). Searching pairs also handles two
+    wrong views of six, where every leave-one-out refit still holds the
+    other. Fewer than two views that agree leave the keypoint absent
+    (``None``), never guessed: the "skip, don't fabricate" discipline of
+    :doc:`/math/pose_kinematics`.
     """
     visible = {
         idx: uv
@@ -324,29 +334,56 @@ def triangulate_with_rejection(
     if len(visible) < 2:
         return None
 
-    def _triangulate(view_ids):
+    def _solve(view_ids):
         norm_pts = [normalize_point(visible[i], cameras[i]) for i in view_ids]
         p_mats = [projection_matrix(cameras[i]) for i in view_ids]
-        return triangulate_point_dlt(norm_pts, p_mats)
+        point = triangulate_point_dlt(norm_pts, p_mats)
+        if point is None:
+            return None, None
+        return point, {i: reproject_error_px(point, cameras[i], visible[i]) for i in view_ids}
 
-    view_ids = sorted(visible.keys())
-    point = _triangulate(view_ids)
+    kept = sorted(visible.keys())
+    point, errors = _solve(kept)
     if point is None:
         return None
-
-    errors = {i: reproject_error_px(point, cameras[i], visible[i]) for i in view_ids}
-    kept = [i for i in view_ids if errors[i] <= max_reprojection_error_px]
-
-    if len(kept) == len(view_ids):
-        return TriangulationResult(
-            point_room=point, used_views=kept, per_view_error_px={i: errors[i] for i in kept}
-        )
-
-    if len(kept) < 2:
+    if max(errors.values()) <= max_reprojection_error_px:
+        return TriangulationResult(point_room=point, used_views=kept, per_view_error_px=errors)
+    if len(kept) < 3:
         return None
 
-    point2 = _triangulate(kept)
-    if point2 is None:
+    # Consensus: every pair of views proposes a point; the most views that
+    # agree with one (then the smallest total error) are kept.
+    best = None
+    for a, b in combinations(kept, 2):
+        p_ab, _ = _solve([a, b])
+        if p_ab is None:
+            continue
+        e_all = {i: reproject_error_px(p_ab, cameras[i], visible[i]) for i in kept}
+        agree = [i for i in kept if e_all[i] <= max_reprojection_error_px]
+        if len(agree) < 2:
+            continue
+        key = (len(agree), -sum(e_all[i] for i in agree))
+        if best is None or key > best[0]:
+            best = (key, agree)
+    if best is None:
         return None
-    errors2 = {i: reproject_error_px(point2, cameras[i], visible[i]) for i in kept}
-    return TriangulationResult(point_room=point2, used_views=kept, per_view_error_px=errors2)
+    agree = best[1]
+
+    # Refit from the views that agree; a view that no longer fits goes too.
+    while True:
+        point, errors = _solve(agree)
+        if point is None:
+            return None
+        still = [i for i in agree if errors[i] <= max_reprojection_error_px]
+        if len(still) == len(agree):
+            break
+        if len(still) < 2:
+            return None
+        agree = still
+
+    return TriangulationResult(
+        point_room=point,
+        used_views=agree,
+        per_view_error_px=errors,
+        dropped_views=[i for i in kept if i not in agree],
+    )

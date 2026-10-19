@@ -139,6 +139,8 @@ if(MOSAIC_ENABLE_OPENCV)
     target_sources(mosaic_tests PRIVATE
         test_calibration_board_change.cpp
         "${CMAKE_SOURCE_DIR}/src/calibration/calibration_manager.cpp"
+        "${CMAKE_SOURCE_DIR}/src/calibration/lens_model.cpp"
+        test_lens_model.cpp
         "${CMAKE_SOURCE_DIR}/src/calibration/room_calibration_manager.cpp"
         "${CMAKE_SOURCE_DIR}/src/calibration/marked_chessboard.cpp"
         test_marked_chessboard.cpp

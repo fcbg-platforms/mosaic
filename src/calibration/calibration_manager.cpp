@@ -16,6 +16,7 @@
 #include <opencv2/calib3d.hpp>
 #include <opencv2/imgproc.hpp>
 
+#include "calibration/lens_model.hpp"
 #include "calibration/marked_chessboard.hpp"
 #endif
 
@@ -44,6 +45,7 @@ struct CalibrationManager::Impl {
     QPointer<QThread> worker; // the running calibration, if any
     int usedViews{0};
     int droppedViews{0};
+    QString modelReport; // each lens model's held-out error
 
 #if defined(MOSAIC_HAVE_OPENCV)
     std::vector<std::vector<cv::Point3f>> objectPoints;
@@ -282,12 +284,12 @@ void CalibrationManager::calibrate() {
     auto* worker = QThread::create([self, objectPoints, imagePoints, size]() mutable {
         auto run2 = [&size](const std::vector<std::vector<cv::Point3f>>& obj,
                             const std::vector<std::vector<cv::Point2f>>& img, cv::Mat& K,
-                            cv::Mat& dist, std::vector<double>& perView) {
+                            cv::Mat& dist, std::vector<double>& perView,
+                            int flags = lens_models()[kDefaultLensModel].flags) {
             std::vector<cv::Mat> rvecs, tvecs;
             cv::Mat stdIn, stdEx, errs;
-            const double rms =
-                cv::calibrateCamera(obj, img, size, K, dist, rvecs, tvecs, stdIn, stdEx, errs,
-                                    cv::CALIB_FIX_K4 | cv::CALIB_FIX_K5);
+            const double rms = cv::calibrateCamera(obj, img, size, K, dist, rvecs, tvecs, stdIn,
+                                                   stdEx, errs, flags);
             perView.assign(errs.begin<double>(), errs.end<double>());
             return rms;
         };
@@ -349,6 +351,28 @@ void CalibrationManager::calibrate() {
             }
         }
 
+        // The distortion model: the simplest that predicts views it was not
+        // fitted on about as well as the best (lens_model.hpp). Then the
+        // final fit, from every kept view, with that model.
+        LensModelChoice choice = choose_lens_model(objectPoints, imagePoints, size);
+        if (choice.chosen != kDefaultLensModel) {
+            cv::Mat K3    = cv::Mat::eye(3, 3, CV_64F);
+            cv::Mat dist3 = cv::Mat::zeros(5, 1, CV_64F);
+            std::vector<double> perView3;
+            try {
+                rms  = run2(objectPoints, imagePoints, K3, dist3, perView3,
+                            lens_models()[static_cast<size_t>(choice.chosen)].flags);
+                K    = K3;
+                dist = dist3;
+            } catch (const std::exception&) {
+                // Keep the default model's result, and say so.
+                choice.chosen = kDefaultLensModel;
+            }
+        }
+        const QString modelReport = QString::fromStdString(describe_lens_model_choice(choice));
+        log_info(QString("[Calibration] Lens model, error on views left out of the fit: %1")
+                     .arg(modelReport));
+
         CalibrationData result;
         result.calibrated  = true;
         result.rmsError    = rms;
@@ -362,13 +386,17 @@ void CalibrationManager::calibrate() {
         for (int idx = 0; idx < 5; ++idx) {
             result.distCoeffs[static_cast<size_t>(idx)] = dist.at<double>(idx);
         }
-        const int used = static_cast<int>(imagePoints.size());
+        result.distortionModel =
+            QString::fromUtf8(lens_models()[static_cast<size_t>(choice.chosen)].name);
+        result.holdoutRmsError = choice.holdoutRms[static_cast<size_t>(choice.chosen)];
+        const int used         = static_cast<int>(imagePoints.size());
 
         // Hand the result over on the manager's own thread.
         QMetaObject::invokeMethod(
             self,
-            [self, result, rms, used, dropped] {
+            [self, result, rms, used, dropped, modelReport] {
                 self->d->result       = result;
+                self->d->modelReport  = modelReport;
                 self->d->hasResult    = true;
                 self->d->usedViews    = used;
                 self->d->droppedViews = dropped;
@@ -396,5 +424,6 @@ CalibrationData CalibrationManager::result() const { return d->result; }
 bool CalibrationManager::has_result() const { return d->hasResult; }
 int CalibrationManager::used_view_count() const { return d->usedViews; }
 int CalibrationManager::dropped_view_count() const { return d->droppedViews; }
+QString CalibrationManager::lens_model_report() const { return d->modelReport; }
 
 } // namespace mosaic

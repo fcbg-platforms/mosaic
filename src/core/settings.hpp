@@ -42,6 +42,12 @@ struct CalibrationData {
     int imageHeight  = -1;
     int imageOffsetX = -1;
     int imageOffsetY = -1;
+    // The lens distortion model calibration used (calibration/
+    // lens_model.hpp, e.g. "k1 k2") and its RMS error on views left out of
+    // the fit, px. Empty = calibrated before models were compared; -1 = not
+    // compared (too few views: the default model was used).
+    QString distortionModel;
+    double holdoutRmsError = -1.0;
 
     [[nodiscard]] QJsonObject to_json() const;
     [[nodiscard]] static std::optional<CalibrationData> from_json(const QJsonObject&);

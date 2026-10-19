@@ -41,6 +41,7 @@ from pathlib import Path
 
 import numpy as np
 from pose3d.association import PersonObservation, cluster_people
+from pose3d.audit import identity_audit, view_agreement
 from pose3d.smoothing import smooth_track_positions
 from pose3d.tracker import PersonTracker3D
 from pose3d.triangulation import CameraGeom, project_point_px, triangulate_with_rejection
@@ -197,13 +198,13 @@ def main() -> None:
         )
         sys.exit(1)
 
-    frame_results, keypoint_count = _reconstruct_ticks(
+    frame_results, keypoint_count, view_counts = _reconstruct_ticks(
         manifest, camera_geoms, frames_by_camera, args
     )
 
     _apply_temporal_smoothing(frame_results, keypoint_count, args.smoothing_window)
 
-    _write_results(session_dir, cameras, manifest, keypoint_count, args, frame_results)
+    _write_results(session_dir, cameras, manifest, keypoint_count, args, frame_results, view_counts)
 
 
 # ── Session metadata ────────────────────────────────────────────────────────
@@ -362,6 +363,11 @@ def _reconstruct_ticks(
             break
 
     results: list[dict] = []
+    # Per camera: keypoints it contributed to, and keypoints it saw but was
+    # dropped from as disagreeing with the other cameras.
+    views_used: dict = {}
+    views_dropped: dict = {}
+    views_unresolved: dict = {}
     t_start = time.perf_counter()
     progress_interval = max(1, total_ticks // 200)
 
@@ -427,7 +433,16 @@ def _reconstruct_ticks(
                     per_kp_obs, cameras, args.max_reprojection_error_px
                 )
                 if tri is None:
+                    # Seen by two or more cameras that did not agree.
+                    seen = [c for c, (_, vis) in per_kp_obs.items() if vis >= 0.1 and c in cameras]
+                    if len(seen) >= 2:
+                        for c in seen:
+                            views_unresolved[c] = views_unresolved.get(c, 0) + 1
                     continue
+                for c in tri.used_views:
+                    views_used[c] = views_used.get(c, 0) + 1
+                for c in tri.dropped_views:
+                    views_dropped[c] = views_dropped.get(c, 0) + 1
 
                 keypoints_room[kp_i] = tri.point_room.tolist()
                 keypoints_valid[kp_i] = True
@@ -482,7 +497,7 @@ def _reconstruct_ticks(
                 flush=True,
             )
 
-    return results, keypoint_count
+    return results, keypoint_count, (views_used, views_dropped, views_unresolved)
 
 
 def _tick_timestamp_ns(manifest: dict, tick: int) -> int:
@@ -544,6 +559,7 @@ def _write_results(
     keypoint_count: int,
     args: argparse.Namespace,
     frame_results: list,
+    view_counts: tuple = ({}, {}, {}),
 ) -> None:
     from pose.keypoints import COCO_KEYPOINTS, COCO_SKELETON
 
@@ -553,6 +569,33 @@ def _write_results(
         else [f"kp{i}" for i in range(keypoint_count)]
     )
     skeleton_edges = COCO_SKELETON if keypoint_count == len(COCO_KEYPOINTS) else []
+
+    # Is each track one person, and does each camera agree with the rest?
+    quality = {
+        "views": view_agreement(*view_counts),
+        "identity": identity_audit(
+            frame_results,
+            skeleton_edges,
+            edge_names=[f"{keypoint_names[a]}-{keypoint_names[b]}" for a, b in skeleton_edges],
+            torso=(5, 6, 11, 12) if keypoint_count == len(COCO_KEYPOINTS) else (),
+        ),
+    }
+    ident = quality["identity"]
+    print(
+        f"[run_pose3d] Quality: {ident['track_count']} track(s), "
+        f"{ident['short_tracks']} under 1 s, {ident['jumps']} jump(s), "
+        f"{ident['swaps']} likely swap(s), {ident['size_violations']} tick(s) with a "
+        "bone off its usual length",
+        flush=True,
+    )
+    for cam, v in quality["views"].items():
+        if v["dropped_pct"] is not None:
+            print(
+                f"[run_pose3d]   camera {cam}: dropped from {v['dropped_pct']:.1f}% of the "
+                f"keypoints it saw ({v['dropped']} of {v['used'] + v['dropped']}), "
+                f"{v['unresolved']} unresolved",
+                flush=True,
+            )
 
     out_frames = []
     for entry in frame_results:
@@ -607,6 +650,7 @@ def _write_results(
                     "max_track_jump_mm": args.max_track_jump_mm,
                     "smoothing_window": args.smoothing_window,
                 },
+                "quality": quality,
                 "frames": out_frames,
             },
             indent=2,
