@@ -8,7 +8,8 @@ recording, in one page and one row of numbers. See :mod:`report`.
 ``--session`` writes, in ``<session>/report/``:
 
 * ``session_report.html``: one self-contained page (open it in any browser;
-  print it to PDF to share).
+  print it to PDF to share). ``--stills`` adds a few still frames from each
+  video; they show the participants, so they are left out unless asked for.
 * ``session_summary.csv`` and ``session_summary.json``: the session's
   numbers as one flat row, for statistics.
 
@@ -44,6 +45,11 @@ def parse_args(argv=None) -> argparse.Namespace:
     p.add_argument(
         "--summary-only", action="store_true", help="Write the summary rows but not the HTML pages"
     )
+    p.add_argument(
+        "--stills",
+        action="store_true",
+        help="Add a few still frames from each video (they show the participants)",
+    )
     return p.parse_args(argv)
 
 
@@ -51,13 +57,13 @@ def log(msg: str) -> None:
     print(f"{TAG} {msg}", flush=True)
 
 
-def report_session(session: Path, html: bool = True) -> dict:
+def report_session(session: Path, html: bool = True, stills: bool = False) -> dict:
     """Write one session's report files; return its summary row."""
     from report.collect import collect
     from report.render import render
     from report.summary import session_row, write_rows
 
-    data = collect(session, for_summary_only=not html)
+    data = collect(session, for_summary_only=not html, stills=stills)
     row = session_row(data)
     out = session / "report"
     out.mkdir(exist_ok=True)
@@ -95,7 +101,7 @@ def main(argv=None) -> int:
         if not (session / "session_meta.json").exists():
             print(f"{TAG} Not a session folder (no session_meta.json): {session}", file=sys.stderr)
             return 1
-        report_session(session, html=not args.summary_only)
+        report_session(session, html=not args.summary_only, stills=args.stills)
         return 0
 
     roots = [Path(r) for r in args.sessions_root]
@@ -108,7 +114,7 @@ def main(argv=None) -> int:
     for pos, session in enumerate(sessions, start=1):
         print(f"  {100.0 * pos / len(sessions):5.1f}%  ({pos}/{len(sessions)})", flush=True)
         try:
-            rows.append(report_session(session, html=not args.summary_only))
+            rows.append(report_session(session, html=not args.summary_only, stills=args.stills))
         except Exception:  # one unreadable session must not stop the others
             traceback.print_exc()
             log(f"{session.name}: failed (see the error above)")

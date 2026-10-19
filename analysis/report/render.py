@@ -6,9 +6,11 @@ scripts, no external files, readable in light and dark themes, and printable
 
 from __future__ import annotations
 
+import base64
 import html
 import math
 import time
+from pathlib import Path
 
 from .collect import PER_CAMERA_ANALYSES, SESSION_ANALYSES, CameraResults, SessionData, duration_s
 
@@ -17,12 +19,18 @@ CSS = """
   --bg: #f7f7f9; --card: #ffffff; --ink: #1d1d27; --muted: #63637a; --line: #e2e2ea;
   --accent: #3d5afe; --a: #2e9d5b; --b: #2f80d1; --c: #d08a1a; --d: #c2410c; --e: #8b5cf6;
   --grid: #ececf2;
+  --l-subj: #2e9d5b; --l-other: #2f80d1; --l-eye: #0f8a80; --l-blink: #5b6478;
+  --l-smile: #d9951f; --l-duch: #9a5a06; --l-brow: #8b5cf6; --l-nod: #0e7fa8; --l-shake: #c2410c;
+  --q1: #2e9d5b; --q2: #7cb342; --q3: #d9951f; --q4: #c2410c;
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     --bg: #12121a; --card: #1b1b26; --ink: #e8e8f0; --muted: #9a9ab0; --line: #2c2c3c;
     --accent: #8c9eff; --a: #4cc584; --b: #5aa6f0; --c: #f0b44c; --d: #f08a5d; --e: #b39bff;
     --grid: #262634;
+    --l-subj: #4cc584; --l-other: #5aa6f0; --l-eye: #3cc6b8; --l-blink: #a3acc0;
+    --l-smile: #f0b44c; --l-duch: #ffd27f; --l-brow: #b39bff; --l-nod: #49b8e0; --l-shake: #f08a5d;
+    --q1: #4cc584; --q2: #a5d65c; --q3: #f0b44c; --q4: #f08a5d;
   }
 }
 * { box-sizing: border-box; }
@@ -57,7 +65,29 @@ td.n { text-align: right; font-variant-numeric: tabular-nums; }
 svg { width: 100%; height: auto; display: block; }
 svg text { fill: var(--muted); font: 11px system-ui, sans-serif; }
 .notes { white-space: pre-wrap; }
-@media print { body { background: #fff; } .card, .tile { break-inside: avoid; } }
+.dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; }
+.dot.ok { background: var(--q1); } .dot.warn { background: var(--q3); }
+.dot.bad { background: var(--q4); } .dot.info { background: var(--line); }
+.scroll { max-height: 320px; overflow: auto; }
+.scroll td:first-child { white-space: nowrap; color: var(--muted); }
+.scroll td:nth-child(2) { white-space: nowrap; }
+.scroll td:last-child { width: 100%; }
+.stills { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; }
+.stills figure { margin: 0; } .stills img { width: 100%; border-radius: 8px; display: block; }
+.stills figcaption { font-size: 12px; color: var(--muted); }
+nav.toc { position: sticky; top: 0; z-index: 1; background: var(--bg); padding: 8px 0;
+  border-bottom: 1px solid var(--line); font-size: 13px; }
+nav.toc a { color: var(--accent); text-decoration: none; margin-right: 14px; white-space: nowrap; }
+h2 { scroll-margin-top: 48px; }
+@media print {
+  @page { margin: 14mm; }
+  body { background: #fff; }
+  * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  nav.toc { display: none; }
+  .scroll { max-height: none; overflow: visible; }
+  .card, .tile, figure { break-inside: avoid; }
+  h2, h3 { break-after: avoid; }
+}
 """
 
 LANE_H, LANE_GAP, LABEL_W, CHART_W = 16, 6, 132, 1000
@@ -90,90 +120,112 @@ def _nice_step(span_s: float) -> float:
     return 7200.0
 
 
+def rppg_tier(snr_db, valid_fraction) -> int:
+    """Signal quality of one heart-rate window, 1 (best) to 4, as the app's
+    badge (``rppg_quality_for`` in ``src/analysis/realtime_metrics.cpp``)."""
+    if valid_fraction is not None and valid_fraction < 0.6:
+        return 4
+    if snr_db is None:
+        return 3
+    return 1 if snr_db >= 5.0 else 2 if snr_db >= 0.0 else 3 if snr_db >= -5.0 else 4
+
+
+RPPG_TIERS = ((1, "clear"), (2, "good"), (3, "weak"), (4, "poor"))
+
+
 def timeline_svg(cam: CameraResults) -> str | None:
-    """Time-aligned lanes of everything measured on one camera."""
+    """Time-aligned lanes of everything measured on one camera; one colour
+    per lane, so it reads without a legend."""
     r = cam.results
     if cam.t0_ms is None:  # no timestamps file: times cannot be placed on the video
         return None
-    lanes: list[tuple[str, list]] = []  # (label, [(t0_s, t1_s, colour var) or (t, None, colour)])
+    # (label, [(t0_s, t1_s or None for a tick, colour var, opacity)])
+    lanes: list[tuple[str, list]] = []
     t0 = cam.t0_ms
 
     def rel(ms):
         return (ms - t0) / 1000.0
 
-    times = []
     conv = r.get("conversation")
     if conv:
         for who, label, colour in (
-            ("subject", "On camera speaks", "--a"),
-            ("other", "Other speaks", "--b"),
+            ("subject", "On camera speaks", "--l-subj"),
+            ("other", "Other speaks", "--l-other"),
         ):
             spans = [
-                (rel(s["start_ms"]), rel(s["end_ms"]), colour)
+                (rel(s["start_ms"]), rel(s["end_ms"]), colour, 1.0)
                 for s in conv["spurts"]
                 if s["speaker"] == who
             ]
             lanes.append((label, spans))
     ec = r.get("eye_contact")
     if ec:
-        spans = [(rel(a), rel(b), "--a" if c else "--c") for a, b, c in ec["runs"]]
-        lanes.append(("Eye contact / away", spans))
+        # Solid: looking at the partner; faint: looking away; blank: no face.
+        spans = [(rel(a), rel(b), "--l-eye", 1.0 if c else 0.28) for a, b, c in ec["runs"]]
+        lanes.append(("Eye contact", spans))
     fd = r.get("face_dynamics")
     if fd:
         ev = fd["events"]
-        lanes.append(
-            ("Blinks", [(rel(e["peak_ms"]), None, "--b") for e in ev if e["kind"] == "blink"])
-        )
         duch = {e["start_ms"] for e in ev if e["kind"] == "duchenne_smile"}
-        lanes.append(
+
+        def events(kind, colour):
+            return [
+                (rel(e["start_ms"]), rel(e["end_ms"]), colour, 1.0) for e in ev if e["kind"] == kind
+            ]
+
+        lanes += [
+            (
+                "Blinks",
+                [(rel(e["peak_ms"]), None, "--l-blink", 1.0) for e in ev if e["kind"] == "blink"],
+            ),
             (
                 "Smiles",
                 [
                     (
                         rel(e["start_ms"]),
                         rel(e["end_ms"]),
-                        "--d" if e["start_ms"] in duch else "--c",
+                        "--l-duch" if e["start_ms"] in duch else "--l-smile",
+                        1.0,
                     )
                     for e in ev
                     if e["kind"] == "smile"
                 ],
-            )
-        )
-        lanes.append(
+            ),
             (
                 "Brow raises",
-                [(rel(e["peak_ms"]), None, "--e") for e in ev if e["kind"] == "brow_raise"],
-            )
-        )
-        lanes.append(
-            (
-                "Nods / shakes",
                 [
-                    (rel(e["start_ms"]), rel(e["end_ms"]), "--a" if e["kind"] == "nod" else "--d")
+                    (rel(e["peak_ms"]), None, "--l-brow", 1.0)
                     for e in ev
-                    if e["kind"] in ("nod", "shake")
+                    if e["kind"] == "brow_raise"
                 ],
-            )
-        )
-    hr_points = []
+            ),
+            ("Nods", events("nod", "--l-nod")),
+            ("Head shakes", events("shake", "--l-shake")),
+        ]
+    # Heart rate: each window's rate over its own stretch, coloured by quality.
+    hr_steps = []  # (t0_s, t1_s, bpm, tier)
     hr = r.get("rppg")
     if hr:
-        for w in hr.get("windows", []):
+        wins = sorted(hr.get("windows", []), key=lambda w: w["start_ms"])
+        centres = [(w["start_ms"] + w["end_ms"]) / 2.0 for w in wins]
+        for i, w in enumerate(wins):
             bpm = w.get("smoothed_bpm") or w.get("bpm")
-            if bpm is not None:
-                hr_points.append(((w["start_ms"] + w["end_ms"]) / 2.0, bpm))
+            if bpm is None:
+                continue
+            a = (centres[i] + centres[i - 1]) / 2.0 if i else w["start_ms"]
+            b = (centres[i] + centres[i + 1]) / 2.0 if i + 1 < len(wins) else w["end_ms"]
+            tier = rppg_tier(w.get("snr_db"), w.get("valid_frame_fraction"))
+            hr_steps.append((rel(a), rel(b), bpm, tier))
     lanes = [(label, items) for label, items in lanes if items]
-    if not lanes and not hr_points:
+    if not lanes and not hr_steps:
         return None
-    for _, items in lanes:
-        for a, b, _c in items:
-            times.extend([a] + ([b] if b is not None else []))
-    times.extend(rel(t) for t, _ in hr_points)
+    times = [t for _, items in lanes for a, b, _c, _o in items for t in (a, b) if t is not None]
+    times += [t for a, b, _v, _q in hr_steps for t in (a, b)]
     # The whole video, so every camera's lanes line up with its own length.
-    t_max = max([t for t in times if t is not None] + [cam.duration_s or 0.0, 1.0])
+    t_max = max(times + [cam.duration_s or 0.0, 1.0])
     plot_w = CHART_W - LABEL_W - 10
     x = lambda t: LABEL_W + max(0.0, min(t, t_max)) / t_max * plot_w  # noqa: E731
-    hr_h = 70 if hr_points else 0
+    hr_h = 90 if hr_steps else 0
     height = len(lanes) * (LANE_H + LANE_GAP) + hr_h + 40
     out = [
         f'<svg viewBox="0 0 {CHART_W} {height}" role="img" aria-label="Timeline of '
@@ -197,7 +249,7 @@ def timeline_svg(cam: CameraResults) -> str | None:
             f'<rect x="{LABEL_W}" y="{y}" width="{plot_w}" height="{LANE_H}" fill="var(--grid)" '
             'opacity=".35" rx="3"/>'
         )
-        for a, b, colour in items:
+        for a, b, colour, op in items:
             if b is None:
                 xx = x(a)
                 out.append(
@@ -208,43 +260,366 @@ def timeline_svg(cam: CameraResults) -> str | None:
                 w = max(1.0, x(b) - x(a))
                 out.append(
                     f'<rect x="{x(a):.1f}" y="{y + 2}" width="{w:.1f}" height="{LANE_H - 4}" '
-                    f'fill="var({colour})" rx="2"/>'
+                    f'fill="var({colour})" opacity="{op:g}" rx="2"/>'
                 )
         y += LANE_H + LANE_GAP
-    if hr_points:
-        vals = [v for _, v in hr_points]
-        lo, hi = min(vals), max(vals)
+    if hr_steps:
+        vals = [v for _a, _b, v, _q in hr_steps]
+        lo, hi = math.floor(min(vals)) - 2, math.ceil(max(vals)) + 2
         if hi - lo < 10:
             mid = (hi + lo) / 2.0
-            lo, hi = mid - 5, mid + 5
-        top, bottom = y + 6, y + hr_h - 6
+            lo, hi = math.floor(mid - 5), math.ceil(mid + 5)
+        top, bottom = y + 8, y + hr_h - 8
         yy = lambda v: bottom - (v - lo) / (hi - lo) * (bottom - top)  # noqa: E731
-        pts = " ".join(f"{x(rel(t)):.1f},{yy(v):.1f}" for t, v in hr_points)
-        out.append(f'<text x="{LABEL_W - 8}" y="{top + 10}" text-anchor="end">Heart rate</text>')
-        out.append(
-            f'<text x="{LABEL_W - 8}" y="{top + 24}" text-anchor="end">{lo:.0f}–{hi:.0f} bpm</text>'
-        )
-        out.append(f'<polyline points="{pts}" fill="none" stroke="var(--d)" stroke-width="1.8"/>')
+        out.append(f'<text x="{LABEL_W - 8}" y="{top + 30}" text-anchor="end">Heart rate</text>')
+        out.append(f'<text x="{LABEL_W - 8}" y="{top + 44}" text-anchor="end">(bpm)</text>')
+        for v in (lo, (lo + hi) / 2.0, hi):
+            out.append(
+                f'<line x1="{LABEL_W}" y1="{yy(v):.1f}" x2="{LABEL_W + plot_w}" y2="{yy(v):.1f}" '
+                'stroke="var(--grid)"/>'
+            )
+            out.append(f'<text x="{LABEL_W + 4}" y="{yy(v) - 2:.1f}" font-size="10">{v:.0f}</text>')
+        for a, b, v, q in hr_steps:
+            out.append(
+                f'<line x1="{x(a):.1f}" y1="{yy(v):.1f}" x2="{x(b):.1f}" y2="{yy(v):.1f}" '
+                f'stroke="var(--q{q})" stroke-width="3" stroke-linecap="round"/>'
+            )
     out.append("</svg>")
     return "".join(out)
 
 
-def legend() -> str:
-    items = [
-        ("--a", "on camera speaks, eye contact, nod"),
-        ("--b", "other speaks, blink"),
-        ("--c", "looking away, smile"),
-        ("--d", "Duchenne smile, head shake, heart rate"),
-        ("--e", "brow raise"),
+def swatch(colour: str, text: str, opacity: float = 1.0) -> str:
+    return (
+        '<span style="display:inline-flex;align-items:center;margin-right:14px">'
+        f'<span style="width:12px;height:12px;border-radius:3px;background:var({colour});'
+        f'opacity:{opacity:g};margin-right:6px"></span>{esc(text)}</span>'
+    )
+
+
+def legend(cam: CameraResults) -> str:
+    """Only what the lane labels do not say: shades within a lane."""
+    r = cam.results
+    parts = []
+    if "eye_contact" in r:
+        parts += [
+            swatch("--l-eye", "eye contact"),
+            swatch("--l-eye", "looking away", 0.28),
+            "<span style='margin-right:14px'>blank: no face</span>",
+        ]
+    if "face_dynamics" in r:
+        parts += [swatch("--l-smile", "smile"), swatch("--l-duch", "Duchenne smile")]
+    if "rppg" in r:
+        parts += [swatch(f"--q{q}", f"heart rate, {name} signal") for q, name in RPPG_TIERS]
+    return f'<p class="note">{"".join(parts)}</p>' if parts else ""
+
+
+# ── Small charts ─────────────────────────────────────────────────────────────
+
+
+def bars_svg(
+    categories: list, series: list, unit: str = "", w: int = 340, h: int = 170, top_value=None
+) -> str:
+    """Stacked vertical bars: ``series`` is [(name, colour var, values per category)];
+    the axis runs to ``top_value``, else to the tallest bar."""
+    left, bottom, top = 34, 34, 10
+    plot_w, plot_h = w - left - 8, h - bottom - top
+    totals = [sum(v[i] for _n, _c, v in series) for i in range(len(categories))]
+    peak = top_value or max(totals + [1])
+    bw = plot_w / max(1, len(categories))
+    out = [f'<svg viewBox="0 0 {w} {h}" role="img">']
+    for frac in (0.0, 0.5, 1.0):
+        yy = top + plot_h * (1 - frac)
+        out.append(
+            f'<line x1="{left}" y1="{yy:.1f}" x2="{w - 8}" y2="{yy:.1f}" stroke="var(--grid)"/>'
+        )
+        label = f"{peak * frac:.0f}{unit}"
+        out.append(f'<text x="{left - 4}" y="{yy + 4:.1f}" text-anchor="end">{label}</text>')
+    for i, cat in enumerate(categories):
+        base = top + plot_h
+        for _name, colour, values in series:
+            v = values[i]
+            if v <= 0:
+                continue
+            bh = v / peak * plot_h
+            base -= bh
+            out.append(
+                f'<rect x="{left + i * bw + 2:.1f}" y="{base:.1f}" width="{bw - 4:.1f}" '
+                f'height="{bh:.1f}" fill="var({colour})" rx="2"/>'
+            )
+        if len(categories) <= 8 or i % 2 == 0:
+            out.append(
+                f'<text x="{left + (i + 0.5) * bw:.1f}" y="{h - bottom + 14}" '
+                f'text-anchor="middle">{esc(cat)}</text>'
+            )
+    out.append("</svg>")
+    return "".join(out)
+
+
+FTO_EDGES = list(range(-1000, 2001, 250))  # ms; the outer bins also take what is beyond
+
+
+def _response_chart(conv: dict) -> str | None:
+    tr = [t for t in conv.get("transitions", []) if t.get("fto_ms") is not None]
+    if not tr:
+        return None
+    n = len(FTO_EDGES) - 1
+    counts = {"subject": [0] * n, "other": [0] * n}
+    for t in tr:
+        k = sum(1 for e in FTO_EDGES[1:-1] if t["fto_ms"] >= e)
+        counts["subject" if t.get("to") == "subject" else "other"][k] += 1
+    cats = [f"{FTO_EDGES[i] / 1000:g}" for i in range(n)]
+    svg = bars_svg(
+        cats,
+        [
+            ("on camera answers", "--l-subj", counts["subject"]),
+            ("other answers", "--l-other", counts["other"]),
+        ],
+    )
+    return (
+        "<h3>Response times</h3>"
+        + svg
+        + "<p class='note'>"
+        + swatch("--l-subj", "on camera answers")
+        + swatch("--l-other", "other answers")
+        + "<br>Seconds from the end of one speaker to the start of the next (bins of 0.25 s, "
+        "from the label); below 0: they overlapped. The outer bins hold everything beyond.</p>"
+    )
+
+
+def _eye_contact_by_state(ec: dict) -> str | None:
+    sm = ec["summary"]
+    states = [
+        ("speaking", sm.get("eye_contact_speaking_pct")),
+        ("listening", sm.get("eye_contact_listening_pct")),
+        ("silence", sm.get("eye_contact_silence_pct")),
     ]
-    parts = [
-        f'<span style="display:inline-flex;align-items:center;margin-right:14px">'
-        "<span "
-        f'style="width:12px;height:12px;border-radius:3px;background:var({c});margin-right:6px"></span>'
-        f"{esc(t)}</span>"
-        for c, t in items
+    if all(v is None for _k, v in states):
+        return None
+    cats = [k for k, _v in states]
+    vals = [v or 0.0 for _k, v in states]
+    return (
+        "<h3>Eye contact while...</h3>"
+        + bars_svg(cats, [("eye contact", "--l-eye", vals)], "%", h=150, top_value=100.0)
+        + "<p class='note'>Share of each state's time spent in eye contact.</p>"
+    )
+
+
+# ── Data quality ─────────────────────────────────────────────────────────────
+
+
+def _status(ok: bool, warn: bool) -> str:
+    return "ok" if ok else "warn" if warn else "bad"
+
+
+def quality_rows(data: SessionData) -> list:
+    """(status, what, detail): whether the recording and each analysis can be
+    trusted, before anyone reads the numbers."""
+    rows = []
+    meta = data.meta
+    end = meta.get("session_end")
+    if "session_end" in meta:
+        clean = isinstance(end, dict) and end.get("ended_cleanly", True)
+        rows.append(
+            (
+                "ok" if clean else "bad",
+                "Recording",
+                "ended cleanly" if clean else "did not end cleanly (interrupted or still running)",
+            )
+        )
+    sy = data.session_results.get("sync_repair")
+    by_cam = {c.get("index"): c for c in (sy or {}).get("cameras", [])}
+    for cam in data.cameras:
+        c = by_cam.get(cam.index)
+        if c is None:
+            rows.append(("info", f"{cam.name} frames", "Frame Sync Repair not run"))
+        elif c.get("skipped"):
+            rows.append(("bad", f"{cam.name} frames", f"skipped: {c.get('skip_reason') or ''}"))
+        else:
+            total = c.get("output_frame_count") or 0
+            missing = c.get("missing_frame_count") or 0
+            pct = 100.0 * missing / total if total else 0.0
+            extra = "; alignment uncertain" if c.get("alignment_uncertain") else ""
+            rows.append(
+                (
+                    _status(pct < 0.5 and not extra, pct < 2.0),
+                    f"{cam.name} frames",
+                    f"{missing} of {total} missing ({pct:.1f}%) in {c.get('gap_count') or 0} "
+                    f"gap(s), filled with the previous frame{extra}",
+                )
+            )
+        r = cam.results
+        seen = ((r.get("face_dynamics") or {}).get("summary") or {}).get("face_seen_pct")
+        if seen is None:
+            seen = ((r.get("eye_contact") or {}).get("summary") or {}).get("face_seen_pct")
+        if seen is not None:
+            rows.append(
+                (
+                    _status(seen >= 90, seen >= 60),
+                    f"{cam.name} face seen",
+                    f"{seen:.0f}% of the video (face analyses only measure there)",
+                )
+            )
+        wins = (r.get("rppg") or {}).get("windows") or []
+        if wins:
+            tiers = [rppg_tier(w.get("snr_db"), w.get("valid_frame_fraction")) for w in wins]
+            good = 100.0 * sum(1 for t in tiers if t <= 2) / len(tiers)
+            rows.append(
+                (
+                    _status(good >= 70, good >= 40),
+                    f"{cam.name} heart-rate signal",
+                    f"{good:.0f}% of windows clear or good",
+                )
+            )
+        cal = next(
+            (c.get("calibration") for c in meta.get("cameras", []) if c.get("index") == cam.index),
+            None,
+        )
+        if cal is not None:
+            if cal.get("calibrated"):
+                rms = cal.get("rms_error")
+                rms = -1.0 if rms is None else float(rms)
+                model = cal.get("distortion_model") or ""
+                held = cal.get("holdout_rms_error", -1)
+                detail = (f"lens {rms:.2f} px" if rms >= 0 else "lens calibrated") + (
+                    f", {model}" if model else ""
+                )
+                if held is not None and held >= 0:
+                    detail += f" (held-out {held:.2f} px)"
+                detail += "; room " + ("calibrated" if cal.get("extrinsic_calibrated") else "not")
+                rows.append(
+                    (_status(0 <= rms < 1.0, 0 <= rms < 2.0), f"{cam.name} calibration", detail)
+                )
+            else:
+                rows.append(("info", f"{cam.name} calibration", "no lens calibration"))
+    for t in data.session_results.get("transcripts") or []:
+        st = t.get("diarization")
+        rows.append(
+            (
+                "ok" if st == "ok" else "warn",
+                f"Speakers in {t['audio']}",
+                "told apart (diarization)" if st == "ok" else f"diarization: {st or 'not run'}",
+            )
+        )
+    q = ((data.session_results.get("pose3d") or {}).get("quality")) or {}
+    ident = q.get("identity") or {}
+    if ident:
+        bad = ident.get("swaps", 0) + ident.get("jumps", 0)
+        rows.append(
+            (
+                _status(bad == 0, bad <= 3),
+                "3D pose identities",
+                f"{ident.get('track_count')} track(s), {ident.get('jumps')} jump(s), "
+                f"{ident.get('swaps')} likely swap(s), {ident.get('short_tracks')} under 1 s",
+            )
+        )
+    for cam, v in (q.get("views") or {}).items():
+        pct = v.get("dropped_pct")
+        if pct is not None:
+            rows.append(
+                (
+                    _status(pct < 5, pct < 15),
+                    f"Camera {int(cam) + 1} in 3D pose",
+                    f"dropped as disagreeing from {pct:.1f}% of the keypoints it saw, "
+                    f"{v.get('unresolved', 0)} unresolved",
+                )
+            )
+    return rows
+
+
+def quality_section(data: SessionData) -> str:
+    rows = quality_rows(data)
+    if not rows:
+        return ""
+    body = "".join(
+        f"<tr><td><span class='dot {st}'></span>{esc(what)}</td><td>{esc(detail)}</td></tr>"
+        for st, what, detail in rows
+    )
+    return (
+        "<h2 id='quality'>Data quality</h2><div class='card'><table>"
+        f"{body}</table><p class='note'>Green: fine; amber: read the numbers with care; red: "
+        "a problem worth fixing first; grey: not known.</p></div>"
+    )
+
+
+def _png_data_uri(path: Path | None) -> str | None:
+    try:
+        return "data:image/png;base64," + base64.b64encode(Path(path).read_bytes()).decode("ascii")
+    except (OSError, TypeError):
+        return None
+
+
+def voice_svg(v: dict) -> str | None:
+    """The spectrogram run_voice.py drew, with a time axis, its frequency
+    scale, and the pitch track on its own scale, as the app shows it."""
+    uri = _png_data_uri(v.get("image"))
+    sp, pitch = v.get("spectrogram") or {}, v.get("pitch") or {}
+    if uri is None or not sp:
+        return None
+    t0, t1 = (sp.get("t0_ms") or 0.0) / 1000.0, (sp.get("t1_ms") or 0.0) / 1000.0
+    f1 = sp.get("f1_hz") or 0.0
+    if t1 <= t0 or f1 <= 0:
+        return None
+    w, h, left, right, top, bottom = CHART_W, 230, 46, 46, 6, 22
+    pw, ph = w - left - right, h - top - bottom
+    x = lambda t: left + (t - t0) / (t1 - t0) * pw  # noqa: E731
+    out = [
+        f'<svg viewBox="0 0 {w} {h}" role="img" aria-label="Spectrogram of {esc(v["audio"])}">',
+        f'<image href="{uri}" x="{left}" y="{top}" width="{pw}" height="{ph}" '
+        'preserveAspectRatio="none"/>',
     ]
-    return f'<p class="note">{"".join(parts)}</p>'
+    for frac in (0.0, 0.5, 1.0):
+        yy = top + ph * (1 - frac)
+        out.append(
+            f'<text x="{left - 4}" y="{yy + 4:.1f}" text-anchor="end">'
+            f"{f1 * frac / 1000:.1f}k</text>"
+        )
+    step = _nice_step(t1 - t0)
+    k = math.ceil(t0 / step) * step
+    while k <= t1 + 1e-9:
+        out.append(f'<text x="{x(k):.1f}" y="{h - 6}" text-anchor="middle">{clock(k)}</text>')
+        k += step
+    vals = pitch.get("values_hz") or []
+    lo, hi = pitch.get("floor_hz"), pitch.get("ceiling_hz")
+    if vals and lo and hi and hi > lo:
+        pt0 = (pitch.get("t0_ms") or 0.0) / 1000.0
+        dt = (pitch.get("dt_ms") or 10.0) / 1000.0
+        yy = lambda f: top + ph * (1 - (f - lo) / (hi - lo))  # noqa: E731
+        run: list = []
+        runs = []
+        for i, f in enumerate(vals):
+            if f and f > 0 and t0 <= pt0 + i * dt <= t1:  # only over the picture
+                run.append(f"{x(pt0 + i * dt):.1f},{yy(min(max(f, lo), hi)):.1f}")
+            elif run:
+                runs.append(run)
+                run = []
+        runs.append(run)
+        for r_ in runs:
+            if len(r_) > 1:
+                out.append(
+                    f'<polyline points="{" ".join(r_)}" fill="none" stroke="var(--l-smile)" '
+                    'stroke-width="2"/>'
+                )
+        for f in (lo, hi):
+            out.append(
+                f'<text x="{w - right + 4}" y="{yy(f) + 4:.1f}" fill="var(--l-smile)">'
+                f"{f:.0f} Hz</text>"
+            )
+    out.append("</svg>")
+    return "".join(out)
+
+
+def stills_html(cam: CameraResults) -> str:
+    if not cam.stills:
+        return ""
+    figs = "".join(
+        "<figure><img alt='' src='data:image/jpeg;base64,"
+        f"{base64.b64encode(jpg).decode('ascii')}'><figcaption>{clock(t)}</figcaption></figure>"
+        for t, jpg in cam.stills
+    )
+    return (
+        f"<div class='card'><div class='stills'>{figs}</div><p class='note'>Still frames: they "
+        "show the participants; share this page only as their consent allows.</p></div>"
+    )
 
 
 # ── Sections ─────────────────────────────────────────────────────────────────
@@ -362,12 +737,18 @@ def _eye_contact(ec: dict) -> str:
             ),
             ("Answers ending with eye contact", num(turns.get("turn_end_contact_pct"), 0, "%")),
         ]
+    why = (
+        "<p class='note'>While listening / speaking: run Eye Contact again after Conversation "
+        "Timing (it needs who speaks when).</p>"
+        if s.get("eye_contact_listening_pct") is None
+        else ""
+    )
     where = {"auto": "found from the gaze", "camera": "the camera", "manual": "given"}.get(
         t.get("method"), ""
     )
     cone = num(t.get("radius_deg"), 0, "°")
     note = f"<p class='note'>Partner: {esc(where)}; contact cone {cone}.</p>"
-    return "<h3>Eye Contact</h3>" + table(rows) + note
+    return "<h3>Eye Contact</h3>" + table(rows) + note + why
 
 
 def _rppg(hr: dict) -> str:
@@ -397,7 +778,12 @@ def _rppg(hr: dict) -> str:
             ("Beat-timing noise", num(h.get("timing_jitter_ms"), 1, " ms")),
             ("Clean beats", num(h.get("nn_count"))),
         ]
-    by = hr.get("by_state") or {}
+    by_raw = hr.get("by_state")
+    by = by_raw or {}
+    speaking = (by.get("speaking") or {}).get("mean_hr_bpm")
+    listening = (by.get("listening") or {}).get("mean_hr_bpm")
+    if speaking is None and listening is None:
+        by = {}
     if by:
         rows.append(
             (
@@ -407,11 +793,20 @@ def _rppg(hr: dict) -> str:
             )
         )
     withheld = hr.get("hrv_withheld") or []
+    if not by:
+        rows.append(("Heart rate speaking / listening", "–"))
     note = (
         "<p class='note'>Experimental: not a medical device, not validated against a reference.</p>"
     )
     if not h and withheld:
         note = f"<p class='note'>HRV not reported: {esc('; '.join(withheld))}.</p>" + note
+    if not by:
+        why = (
+            "run Remote Heart Rate again after Conversation Timing (it needs who speaks when)"
+            if by_raw is None
+            else "fewer than 10 clean beats while speaking and while listening"
+        )
+        note = f"<p class='note'>Speaking / listening: {why}.</p>" + note
     return f"<h3>Heart rate and HRV ({esc(hr.get('backend') or '')})</h3>" + table(rows) + note
 
 
@@ -437,16 +832,20 @@ def found_nothing(cam: CameraResults) -> bool:
 
 
 def camera_heading(cam: CameraResults) -> str:
-    model = f" <span class='note'>{esc(cam.model)}</span>" if cam.model else ""
-    return f"<h2>{esc(cam.name)}{model}</h2>"
+    model = (
+        f" <span class='note'>{esc(cam.model)}</span>"
+        if cam.model and cam.model != cam.name
+        else ""
+    )
+    return f"<h2 id='cam{cam.index}'>{esc(cam.name)}{model}</h2>"
 
 
 def camera_section(cam: CameraResults) -> str:
     r = cam.results
-    parts = [camera_heading(cam)]
+    parts = [camera_heading(cam), stills_html(cam)]
     svg = timeline_svg(cam)
     if svg:
-        parts.append(f'<div class="card">{svg}{legend()}</div>')
+        parts.append(f'<div class="card">{svg}{legend(cam)}</div>')
     body = []
     if "face_dynamics" in r:
         body.append(_face_dynamics(r["face_dynamics"]))
@@ -496,8 +895,18 @@ def camera_section(cam: CameraResults) -> str:
                 ],
             )
         )
+    charts = [
+        c
+        for c in (
+            _response_chart(r["conversation"]) if "conversation" in r else None,
+            _eye_contact_by_state(r["eye_contact"]) if "eye_contact" in r else None,
+        )
+        if c
+    ]
     parts.append(
-        '<div class="grid">' + "".join(f'<div class="card">{b}</div>' for b in body) + "</div>"
+        '<div class="grid">'
+        + "".join(f'<div class="card">{b}</div>' for b in body + charts)
+        + "</div>"
     )
     return "".join(parts)
 
@@ -541,7 +950,7 @@ def glance(data: SessionData) -> str:
     add(num(rmssd, 0, " ms"), "RMSSD (noise-corrected)" if "rmssd_corrected_ms" in h else "RMSSD")
     if not tiles:
         return ""
-    head = f"<h2>At a glance <span class='note'>({esc(best.name)})</span></h2>"
+    head = f"<h2 id='glance'>At a glance <span class='note'>({esc(best.name)})</span></h2>"
     return f"{head}<div class='tiles'>{''.join(tiles)}</div>"
 
 
@@ -563,6 +972,17 @@ def session_sections(data: SessionData) -> str:
             "class='n'>Segments</th>"
             f"<th class='n'>Words</th><th class='n'>Time</th></tr>{''.join(rows)}</table>"
         )
+        for t in tr:
+            lines = "".join(
+                f"<tr><td>{clock(ms / 1000.0)}</td><td>{esc(who)}</td><td>{esc(text)}</td></tr>"
+                for ms, who, text in t.get("lines", [])
+                if text
+            )
+            if lines:
+                out.append(
+                    f"<p class='note'>{esc(t['audio'])}, as transcribed (times from the start "
+                    f"of the audio):</p><div class='scroll'><table>{lines}</table></div>"
+                )
     vo = data.session_results.get("voice")
     if vo:
         out.append(
@@ -579,6 +999,13 @@ def session_sections(data: SessionData) -> str:
                 ],
             )
         )
+        for v in vo:
+            svg = voice_svg(v)
+            if svg:
+                out.append(
+                    svg + "<p class='note'>" + swatch("--l-smile", "pitch (right scale)") + "Grey: "
+                    "the spectrogram, frequency on the left (brighter is louder), time below.</p>"
+                )
     gz = data.session_results.get("gaze_fusion")
     if gz:
         rows = []
@@ -595,6 +1022,18 @@ def session_sections(data: SessionData) -> str:
                 )
             )
         out.append(_small("3D Gaze", rows))
+    p3 = data.session_results.get("pose3d")
+    if p3:
+        ident = (p3.get("quality") or {}).get("identity") or {}
+        out.append(
+            _small(
+                "3D Pose",
+                [
+                    ("People tracked", num(ident.get("track_count"))),
+                    ("Tracks under 1 s", num(ident.get("short_tracks"))),
+                ],
+            )
+        )
     sy = data.session_results.get("sync_repair")
     if sy:
         cams = sy.get("cameras") or []
@@ -611,7 +1050,7 @@ def session_sections(data: SessionData) -> str:
         )
     if not out:
         return ""
-    return "<h2>Whole session</h2><div class='card'>" + "".join(out) + "</div>"
+    return "<h2 id='session'>Whole session</h2><div class='card'>" + "".join(out) + "</div>"
 
 
 def not_run(data: SessionData) -> str:
@@ -619,13 +1058,16 @@ def not_run(data: SessionData) -> str:
     for key, label in PER_CAMERA_ANALYSES:
         if data.cameras and not any(key in c.results for c in data.cameras):
             missing.append(label)
+    single = len(data.cameras) < 2
     for key, label in SESSION_ANALYSES:
+        if key in ("gaze_fusion", "pose3d") and single:
+            continue  # needs several calibrated cameras
         if key not in data.session_results:
             missing.append(label)
     if not missing:
         return ""
     items = "".join(f"<li>{esc(m)}</li>" for m in missing)
-    return f"<h2>Not run on this session</h2><ul class='missing'>{items}</ul>"
+    return f"<h2 id='notrun'>Not run on this session</h2><ul class='missing'>{items}</ul>"
 
 
 def render(data: SessionData) -> str:
@@ -667,6 +1109,17 @@ def render(data: SessionData) -> str:
     shown = [c for c in data.cameras if c.results and not found_nothing(c)]
     empty = [c for c in data.cameras if c.results and found_nothing(c)]
     cams = "".join(camera_section(c) for c in shown)
+    glance_html, quality_html = glance(data), quality_section(data)
+    whole, missing = session_sections(data), not_run(data)
+    links = [
+        ("glance", "At a glance", glance_html),
+        ("quality", "Data quality", quality_html),
+        *[(f"cam{c.index}", c.name, "x") for c in shown],
+        ("session", "Whole session", whole),
+        ("notrun", "Not run", missing),
+    ]
+    toc = "".join(f"<a href='#{i}'>{esc(t)}</a>" for i, t, body in links if body)
+    toc = f"<nav class='toc'>{toc}</nav>" if toc else ""
     if empty:
         names = ", ".join(c.name for c in empty)
         cams += (
@@ -678,7 +1131,7 @@ def render(data: SessionData) -> str:
         f"<title>Session report {esc(title)}</title><style>{CSS}</style></head><body><main>"
         f"<h1>Session report</h1><p class='sub'>{esc(title)}{(' · ' + ident) if ident else ''}</p>"
         f"<div class='chips'>{''.join(f'<span>{c}</span>' for c in chips if c)}</div>"
-        f"{notes}{glance(data)}{cams}{session_sections(data)}{not_run(data)}"
+        f"{toc}{notes}{glance_html}{quality_html}{cams}{whole}{missing}"
         f"<p class='note' style='margin-top:32px'>Made by MOSAIC on "
         f"{time.strftime('%Y-%m-%d %H:%M')} from the analysis results in this session's folder. "
         "Rerun the report after running more analyses.</p>"

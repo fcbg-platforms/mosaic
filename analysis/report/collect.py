@@ -36,6 +36,7 @@ SESSION_ANALYSES = (
     ("transcripts", "Speaker Diarization"),
     ("voice", "Voice analysis"),
     ("gaze_fusion", "3D Gaze"),
+    ("pose3d", "3D Pose Reconstruction"),
     ("sync_repair", "Frame Sync Repair"),
 )
 
@@ -82,6 +83,9 @@ class CameraResults:
     t0_ms: float | None  # first frame, elapsed ms
     duration_s: float | None
     results: dict = field(default_factory=dict)
+    #: Still frames for the report, (seconds into the video, JPEG bytes);
+    #: only when asked for (they show the participants).
+    stills: list = field(default_factory=list)
 
 
 @dataclass
@@ -262,6 +266,10 @@ def _transcripts(session: Path) -> list | None:
                 "speakers": {
                     k: {**v, "seconds": round(v["seconds"], 1)} for k, v in speakers.items()
                 },
+                "lines": [
+                    (s.get("start_ms", 0), s.get("speaker") or "", (s.get("text") or "").strip())
+                    for s in segs
+                ],
             }
         )
     return out or None
@@ -285,14 +293,48 @@ def _voice(session: Path) -> list | None:
                     100.0 * len(pitch) / max(1, len(d.get("pitch", {}).get("values_hz", []))), 1
                 ),
                 "mean_intensity_db": round(sum(loud) / len(loud), 1) if loud else None,
+                # The spectrogram picture run_voice.py draws next to its JSON.
+                "image": _existing(path.with_name(path.name.replace(".voice.json", ".voice.png"))),
+                "spectrogram": d.get("spectrogram") or {},
+                "pitch": d.get("pitch") or {},
             }
         )
     return out or None
 
 
+def _existing(path: Path) -> Path | None:
+    return path if path.is_file() else None
+
+
 def _gaze_fusion(session: Path) -> dict | None:
     s = read_json(session / "gaze_fusion" / "summary.json")
     return None if s is None else {"summary": s}
+
+
+def _pose3d(session: Path) -> dict | None:
+    """The quality block of ``skeleton3d.json``, without reading the rest:
+    the file holds every keypoint of every tick and can be hundreds of MB.
+    run_pose3d.py writes ``quality`` just before ``frames``, so the text up to
+    ``"frames"`` is a JSON object once closed."""
+    path = session / "skeleton3d.json"
+    head = ""
+    try:
+        with path.open(encoding="utf-8") as f:
+            while '"frames"' not in head:
+                chunk = f.read(1 << 16)
+                if not chunk:
+                    break
+                head += chunk
+    except OSError:
+        return None
+    cut = head.find('"frames"')
+    if cut < 0:
+        return None
+    try:
+        d = json.loads(head[:cut].rstrip().rstrip(",") + "}")
+    except ValueError:
+        return None
+    return {"quality": d.get("quality") if isinstance(d, dict) else None}
 
 
 def _sync_repair(session: Path) -> dict | None:
@@ -312,18 +354,56 @@ SESSION_READERS = {
     "transcripts": _transcripts,
     "voice": _voice,
     "gaze_fusion": _gaze_fusion,
+    "pose3d": _pose3d,
     "sync_repair": _sync_repair,
 }
+
+#: Session outputs the summary row does not use (large files).
+SESSION_NOT_IN_SUMMARY = {"pose3d"}
+
+
+def still_frames(video: Path, count: int = 3, width: int = 360) -> list:
+    """``count`` frames spread over the video, scaled to ``width`` pixels,
+    as (seconds, JPEG bytes). Empty when the video cannot be read."""
+    try:
+        import cv2
+    except ImportError:
+        return []
+    cap = cv2.VideoCapture(str(video))
+    try:
+        n = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        fps = cap.get(cv2.CAP_PROP_FPS) or 25.0
+        if not cap.isOpened() or n <= 0:
+            return []  # unreadable, or a container that does not say its length
+        out = []
+        for k in range(count):
+            idx = int((k + 0.5) / count * n)
+            cap.set(cv2.CAP_PROP_POS_FRAMES, idx)
+            ok, img = cap.read()
+            if not ok:
+                continue
+            h, w = img.shape[:2]
+            img = cv2.resize(
+                img, (width, max(1, round(h * width / w))), interpolation=cv2.INTER_AREA
+            )
+            ok, buf = cv2.imencode(".jpg", img, [cv2.IMWRITE_JPEG_QUALITY, 80])
+            if ok:
+                out.append((idx / fps, buf.tobytes()))
+        return out
+    finally:
+        cap.release()
 
 
 # ── The session ──────────────────────────────────────────────────────────────
 
 
-def collect(session: Path, for_summary_only: bool = False) -> SessionData:
+def collect(session: Path, for_summary_only: bool = False, stills: bool = False) -> SessionData:
     """Read everything there is about one session.
 
     ``for_summary_only`` skips outputs the summary row does not use (pose,
-    whose files can be hundreds of megabytes).
+    whose files can be hundreds of megabytes). ``stills`` also takes a few
+    still frames from each video (they show the participants, so only when
+    asked for).
     """
     session = Path(session)
     meta = read_json(session / "session_meta.json") or {}
@@ -352,9 +432,13 @@ def collect(session: Path, for_summary_only: bool = False) -> SessionData:
             r = reader(session, video.stem)
             if r is not None:
                 cam.results[key] = r
+        if stills and not for_summary_only:
+            cam.stills = still_frames(video)
         cameras.append(cam)
     results = {}
     for key, reader in SESSION_READERS.items():
+        if for_summary_only and key in SESSION_NOT_IN_SUMMARY:
+            continue
         r = reader(session)
         if r is not None:
             results[key] = r
