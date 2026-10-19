@@ -7,6 +7,7 @@
 #include <cmath>
 #include <opencv2/calib3d.hpp>
 #include <opencv2/imgproc.hpp>
+#include <utility>
 
 #include "calibration/marked_chessboard.hpp"
 #include "calibration/room_calibration_manager.hpp"
@@ -24,13 +25,12 @@ constexpr int kPx      = 60;   // texture pixels per square
 constexpr int kBorder  = 60;   // white margin around the board, texture px
 constexpr double kMm   = 50.0; // one square, mm
 
-/// The board texture: 9 x 9 squares, black in the corners, a white disc on
-/// the first (top-left) corner square; or none.
-cv::Mat board_texture(bool marked = true) {
-    const int size = kSquares * kPx + 2 * kBorder;
-    cv::Mat img(size, size, CV_8UC1, cv::Scalar(255));
-    for (int r = 0; r < kSquares; ++r) {
-        for (int c = 0; c < kSquares; ++c) {
+/// The board texture: @p sx x @p sy squares, the top-left one black, a
+/// white disc on it; or none.
+cv::Mat board_texture(bool marked = true, int sx = kSquares, int sy = kSquares) {
+    cv::Mat img(sy * kPx + 2 * kBorder, sx * kPx + 2 * kBorder, CV_8UC1, cv::Scalar(255));
+    for (int r = 0; r < sy; ++r) {
+        for (int c = 0; c < sx; ++c) {
             if ((r + c) % 2 == 0) {
                 cv::rectangle(img, cv::Rect(kBorder + c * kPx, kBorder + r * kPx, kPx, kPx),
                               cv::Scalar(0), cv::FILLED);
@@ -130,18 +130,63 @@ TEST(MarkedChessboard, AWrongBoardSizeIsNotFound) {
     EXPECT_EQ(detect_marked_chessboard(im, 8, 8, kMm, b), MarkedBoardStatus::NoBoard);
 }
 
-TEST(MarkedChessboard, RoomCalibrationRecoversTheCamerasPositions) {
+TEST(MarkedChessboard, AnOddByEvenBoardIsOrientedByItsCornerColours) {
+    // 9 x 8 and 8 x 9 squares: the top-left corner square is black, so is the
+    // other end of the odd side; the opposite edge's corners are white. A
+    // black disc on a white corner square (bottom-right) must not matter.
+    for (const auto& [sx, sy] : {std::pair{9, 8}, std::pair{8, 9}}) {
+        cv::Mat texture = board_texture(false, sx, sy);
+        cv::circle(
+            texture,
+            cv::Point(kBorder + (sx - 1) * kPx + kPx / 2, kBorder + (sy - 1) * kPx + kPx / 2),
+            kPx / 4, cv::Scalar(0), cv::FILLED);
+        for (int turn = 0; turn < 4; ++turn) {
+            const Pose p     = pose(-15, 20, 90.0 * turn + 5, cv::Vec3d(-180, -150, 1500));
+            const cv::Mat im = render(texture, p);
+            MarkedBoard b;
+            ASSERT_EQ(detect_marked_chessboard(im, sx, sy, kMm, b), MarkedBoardStatus::Found)
+                << sx << "x" << sy << " turn " << turn;
+            ASSERT_EQ(b.corners.size(), static_cast<size_t>((sx - 1) * (sy - 1)));
+            EXPECT_TRUE(b.byColour);
+            EXPECT_GT(b.colourDifference, 100.0);
+            // The origin is the texture's top-left (black) corner, whichever
+            // way the board is turned in the image.
+            double worst = 0.0;
+            for (size_t i = 0; i < b.corners.size(); ++i) {
+                const cv::Point2d want = project(p, b.object[i].x, b.object[i].y);
+                worst = std::max(worst, cv::norm(cv::Point2d(b.corners[i]) - want));
+            }
+            // A wrong orientation would be a square (about 30 px) off.
+            EXPECT_LT(worst, 2.0) << sx << "x" << sy << " turn " << turn;
+        }
+    }
+}
+
+TEST(MarkedChessboard, AnOddByEvenBoardWithoutContrastIsRefused) {
+    // Washed out: black at 150, white at 170 (the corners differ by 20).
+    const cv::Mat texture = board_texture(false, 9, 8) * (20.0 / 255.0) + 150.0;
+    const cv::Mat im      = render(texture, pose(10, 10, 5, cv::Vec3d(-200, -200, 1400)));
+    MarkedBoard b;
+    const MarkedBoardStatus st = detect_marked_chessboard(im, 9, 8, kMm, b);
+    // The detector may not find so faint a board at all; if it does, it must
+    // not guess the orientation.
+    EXPECT_TRUE(st == MarkedBoardStatus::ColoursUnclear || st == MarkedBoardStatus::NoBoard);
+}
+
+namespace {
+
+void expect_room_calibration_works(int sx, int sy) {
     // Two cameras: camera 1 is 600 mm to the right of camera 0, turned 25
     // degrees towards it. The board is shown in four places.
     const cv::Matx33d R1w = pose(0, -25, 0, {}).R; // camera 1 axes in camera 0's frame
     const cv::Vec3d c1w(600, 0, 0);                // camera 1 centre in camera 0's frame
-    const cv::Mat texture = board_texture();
+    const cv::Mat texture = board_texture(true, sx, sy);
 
     RoomCalibrationManager mgr;
     RoomCalibrationManager::BoardSpec spec;
     spec.type           = RoomCalibrationManager::BoardType::MarkedChessboard;
-    spec.cols           = kSquares;
-    spec.rows           = kSquares;
+    spec.cols           = sx;
+    spec.rows           = sy;
     spec.squareLengthMm = kMm;
     mgr.set_board(spec);
     mosaic::CalibrationData intr;
@@ -187,6 +232,16 @@ TEST(MarkedChessboard, RoomCalibrationRecoversTheCamerasPositions) {
     EXPECT_LT(maxRotErr, 0.01);
     EXPECT_LT(solved.agreementMm[1], 3.0);
     EXPECT_LT(solved.agreementMm[0], 3.0);
+}
+
+} // namespace
+
+TEST(MarkedChessboard, RoomCalibrationRecoversTheCamerasPositions) {
+    expect_room_calibration_works(kSquares, kSquares);
+}
+
+TEST(MarkedChessboard, RoomCalibrationWorksWithAnOddByEvenBoard) {
+    expect_room_calibration_works(9, 8);
 }
 
 TEST(MarkedChessboard, AShotWithTheBoardCutOffSaysWhy) {

@@ -197,6 +197,11 @@ QVector<RoomCalibrationManager::CameraShotResult> RoomCalibrationManager::feed_s
                                 ? "board not found (the whole board must be in view)"
                             : status == MarkedBoardStatus::OffImage
                                 ? "a corner square is cut off at the image edge"
+                            : status == MarkedBoardStatus::ColoursUnclear
+                                ? QString(
+                                      "cannot tell the black corner squares from the white "
+                                      "(difference %1; more light, less glare?)")
+                                      .arg(found.colourDifference, 0, 'f', 0)
                                 : QString(
                                       "cannot tell which corner square is marked "
                                       "(contrast %1, next %2)")
