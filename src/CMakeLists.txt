@@ -59,6 +59,8 @@ qt_add_executable(mosaic MACOSX_BUNDLE
     analysis/objects_result.cpp
     analysis/chart_data.hpp
     analysis/chart_data.cpp
+    analysis/clap_check_result.hpp
+    analysis/clap_check_result.cpp
     analysis/session_overview.hpp
     analysis/session_overview.cpp
     analysis/sync_repair_result.hpp

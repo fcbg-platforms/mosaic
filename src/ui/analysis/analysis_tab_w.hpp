@@ -155,6 +155,7 @@ class AnalysisTabW : public QWidget {
     [[nodiscard]] bool is_overview_plugin() const;
     [[nodiscard]] bool is_social_plugin() const;
     [[nodiscard]] bool is_objects_plugin() const;
+    [[nodiscard]] bool is_clap_check_plugin() const;
     [[nodiscard]] bool is_pose_depth_selected() const;
     [[nodiscard]] QString slug_for_model(const QString& modelId) const;
     [[nodiscard]] QString pose_json_path_for(const QString& videoRelPath) const;

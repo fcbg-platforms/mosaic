@@ -275,6 +275,10 @@ void AnalysisManager::run_conversation_analysis(const QString& sessionPath, bool
     enqueue_or_launch(sessionPath, "analysis/run_conversation.py", args, {});
 }
 
+void AnalysisManager::run_clap_check(const QString& sessionPath) {
+    enqueue_or_launch(sessionPath, "analysis/run_clap_check.py", {"--session", sessionPath}, {});
+}
+
 void AnalysisManager::run_object_tracking(const QString& sessionPath, const QString& objects,
                                           int stride, bool annotatedVideo) {
     QStringList args = {"--session", sessionPath, "--objects",
