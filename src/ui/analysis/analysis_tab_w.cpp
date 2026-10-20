@@ -61,6 +61,7 @@
 #include "analysis/face_dynamics_result.hpp"
 #include "analysis/gaze2d_result.hpp"
 #include "analysis/gaze_fusion_result.hpp"
+#include "analysis/objects_result.hpp"
 #include "analysis/pose_analysis_result.hpp"
 #include "analysis/pose_kinematics.hpp"
 #include "analysis/pose_models.hpp"
@@ -1152,6 +1153,12 @@ struct AnalysisTabW::Impl {
     QComboBox* socialCamACombo    = nullptr; // social only: camera facing person A
     QComboBox* socialCamBCombo    = nullptr; // social only: camera facing person B
     QWidget* socialRowW           = nullptr; // social only
+    QLineEdit* objectsNamesEdit   = nullptr; // objects only: what to look for
+    QSpinBox* objectsStrideSpin   = nullptr; // objects only
+    QCheckBox* objectsVideoCheck  = nullptr; // objects only
+    QWidget* objectsRowW          = nullptr; // objects only
+    QComboBox* objectsMetricCombo = nullptr; // objects only
+    QLabel* objectsStatsLbl       = nullptr; // objects only
     QComboBox* socialMetricCombo  = nullptr; // social only
     QLabel* socialStatsLbl        = nullptr; // social only
     QComboBox* eyeMetricCombo     = nullptr; // eye_contact only
@@ -1209,6 +1216,7 @@ struct AnalysisTabW::Impl {
     ConversationResult currentConversation;  // conversation only
     EyeContactResult currentEyeContact;      // eye_contact only
     SocialResult currentSocial;              // social only
+    ObjectsResult currentObjects;            // objects only
     SyncRepairResult currentSyncRepair;      // sync_repair only
 
     // AnalysisManager is a single shared instance (also used by
@@ -2051,6 +2059,36 @@ void AnalysisTabW::build_ui() {
     syncRepairCtlLay->addWidget(syncRepairHint, 1);
     add_plugin_page("sync_repair", syncRepairPage);
 
+    // Object Tracking: what to look for, how often, and the annotated video.
+    auto* objectsPage   = new QWidget;
+    auto* objectsCtlLay = new QHBoxLayout(objectsPage);
+    objectsCtlLay->setContentsMargins(0, 0, 0, 0);
+    objectsCtlLay->addWidget(new QLabel("Objects:"));
+    d->objectsNamesEdit = new QLineEdit("toy, cup, tablet computer");
+    d->objectsNamesEdit->setToolTip(
+        "What to look for, as short names separated by commas: one thing each (\"toy\", not "
+        "\"toys\"), and clear (\"tablet computer\": \"tablet\" also finds door panels). SAM 3 "
+        "finds every one in view and follows it. Needs the SAM 3 "
+        "weights, sam3.pt, in the MOSAIC folder (from Hugging Face, facebook/sam3, after "
+        "accepting Meta's licence).");
+    objectsCtlLay->addWidget(d->objectsNamesEdit, 1);
+    d->objectsStrideSpin = new QSpinBox;
+    d->objectsStrideSpin->setRange(1, 10);
+    d->objectsStrideSpin->setValue(2);
+    d->objectsStrideSpin->setPrefix("every ");
+    d->objectsStrideSpin->setSuffix(" frames");
+    d->objectsStrideSpin->setToolTip(
+        "Analyse every Nth frame: 2 halves the time and still follows hands and objects. "
+        "The annotated video holds the last result in between.");
+    objectsCtlLay->addWidget(d->objectsStrideSpin);
+    d->objectsVideoCheck = new QCheckBox("Annotated video");
+    d->objectsVideoCheck->setChecked(true);
+    d->objectsVideoCheck->setToolTip(
+        "Also write a copy of each video with every object's outline and name; a touched "
+        "object's outline is drawn thicker.");
+    objectsCtlLay->addWidget(d->objectsVideoCheck);
+    add_plugin_page("objects", objectsPage);
+
     // Social Interaction: which camera faces each of the two people.
     auto* socialPage   = new QWidget;
     auto* socialCtlLay = new QHBoxLayout(socialPage);
@@ -2742,6 +2780,24 @@ void AnalysisTabW::build_ui() {
     d->convRowW->setVisible(false); // shown only for the conversation plugin
     rightLay->addWidget(d->convRowW);
 
+    // Object Tracking row: what the chart shows, and the numbers.
+    d->objectsRowW      = new QWidget;
+    auto* objectsRowLay = new QHBoxLayout(d->objectsRowW);
+    objectsRowLay->setContentsMargins(0, 0, 0, 0);
+    d->objectsMetricCombo = new QComboBox;
+    d->objectsMetricCombo->addItem("When each object is seen", "seen");
+    d->objectsMetricCombo->addItem("When each object is touched", "touched");
+    connect(d->objectsMetricCombo, &QComboBox::currentIndexChanged, this,
+            &AnalysisTabW::update_objects_view);
+    objectsRowLay->addWidget(new QLabel("Show:"));
+    objectsRowLay->addWidget(d->objectsMetricCombo);
+    d->objectsStatsLbl = new QLabel;
+    d->objectsStatsLbl->setStyleSheet("color:#7070a0; font-size:11px;");
+    d->objectsStatsLbl->setWordWrap(true);
+    objectsRowLay->addWidget(d->objectsStatsLbl, 1);
+    d->objectsRowW->setVisible(false); // shown only for the objects plugin
+    rightLay->addWidget(d->objectsRowW);
+
     // Social Interaction row: which measure the chart shows, and the numbers.
     d->socialRowW      = new QWidget;
     auto* socialRowLay = new QHBoxLayout(d->socialRowW);
@@ -3111,6 +3167,7 @@ void AnalysisTabW::select_plugin(const QString& pluginId) {
     const bool isSyncRepair  = is_sync_repair_plugin();
     const bool isOverview    = is_overview_plugin();
     const bool isSocial      = is_social_plugin();
+    const bool isObjects     = is_objects_plugin();
     // A depth model selected within the Pose plugin produces a colorized
     // video, not keypoints — the keypoint/chart controls below need to stay
     // hidden for it, same as they are for every non-pose plugin.
@@ -3139,7 +3196,8 @@ void AnalysisTabW::select_plugin(const QString& pluginId) {
     // series — pose3d's own room-view/2D-overlay results view never needed
     // it before Dyad Analysis was added.
     set_visible_animated(d->chart, isPoseKeypoints || isExpression || isRppg || isGaze2d ||
-                                       isPose3D || isFaceDyn || isConv || isEye || isSocial);
+                                       isPose3D || isFaceDyn || isConv || isEye || isSocial ||
+                                       isObjects);
     set_visible_animated(d->kinematicsRowW, isPoseKeypoints);
     // subjectPickerRowW's own further narrowing (hidden when the session has
     // <=1 detected subject) happens inside rebuild_subject_chips(), called
@@ -3161,6 +3219,7 @@ void AnalysisTabW::select_plugin(const QString& pluginId) {
     set_visible_animated(d->faceDynRowW, isFaceDyn);
     set_visible_animated(d->convRowW, isConv);
     set_visible_animated(d->socialRowW, isSocial);
+    set_visible_animated(d->objectsRowW, isObjects);
     set_visible_animated(d->eyeRowW, isEye);
     set_visible_animated(d->syncRepairRowW, isSyncRepair);
     set_visible_animated(d->syncRepairTable, isSyncRepair);
@@ -3169,7 +3228,7 @@ void AnalysisTabW::select_plugin(const QString& pluginId) {
     d->runBtn->setVisible(!isOverview);
     set_visible_animated(d->openFolderBtn, isFaceMask || is_pose_depth_selected() || isSyncRepair ||
                                                isGazeFusion || isFaceDyn || isConv || isEye ||
-                                               isSocial);
+                                               isSocial || isObjects);
     set_visible_animated(d->sourceRowW, !isDiarize);
     set_visible_animated(d->micRowW, isDiarize);
     set_visible_animated(d->transcriptTable, isDiarize);
@@ -3326,6 +3385,10 @@ PluginRunState AnalysisTabW::run_state_for(const QString& pluginId) const {
     if (pluginId == "social") {
         return session_level("social/social.json");
     }
+    if (pluginId == "objects") {
+        return per_input(info->videoFiles,
+                         [this](const QString& v) { return objects_json_path_for(v); });
+    }
     if (pluginId == "trigger_sync") {
         // Written by TriggerFrameMap::save() — this plugin computes in-process
         // rather than via AnalysisManager, but it does persist a result.
@@ -3433,6 +3496,11 @@ QString AnalysisTabW::conversation_json_path_for(const QString& videoRelPath) co
     return "conversation/" + QFileInfo(videoRelPath).completeBaseName() + ".conversation.json";
 }
 
+QString AnalysisTabW::objects_json_path_for(const QString& videoRelPath) const {
+    // analysis/run_objects.py writes into the session's objects/.
+    return "objects/" + QFileInfo(videoRelPath).completeBaseName() + ".objects.json";
+}
+
 QString AnalysisTabW::face_dynamics_json_path_for(const QString& videoRelPath) const {
     // analysis/run_face_dynamics.py writes into the session's face_dynamics/.
     return "face_dynamics/" + QFileInfo(videoRelPath).completeBaseName() + ".face_dynamics.json";
@@ -3483,6 +3551,7 @@ bool AnalysisTabW::is_sync_repair_plugin() const { return d->currentPlugin == "s
 
 bool AnalysisTabW::is_overview_plugin() const { return d->currentPlugin == "overview"; }
 bool AnalysisTabW::is_social_plugin() const { return d->currentPlugin == "social"; }
+bool AnalysisTabW::is_objects_plugin() const { return d->currentPlugin == "objects"; }
 
 bool AnalysisTabW::is_pose_depth_selected() const {
     return is_pose_plugin() && is_depth_model(d->modelCombo->currentData().toString());
@@ -3984,6 +4053,35 @@ void AnalysisTabW::load_camera_result_view() {
                 "2D Gaze ran, but no face was detected in this camera's "
                 "footage — try a different camera, or check its framing/lighting.");
             d->statusLbl->setStyleSheet("color:#ddaa33; font-size:15px; font-weight:600;");
+        }
+        return;
+    }
+
+    if (is_objects_plugin()) {
+        const QString jsonAbs = info->path + "/" + objects_json_path_for(videoRel);
+        d->currentObjects =
+            QFileInfo::exists(jsonAbs) ? ObjectsResult::load(jsonAbs) : ObjectsResult();
+        const QString annotated = d->currentObjects.annotated_video();
+        const bool hasAnnotated =
+            !annotated.isEmpty() && QFileInfo::exists(info->path + "/" + annotated);
+        d->player->set_video(hasAnnotated ? info->path + "/" + annotated : videoAbs);
+        d->player->set_pose_result(PoseAnalysisResult());
+        d->openFolderBtn->setEnabled(d->currentObjects.is_valid());
+        update_objects_view();
+        if (!d->currentObjects.is_valid()) {
+            d->statusLbl->setText(
+                "No analysis yet for this camera: name the objects and click Run.");
+            d->statusLbl->setStyleSheet("color:#6060a0; font-size:15px; font-weight:600;");
+        } else if (d->currentObjects.objects().isEmpty()) {
+            d->statusLbl->setText(
+                "Object Tracking ran, but found none of: " +
+                QStringList(d->currentObjects.labels().begin(), d->currentObjects.labels().end())
+                    .join(", ") +
+                ". Try other names (one thing each, e.g. \"toy\"), or another camera.");
+            d->statusLbl->setStyleSheet("color:#ddaa33; font-size:15px; font-weight:600;");
+        } else if (hasAnnotated) {
+            d->statusLbl->setText("Showing the annotated video.");
+            d->statusLbl->setStyleSheet("color:#44cc66; font-size:15px; font-weight:600;");
         }
         return;
     }
@@ -5693,6 +5791,72 @@ void AnalysisTabW::export_eye_contact_csv() {
     });
 }
 
+void AnalysisTabW::update_objects_view() {
+    const auto& r = d->currentObjects;
+    if (!r.is_valid() || r.objects().isEmpty()) {
+        d->chart->set_single_series({}, "Objects");
+        d->chart->set_title(r.is_valid() ? "No object found" : "No analysis yet");
+        d->objectsStatsLbl->clear();
+        d->chart->set_playhead_ms(d->player->position_ms());
+        return;
+    }
+    // One lane per object (its row number), high while seen or touched; the
+    // chart counts from the video's first frame, like the player.
+    static const QColor kColours[] = {QColor("#5ac85a"), QColor("#3ca0e6"), QColor("#e6a03c"),
+                                      QColor("#c85ac8"), QColor("#3cc8dc")};
+    const bool touched             = d->objectsMetricCombo->currentData().toString() == "touched";
+    const double t0                = r.video_start_ms();
+    QVector<NamedSeries> series;
+    double lastMs = 0.0;
+    for (const auto& o : r.objects()) {
+        for (const auto& span : o.seenSpans) {
+            lastMs = std::max(lastMs, span.second - t0);
+        }
+    }
+    for (int k = 0; k < r.objects().size(); ++k) {
+        const auto& o      = r.objects()[k];
+        const double level = k + 1.0;
+        QVector<QPointF> pts;
+        auto span = [&](double a, double b) {
+            pts << QPointF(a, k + 0.5) << QPointF(a, level) << QPointF(b, level)
+                << QPointF(b, k + 0.5);
+        };
+        if (touched) {
+            for (const auto& c : r.contacts()) {
+                if (c.objectId == o.id) {
+                    span(c.startMs - t0, c.endMs - t0);
+                }
+            }
+        } else {
+            for (const auto& s : o.seenSpans) {
+                span(s.first - t0, s.second - t0);
+            }
+        }
+        series.append({QString("%1 %2").arg(o.label).arg(o.id),
+                       kColours[k % static_cast<int>(std::size(kColours))], pts});
+    }
+    d->chart->set_named_series(series, touched ? "Touched (one row each)" : "Seen (one row each)",
+                               lastMs);
+    d->chart->set_title("Objects: " + d->objectsMetricCombo->currentText().toLower());
+    QStringList lines;
+    for (const auto& o : r.objects()) {
+        QString line = QString("%1 %2: seen %3%").arg(o.label).arg(o.id).arg(o.seenPct, 0, 'f', 0);
+        if (r.pose_used()) {
+            QStringList who;
+            for (auto it = o.touchedSByPerson.begin(); it != o.touchedSByPerson.end(); ++it) {
+                who << QString("person %1 %2 s").arg(it.key()).arg(it.value(), 0, 'f', 1);
+            }
+            line += who.isEmpty() ? QString(", not touched") : ", touched by " + who.join(", ");
+        }
+        lines << line;
+    }
+    if (!r.pose_used()) {
+        lines << "Run Pose on this camera to see who touches what.";
+    }
+    d->objectsStatsLbl->setText(lines.join("  ·  "));
+    d->chart->set_playhead_ms(d->player->position_ms());
+}
+
 void AnalysisTabW::update_social_view() {
     const auto& r = d->currentSocial;
     auto pct      = [](const std::optional<double>& v) {
@@ -6238,7 +6402,8 @@ void AnalysisTabW::run_analysis() {
     // Let go of the video on show when this run replaces it (see
     // jobWritesVideo). The view reloads when the run ends.
     static const QStringList kVideoWriters = {"conversation", "eye_contact", "face_dynamics",
-                                              "face_mask",    "gaze_fusion", "sync_repair"};
+                                              "face_mask",    "gaze_fusion", "sync_repair",
+                                              "objects"};
     d->jobWritesVideo = kVideoWriters.contains(plugin) || is_pose_depth_selected();
     if (d->jobWritesVideo) {
         d->player->set_video(QString());
@@ -6293,6 +6458,10 @@ void AnalysisTabW::run_analysis() {
                                                    d->faceDynVideoCheck->isChecked());
     } else if (plugin == "sync_repair") {
         d->analysisMgr->run_sync_repair(d->currentSessionPath, d->syncRepairMasterFpsSpin->value());
+    } else if (plugin == "objects") {
+        d->analysisMgr->run_object_tracking(d->currentSessionPath, d->objectsNamesEdit->text(),
+                                            d->objectsStrideSpin->value(),
+                                            d->objectsVideoCheck->isChecked());
     } else if (plugin == "social") {
         d->analysisMgr->run_social_analysis(d->currentSessionPath,
                                             d->socialCamACombo->currentData().toInt(),
@@ -6326,6 +6495,8 @@ void AnalysisTabW::open_output_folder() {
         folder = "eye_contact";
     } else if (is_social_plugin()) {
         folder = "social";
+    } else if (is_objects_plugin()) {
+        folder = "objects";
     }
     QDesktopServices::openUrl(QUrl::fromLocalFile(info->path + "/" + folder));
 }

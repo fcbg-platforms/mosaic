@@ -87,6 +87,12 @@ algorithm behind its output.
       Turns, response times, pauses, overlaps and backchannels from the
       audio and the face on camera.
 
+   .. grid-item-card:: 🧸 Object Tracking
+      :link: analysis-api-objects
+      :link-type: ref
+
+      Objects found by name with SAM 3, and who touches them.
+
    .. grid-item-card:: 🤝 Social Interaction
       :link: analysis-api-social
       :link-type: ref
@@ -898,6 +904,29 @@ transfer offsets, pauses, overlaps and backchannels follow
 .. autofunction:: conversation.turns.build_turns
 
 .. autofunction:: conversation.turns.summarise
+
+.. _analysis-api-objects:
+
+Object Tracking
+---------------
+
+Objects named in words, found and followed with SAM 3
+(:func:`objects.track.track_video`), kept as outlines, and touched by a
+person's wrist from the Pose plugin (:mod:`objects.contact`). See
+:doc:`math/object_tracking`.
+
+.. automodule:: objects
+   :no-members:
+
+.. autofunction:: objects.track.track_video
+
+.. autofunction:: objects.contact.outline
+
+.. autofunction:: objects.contact.frame_contacts
+
+.. autofunction:: objects.contact.contact_events
+
+.. autofunction:: objects.contact.summarise
 
 .. _analysis-api-social:
 

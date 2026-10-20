@@ -290,6 +290,18 @@ class AnalysisManager : public QObject {
     void run_face_dynamics_analysis(const QString& sessionPath, double minConfidence,
                                     bool annotatedVideo);
 
+    /// @brief Object Tracking: objects named in words, followed through each
+    /// camera's video with SAM 3, and when each person's hand (from Pose)
+    /// touches them (analysis/run_objects.py), written to the session's
+    /// objects/ folder. Needs the SAM 3 weights (sam3.pt) in the MOSAIC folder.
+    ///
+    /// @param sessionPath     Absolute path to the recorded session directory.
+    /// @param objects         Comma-separated object names, e.g. "toy, cup, tablet".
+    /// @param stride          Analyse every Nth frame.
+    /// @param annotatedVideo  Also write a video with the outlines drawn on it.
+    void run_object_tracking(const QString& sessionPath, const QString& objects, int stride,
+                             bool annotatedVideo);
+
     /// @brief Social Interaction: synchrony of two people's head movement, body
     /// movement and heart rate, and smile and nod mimicry, from the analyses
     /// already run on the cameras facing them (analysis/run_social.py), written
