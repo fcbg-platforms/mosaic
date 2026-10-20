@@ -103,3 +103,67 @@ def test_view_agreement_counts_unresolved_keypoints():
     v = view_agreement({0: 10}, {}, {0: 4, 1: 4})
     assert v["0"]["unresolved"] == 4
     assert v["1"] == {"used": 0, "dropped": 0, "unresolved": 4, "dropped_pct": None}
+
+
+def _diag(frames=2, persons=2, dets=4, matched_dets=4, matched=2, reconstructed=2):
+    """Two people, each seen by both cameras, by default."""
+    return {
+        "cameras_with_frame": frames,
+        "cameras_with_person": persons,
+        "detections": dets,
+        "matched_detections": matched_dets,
+        "matched": matched,
+        "reconstructed": reconstructed,
+    }
+
+
+def test_tick_outcomes_from_the_most_basic():
+    from pose3d.audit import tick_cause
+
+    assert tick_cause(_diag()) is None  # everyone in 3D
+    assert (
+        tick_cause(_diag(persons=0, dets=0, matched_dets=0, matched=0, reconstructed=0)) == "nobody"
+    )
+    assert (
+        tick_cause(_diag(frames=0, persons=0, dets=0, matched_dets=0, matched=0, reconstructed=0))
+        == "no_frames"
+    )
+    # One camera saw both people: nothing to match them with.
+    assert (
+        tick_cause(_diag(persons=1, dets=2, matched_dets=0, matched=0, reconstructed=0))
+        == "single_view_only"
+    )
+    # Both in 3D, plus an extra detection (a passer-by) in one camera.
+    assert tick_cause(_diag(dets=5)) == "one_view_or_unmatched"
+    # Matched, but one person's keypoints did not agree.
+    assert tick_cause(_diag(reconstructed=1)) == "not_triangulated"
+
+
+def test_quality_timeline_majority_per_second_and_nobody():
+    from pose3d.audit import qa_timeline
+
+    # 10 ticks per second for 6 s: fine; 2 s seen by one camera only; one
+    # second with a single bad tick (still fine); one second with nobody.
+    one_view = _diag(persons=1, dets=2, matched_dets=0, matched=0, reconstructed=0)
+    nobody = _diag(persons=0, dets=0, matched_dets=0, matched=0, reconstructed=0)
+    diags, times = [], []
+    for k in range(60):
+        t = k / 10
+        d = _diag()
+        if 1.0 <= t < 3.0:
+            d = one_view
+        elif k == 35:
+            d = one_view  # one flicker tick
+        elif t >= 5.0:
+            d = nobody
+        diags.append(d)
+        times.append(t)
+    tl = qa_timeline(diags, times)
+    causes = [w["cause"] for w in tl["windows"]]
+    assert causes == [None, "single_view_only", "single_view_only", None, None, "nobody"]
+    assert tl["segments"] == [{"start_s": 1.0, "end_s": 3.0, "cause": "single_view_only"}]
+    assert tl["seconds_by_cause"]["single_view_only"] == 2.0
+    assert tl["nobody_s"] == 1.0
+    assert tl["complete_pct"] == 60.0  # 3 of the 5 seconds with someone in view
+    # Nobody at all: no share, not 100%.
+    assert qa_timeline([nobody] * 10, [k / 10 for k in range(10)])["complete_pct"] is None

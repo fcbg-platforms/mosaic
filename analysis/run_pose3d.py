@@ -41,7 +41,7 @@ from pathlib import Path
 
 import numpy as np
 from pose3d.association import PersonObservation, cluster_people
-from pose3d.audit import identity_audit, view_agreement
+from pose3d.audit import identity_audit, qa_timeline, view_agreement
 from pose3d.smoothing import smooth_track_positions
 from pose3d.tracker import PersonTracker3D
 from pose3d.triangulation import CameraGeom, project_point_px, triangulate_with_rejection
@@ -198,13 +198,15 @@ def main() -> None:
         )
         sys.exit(1)
 
-    frame_results, keypoint_count, view_counts = _reconstruct_ticks(
+    frame_results, keypoint_count, view_counts, tick_diags = _reconstruct_ticks(
         manifest, camera_geoms, frames_by_camera, args
     )
 
     _apply_temporal_smoothing(frame_results, keypoint_count, args.smoothing_window)
 
-    _write_results(session_dir, cameras, manifest, keypoint_count, args, frame_results, view_counts)
+    _write_results(
+        session_dir, cameras, manifest, keypoint_count, args, frame_results, view_counts, tick_diags
+    )
 
 
 # ── Session metadata ────────────────────────────────────────────────────────
@@ -368,12 +370,15 @@ def _reconstruct_ticks(
     views_used: dict = {}
     views_dropped: dict = {}
     views_unresolved: dict = {}
+    # Per tick, for the timeline of why people are missing from 3D.
+    tick_diags: list = []
     t_start = time.perf_counter()
     progress_interval = max(1, total_ticks // 200)
 
     for tick in range(0, total_ticks, max(1, args.skip)):
         # Gather this tick's per-camera detections.
         observations_by_camera: dict = {}
+        cameras_with_frame = 0
         for idx, frames in frames_by_camera.items():
             ids = tick_ids_by_camera.get(idx, [])
             if tick >= len(ids):
@@ -381,6 +386,7 @@ def _reconstruct_ticks(
             frame_id = ids[tick]
             if frame_id < 0:
                 continue  # SyncManifest's own "-1 = no frame for this camera at this tick"
+            cameras_with_frame += 1
 
             analysed = _nearest_analysed_frame(sorted_ids_by_camera[idx], frames, frame_id)
             if analysed is None or not analysed.subjects:
@@ -401,6 +407,7 @@ def _reconstruct_ticks(
         clusters = cluster_people(
             observations_by_camera, cameras, args.max_pair_cost_px, args.min_shared_keypoints
         )
+        kept = [c for c in clusters if len({cam for cam, _ in c}) >= args.min_cameras]
 
         for cluster in clusters:
             # cluster: list of (camera_index, person_index). --min-cameras
@@ -474,6 +481,17 @@ def _reconstruct_ticks(
             )
             cluster_centroids.append(centroid)
 
+        tick_diags.append(
+            {
+                "tick": tick,
+                "cameras_with_frame": cameras_with_frame,
+                "cameras_with_person": len(observations_by_camera),
+                "detections": sum(len(v) for v in observations_by_camera.values()),
+                "matched_detections": sum(len(c) for c in kept),
+                "matched": len(kept),
+                "reconstructed": len(people_entries),
+            }
+        )
         track_ids = tracker.update(tick, cluster_centroids)
         for entry, tid in zip(people_entries, track_ids, strict=False):
             entry["track_id"] = tid
@@ -497,7 +515,7 @@ def _reconstruct_ticks(
                 flush=True,
             )
 
-    return results, keypoint_count, (views_used, views_dropped, views_unresolved)
+    return results, keypoint_count, (views_used, views_dropped, views_unresolved), tick_diags
 
 
 def _tick_timestamp_ns(manifest: dict, tick: int) -> int:
@@ -560,6 +578,7 @@ def _write_results(
     args: argparse.Namespace,
     frame_results: list,
     view_counts: tuple = ({}, {}, {}),
+    tick_diags: list | None = None,
 ) -> None:
     from pose.keypoints import COCO_KEYPOINTS, COCO_SKELETON
 
@@ -580,6 +599,17 @@ def _write_results(
             torso=(5, 6, 11, 12) if keypoint_count == len(COCO_KEYPOINTS) else (),
         ),
     }
+    if tick_diags:
+        t0 = _tick_timestamp_ns(manifest, tick_diags[0]["tick"])
+        times = [(_tick_timestamp_ns(manifest, d["tick"]) - t0) / 1e9 for d in tick_diags]
+        quality["timeline"] = qa_timeline(tick_diags, times)
+        tl = quality["timeline"]
+        missing = ", ".join(f"{c} {s:g} s" for c, s in tl["seconds_by_cause"].items() if s)
+        print(
+            f"[run_pose3d] Everyone in 3D in {tl['complete_pct']}% of the seconds with "
+            "someone in view" + (f"; people missing: {missing}" if missing else ""),
+            flush=True,
+        )
     ident = quality["identity"]
     print(
         f"[run_pose3d] Quality: {ident['track_count']} track(s), "

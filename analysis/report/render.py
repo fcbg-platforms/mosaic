@@ -512,6 +512,26 @@ def quality_rows(data: SessionData) -> list:
                 f"{ident.get('swaps')} likely swap(s), {ident.get('short_tracks')} under 1 s",
             )
         )
+    tl = q.get("timeline") or {}
+    if tl.get("complete_pct") is not None:
+        missing = ", ".join(
+            f"{CAUSE_NAMES.get(c, c)} {s:g} s"
+            for c, s in tl.get("seconds_by_cause", {}).items()
+            if s
+        )
+        pct = tl["complete_pct"]
+        nobody = tl.get("nobody_s") or 0
+        rows.append(
+            (
+                _status(pct >= 90, pct >= 60),
+                "3D pose coverage",
+                f"everyone seen in 3D in {pct:.0f}% of the seconds with someone in view"
+                + (f"; people missing: {missing}" if missing else "")
+                + (f"; nobody in view {nobody:g} s" if nobody else ""),
+            )
+        )
+    elif tl.get("windows"):
+        rows.append(("bad", "3D pose coverage", "no camera saw anyone: check the Pose results"))
     for cam, v in (q.get("views") or {}).items():
         pct = v.get("dropped_pct")
         if pct is not None:
@@ -606,6 +626,55 @@ def voice_svg(v: dict) -> str | None:
             )
     out.append("</svg>")
     return "".join(out)
+
+
+#: Why people were missing from 3D (pose3d/audit.py), in words, with a colour.
+CAUSE_NAMES = {
+    "no_frames": "no camera frames",
+    "single_view_only": "only one camera saw anyone",
+    "one_view_or_unmatched": "someone seen by one camera only, or not matched",
+    "not_triangulated": "cameras did not agree",
+    "nobody": "nobody in view",
+}
+CAUSE_COLOURS = {
+    "no_frames": "--q4",
+    "single_view_only": "--q3",
+    "one_view_or_unmatched": "--l-brow",
+    "not_triangulated": "--l-other",
+    "nobody": "--line",
+}
+
+
+def coverage_svg(tl: dict) -> str | None:
+    """The 3D pose timeline as one strip: grey where everyone was in 3D, a
+    colour per cause where someone was missing."""
+    wins = tl.get("windows") or []
+    if not wins:
+        return None
+    step = tl.get("window_s", 1.0)
+    end = wins[-1]["t0_s"] + step
+    w, h, left = CHART_W, 46, 8
+    x = lambda t: left + t / end * (w - 2 * left)  # noqa: E731
+    out = [f'<svg viewBox="0 0 {w} {h}" role="img" aria-label="3D pose coverage">']
+    for win in wins:
+        colour = CAUSE_COLOURS.get(win["cause"], "--grid")
+        out.append(
+            f'<rect x="{x(win["t0_s"]):.1f}" y="4" width="{max(1.0, x(step) - x(0)):.1f}" '
+            f'height="18" fill="var({colour})"/>'
+        )
+    k = 0.0
+    tick = _nice_step(end)
+    while k <= end + 1e-9:
+        out.append(f'<text x="{x(k):.1f}" y="38" text-anchor="middle">{clock(k)}</text>')
+        k += tick
+    out.append("</svg>")
+    used = {win["cause"] for win in wins if win["cause"]}
+    legend_html = "".join(
+        swatch(CAUSE_COLOURS[c], CAUSE_NAMES[c]) for c in CAUSE_NAMES if c in used
+    )
+    return (
+        "".join(out) + f"<p class='note'>{swatch('--grid', 'everyone seen in 3D')}{legend_html}</p>"
+    )
 
 
 SOCIAL_NAMES = {"head": "Head movement", "body": "Body movement", "heart_rate": "Heart rate"}
@@ -1107,6 +1176,9 @@ def session_sections(data: SessionData) -> str:
                 ],
             )
         )
+        strip = coverage_svg((p3.get("quality") or {}).get("timeline") or {})
+        if strip:
+            out.append(strip)
     so = data.session_results.get("social")
     if so:
         out.append(social_html(so))
