@@ -5,6 +5,7 @@
 #include <optional>
 
 #include "analysis/conversation_result.hpp"
+#include "analysis/expression_result.hpp"
 #include "analysis/face_dynamics_result.hpp"
 #include "analysis/rppg_result.hpp"
 
@@ -75,5 +76,25 @@ inline constexpr double kMinFaceForRateMs = 5000.0;
 [[nodiscard]] QVector<QPointF> blink_rate(const QVector<FaceDynamicsEvent>& events,
                                           const QVector<FaceDynamicsFrame>& frames,
                                           double windowMs = 30000.0);
+
+/// Words per minute of each turn with transcript words: (turn middle, rate),
+/// for the person on camera and the other speaker. Turns under 1 s are left
+/// out (a word or two over a fraction of a second is no rate).
+struct SpeechRates {
+    QVector<QPointF> subject;
+    QVector<QPointF> other;
+};
+inline constexpr double kMinTurnForRateMs = 1000.0;
+[[nodiscard]] SpeechRates speech_rates(const QVector<ConversationTurn>& turns);
+
+/// Share of the frames with a face (the first face) per top expression, %,
+/// largest first; a face without one counts as "none".
+[[nodiscard]] QVector<QPair<QString, double>> expression_shares(
+    const QVector<ExpressionFrame>& frames);
+
+/// Mean intensity of each action unit (py-feat) over the frames with a face
+/// (the first face); empty when the result has none.
+[[nodiscard]] QVector<double> mean_action_units(const QVector<ExpressionFrame>& frames,
+                                                int auCount);
 
 } // namespace mosaic

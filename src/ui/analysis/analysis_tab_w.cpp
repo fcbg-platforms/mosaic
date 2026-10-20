@@ -53,6 +53,7 @@
 #include <cmath>
 #include <functional>
 #include <limits>
+#include <numbers>
 
 #include "analysis/analysis_plugins.hpp"
 #include "analysis/chart_data.hpp"
@@ -296,6 +297,9 @@ class MetricsChartW : public QChartView {
         chart->setBackgroundRoundness(10);
         chart->setMargins(QMargins(10, 10, 10, 6));
         chart->setAnimationOptions(QChart::SeriesAnimations);
+        // A scatter keeps equal units per pixel on both axes as the chart resizes.
+        connect(chart, &QChart::plotAreaChanged, this,
+                [this](const QRectF& area) { fit_scatter_axes(area); });
 
         chart->legend()->setVisible(true);
         chart->legend()->setAlignment(Qt::AlignBottom);
@@ -608,7 +612,15 @@ class MetricsChartW : public QChartView {
         barAxisY_ = new QValueAxis();
         barAxisY_->setTitleText(yAxisLabel);
         barAxisY_->setRange(0.0, maxV > 0.0 ? maxV * 1.15 : 1.0);
-        barAxisY_->setLabelFormat("%.0f");
+        // Decimals for small fractional values (action units run 0 to 1);
+        // whole counts keep whole labels.
+        bool whole = true;
+        for (const auto& g : groups) {
+            for (double v : g.values) {
+                whole = whole && v == std::floor(v);
+            }
+        }
+        barAxisY_->setLabelFormat(whole || maxV > 20.0 ? "%.0f" : maxV <= 2.0 ? "%.2f" : "%.1f");
         style_axis(barAxisY_);
         chart()->addAxis(barAxisX_, Qt::AlignBottom);
         chart()->addAxis(barAxisY_, Qt::AlignLeft);
@@ -635,7 +647,8 @@ class MetricsChartW : public QChartView {
     /// Points with no line between them, on their own value axes (the beat-
     /// to-beat Poincare plot). Like the bar chart: no playhead, no seeking.
     void set_scatter(const QVector<QPointF>& points, const QString& name, const QColor& color,
-                     const QString& xAxisLabel, const QString& yAxisLabel) {
+                     const QString& xAxisLabel, const QString& yAxisLabel,
+                     const QVector<QPointF>& outline = {}, const QString& outlineName = {}) {
         clear_all_series();
         clear_subject_series();
         set_series_marker_visible(xSeries_, false);
@@ -651,31 +664,54 @@ class MetricsChartW : public QChartView {
         scatterSeries_->setMarkerSize(7.0);
         double lo = std::numeric_limits<double>::max();
         double hi = std::numeric_limits<double>::lowest();
-        for (const auto& p : points) {
+        // Thinned to an even spread of at most kMaxScatterPoints: QtCharts
+        // draws each marker, and a long recording has one point per frame.
+        const qsizetype stride = std::max<qsizetype>(1, points.size() / kMaxScatterPoints + 1);
+        for (qsizetype i = 0; i < points.size(); i += stride) {
+            const QPointF& p = points[i];
             scatterSeries_->append(p);
             lo = std::min({lo, p.x(), p.y()});
             hi = std::max({hi, p.x(), p.y()});
         }
         chart()->addSeries(scatterSeries_);
+        if (!outline.isEmpty()) {
+            scatterOutline_ = new QLineSeries();
+            scatterOutline_->setName(outlineName);
+            scatterOutline_->setPen(QPen(QColor("#a0a0c8"), 2, Qt::DashLine));
+            for (const auto& p : outline) {
+                scatterOutline_->append(p);
+                lo = std::min({lo, p.x(), p.y()});
+                hi = std::max({hi, p.x(), p.y()});
+            }
+            chart()->addSeries(scatterOutline_);
+        }
         if (lo > hi) {
             lo = 0.0;
             hi = 1.0;
         }
-        const double pad = std::max(10.0, 0.05 * (hi - lo));
-        // The same range on both axes, so the identity line is the diagonal.
-        scatterAxisX_ = new QValueAxis();
-        scatterAxisY_ = new QValueAxis();
-        for (auto* a : {scatterAxisX_, scatterAxisY_}) {
-            a->setRange(lo - pad, hi + pad);
-            a->setLabelFormat("%.0f");
-            style_axis(a);
+        // The same scale per unit on both axes, so a circle stays round and
+        // the identity line is the diagonal: the longer side of the plot area
+        // gets the wider range, kept up to date as the chart is resized.
+        const double pad = std::max(1.0, 0.05 * (hi - lo));
+        scatterMid_      = (lo + hi) / 2.0;
+        scatterHalf_     = (hi - lo) / 2.0 + pad;
+        scatterAxisX_    = new QValueAxis();
+        scatterAxisY_    = new QValueAxis();
+        for (auto* ax : {scatterAxisX_, scatterAxisY_}) {
+            ax->setLabelFormat("%.0f");
+            style_axis(ax);
         }
+        fit_scatter_axes(chart()->plotArea());
         scatterAxisX_->setTitleText(xAxisLabel);
         scatterAxisY_->setTitleText(yAxisLabel);
         chart()->addAxis(scatterAxisX_, Qt::AlignBottom);
         chart()->addAxis(scatterAxisY_, Qt::AlignLeft);
         scatterSeries_->attachAxis(scatterAxisX_);
         scatterSeries_->attachAxis(scatterAxisY_);
+        if (scatterOutline_ != nullptr) {
+            scatterOutline_->attachAxis(scatterAxisX_);
+            scatterOutline_->attachAxis(scatterAxisY_);
+        }
         connect(scatterSeries_, &QScatterSeries::hovered, this,
                 [xAxisLabel, yAxisLabel](const QPointF& p, bool on) {
                     if (!on) {
@@ -688,6 +724,19 @@ class MetricsChartW : public QChartView {
                                                            .arg(yAxisLabel)
                                                            .arg(p.y(), 0, 'f', 0));
                 });
+    }
+
+    /// The scatter's axis ranges for a plot area: equal units per pixel.
+    void fit_scatter_axes(const QRectF& area) {
+        if (scatterAxisX_ == nullptr || scatterAxisY_ == nullptr) {
+            return;
+        }
+        const double w  = std::max(1.0, area.width());
+        const double h  = std::max(1.0, area.height());
+        const double hx = scatterHalf_ * std::max(1.0, w / h);
+        const double hy = scatterHalf_ * std::max(1.0, h / w);
+        scatterAxisX_->setRange(scatterMid_ - hx, scatterMid_ + hx);
+        scatterAxisY_->setRange(scatterMid_ - hy, scatterMid_ + hy);
     }
 
     // Single-metric mode (Speed/Acceleration/expression score/…): points
@@ -814,6 +863,11 @@ class MetricsChartW : public QChartView {
             delete scatterSeries_;
             scatterSeries_ = nullptr;
         }
+        if (scatterOutline_ != nullptr) {
+            chart()->removeSeries(scatterOutline_);
+            delete scatterOutline_;
+            scatterOutline_ = nullptr;
+        }
         for (QValueAxis* a : {scatterAxisX_, scatterAxisY_}) {
             if (a != nullptr) {
                 chart()->removeAxis(a);
@@ -914,13 +968,17 @@ class MetricsChartW : public QChartView {
     // set_single_series() path is in use.
     QVector<QLineSeries*> subjectSeries_;
     // set_bar_chart(): its series and axes, removed by clear_subject_series().
-    bool barMode_                  = false;
-    QBarSeries* barSeries_         = nullptr;
-    QBarCategoryAxis* barAxisX_    = nullptr;
-    QScatterSeries* scatterSeries_ = nullptr; // set_scatter()'s points
-    QValueAxis* scatterAxisX_      = nullptr;
-    QValueAxis* scatterAxisY_      = nullptr;
-    QValueAxis* barAxisY_          = nullptr;
+    bool barMode_                                = false;
+    QBarSeries* barSeries_                       = nullptr;
+    QBarCategoryAxis* barAxisX_                  = nullptr;
+    QScatterSeries* scatterSeries_               = nullptr; // set_scatter()'s points
+    QLineSeries* scatterOutline_                 = nullptr; // and its optional outline
+    double scatterMid_                           = 0.0;     // the scatter's centre and half range
+    double scatterHalf_                          = 1.0;
+    static constexpr qsizetype kMaxScatterPoints = 5000;
+    QValueAxis* scatterAxisX_                    = nullptr;
+    QValueAxis* scatterAxisY_                    = nullptr;
+    QValueAxis* barAxisY_                        = nullptr;
 };
 
 // Custom-paints session rows with a hover-intensity tint instead of relying
@@ -2332,7 +2390,7 @@ void AnalysisTabW::build_ui() {
             &AnalysisTabW::update_kinematics_chart);
 
     d->blendshapeCombo  = new QComboBox;
-    d->blendshapeFieldW = make_field("Blendshape:", d->blendshapeCombo);
+    d->blendshapeFieldW = make_field("Show:", d->blendshapeCombo);
     d->blendshapeFieldW->setVisible(false); // shown only for the expression plugin
     connect(d->blendshapeCombo, &QComboBox::currentIndexChanged, this,
             &AnalysisTabW::update_expression_view);
@@ -2817,6 +2875,7 @@ void AnalysisTabW::build_ui() {
     d->faceDynMetricCombo->addItem("Head roll (deg)", "roll");
     d->faceDynMetricCombo->addItem("Head speed (deg/s)", "speed");
     d->faceDynMetricCombo->addItem("Blinks per minute", "blinks");
+    d->faceDynMetricCombo->addItem("Where the head points (yaw against pitch)", "headdir");
     d->faceDynMetricCombo->addItem("Events: blinks, smiles, brows, nods, shakes", "events");
     connect(d->faceDynMetricCombo, &QComboBox::currentIndexChanged, this,
             &AnalysisTabW::update_face_dynamics_view);
@@ -2846,6 +2905,7 @@ void AnalysisTabW::build_ui() {
     d->convMetricCombo->addItem("Response times: distribution", "fto_hist");
     d->convMetricCombo->addItem("Speaking time: who, both, silence", "shares");
     d->convMetricCombo->addItem("Turn lengths: distribution", "turns");
+    d->convMetricCombo->addItem("Speech rate per turn (words/min)", "rate");
     d->convMetricCombo->addItem("Audio level (dB)", "audio");
     d->convMetricCombo->addItem("Mouth movement", "mouth");
     connect(d->convMetricCombo, &QComboBox::currentIndexChanged, this,
@@ -2904,6 +2964,7 @@ void AnalysisTabW::build_ui() {
     d->eyeMetricCombo->addItem("Eye contact", "contact");
     d->eyeMetricCombo->addItem("Eye contact: speaking, listening, silence", "states");
     d->eyeMetricCombo->addItem("Look-away durations: distribution", "aversions");
+    d->eyeMetricCombo->addItem("Gaze around the partner", "around");
     d->eyeMetricCombo->addItem("Angle from partner (deg)", "offset");
     d->eyeMetricCombo->addItem("Gaze yaw (deg)", "yaw");
     d->eyeMetricCombo->addItem("Gaze pitch (deg)", "pitch");
@@ -4070,8 +4131,13 @@ void AnalysisTabW::load_camera_result_view() {
 
         d->blendshapeCombo->blockSignals(true);
         d->blendshapeCombo->clear();
-        for (const auto& name : d->currentExpressionResult.blendshape_names()) {
-            d->blendshapeCombo->addItem(name);
+        d->blendshapeCombo->addItem("Share of time per expression", "__shares");
+        if (d->currentExpressionResult.has_action_units()) {
+            d->blendshapeCombo->addItem("Action units: mean intensity", "__aus");
+        }
+        const auto& names = d->currentExpressionResult.blendshape_names();
+        for (int i = 0; i < names.size(); ++i) {
+            d->blendshapeCombo->addItem(names[i], i); // data: its index in each frame's scores
         }
         d->blendshapeCombo->blockSignals(false);
 
@@ -4877,7 +4943,28 @@ void AnalysisTabW::update_expression_view() {
     // selected — only the chart series does — so an empty/unselected
     // blendshapeCombo (e.g. a result with no blendshape_names) still gets a
     // populated stats label, just an empty chart.
-    const int blendshapeIndex = d->blendshapeCombo->currentIndex();
+    const QVariant pick    = d->blendshapeCombo->currentData();
+    const auto& exprFrames = d->currentExpressionResult.frames();
+    if (pick.toString() == "__shares") {
+        QStringList cats;
+        QVector<double> vals;
+        for (const auto& [label, pct] : expression_shares(exprFrames)) {
+            cats << label;
+            vals << pct;
+        }
+        d->chart->set_bar_chart(cats, {{"Share of time", QColor("#f0b44c"), vals}},
+                                "Top expression", "% of frames with a face");
+        d->chart->set_title("Share of time per expression");
+    } else if (pick.toString() == "__aus") {
+        const QStringList& names   = d->currentExpressionResult.au_names();
+        const QVector<double> mean = mean_action_units(exprFrames, names.size());
+        d->chart->set_bar_chart(names, {{"Mean intensity", QColor("#b39bff"), mean}},
+                                "Action unit (FACS)", "Mean intensity (0-1)");
+        d->chart->set_title("Action units: mean intensity over the frames with a face");
+    }
+    const bool bars = pick.toString().startsWith("__");
+    // A blendshape item's data is its index in each frame's scores.
+    const int blendshapeIndex = !bars && pick.isValid() ? pick.toInt() : -1;
     const QString blendshapeName =
         blendshapeIndex >= 0 ? d->blendshapeCombo->currentText() : QString();
 
@@ -4910,10 +4997,12 @@ void AnalysisTabW::update_expression_view() {
     // matters whenever detection drops out before the video ends.
     const double lastAnalyzedMs =
         frames.isEmpty() ? 0.0 : static_cast<double>(frames.last().timestampNs - t0) / 1e6;
-    d->chart->set_single_series(points, "Score (0–1)",
-                                blendshapeName.isEmpty() ? "Blendshape score" : blendshapeName,
-                                lastAnalyzedMs);
-    d->chart->set_title(blendshapeName.isEmpty() ? "Facial expression" : blendshapeName);
+    if (!bars) {
+        d->chart->set_single_series(points, "Score (0–1)",
+                                    blendshapeName.isEmpty() ? "Blendshape score" : blendshapeName,
+                                    lastAnalyzedMs);
+        d->chart->set_title(blendshapeName.isEmpty() ? "Facial expression" : blendshapeName);
+    }
     d->chart->set_playhead_ms(d->player->position_ms());
 
     if (totalWithSubject == 0) {
@@ -5837,6 +5926,38 @@ void AnalysisTabW::update_eye_contact_view() {
                 .arg(sum.eyeContactPct ? QString::number(*sum.eyeContactPct, 'f', 0) : "–"));
         return;
     }
+    if (metric == "around") {
+        // Gaze relative to the partner's direction: the partner at (0, 0),
+        // the contact cone as a circle around it.
+        const double ty = r.target_yaw().value_or(0.0);
+        const double tp = r.target_pitch().value_or(0.0);
+        QVector<QPointF> gaze;
+        for (const auto& f : r.frames()) {
+            if (f.faceDetected && std::isfinite(f.gazeYaw) && std::isfinite(f.gazePitch)) {
+                gaze << QPointF(f.gazeYaw - ty, f.gazePitch - tp);
+            }
+        }
+        QVector<QPointF> cone;
+        if (const auto rad = r.radius_deg()) {
+            for (int k = 0; k <= 64; ++k) {
+                const double a = 2.0 * std::numbers::pi * k / 64.0;
+                cone << QPointF(*rad * std::cos(a), *rad * std::sin(a));
+            }
+        }
+        d->chart->set_scatter(gaze, "Gaze, one point per frame", QColor("#e6a03c"),
+                              "Towards image right, the person's left (deg)",
+                              "Above the partner (deg)", cone, "Contact cone");
+        d->chart->set_title(
+            r.radius_deg()
+                ? QString("Gaze around the partner: inside the %1 deg circle is roughly eye "
+                          "contact")
+                      .arg(*r.radius_deg(), 0, 'f', 1)
+                : QString("Gaze around the partner"));
+        d->eyeStatsLbl->setText(
+            QString("eye contact overall %1%")
+                .arg(sum.eyeContactPct ? QString::number(*sum.eyeContactPct, 'f', 0) : "–"));
+        return;
+    }
     if (metric == "aversions") {
         QVector<double> seconds;
         for (const auto& a : r.aversions()) {
@@ -6119,6 +6240,18 @@ void AnalysisTabW::update_conversation_view() {
                                 {{"On camera", subjectC, bin_counts(subj, kDurationEdgesS)},
                                  {"Other", otherC, bin_counts(oth, kDurationEdgesS)}},
                                 "Turn length (s)", "Turns");
+    } else if (metric == "rate") {
+        // One point per turn with transcript words, at the turn's middle.
+        const SpeechRates sr = speech_rates(r.turns());
+        auto shift           = [t0](QVector<QPointF> v) {
+            for (auto& p : v) {
+                p.rx() -= t0;
+            }
+            return v;
+        };
+        d->chart->set_named_series({{"On camera", subjectC, shift(sr.subject), true},
+                                    {"Other", otherC, shift(sr.other), true}},
+                                   "Words per minute", lastMs);
     } else if (metric == "speaking") {
         // Steps: on camera at +1, other at -1, while they speak.
         auto steps = [&](const QString& who, double level) {
@@ -6297,6 +6430,15 @@ void AnalysisTabW::update_face_dynamics_view() {
                            2});
         }
         d->chart->set_named_series(series, "Blinks per minute", lastFrameMs);
+    } else if (metric == "headdir") {
+        QVector<QPointF> dir;
+        for (const auto& f : result.frames()) {
+            if (f.faceDetected && std::isfinite(f.yaw) && std::isfinite(f.pitch)) {
+                dir << QPointF(f.yaw, f.pitch);
+            }
+        }
+        d->chart->set_scatter(dir, "Head direction, one point per frame", QColor("#49b8e0"),
+                              "Yaw (deg)", "Pitch (deg)");
     } else if (metric == "events") {
         // One row per kind of event, high while it lasts.
         const std::tuple<const char*, const char*, QColor> kinds[] = {
