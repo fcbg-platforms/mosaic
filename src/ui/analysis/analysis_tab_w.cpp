@@ -35,6 +35,7 @@
 #include <QProgressBar>
 #include <QPushButton>
 #include <QRegularExpression>
+#include <QScatterSeries>
 #include <QSpinBox>
 #include <QSplitter>
 #include <QStackedWidget>
@@ -54,6 +55,7 @@
 #include <limits>
 
 #include "analysis/analysis_plugins.hpp"
+#include "analysis/chart_data.hpp"
 #include "analysis/conversation_result.hpp"
 #include "analysis/dyadic_kinematics.hpp"
 #include "analysis/expression_result.hpp"
@@ -630,6 +632,64 @@ class MetricsChartW : public QChartView {
                 });
     }
 
+    /// Points with no line between them, on their own value axes (the beat-
+    /// to-beat Poincare plot). Like the bar chart: no playhead, no seeking.
+    void set_scatter(const QVector<QPointF>& points, const QString& name, const QColor& color,
+                     const QString& xAxisLabel, const QString& yAxisLabel) {
+        clear_all_series();
+        clear_subject_series();
+        set_series_marker_visible(xSeries_, false);
+        set_series_marker_visible(ySeries_, false);
+        set_series_marker_visible(valueSeries_, false);
+        axisX_->setVisible(false);
+        axisY_->setVisible(false);
+        barMode_       = true;
+        scatterSeries_ = new QScatterSeries();
+        scatterSeries_->setName(name);
+        scatterSeries_->setColor(color);
+        scatterSeries_->setBorderColor(color);
+        scatterSeries_->setMarkerSize(7.0);
+        double lo = std::numeric_limits<double>::max();
+        double hi = std::numeric_limits<double>::lowest();
+        for (const auto& p : points) {
+            scatterSeries_->append(p);
+            lo = std::min({lo, p.x(), p.y()});
+            hi = std::max({hi, p.x(), p.y()});
+        }
+        chart()->addSeries(scatterSeries_);
+        if (lo > hi) {
+            lo = 0.0;
+            hi = 1.0;
+        }
+        const double pad = std::max(10.0, 0.05 * (hi - lo));
+        // The same range on both axes, so the identity line is the diagonal.
+        scatterAxisX_ = new QValueAxis();
+        scatterAxisY_ = new QValueAxis();
+        for (auto* a : {scatterAxisX_, scatterAxisY_}) {
+            a->setRange(lo - pad, hi + pad);
+            a->setLabelFormat("%.0f");
+            style_axis(a);
+        }
+        scatterAxisX_->setTitleText(xAxisLabel);
+        scatterAxisY_->setTitleText(yAxisLabel);
+        chart()->addAxis(scatterAxisX_, Qt::AlignBottom);
+        chart()->addAxis(scatterAxisY_, Qt::AlignLeft);
+        scatterSeries_->attachAxis(scatterAxisX_);
+        scatterSeries_->attachAxis(scatterAxisY_);
+        connect(scatterSeries_, &QScatterSeries::hovered, this,
+                [xAxisLabel, yAxisLabel](const QPointF& p, bool on) {
+                    if (!on) {
+                        QToolTip::hideText();
+                        return;
+                    }
+                    QToolTip::showText(QCursor::pos(), QString("%1: %2\n%3: %4")
+                                                           .arg(xAxisLabel)
+                                                           .arg(p.x(), 0, 'f', 0)
+                                                           .arg(yAxisLabel)
+                                                           .arg(p.y(), 0, 'f', 0));
+                });
+    }
+
     // Single-metric mode (Speed/Acceleration/expression score/…): points
     // are (ms-since-start, value), pre-filtered by the caller to drop NaN
     // entries (a NaN plotted point would otherwise break QLineSeries' range
@@ -749,6 +809,19 @@ class MetricsChartW : public QChartView {
         }
         barAxisX_ = nullptr;
         barAxisY_ = nullptr;
+        if (scatterSeries_ != nullptr) {
+            chart()->removeSeries(scatterSeries_);
+            delete scatterSeries_;
+            scatterSeries_ = nullptr;
+        }
+        for (QValueAxis* a : {scatterAxisX_, scatterAxisY_}) {
+            if (a != nullptr) {
+                chart()->removeAxis(a);
+                delete a;
+            }
+        }
+        scatterAxisX_ = nullptr;
+        scatterAxisY_ = nullptr;
         if (barMode_) {
             axisX_->setVisible(true);
             axisY_->setVisible(true);
@@ -841,10 +914,13 @@ class MetricsChartW : public QChartView {
     // set_single_series() path is in use.
     QVector<QLineSeries*> subjectSeries_;
     // set_bar_chart(): its series and axes, removed by clear_subject_series().
-    bool barMode_               = false;
-    QBarSeries* barSeries_      = nullptr;
-    QBarCategoryAxis* barAxisX_ = nullptr;
-    QValueAxis* barAxisY_       = nullptr;
+    bool barMode_                  = false;
+    QBarSeries* barSeries_         = nullptr;
+    QBarCategoryAxis* barAxisX_    = nullptr;
+    QScatterSeries* scatterSeries_ = nullptr; // set_scatter()'s points
+    QValueAxis* scatterAxisX_      = nullptr;
+    QValueAxis* scatterAxisY_      = nullptr;
+    QValueAxis* barAxisY_          = nullptr;
 };
 
 // Custom-paints session rows with a hover-intensity tint instead of relying
@@ -1213,7 +1289,7 @@ struct AnalysisTabW::Impl {
     RppgResult currentRppgResult;            // rppg only
     Gaze2dResult currentGaze2dResult;        // gaze2d only
     FaceDynamicsResult currentFaceDynResult; // face_dynamics only
-    ConversationResult currentConversation;  // conversation only
+    ConversationResult currentConversation;  // conversation, overview, rppg (by state)
     EyeContactResult currentEyeContact;      // eye_contact only
     SocialResult currentSocial;              // social only
     ObjectsResult currentObjects;            // objects only
@@ -2656,6 +2732,8 @@ void AnalysisTabW::build_ui() {
     d->rppgMetricCombo->addItem("Heart rate (beat to beat)", "beats");
     d->rppgMetricCombo->addItem("RMSSD (60 s windows)", "rmssd");
     d->rppgMetricCombo->addItem("Signal quality (SNR, dB)", "snr");
+    d->rppgMetricCombo->addItem("Heart rate: speaking, listening, silence", "states");
+    d->rppgMetricCombo->addItem("Beat to beat (Poincare plot)", "poincare");
     d->rppgMetricCombo->setToolTip(
         "Windows: the dominant pulse frequency of each analysis window. Beat to beat: "
         "60 / each clean interval between beats. RMSSD: beat-to-beat variability over "
@@ -2738,6 +2816,8 @@ void AnalysisTabW::build_ui() {
     d->faceDynMetricCombo->addItem("Head pitch (deg)", "pitch");
     d->faceDynMetricCombo->addItem("Head roll (deg)", "roll");
     d->faceDynMetricCombo->addItem("Head speed (deg/s)", "speed");
+    d->faceDynMetricCombo->addItem("Blinks per minute", "blinks");
+    d->faceDynMetricCombo->addItem("Events: blinks, smiles, brows, nods, shakes", "events");
     connect(d->faceDynMetricCombo, &QComboBox::currentIndexChanged, this,
             &AnalysisTabW::update_face_dynamics_view);
     faceDynRowLay->addWidget(new QLabel("Metric:"));
@@ -2764,6 +2844,8 @@ void AnalysisTabW::build_ui() {
     d->convMetricCombo->addItem("Who is speaking", "speaking");
     d->convMetricCombo->addItem("Response times (ms)", "fto");
     d->convMetricCombo->addItem("Response times: distribution", "fto_hist");
+    d->convMetricCombo->addItem("Speaking time: who, both, silence", "shares");
+    d->convMetricCombo->addItem("Turn lengths: distribution", "turns");
     d->convMetricCombo->addItem("Audio level (dB)", "audio");
     d->convMetricCombo->addItem("Mouth movement", "mouth");
     connect(d->convMetricCombo, &QComboBox::currentIndexChanged, this,
@@ -2821,6 +2903,7 @@ void AnalysisTabW::build_ui() {
     d->eyeMetricCombo = new QComboBox;
     d->eyeMetricCombo->addItem("Eye contact", "contact");
     d->eyeMetricCombo->addItem("Eye contact: speaking, listening, silence", "states");
+    d->eyeMetricCombo->addItem("Look-away durations: distribution", "aversions");
     d->eyeMetricCombo->addItem("Angle from partner (deg)", "offset");
     d->eyeMetricCombo->addItem("Gaze yaw (deg)", "yaw");
     d->eyeMetricCombo->addItem("Gaze pitch (deg)", "pitch");
@@ -4019,6 +4102,10 @@ void AnalysisTabW::load_camera_result_view() {
         d->currentRppgResult =
             QFileInfo::exists(rppgAbs) ? RppgResult::load(rppgAbs) : RppgResult();
         d->player->set_rppg_result(d->currentRppgResult, combo_camera_index(d->cameraCombo));
+        // Who speaks when, for the heart rate by state chart.
+        const QString convAbs = info->path + "/" + conversation_json_path_for(videoRel);
+        d->currentConversation =
+            QFileInfo::exists(convAbs) ? ConversationResult::load(convAbs) : ConversationResult();
 
         update_rppg_view();
 
@@ -5344,7 +5431,42 @@ void AnalysisTabW::update_rppg_view() {
         result.frames().isEmpty() ? static_cast<double>(result.windows().last().endMs - t0)
                                   : static_cast<double>(result.frames().last().timestampMs - t0);
     QVector<QPointF> points;
-    if (metric == "beats") {
+    const bool ownTitle = metric == "states" || metric == "poincare";
+    if (metric == "states") {
+        // Who speaks comes from this camera's Conversation Timing result.
+        const auto& conv = d->currentConversation;
+        const HrByState h =
+            conv.is_valid() ? hr_by_state(result.intervals(), conv.spurts()) : HrByState{};
+        QStringList cats;
+        QVector<double> vals;
+        const std::tuple<const char*, std::optional<double>, int> states[] = {
+            {"Speaking", h.speakingBpm, h.speakingBeats},
+            {"Listening", h.listeningBpm, h.listeningBeats},
+            {"Silence", h.silenceBpm, h.silenceBeats}};
+        for (const auto& [name, bpm, beats] : states) {
+            if (bpm) {
+                cats << QString("%1 (%2 beats)").arg(name).arg(beats);
+                vals << *bpm;
+            }
+        }
+        d->chart->set_bar_chart(cats, {{"Mean heart rate", QColor("#e06060"), vals}},
+                                "While the person on camera is", "Heart rate (bpm)");
+        d->chart->set_title(
+            !conv.is_valid() ? "Heart rate by state: run Conversation Timing on this camera"
+            : cats.isEmpty()
+                ? QString("Heart rate by state: too few clean beats (needs %1 per state)")
+                      .arg(kMinBeatsPerState)
+                : QString("Heart rate: speaking, listening, silence"));
+    } else if (metric == "poincare") {
+        const Poincare p = poincare(result.intervals());
+        d->chart->set_scatter(p.points, "Clean beat pairs", QColor("#e06060"),
+                              "Beat interval n (ms)", "Beat interval n+1 (ms)");
+        d->chart->set_title(
+            p.sd1Ms ? QString("Beat to beat: SD1 %1 ms (short-term), SD2 %2 ms (longer-term)")
+                          .arg(*p.sd1Ms, 0, 'f', 0)
+                          .arg(*p.sd2Ms, 0, 'f', 0)
+                    : QString("Beat to beat: too few consecutive clean beats"));
+    } else if (metric == "beats") {
         // Every detected beat, and over it the ones that passed the clean-beat
         // (NN) check. When none passed (short or noisy recordings) the line of
         // all beats still shows the rate, rather than an empty chart.
@@ -5484,10 +5606,12 @@ void AnalysisTabW::update_rppg_view() {
         flush();
         d->chart->set_named_series(series, snrView ? "SNR (dB)" : "BPM", lastAnalyzedMs);
     }
-    d->chart->set_title(!rmssdNote.isEmpty() ? "RMSSD — " + rmssdNote
-                        : metric == "snr"
-                            ? QString("Pulse signal quality — %1").arg(result.backend().toUpper())
-                            : QString("Heart rate — %1").arg(result.backend().toUpper()));
+    if (!ownTitle) {
+        d->chart->set_title(
+            !rmssdNote.isEmpty() ? "RMSSD — " + rmssdNote
+            : metric == "snr" ? QString("Pulse signal quality — %1").arg(result.backend().toUpper())
+                              : QString("Heart rate — %1").arg(result.backend().toUpper()));
+    }
     d->chart->set_playhead_ms(d->player->position_ms());
 
     QStringList parts;
@@ -5711,6 +5835,22 @@ void AnalysisTabW::update_eye_contact_view() {
         d->eyeStatsLbl->setText(
             QString("eye contact overall %1%")
                 .arg(sum.eyeContactPct ? QString::number(*sum.eyeContactPct, 'f', 0) : "–"));
+        return;
+    }
+    if (metric == "aversions") {
+        QVector<double> seconds;
+        for (const auto& a : r.aversions()) {
+            seconds << a.durationMs / 1000.0;
+        }
+        d->chart->set_bar_chart(
+            bin_labels(kDurationEdgesS),
+            {{"Look-aways", QColor("#e6a03c"), bin_counts(seconds, kDurationEdgesS)}},
+            "How long the look-away lasted (s)", "Look-aways");
+        d->chart->set_title("Look-away durations");
+        d->eyeStatsLbl->setText(
+            QString("%1 look-aways, median %2 s")
+                .arg(r.aversions().size())
+                .arg(sum.aversionMedianS ? QString::number(*sum.aversionMedianS, 'f', 1) : "–"));
         return;
     }
     QVector<QPointF> pts;
@@ -5959,7 +6099,27 @@ void AnalysisTabW::update_conversation_view() {
                                       static_cast<double>(nSignal - 1) * r.signal_step_ms() - t0);
     }
 
-    if (metric == "speaking") {
+    if (metric == "shares") {
+        // How the recording's time divides between the two speakers.
+        const SpeakingShares sh = speaking_shares(r.spurts(), t0, t0 + lastMs);
+        const double total      = sh.subjectOnlyS + sh.otherOnlyS + sh.bothS + sh.silenceS;
+        const double k          = total > 0.0 ? 100.0 / total : 0.0;
+        d->chart->set_bar_chart(
+            {"On camera only", "Other only", "Both at once", "Silence"},
+            {{"Share of the recording",
+              subjectC,
+              {sh.subjectOnlyS * k, sh.otherOnlyS * k, sh.bothS * k, sh.silenceS * k}}},
+            "Who is speaking", "% of the recording");
+    } else if (metric == "turns") {
+        QVector<double> subj, oth;
+        for (const auto& t : r.turns()) {
+            (t.speaker == "subject" ? subj : oth) << (t.endMs - t.startMs) / 1000.0;
+        }
+        d->chart->set_bar_chart(bin_labels(kDurationEdgesS),
+                                {{"On camera", subjectC, bin_counts(subj, kDurationEdgesS)},
+                                 {"Other", otherC, bin_counts(oth, kDurationEdgesS)}},
+                                "Turn length (s)", "Turns");
+    } else if (metric == "speaking") {
         // Steps: on camera at +1, other at -1, while they speak.
         auto steps = [&](const QString& who, double level) {
             QVector<QPointF> pts;
@@ -6118,8 +6278,57 @@ void AnalysisTabW::update_face_dynamics_view() {
     }
     const QString label      = d->faceDynMetricCombo->currentText();
     const double lastFrameMs = static_cast<double>(result.frames().last().timestampMs - t0);
-    d->chart->set_single_series(points, label, QString(), lastFrameMs);
-    d->chart->set_title("Face Dynamics — " + label);
+    if (metric == "blinks") {
+        // Steps: each window's rate across the window.
+        const auto rate = blink_rate(result.events(), result.frames());
+        // A window with too little face is a gap: each window its own piece.
+        QVector<NamedSeries> series;
+        for (int i = 0; i < rate.size(); ++i) {
+            if (!std::isfinite(rate[i].y())) {
+                continue;
+            }
+            const double a = rate[i].x() - t0;
+            const double b = i + 1 < rate.size() ? rate[i + 1].x() - t0 : lastFrameMs;
+            series.append({"Blinks per minute of face seen",
+                           QColor("#5aa6f0"),
+                           {QPointF(a, rate[i].y()), QPointF(b, rate[i].y())},
+                           false,
+                           series.isEmpty(),
+                           2});
+        }
+        d->chart->set_named_series(series, "Blinks per minute", lastFrameMs);
+    } else if (metric == "events") {
+        // One row per kind of event, high while it lasts.
+        const std::tuple<const char*, const char*, QColor> kinds[] = {
+            {"blink", "Blinks", QColor("#5aa6f0")},
+            {"smile", "Smiles", QColor("#f0b44c")},
+            {"brow_raise", "Brow raises", QColor("#b39bff")},
+            {"nod", "Nods", QColor("#49b8e0")},
+            {"shake", "Head shakes", QColor("#f08a5d")}};
+        QVector<NamedSeries> series;
+        int row = 0;
+        for (const auto& [kind, name, colour] : kinds) {
+            ++row;
+            QVector<QPointF> pts;
+            for (const auto& e : result.events()) {
+                if (e.kind == kind) {
+                    const double a = static_cast<double>(e.startMs - t0);
+                    const double b = std::max(a + 80.0, static_cast<double>(e.endMs - t0));
+                    pts << QPointF(a, row - 0.4) << QPointF(a, row) << QPointF(b, row)
+                        << QPointF(b, row - 0.4);
+                }
+            }
+            series.append({name, colour, pts});
+        }
+        d->chart->set_named_series(series, "Events (one row each)", lastFrameMs);
+        d->chart->set_title(
+            "Face events, rows from the bottom: blinks, smiles, brow raises, nods, head shakes");
+    } else {
+        d->chart->set_single_series(points, label, QString(), lastFrameMs);
+    }
+    if (metric != "events") { // the events chart names its rows in its own title
+        d->chart->set_title("Face Dynamics — " + label);
+    }
     d->chart->set_playhead_ms(d->player->position_ms());
 
     const FaceDynamicsSummary& s = result.summary();

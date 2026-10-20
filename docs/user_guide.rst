@@ -995,7 +995,14 @@ sitting alongside **Live**. The workflow is always the same shape:
       reported below 25 fps (so not on room cameras), or with under a
       minute of clean beats; the stats line says why. With
       **Conversation Timing** run first it also gives the mean heart rate
-      while speaking and while listening. Interview mode at 50 fps with
+      while speaking and while listening. Two more charts: **Heart rate:
+      speaking, listening, silence** (bars of the mean rate from the clean
+      beats in each, from this camera's Conversation Timing; a beat during
+      overlapping speech counts as both speaking and listening, as in the
+      stats line; a state needs 10 clean beats), and **Beat to beat (Poincare plot)**, each clean beat
+      interval against the next: a tight cloud along the diagonal is a
+      steady heart, its width across the diagonal (SD1, in the title) the
+      beat-to-beat variability. Interview mode at 50 fps with
       even light gives the best results. See :doc:`math/remote_heart_rate`.
 
    .. tab-item:: Face Dynamics
@@ -1018,7 +1025,12 @@ sitting alongside **Live**. The workflow is always the same shape:
       an arrow shows where the head points, the current events appear in
       large type at the top right, and running counts at the top left. The
       **Metric** dropdown picks what the chart plots (eye openness, smile,
-      brow raise, expressivity, head yaw, pitch, roll or speed). The stats
+      brow raise, expressivity, head yaw, pitch, roll or speed), the blinks
+      per minute of face seen over time (in equal windows of about 30 s, like
+      the stats line; a window with under 5 s of face is left as a gap), or
+      the events
+      as a timeline, one row each for blinks, smiles, brow raises, nods and
+      head shakes. The stats
       line gives blinks per minute and median blink length, smiles and
       Duchenne smiles with the share of time spent smiling, brow raises and
       flashes, and nods and shakes. **Export events CSV** saves one row per
@@ -1049,8 +1061,10 @@ sitting alongside **Live**. The workflow is always the same shape:
       **Reading the output**: the **Metric** dropdown shows eye contact over
       time (1 looking at the partner, 0 away), eye contact while the person
       on camera speaks, listens and while nobody speaks (bars; it needs
-      Conversation Timing run first, then Eye Contact again), the angle from
-      the partner, or the gaze yaw and pitch. The stats line gives the
+      Conversation Timing run first, then Eye Contact again), how long the
+      look-aways lasted (a histogram: 0 to 0.5 s, 0.5 to 1 s, and so on up to
+      16 s and more), the angle from the partner, or the gaze yaw and pitch.
+      The stats line gives the
       overall eye contact share, listening, speaking and silence shares, the look-aways and their
       directions, the answer patterns, and where the partner was found.
       **Export look-aways CSV** saves one row per look-away. See
@@ -1090,7 +1104,10 @@ sitting alongside **Live**. The workflow is always the same shape:
       response time as a point, the response times as a histogram (0.25 s
       bins: below 0 the next speaker started before the other stopped,
       around 0.2 s a quick answer, beyond a second a long gap), the audio
-      level, or the mouth movement. With no change of speaker the
+      level, the mouth movement, how the recording's time divides (on camera
+      only, the other only, both at once, silence), or how long the turns
+      were, per speaker (a histogram, finer for short turns). With no change
+      of speaker the
       response-time charts are empty and their title says so. The
       stats line gives each speaker's speech time, turns and median response
       time, the count of speaker changes split into gaps, overlaps and
