@@ -121,3 +121,45 @@ TEST(ChartData, BlinkRatePerMinuteOfFaceSeen) {
     // A 40 s recording: one window, not a 30 s and a 10 s one.
     EXPECT_EQ(blink_rate(ev, frames.mid(0, 401)).size(), 1);
 }
+
+TEST(ChartData, SpeechRatePerTurn) {
+    ConversationTurn a;
+    a.speaker          = "subject";
+    a.startMs          = 0;
+    a.endMs            = 3000;
+    a.text             = "one two three four five six";
+    ConversationTurn b = a;
+    b.speaker          = "other";
+    b.startMs          = 4000;
+    b.endMs            = 4500; // under a second: no rate
+    ConversationTurn c = a;
+    c.text             = ""; // no transcript: no rate
+    const auto r       = speech_rates({a, b, c});
+    ASSERT_EQ(r.subject.size(), 1);
+    EXPECT_DOUBLE_EQ(r.subject[0].x(), 1500.0);
+    EXPECT_DOUBLE_EQ(r.subject[0].y(), 120.0); // 6 words in 3 s
+    EXPECT_TRUE(r.other.isEmpty());
+}
+
+TEST(ChartData, ExpressionSharesAndActionUnits) {
+    auto frame = [](const char* label, QVector<double> aus) {
+        ExpressionFrame f;
+        ExpressionSubject s;
+        s.dominantExpression = label;
+        s.actionUnits        = aus;
+        f.subjects << s;
+        return f;
+    };
+    QVector<ExpressionFrame> frames = {frame("happy", {0.2, 0.8}), frame("happy", {0.4, 0.6}),
+                                       frame("neutral", {0.0, 0.1}), ExpressionFrame{},
+                                       frame("", {})};
+    const auto shares               = expression_shares(frames);
+    ASSERT_EQ(shares.size(), 3); // happy, neutral and "none"; a frame without a face not at all
+    EXPECT_EQ(shares[0].first, "happy"); // largest first
+    EXPECT_NEAR(shares[0].second, 50.0, 1e-9);
+    const auto aus = mean_action_units(frames, 2);
+    ASSERT_EQ(aus.size(), 2);
+    EXPECT_NEAR(aus[0], 0.2, 1e-9);
+    EXPECT_NEAR(aus[1], 0.5, 1e-9);
+    EXPECT_TRUE(mean_action_units(frames, 0).isEmpty());
+}

@@ -1,5 +1,6 @@
 #include "analysis/chart_data.hpp"
 
+#include <QMap>
 #include <algorithm>
 #include <cmath>
 #include <limits>
@@ -208,6 +209,65 @@ QVector<QPointF> blink_rate(const QVector<FaceDynamicsEvent>& events,
                                                : std::numeric_limits<double>::quiet_NaN());
     }
     return out;
+}
+
+SpeechRates speech_rates(const QVector<ConversationTurn>& turns) {
+    SpeechRates r;
+    for (const auto& t : turns) {
+        const double ms  = static_cast<double>(t.endMs - t.startMs);
+        const auto words = t.text.split(' ', Qt::SkipEmptyParts).size();
+        if (ms < kMinTurnForRateMs || words == 0) {
+            continue;
+        }
+        const QPointF p((t.startMs + t.endMs) / 2.0, words * 60000.0 / ms);
+        (t.speaker == "subject" ? r.subject : r.other) << p;
+    }
+    return r;
+}
+
+QVector<QPair<QString, double>> expression_shares(const QVector<ExpressionFrame>& frames) {
+    QMap<QString, int> counts;
+    int total = 0;
+    for (const auto& f : frames) {
+        // Every frame with a face counts, as in the stats line; one without
+        // a top expression as "none".
+        if (!f.subjects.isEmpty()) {
+            const QString& label = f.subjects.first().dominantExpression;
+            ++counts[label.isEmpty() ? QStringLiteral("none") : label];
+            ++total;
+        }
+    }
+    QVector<QPair<QString, double>> out;
+    for (auto it = counts.begin(); it != counts.end(); ++it) {
+        out.append({it.key(), 100.0 * it.value() / total});
+    }
+    std::sort(out.begin(), out.end(),
+              [](const auto& a, const auto& b) { return a.second > b.second; });
+    return out;
+}
+
+QVector<double> mean_action_units(const QVector<ExpressionFrame>& frames, int auCount) {
+    if (auCount <= 0) {
+        return {};
+    }
+    QVector<double> sum(auCount, 0.0);
+    int n = 0;
+    for (const auto& f : frames) {
+        if (f.subjects.isEmpty() || f.subjects.first().actionUnits.size() != auCount) {
+            continue;
+        }
+        for (int i = 0; i < auCount; ++i) {
+            sum[i] += f.subjects.first().actionUnits[i];
+        }
+        ++n;
+    }
+    if (n == 0) {
+        return {};
+    }
+    for (double& v : sum) {
+        v /= n;
+    }
+    return sum;
 }
 
 } // namespace mosaic

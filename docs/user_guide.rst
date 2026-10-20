@@ -849,9 +849,11 @@ sitting alongside **Live**. The workflow is always the same shape:
         frames, so keep it at 1 for the most complete result.
 
       **Reading the output**: the selected camera's video plays with a
-      bounding box + dominant-expression label per detected face. A
-      **Blendshape** dropdown drives a chart of that blendshape's score over
-      time. The chart's time axis always spans the full analyzed range of
+      bounding box + dominant-expression label per detected face. The
+      **Show** dropdown picks the chart: the **share of time per
+      expression** (bars, % of the frames with a face), the **action units'
+      mean intensity** (bars, py-feat backend only), or one blendshape's
+      score over time. The chart's time axis always spans the full analyzed range of
       the video, even for stretches where no face was detected (those
       simply show a gap in the plotted line, not a shortened axis). A
       stats readout shows the %-breakdown across expression categories for
@@ -1027,7 +1029,9 @@ sitting alongside **Live**. The workflow is always the same shape:
       **Metric** dropdown picks what the chart plots (eye openness, smile,
       brow raise, expressivity, head yaw, pitch, roll or speed), the blinks
       per minute of face seen over time (in equal windows of about 30 s, like
-      the stats line; a window with under 5 s of face is left as a gap), or
+      the stats line; a window with under 5 s of face is left as a gap),
+      where the head points (each frame's yaw against its pitch: a tight
+      cluster is a still head, a wide one a moving or turning head), or
       the events
       as a timeline, one row each for blinks, smiles, brow raises, nods and
       head shakes. The stats
@@ -1063,7 +1067,11 @@ sitting alongside **Live**. The workflow is always the same shape:
       on camera speaks, listens and while nobody speaks (bars; it needs
       Conversation Timing run first, then Eye Contact again), how long the
       look-aways lasted (a histogram: 0 to 0.5 s, 0.5 to 1 s, and so on up to
-      16 s and more), the angle from the partner, or the gaze yaw and pitch.
+      16 s and more), the gaze around the partner (each frame's gaze
+      relative to the partner's direction, with the contact cone as a
+      dashed circle: points inside it are roughly eye contact, which is
+      decided on the exact angle with some smoothing; to the right is the
+      image's right, the person's left), the angle from the partner, or the gaze yaw and pitch.
       The stats line gives the
       overall eye contact share, listening, speaking and silence shares, the look-aways and their
       directions, the answer patterns, and where the partner was found.
@@ -1105,8 +1113,12 @@ sitting alongside **Live**. The workflow is always the same shape:
       bins: below 0 the next speaker started before the other stopped,
       around 0.2 s a quick answer, beyond a second a long gap), the audio
       level, the mouth movement, how the recording's time divides (on camera
-      only, the other only, both at once, silence), or how long the turns
-      were, per speaker (a histogram, finer for short turns). With no change
+      only, the other only, both at once, silence), how long the turns
+      were, per speaker (a histogram, finer for short turns), or the speech
+      rate of each turn in words per minute (from the transcript words, so
+      it needs Speaker Diarization; turns under 1 s are left out). A
+      transcript segment's words all go to the turn holding its middle, so a
+      short turn can show a very high rate next to turns with none. With no change
       of speaker the
       response-time charts are empty and their title says so. The
       stats line gives each speaker's speech time, turns and median response
