@@ -272,6 +272,36 @@ camera dropped far more often than the others, or with many unresolved
 keypoints, has usually moved since the room calibration, or was
 calibrated poorly.
 
+``quality.timeline`` (:func:`~pose3d.qa_timeline`), per second: when
+someone is missing from 3D, and why. Every tick records how many cameras
+had a frame and saw a person, the person detections (all cameras), how many
+of them belong to a match across enough cameras, the people matched, and
+the people reconstructed. Each tick then gets the first outcome that
+applies:
+
+1. ``no_frames``: no camera had a frame (a sync gap);
+2. ``nobody``: no camera saw anyone, so there is no one to place;
+3. ``not_triangulated``: someone was matched, but no keypoint of theirs
+   agreed across the cameras (triangulation, Stage 1);
+4. everyone in 3D: every detection belongs to a match, and every match was
+   reconstructed;
+5. ``single_view_only``: people were seen, but only one camera saw anyone;
+6. ``one_view_or_unmatched``: two or more cameras saw people, but some
+   detection belongs to no match. That is a person only one camera saw, a
+   person the cameras did not match (association, Stage 2), or an extra
+   detection (a double detection, a passer-by in one camera); without a
+   fixed number of people these cannot be told apart.
+
+Each second takes the outcome of most of its ticks, so a single flickering
+tick does not mark the second. Seconds with the same cause join into
+segments; ``seconds_by_cause`` sums them, ``nobody_s`` counts the seconds
+without anyone, and ``complete_pct`` is the share of the seconds with
+someone in view that had everyone in 3D (unknown, not 100%, when nobody
+was ever seen). The session report draws it as a strip, and the run's log
+prints the totals. It follows the quality timeline of the 4by4k pipeline
+(``fourk/qa.py``, MIT licence), per session rather than per person, since
+MOSAIC does not fix the number of people.
+
 .. _pose3d-recommendations:
 
 Practical recommendations

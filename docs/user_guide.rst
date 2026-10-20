@@ -931,7 +931,13 @@ sitting alongside **Live**. The workflow is always the same shape:
       the stats/CSV export to one track or "All." The selected camera's
       video also shows the reprojected 2D skeleton overlay, letting you
       visually confirm the 3D reconstruction actually lines up with what
-      that camera really saw. See :doc:`math/pose3d_reconstruction` for the
+      that camera really saw. The run's log, and the session report (a
+      coloured strip under 3D Pose, and a row in Data quality), say how much
+      of the recording (with someone in view) had everyone in 3D, and why
+      people were missing the rest of the time: no camera frames, only one
+      camera saw anyone, someone seen by one camera only or not matched
+      across cameras, or cameras that did not agree on their keypoints. See
+      :doc:`math/pose3d_reconstruction` for the
       triangulation, cross-camera association, and tracking math, and for
       its important caveat about 2-camera rigs with multiple people.
 

@@ -562,6 +562,7 @@ nearest-centroid tracking across frames (:class:`~pose3d.PersonTracker3D`).
    PersonTracker3D
    identity_audit
    view_agreement
+   qa_timeline
 
 .. autoclass:: pose3d.CameraGeom
    :members:
@@ -586,6 +587,8 @@ nearest-centroid tracking across frames (:class:`~pose3d.PersonTracker3D`).
 .. autofunction:: pose3d.identity_audit
 
 .. autofunction:: pose3d.view_agreement
+
+.. autofunction:: pose3d.qa_timeline
 
 .. autoclass:: pose3d.PersonObservation
    :members:

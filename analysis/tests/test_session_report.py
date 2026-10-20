@@ -427,6 +427,19 @@ def test_pose_voice_and_sync_readers(tmp_path):
             "quality": {
                 "identity": {"track_count": 2, "jumps": 1, "swaps": 0, "short_tracks": 0},
                 "views": {"2": {"used": 90, "dropped": 10, "unresolved": 3, "dropped_pct": 10.0}},
+                "timeline": {
+                    "window_s": 1.0,
+                    "complete_pct": 50.0,
+                    "seconds_by_cause": {"single_view_only": 1.0, "no_frames": 0.0},
+                    "windows": [
+                        {"t0_s": 0.0, "reconstructed": 2, "cause": None},
+                        {
+                            "t0_s": 1.0,
+                            "reconstructed": 1,
+                            "cause": "single_view_only",
+                        },
+                    ],
+                },
             },
             "frames": [{}, {}],
         },
@@ -453,6 +466,11 @@ def test_pose_voice_and_sync_readers(tmp_path):
     # Data quality: missing frames, 3D identities and per-camera disagreement.
     assert "<span class='dot bad'></span>Camera 3 frames</td><td>30 of 1000 missing (3.0%)" in page
     assert "1 jump(s)" in page and "dropped as disagreeing from 10.0%" in page
+    assert (
+        "everyone seen in 3D in 50% of the seconds with someone in view; people missing: "
+        "only one camera saw anyone 1 s" in page
+    )
+    assert 'aria-label="3D pose coverage"' in page and "var(--q3)" in page
     assert 'aria-label="Spectrogram of audio.wav"' in page and "data:image/png;base64" in page
     assert "pose3d" not in collect.collect(s, for_summary_only=True).session_results
     assert data.session_results["pose3d"]["quality"]["identity"]["jumps"] == 1

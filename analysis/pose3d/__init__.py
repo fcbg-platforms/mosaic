@@ -7,7 +7,7 @@ from .association import (
     match_camera_pair,
     pairwise_cost,
 )
-from .audit import identity_audit, view_agreement
+from .audit import identity_audit, qa_timeline, view_agreement
 from .smoothing import smooth_track_positions
 from .tracker import PersonTracker3D, TrackedPerson3D
 from .triangulation import (
@@ -41,4 +41,5 @@ __all__ = [
     "smooth_track_positions",
     "identity_audit",
     "view_agreement",
+    "qa_timeline",
 ]

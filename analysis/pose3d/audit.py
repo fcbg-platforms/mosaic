@@ -199,3 +199,97 @@ def view_agreement(used: dict, dropped: dict, unresolved: dict | None = None) ->
             "dropped_pct": round(100.0 * d / (u + d), 2) if u + d else None,
         }
     return out
+
+
+# ── Why there is no 3D: a per-second timeline ──────────────────────────────
+
+#: Why someone is missing from 3D at a tick, from the most basic: the first
+#: that applies is the tick's cause.
+CAUSES = (
+    "no_frames",  # no camera had a frame (a sync gap)
+    "single_view_only",  # people were seen, but only one camera saw anyone
+    "one_view_or_unmatched",  # some detection is in no match: a person only one
+    # camera saw, a person the cameras did not match, or an extra detection
+    # (a double detection, a passer-by); these cannot be told apart here
+    "not_triangulated",  # matched, but for someone no keypoint agreed
+)
+#: Ticks where no camera saw anyone: nobody to place in 3D.
+NOBODY = "nobody"
+
+
+def tick_cause(diag: dict) -> str | None:
+    """A tick's outcome: ``None`` when everyone seen is in 3D, ``"nobody"``
+    when no camera saw anyone, else why someone is missing (:data:`CAUSES`).
+
+    ``diag``: ``cameras_with_frame``, ``cameras_with_person``,
+    ``detections`` (all cameras), ``matched_detections`` (detections in a
+    match across cameras), ``matched`` (people matched) and
+    ``reconstructed`` (people in 3D)."""
+    if diag["cameras_with_frame"] == 0:
+        return "no_frames"
+    if diag["detections"] == 0:
+        return NOBODY
+    if diag["reconstructed"] < diag["matched"]:
+        return "not_triangulated"
+    if diag["matched_detections"] >= diag["detections"]:
+        return None
+    if diag["cameras_with_person"] < 2:
+        return "single_view_only"
+    return "one_view_or_unmatched"
+
+
+def qa_timeline(diags: list, times_s: list, window_s: float = 1.0) -> dict:
+    """Per window of ``window_s``: the outcome of most of its ticks (``None``:
+    everyone seen was in 3D; ``"nobody"``; or a cause), and the most people
+    reconstructed. Windows with the same cause join into segments.
+    ``complete_pct`` is the share of windows with someone seen that had
+    everyone in 3D; ``seconds_by_cause`` sums the rest, and ``nobody_s`` the
+    windows without anyone. Follows the quality timeline of the 4by4k pipeline
+    (``fourk/qa.py``, MIT licence), per session rather than per person, since
+    MOSAIC does not fix the number of people."""
+    windows: dict = {}
+    for d, t in zip(diags, times_s, strict=False):
+        k = int(t // window_s)
+        w = windows.setdefault(k, {"reconstructed": 0, "outcomes": {}})
+        w["reconstructed"] = max(w["reconstructed"], d["reconstructed"])
+        o = tick_cause(d) or "ok"
+        w["outcomes"][o] = w["outcomes"].get(o, 0) + 1
+    order = ("ok", NOBODY, *CAUSES)  # ties go to the earlier
+    out_windows = []
+    for k in sorted(windows):
+        w = windows[k]
+        best = max(order, key=lambda o: (w["outcomes"].get(o, 0), -order.index(o)))
+        out_windows.append(
+            {
+                "t0_s": round(k * window_s, 3),
+                "reconstructed": w["reconstructed"],
+                "cause": None if best == "ok" else best,
+            }
+        )
+    segments = []
+    for w in out_windows:
+        if w["cause"] in (None, NOBODY):
+            continue
+        end = round(w["t0_s"] + window_s, 3)
+        if (
+            segments
+            and segments[-1]["cause"] == w["cause"]
+            and abs(segments[-1]["end_s"] - w["t0_s"]) < 1e-6
+        ):
+            segments[-1]["end_s"] = end
+        else:
+            segments.append({"start_s": w["t0_s"], "end_s": end, "cause": w["cause"]})
+    by_cause = {c: 0.0 for c in CAUSES}
+    for w in out_windows:
+        if w["cause"] in by_cause:
+            by_cause[w["cause"]] += window_s
+    seen = [w for w in out_windows if w["cause"] != NOBODY]
+    complete = sum(1 for w in seen if w["cause"] is None)
+    return {
+        "window_s": window_s,
+        "complete_pct": round(100.0 * complete / len(seen), 1) if seen else None,
+        "nobody_s": round(window_s * (len(out_windows) - len(seen)), 2),
+        "seconds_by_cause": {c: round(v, 2) for c, v in by_cause.items()},
+        "segments": segments,
+        "windows": out_windows,
+    }
