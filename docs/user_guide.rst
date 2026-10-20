@@ -552,6 +552,32 @@ sitting alongside **Live**. The workflow is always the same shape:
       rate rounded to 10 bpm). A lane whose analysis was not run for this
       camera says which one to run; run it, then come back to the overview.
 
+   .. tab-item:: Object Tracking
+
+      **What it does**: finds objects you name, "toy, cup, tablet computer" by
+      default, in each camera's video with SAM 3, follows each one (its own
+      id, so two cups are told apart), and, when Pose was run on that camera,
+      says who touched which object and for how long (a wrist on or next to
+      its outline). Writes ``objects/video_N.objects.json`` and, with
+      **Annotated video**, ``objects/video_N.objects.mp4`` with every object's
+      outline and name (thicker while touched). See
+      :doc:`math/object_tracking`.
+
+      **Before the first run**: download the SAM 3 weights, ``sam3.pt``, from
+      Hugging Face (``facebook/sam3``; you must accept Meta's licence there
+      first) and put the file in the MOSAIC folder. It needs the GPU, and takes about 8 times the
+      recording's length per camera at every second frame.
+
+      **Settings**: **Objects**, short names separated by commas, one thing
+      each ("toy", not "toys") and clear ("tablet computer": "tablet" alone
+      also finds door panels); **every N frames** (2 by default: half the
+      time, and hands and objects are still followed).
+
+      **Reading it**: **Show** picks when each object is seen, or when it is
+      touched, one row per object. The line under the chart gives, per
+      object, how much of the video it was seen in and who touched it for
+      how long; without a Pose result for the camera it says to run Pose.
+
    .. tab-item:: Social Interaction
 
       **What it does**: measures how two people's behaviour is coupled, each

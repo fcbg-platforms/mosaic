@@ -43,6 +43,7 @@ add_executable(mosaic_tests
     test_session_overview.cpp
     test_eye_contact_result.cpp
     test_social_result.cpp
+    test_objects_result.cpp
     test_golden_session.cpp
     test_sync_repair_result.cpp
     test_audio_envelope.cpp
@@ -99,6 +100,7 @@ add_executable(mosaic_tests
     "${CMAKE_SOURCE_DIR}/src/analysis/conversation_result.cpp"
     "${CMAKE_SOURCE_DIR}/src/analysis/eye_contact_result.cpp"
     "${CMAKE_SOURCE_DIR}/src/analysis/social_result.cpp"
+    "${CMAKE_SOURCE_DIR}/src/analysis/objects_result.cpp"
     "${CMAKE_SOURCE_DIR}/src/analysis/session_overview.cpp"
     "${CMAKE_SOURCE_DIR}/src/audio/audio_timing_log.cpp"
     "${CMAKE_SOURCE_DIR}/src/analysis/sync_repair_result.cpp"

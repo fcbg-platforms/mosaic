@@ -862,6 +862,29 @@ def _small(name: str, rows: list) -> str:
     return f"<h3>{esc(name)}</h3>" + table(rows)
 
 
+def _objects(ob: dict) -> str:
+    rows = []
+    for o in ob.get("objects", []):
+        detail = f"seen {num(o.get('seen_pct'), 0, '%')}"
+        if ob.get("pose_used"):
+            who = o.get("touched_s_by_person") or {}
+            detail += (
+                "; touched by "
+                + ", ".join(f"person {esc(p)} {num(s, 1, ' s')}" for p, s in who.items())
+                if who
+                else "; not touched"
+            )
+        rows.append((f"{o.get('label')} {o.get('id')}", detail))
+    if not rows:
+        rows = [("Found", "none of " + ", ".join(ob.get("labels", [])))]
+    note = (
+        ""
+        if ob.get("pose_used")
+        else "<p class='note'>Run Pose on this camera to see who touches what.</p>"
+    )
+    return _small("Objects (SAM 3)", rows) + note
+
+
 def found_nothing(cam: CameraResults) -> bool:
     """Whether every analysis of this camera ran but saw no face or speech."""
     r = cam.results
@@ -943,6 +966,8 @@ def camera_section(cam: CameraResults) -> str:
                 ],
             )
         )
+    if "objects" in r:
+        body.append(_objects(r["objects"]))
     charts = [
         c
         for c in (

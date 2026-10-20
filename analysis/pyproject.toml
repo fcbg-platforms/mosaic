@@ -47,6 +47,11 @@ dependencies = [
     "torch>=2.4",
     "torchvision>=0.19",
     "torchaudio>=2.4",
+    # SAM 3's text encoder (Object Tracking: objects found by name). Ultralytics
+    # imports `clip` for it but does not declare it, and would pip-install it on
+    # first use (removed again by the next `uv sync`). Ultralytics' fork of
+    # OpenAI's CLIP, pinned to a commit; AGPL-3.0, like ultralytics itself.
+    "clip @ git+https://github.com/ultralytics/CLIP.git@7ffa84b3bfa40c42ecc1c77147a855e69cb2dd40",
 ]
 
 [dependency-groups]

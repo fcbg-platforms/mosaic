@@ -28,6 +28,7 @@ PER_CAMERA_ANALYSES = (
     ("gaze2d", "2D Gaze"),
     ("expression", "Facial Expression"),
     ("pose", "Pose"),
+    ("objects", "Object Tracking"),
 )
 #: A pose track counts as a person when present in this share of frames.
 MIN_TRACK_SHARE = 0.05
@@ -223,8 +224,20 @@ def _pose(session: Path, stem: str) -> dict | None:
     }
 
 
+def _objects(session: Path, stem: str) -> dict | None:
+    d = read_json(session / "objects" / f"{stem}.objects.json")
+    if d is None or d.get("schema") != "mosaic-objects-v1":
+        return None
+    # The summary only; every frame's outlines stay in the file.
+    return {
+        "labels": d.get("labels", []),
+        "pose_used": d.get("pose_used", False),
+        "objects": (d.get("summary") or {}).get("objects", []),
+    }
+
+
 #: Outputs the summary row does not use, skipped by summary-only runs.
-NOT_IN_SUMMARY = {"pose"}
+NOT_IN_SUMMARY = {"pose", "objects"}
 
 PER_CAMERA_READERS = {
     "face_dynamics": _face_dynamics,
@@ -234,6 +247,7 @@ PER_CAMERA_READERS = {
     "gaze2d": _gaze2d,
     "expression": _expression,
     "pose": _pose,
+    "objects": _objects,
 }
 
 

@@ -125,6 +125,13 @@ conventions, matching
       Audio on the video clock, mouth-based speaker attribution, and floor
       transfer offsets, pauses, overlaps and backchannels.
 
+   .. grid-item-card:: 🧸 Object Tracking
+      :link: object_tracking
+      :link-type: doc
+
+      Objects found by name with SAM 3, kept as outlines, and hand contact
+      from Pose wrists.
+
    .. grid-item-card:: 🤝 Social Interaction
       :link: social_interaction
       :link-type: doc
@@ -148,4 +155,5 @@ conventions, matching
    face_dynamics
    conversation_timing
    social_interaction
+   object_tracking
    eye_contact

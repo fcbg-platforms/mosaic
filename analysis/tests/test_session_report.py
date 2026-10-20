@@ -572,3 +572,26 @@ def test_social_section_in_room_sessions_only(tmp_path):
     # An interview session never lists it as not run.
     one = render.render(collect.collect(make_session(tmp_path / "b")))
     assert "<li>Social Interaction</li>" not in one
+
+
+def test_objects_card(tmp_path):
+    s = make_session(tmp_path / "a")
+    _write(
+        s / "objects" / "video_2.objects.json",
+        {
+            "schema": "mosaic-objects-v1",
+            "labels": ["toy", "cup"],
+            "pose_used": True,
+            "summary": {
+                "objects": [
+                    {"id": 1, "label": "cup", "seen_pct": 93.3, "touched_s_by_person": {"1": 0.8}},
+                    {"id": 2, "label": "toy", "seen_pct": 20.0, "touched_s_by_person": {}},
+                ]
+            },
+            "frames": [{"objects": [{"polygon": [[0, 0]] * 50}]}],
+        },
+    )
+    page = render.render(collect.collect(s))
+    assert "Objects (SAM 3)" in page and "seen 93%; touched by person 1 0.8 s" in page
+    assert "seen 20%; not touched" in page
+    assert "objects" not in collect.collect(s, for_summary_only=True).cameras[0].results
