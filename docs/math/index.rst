@@ -125,6 +125,13 @@ conventions, matching
       Audio on the video clock, mouth-based speaker attribution, and floor
       transfer offsets, pauses, overlaps and backchannels.
 
+   .. grid-item-card:: 👏 Audio-Video Check
+      :link: clap_check
+      :link-type: doc
+
+      Claps heard (spectral flux, refined to the sample) against claps seen
+      (wrists meeting): how far the audio is from the video.
+
    .. grid-item-card:: 🧸 Object Tracking
       :link: object_tracking
       :link-type: doc
@@ -156,4 +163,5 @@ conventions, matching
    conversation_timing
    social_interaction
    object_tracking
+   clap_check
    eye_contact

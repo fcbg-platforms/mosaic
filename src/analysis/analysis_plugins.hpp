@@ -91,6 +91,8 @@ struct AnalysisPluginDesc {
          AnalysisPluginCategory::Audio},
         {"sync_repair", "Frame Sync Repair", "Equalizes camera frame counts into synced/.",
          AnalysisPluginCategory::DataPrep},
+        {"clap_check", "Audio-Video Check", "Claps heard against claps seen: is the audio in time?",
+         AnalysisPluginCategory::DataPrep},
         {"objects", "Object Tracking",
          "Toys, cups, tablets found by name (SAM 3), and who touches them.",
          AnalysisPluginCategory::BodyMotion},

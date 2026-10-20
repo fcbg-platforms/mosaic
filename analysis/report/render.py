@@ -491,6 +491,23 @@ def quality_rows(data: SessionData) -> list:
                 )
             else:
                 rows.append(("info", f"{cam.name} calibration", "no lens calibration"))
+    cc = data.session_results.get("clap_check")
+    if cc:
+        for cam in cc.get("cameras", []):
+            for m in cam.get("microphones", []):
+                off = m.get("median_offset_ms")
+                status = {"ok": "ok", "check": "warn", "off": "bad"}.get(m.get("verdict"), "info")
+                rows.append(
+                    (
+                        status,
+                        f"Audio vs Camera {cam['camera'] + 1}",
+                        f"{m['file']}: no clap both heard and seen"
+                        if off is None
+                        else f"{m['file']}: audio {off:+.0f} ms from the video over "
+                        f"{m['matched']} clap(s), spread {m.get('spread_ms', 0):.0f} ms "
+                        f"(a frame is {cam.get('frame_ms', 40):.0f} ms)",
+                    )
+                )
     for t in data.session_results.get("transcripts") or []:
         st = t.get("diarization")
         rows.append(

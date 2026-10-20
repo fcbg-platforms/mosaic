@@ -613,3 +613,32 @@ def test_objects_card(tmp_path):
     assert "Objects (SAM 3)" in page and "seen 93%; touched by person 1 0.8 s" in page
     assert "seen 20%; not touched" in page
     assert "objects" not in collect.collect(s, for_summary_only=True).cameras[0].results
+
+
+def test_clap_check_row(tmp_path):
+    s = make_session(tmp_path / "a")
+    _write(
+        s / "sync_check" / "clap_check.json",
+        {
+            "schema": "mosaic-clap-check-v1",
+            "verdict": "check",
+            "cameras": [
+                {
+                    "camera": 2,
+                    "frame_ms": 40.0,
+                    "microphones": [
+                        {
+                            "file": "audio.wav",
+                            "matched": 3,
+                            "median_offset_ms": 31.0,
+                            "spread_ms": 2.0,
+                            "verdict": "check",
+                        }
+                    ],
+                }
+            ],
+        },
+    )
+    page = render.render(collect.collect(s))
+    assert "Audio vs Camera 3" in page and "audio +31 ms from the video over 3 clap(s)" in page
+    assert "<span class='dot warn'></span>Audio vs Camera 3" in page
