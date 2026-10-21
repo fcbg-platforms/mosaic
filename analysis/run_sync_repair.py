@@ -62,6 +62,7 @@ from sync_repair.tick_alignment import (
     build_tick_plan,
     gap_ranges,
 )
+from video_publish import open_writer
 
 _MAX_GAPS_LISTED = 100  # per camera in sync_repair.json; the total is always given
 
@@ -261,20 +262,6 @@ def _load_trigger_ticks(session_dir: Path) -> tuple[np.ndarray, set[int]] | None
 # ── Per-camera repair (single sequential forward pass) ──────────────────────
 
 
-def _open_writer(out_path: Path, fps: float, size: tuple[int, int]):
-    # avc1 (H.264) plays back more reliably in Qt/Windows Media Foundation
-    # than mp4v, but isn't always available depending on the OpenCV build's
-    # bundled FFmpeg — fall back to mp4v (always available) if it fails.
-    # Copied verbatim from run_face_mask.py's own already-proven helper.
-    for fourcc_name in ("avc1", "mp4v"):
-        fourcc = cv2.VideoWriter_fourcc(*fourcc_name)
-        writer = cv2.VideoWriter(str(out_path), fourcc, fps, size)
-        if writer.isOpened():
-            return writer
-        writer.release()
-    return None
-
-
 def _repair_camera(
     video_path: Path,
     ordinal_map: dict[int, int],
@@ -311,7 +298,7 @@ def _repair_camera(
 
     width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-    writer = _open_writer(out_video_path, master_fps, (width, height))
+    writer = open_writer(out_video_path, master_fps, (width, height))
     if writer is None:
         cap.release()
         return 0, 0, f"could not open a video writer for {out_video_path.name}"
@@ -629,6 +616,9 @@ def process_session(session_dir: Path, master_fps_arg: float) -> None:
 
     out_dir = session_dir / "synced"
     out_dir.mkdir(parents=True, exist_ok=True)
+    # The summary is written last: until then this run is unfinished, and
+    # MOSAIC finishes it on its next start if it is cut off.
+    (out_dir / "sync_repair.json").unlink(missing_ok=True)
 
     summary_cameras: dict[int, dict] = {
         d.index: {

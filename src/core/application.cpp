@@ -14,6 +14,7 @@
 #include <array>
 
 #include "analysis/analysis_manager.hpp"
+#include "analysis/sync_repair_result.hpp"
 #include "auth/profile_manager.hpp"
 #include "core/data_root.hpp"
 #include "core/pc_settings.hpp"
@@ -684,6 +685,9 @@ void Application::initialize(const QString& username, bool isAdmin) {
             // waiting start together on release below.
             if (d->settings.record.autoSyncRepair && d->settings.record.enableVideo &&
                 QDir(path + "/video").entryList({"timestamps_cam*.csv"}, QDir::Files).size() >= 2) {
+                // synced/ without its summary marks it unfinished until the
+                // run completes; see unfinished_frame_syncs().
+                QDir(path).mkpath("synced");
                 d->analysisManager->run_sync_repair(path, 0.0);
             }
             d->analysisManager->set_launches_held(false);
@@ -694,6 +698,15 @@ void Application::initialize(const QString& username, bool isAdmin) {
                                                  d->recordManager.get(), d->analysisManager.get(),
                                                  d->isAdmin, d->otherUserDirectories);
     d->mainWindow->show();
+
+    // Frame Sync cut off last time (MOSAIC closed while it ran): finish it.
+    if (d->settings.record.autoSyncRepair) {
+        for (const QString& path : unfinished_frame_syncs(d->settings.record.directory)) {
+            log_info("[Analysis] Finishing the Frame Sync of " + QFileInfo(path).fileName() +
+                     ", cut off last time");
+            d->analysisManager->run_sync_repair(path, 0.0);
+        }
+    }
 
     // A run that closed unexpectedly: said once, to the profile it was (an
     // admin hears about every profile's); begin_run() already chose.

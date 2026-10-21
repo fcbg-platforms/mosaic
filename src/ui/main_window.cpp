@@ -11,6 +11,7 @@
 #include <QLabel>
 #include <QMenuBar>
 #include <QMessageBox>
+#include <QPushButton>
 #include <QQmlContext>
 #include <QQuickWidget>
 #include <QSet>
@@ -1141,6 +1142,24 @@ void MainWindow::set_interview_mode(bool on) {
 // ── Close ──────────────────────────────────────────────────────────────────
 
 void MainWindow::closeEvent(QCloseEvent* event) {
+    // Closing stops the analysis running in the background: Frame Sync,
+    // which starts by itself after every recording, was lost this way.
+    const QStringList pending = d->analysisMgr ? d->analysisMgr->pending_work() : QStringList();
+    if (!pending.isEmpty()) {
+        QMessageBox box(QMessageBox::Question, "MOSAIC is still working",
+                        "Still running or waiting:\n• " + pending.join("\n• ") +
+                            "\n\nClosing MOSAIC now stops it. Frame Sync is finished the next "
+                            "time MOSAIC starts; other analyses must be run again.",
+                        QMessageBox::NoButton, this);
+        QPushButton* keep = box.addButton("Keep MOSAIC open", QMessageBox::RejectRole);
+        box.addButton("Close anyway", QMessageBox::AcceptRole);
+        box.setDefaultButton(keep);
+        box.exec();
+        if (box.clickedButton() == keep) {
+            event->ignore();
+            return;
+        }
+    }
     if (d->recordMgr && d->recordMgr->is_recording()) {
         d->recordMgr->stop();
     }

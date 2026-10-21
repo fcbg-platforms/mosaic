@@ -3,12 +3,14 @@ over a file that is still open."""
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+import video_publish
 from diarize import pipeline
-from video_publish import publish_video
+from video_publish import open_writer, publish_video
 
 
 def _word(start, end):
@@ -83,3 +85,28 @@ def test_publish_waits_for_the_file_to_come_free(tmp_path, monkeypatch):
     publish_video(partial, out, wait_s=5.0)
     assert out.read_bytes() == b"new"
     assert len(tries) == 2
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="the codec choice is Windows-only")
+def test_writer_skips_the_ffmpeg_h264_attempt_without_openh264(tmp_path, monkeypatch):
+    # Without OpenH264 the FFmpeg plugin's avc1 writer fails noisily and has
+    # left the plugin crashing Python on exit: go to Media Foundation's H.264
+    # first (as OpenCV's own fallback did), MPEG-4 only if that fails too.
+    import cv2
+    import numpy as np
+
+    monkeypatch.setattr(video_publish, "has_openh264", lambda: False)
+    assert video_publish.writer_attempts() == [
+        ("avc1", cv2.CAP_MSMF),
+        ("mp4v", cv2.CAP_FFMPEG),
+    ]
+    monkeypatch.setattr(video_publish, "has_openh264", lambda: True)
+    assert video_publish.writer_attempts()[0] == ("avc1", cv2.CAP_FFMPEG)
+
+    monkeypatch.setattr(video_publish, "has_openh264", lambda: False)
+    out = tmp_path / "v.mp4"
+    w = open_writer(out, 10.0, (64, 48))
+    assert w is not None
+    w.write(np.zeros((48, 64, 3), np.uint8))
+    w.release()
+    assert out.stat().st_size > 0

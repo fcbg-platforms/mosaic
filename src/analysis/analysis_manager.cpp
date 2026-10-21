@@ -8,6 +8,7 @@
 #endif
 
 #include <QCoreApplication>
+#include <QDateTime>
 #include <QDir>
 #include <QFileInfo>
 #include <QProcess>
@@ -74,6 +75,7 @@ struct AnalysisManager::Impl {
     QString currentSession;
     // The running script and its last error output, to name a failure.
     QString currentScript;
+    QDateTime startedAt;
     QStringList recentStderr;
     QProcess* process = nullptr;
     QQueue<Job> queue; // jobs waiting to be processed
@@ -404,6 +406,7 @@ void AnalysisManager::launch(const QString& sessionPath, const QString& scriptRe
 
     d->currentSession = sessionPath;
     d->currentScript  = QFileInfo(scriptRelPath).fileName();
+    d->startedAt      = QDateTime::currentDateTime();
     d->recentStderr.clear();
     d->process = new QProcess(this);
     d->process->setProcessChannelMode(QProcess::SeparateChannels);
@@ -503,7 +506,21 @@ void AnalysisManager::on_stderr_ready() {
 }
 
 void AnalysisManager::on_process_finished(int exitCode, int exitStatus) {
-    const bool success = (exitCode == 0) && (exitStatus == QProcess::NormalExit);
+    bool success = (exitCode == 0) && (exitStatus == QProcess::NormalExit);
+    // run_sync_repair.py writes its summary last, after every camera's
+    // video. Python has crashed on exit after that (inside OpenCV's FFmpeg
+    // plugin), which lost nothing, so the run counts as done.
+    if (!success && d->currentScript == "run_sync_repair.py") {
+        const QFileInfo summary(d->currentSession + "/synced/sync_repair.json");
+        if (summary.exists() && summary.lastModified() >= d->startedAt.addSecs(-1)) {
+            log_warning(QString("[AnalysisManager] run_sync_repair.py finished %1, then Python "
+                                "closed with an error (exit code %2); the synced videos are "
+                                "complete.")
+                            .arg(QFileInfo(d->currentSession).fileName())
+                            .arg(exitCode));
+            success = true;
+        }
+    }
 
     log_info(QString("[AnalysisManager] Process finished — exit code %1 (%2)")
                  .arg(exitCode)
@@ -532,6 +549,23 @@ void AnalysisManager::on_process_finished(int exitCode, int exitStatus) {
         const Job job = d->queue.dequeue();
         launch(job.sessionPath, job.scriptRelPath, job.args, job.env);
     }
+}
+
+QStringList AnalysisManager::pending_work() const {
+    auto line = [](const QString& script, const QString& session) {
+        const QString what = QFileInfo(script).fileName() == "run_sync_repair.py"
+                                 ? QStringLiteral("Frame Sync")
+                                 : QFileInfo(script).completeBaseName();
+        return QString("%1 on %2").arg(what, QFileInfo(session).fileName());
+    };
+    QStringList out;
+    if (is_running()) {
+        out << line(d->currentScript, d->currentSession);
+    }
+    for (const Job& job : d->queue) {
+        out << line(job.scriptRelPath, job.sessionPath);
+    }
+    return out;
 }
 
 void AnalysisManager::set_launches_held(bool held) {

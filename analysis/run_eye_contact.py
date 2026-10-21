@@ -35,7 +35,7 @@ import traceback
 from pathlib import Path
 
 import numpy as np
-from video_publish import publish_video
+from video_publish import open_writer, publish_video
 
 TAG = "[run_eye_contact]"
 SCHEMA = "mosaic-eye-contact-v1"
@@ -445,7 +445,7 @@ def render(
 ) -> bool:
     import cv2
     from eye_contact.metrics import direction_label
-    from gaze.render import open_writer, partial_path
+    from gaze.render import partial_path
 
     cap = cv2.VideoCapture(str(video))
     fps = cap.get(cv2.CAP_PROP_FPS) or 25.0

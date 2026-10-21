@@ -23,7 +23,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 import numpy as np
-from video_publish import publish_video
+from video_publish import open_writer, publish_video
 
 from .head_pose import project_points
 from .ray_math import unit
@@ -155,18 +155,6 @@ def build_render_data(
         hold_ticks=max(skip, int(round(HOLD_SECONDS * timeline.fps))),
         trail_ticks=int(round(TRAIL_SECONDS * timeline.fps)),
     )
-
-
-def open_writer(path: Path, fps: float, size: tuple[int, int]):
-    """An mp4 writer, H.264 when this OpenCV build has it, else MPEG-4."""
-    import cv2
-
-    for code in ("avc1", "mp4v"):
-        w = cv2.VideoWriter(str(path), cv2.VideoWriter_fourcc(*code), fps, size)
-        if w.isOpened():
-            return w
-        w.release()
-    return None
 
 
 def partial_path(path: Path) -> Path:

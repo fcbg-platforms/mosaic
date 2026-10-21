@@ -163,7 +163,9 @@ one row per camera with frames captured, dropped and incomplete, and the
 synchronisation quality. Shortly afterwards, **Frame Sync Repair** starts in
 the background and writes the equal-length videos into ``synced/`` (see
 :ref:`synced-videos`). It never starts while a new recording is running; it
-waits until that one stops.
+waits until that one stops. It takes about as long as the recording; closing
+MOSAIC before it is done asks first, and a Frame Sync cut off this way is
+finished the next time MOSAIC starts.
 
 .. _room-and-interview-mode:
 

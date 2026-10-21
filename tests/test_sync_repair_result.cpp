@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 
+#include <QDir>
 #include <QFile>
 #include <QTemporaryDir>
 
@@ -203,4 +204,20 @@ TEST(SyncRepairResult, OlderReportsLeaveTheNewFieldsUnknown) {
     EXPECT_EQ(r.cameras()[0].missingFrameCount, -1);
     EXPECT_EQ(r.cameras()[0].leadInTrimmed, -1);
     EXPECT_TRUE(r.cameras()[0].gaps.isEmpty());
+}
+
+// A Frame Sync cut off before its summary is listed; a finished one, or a
+// session never synced (older recordings), is not.
+TEST(SyncRepairResult, UnfinishedFrameSyncsAreThoseWithoutTheirSummary) {
+    QTemporaryDir dir;
+    ASSERT_TRUE(dir.isValid());
+    const QDir root(dir.path());
+    root.mkpath("cut_off/synced");
+    root.mkpath("finished/synced");
+    root.mkpath("never_synced/video");
+    QFile summary(root.filePath("finished/synced/sync_repair.json"));
+    ASSERT_TRUE(summary.open(QIODevice::WriteOnly));
+    summary.close();
+    EXPECT_EQ(mosaic::unfinished_frame_syncs(dir.path()), QStringList{root.filePath("cut_off")});
+    EXPECT_TRUE(mosaic::unfinished_frame_syncs(root.filePath("missing")).isEmpty());
 }

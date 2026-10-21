@@ -79,6 +79,10 @@ class AnalysisManager : public QObject {
     /// @returns @c true while the analysis subprocess is running.
     [[nodiscard]] bool is_running() const;
 
+    /// What is running or waiting, one line each ("Frame Sync on <session>"),
+    /// to ask before MOSAIC closes; empty when idle.
+    [[nodiscard]] QStringList pending_work() const;
+
     /// Holds new analysis runs while a recording is in progress: anything
     /// asked for meanwhile is queued, and the queue resumes when the hold is
     /// released. A run already going is left alone.

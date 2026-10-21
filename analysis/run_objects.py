@@ -29,7 +29,7 @@ from pathlib import Path
 import numpy as np
 from objects.contact import contact_events, frame_contacts, summarise
 from run_face_dynamics import frame_times_ms, read_timestamps_ms
-from video_publish import publish_video
+from video_publish import open_writer, publish_video
 
 TAG = "[run_objects]"
 SCHEMA = "mosaic-objects-v1"
@@ -164,7 +164,7 @@ def write_video(video: Path, result: dict, out_path: Path) -> bool:
     """The video with each object's outline and label; a touched object's
     outline is drawn thicker."""
     import cv2
-    from gaze.render import open_writer, partial_path
+    from gaze.render import partial_path
 
     keep = {o["id"] for o in result["summary"]["objects"]}
     by_index = {
