@@ -3,6 +3,7 @@ over a file that is still open."""
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -86,24 +87,26 @@ def test_publish_waits_for_the_file_to_come_free(tmp_path, monkeypatch):
     assert len(tries) == 2
 
 
-def test_writer_skips_h264_without_its_library(tmp_path, monkeypatch):
-    # Without OpenH264 an avc1 writer fails noisily and has left OpenCV's
-    # FFmpeg plugin crashing Python on exit: go straight to mp4v.
+@pytest.mark.skipif(sys.platform != "win32", reason="the codec choice is Windows-only")
+def test_writer_skips_the_ffmpeg_h264_attempt_without_openh264(tmp_path, monkeypatch):
+    # Without OpenH264 the FFmpeg plugin's avc1 writer fails noisily and has
+    # left the plugin crashing Python on exit: go to Media Foundation's H.264
+    # first (as OpenCV's own fallback did), MPEG-4 only if that fails too.
     import cv2
     import numpy as np
 
-    tried = []
-    real = cv2.VideoWriter
+    monkeypatch.setattr(video_publish, "has_openh264", lambda: False)
+    assert video_publish.writer_attempts() == [
+        ("avc1", cv2.CAP_MSMF),
+        ("mp4v", cv2.CAP_FFMPEG),
+    ]
+    monkeypatch.setattr(video_publish, "has_openh264", lambda: True)
+    assert video_publish.writer_attempts()[0] == ("avc1", cv2.CAP_FFMPEG)
 
-    def spy(path, fourcc, fps, size):
-        tried.append(fourcc)
-        return real(path, fourcc, fps, size)
-
-    monkeypatch.setattr(video_publish, "has_h264", lambda: False)
-    monkeypatch.setattr(cv2, "VideoWriter", spy)
+    monkeypatch.setattr(video_publish, "has_openh264", lambda: False)
     out = tmp_path / "v.mp4"
     w = open_writer(out, 10.0, (64, 48))
-    assert w is not None and tried == [cv2.VideoWriter_fourcc(*"mp4v")]
+    assert w is not None
     w.write(np.zeros((48, 64, 3), np.uint8))
     w.release()
     assert out.stat().st_size > 0
