@@ -580,6 +580,9 @@ sitting alongside **Live**. The workflow is always the same shape:
       touched, one row per object. The line under the chart gives, per
       object, how much of the video it was seen in and who touched it for
       how long; without a Pose result for the camera it says to run Pose.
+      The chart always spans the whole video. When no touch was found, its
+      title says why: on a close-up camera that sees only an arm, Pose cannot
+      place the wrist, so use a camera that sees the whole person.
 
    .. tab-item:: Audio-Video Check
 

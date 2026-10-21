@@ -791,6 +791,16 @@ class MetricsChartW : public QChartView {
         apply_ranges(true, minY, maxY, maxT);
     }
 
+    /// The video's length: every time chart spans at least this, so an empty
+    /// one (no touches found, no second person) or one whose data ends early
+    /// still lines up with the player, and a click seeks to the same moment.
+    void set_recording_ms(int64_t ms) {
+        recordingSec_ = std::max<int64_t>(0, ms) / 1000.0;
+        if (!barMode_) {
+            axisX_->setRange(0, std::max({dataMaxT_, recordingSec_, 1.0}));
+        }
+    }
+
     void set_playhead_ms(int64_t ms) {
         if (barMode_) {
             return; // no time axis to put it on
@@ -927,23 +937,19 @@ class MetricsChartW : public QChartView {
 
     // Shared by set_data()/set_single_series() so both modes' axis-range
     // policy (10%-padded, 5px minimum pad) can't drift apart. hasRange ==
-    // false resets to a small fixed default instead of leaving whatever
-    // range a previously-displayed mode left behind — a stale wide range
-    // under a freshly-changed axis label (e.g. switching to Speed for a
-    // keypoint with no valid samples) would otherwise show old numbers next
-    // to a new, unrelated unit.
+    // false resets the value axis to a small fixed default instead of
+    // leaving whatever range a previously-displayed mode left behind — a
+    // stale wide range under a freshly-changed axis label (e.g. switching to
+    // Speed for a keypoint with no valid samples) would otherwise show old
+    // numbers next to a new, unrelated unit. Time always spans the
+    // recording (set_recording_ms()).
     void apply_ranges(bool hasRange, double minY, double maxY, double maxT) {
+        dataMaxT_ = hasRange ? maxT : 0.0;
+        axisX_->setRange(0, std::max({dataMaxT_, recordingSec_, 1.0}));
         if (!hasRange) {
-            // Matches the constructor's own default (0, 1) — this was
-            // (0, 1000) before the axis was converted from milliseconds to
-            // seconds, left stale and never updated, producing a
-            // ~16.6-minute-wide empty axis for any no-data state (e.g. a
-            // freshly-selected camera with no analysis yet).
-            axisX_->setRange(0, 1);
             axisY_->setRange(0, 1);
             return;
         }
-        axisX_->setRange(0, std::max(maxT, 1.0));
         if (minY <= maxY) {
             // 10% of the data's range. A fixed minimum pad (it was 5 units)
             // flattened every 0..1 signal (blendshapes, openness, gaze
@@ -980,6 +986,8 @@ class MetricsChartW : public QChartView {
     QValueAxis* scatterAxisX_                    = nullptr;
     QValueAxis* scatterAxisY_                    = nullptr;
     QValueAxis* barAxisY_                        = nullptr;
+    double recordingSec_                         = 0.0; // set_recording_ms()
+    double dataMaxT_                             = 0.0; // the data's own end, s
 };
 
 // Custom-paints session rows with a hover-intensity tint instead of relying
@@ -3130,6 +3138,8 @@ void AnalysisTabW::build_ui() {
     rightLay->addWidget(resultsSplitter, 1);
 
     d->chart->set_seek_callback([this](int64_t ms) { d->player->seek(ms); });
+    connect(d->player, &PoseOverlayPlayerW::duration_changed, this,
+            [this](int64_t ms) { d->chart->set_recording_ms(ms); });
     connect(d->player, &PoseOverlayPlayerW::position_changed, this, [this](int64_t ms) {
         d->chart->set_playhead_ms(ms);
         if (is_overview_plugin()) {
@@ -6142,7 +6152,12 @@ void AnalysisTabW::update_objects_view() {
     }
     d->chart->set_named_series(series, touched ? "Touched (one row each)" : "Seen (one row each)",
                                lastMs);
-    d->chart->set_title("Objects: " + d->objectsMetricCombo->currentText().toLower());
+    QString title = "Objects: " + d->objectsMetricCombo->currentText().toLower();
+    if (touched && r.contacts().isEmpty()) {
+        title += r.pose_used() ? " (none found: Pose did not place a hand on an object)"
+                               : " (run Pose on this camera first)";
+    }
+    d->chart->set_title(title);
     QStringList lines;
     for (const auto& o : r.objects()) {
         QString line = QString("%1 %2: seen %3%").arg(o.label).arg(o.id).arg(o.seenPct, 0, 'f', 0);
