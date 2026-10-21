@@ -91,7 +91,27 @@ def test_a_dropout_becomes_a_step_not_a_tilt():
     assert clock.step_ms == pytest.approx(200, abs=10)
     truth = 1e9 + k * nps + np.where(lost, 200e6, 0.0)
     err_ms = (clock.sample_time_ns(k) - truth) / 1e6
-    away = np.abs(k - k[k.size // 2]) > 11 * rate  # outside the step's window
+    away = np.abs(k - k[k.size // 2]) > 2 * rate  # outside the second around the step
+    assert np.abs(err_ms[away]).max() < 3
+
+
+def test_a_dropout_in_a_short_recording_is_still_a_step():
+    # As in a 13 s room recording: a buffer about every 16 ms, and 150 ms of
+    # samples lost at 5.4 s. Every row pair 10 s apart straddles the step, so
+    # a slope from those would look 1% off and the file would be dropped.
+    rng = np.random.default_rng(11)
+    rate = 48000
+    nps = 1e9 / rate
+    k = np.cumsum(np.full(800, 768)).astype(np.float64)
+    t = 2e9 + k * nps + 1e6 + rng.exponential(4e6, k.size)
+    lost = k > 5.4 * rate
+    t[lost] += 150e6
+    clock = tm.fit_timing(k, t, rate)
+    assert clock.method == "timing_file"
+    assert clock.step_ms == pytest.approx(150, abs=10)
+    truth = 2e9 + k * nps + np.where(lost, 150e6, 0.0)
+    err_ms = (clock.sample_time_ns(k) - truth) / 1e6
+    away = np.abs(k - 5.4 * rate) > 2 * rate
     assert np.abs(err_ms[away]).max() < 3
 
 

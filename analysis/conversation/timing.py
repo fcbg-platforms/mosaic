@@ -23,6 +23,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 
 import numpy as np
+from scipy.ndimage import median_filter
 
 #: Residual percentile the clock line is placed at (the earliest arrivals).
 FLOOR_PERCENTILE = 2.0
@@ -30,6 +31,11 @@ FLOOR_PERCENTILE = 2.0
 #: beyond which the clocks are taken to have stepped apart (lost samples).
 WINDOW_S = 10.0
 MAX_STEP_MS = 20.0
+#: A step is placed by floors over windows this short (about a second of
+#: ramp instead of ten), and rows this far apart give the first slope when
+#: rows WINDOW_S apart cannot (a dropout inside a short recording).
+STEP_WINDOW_S = 1.0
+STEP_MEDIAN = 5
 #: Search range and minimum correlation for the audio-video lag.
 MAX_LAG_S = 0.5
 MIN_LAG_CORRELATION = 0.15
@@ -82,58 +88,69 @@ def read_timing_csv(path: str | Path) -> tuple[np.ndarray, np.ndarray]:
 def fit_timing(samples, elapsed_ns, rate: int) -> AudioClock | None:
     """The clock line under the arrival times: ``elapsed = t0 + k * slope``.
 
-    The slope starts as the median over row pairs about 10 s apart and is
+    The slope starts as the median over row pairs about :data:`WINDOW_S`
+    apart, or, when that is implausible (in a short recording a dropout can
+    sit between every such pair), about :data:`STEP_WINDOW_S` apart. It is
     refined through the window floors (below) with a Theil-Sen fit, so a
-    rare step does not tilt it. The line is lowered to the earliest arrivals, since a
-    sample cannot arrive before it was recorded: the
+    rare step does not tilt it. The line is lowered to the earliest
+    arrivals, since a sample cannot arrive before it was recorded: the
     :data:`FLOOR_PERCENTILE` of the residuals, per :data:`WINDOW_S` window.
     If those window floors differ by more than :data:`MAX_STEP_MS` (samples
     were lost when the program stalled for longer than the sound card's
-    buffer), the floors become a piecewise correction instead of one
-    constant, and ``step_ms`` says how large the steps were. ``None`` with
-    too few rows or an implausible slope (more than 1% off the nominal
-    rate).
+    buffer), the floors of :data:`STEP_WINDOW_S` windows become a piecewise
+    correction instead of one constant, and ``step_ms`` says how large the
+    steps were. ``None`` with too few rows or an implausible slope (more
+    than 1% off the nominal rate).
     """
     k = np.asarray(samples, dtype=np.float64)
     t = np.asarray(elapsed_ns, dtype=np.float64)
     if k.size < 2 or np.ptp(k) <= 0:
         return None
     nominal = 1e9 / rate
-    span = max(1, int(np.searchsorted(k, k[0] + WINDOW_S * rate)))
-    span = min(span, k.size - 1)
-    dk = k[span:] - k[:-span]
-    ok = dk > 0
-    if not ok.any():
-        return None
-    slope = float(np.median((t[span:] - t[:-span])[ok] / dk[ok]))
-    if abs(slope / nominal - 1.0) > 0.01:
-        return None
-    windows = np.floor((k - k[0]) / (WINDOW_S * rate)).astype(np.int64)
-    ids = np.unique(windows)
 
-    def window_floors(sl):
+    def pair_slope(window_s):
+        span = max(1, int(np.searchsorted(k, k[0] + window_s * rate)))
+        span = min(span, k.size - 1)
+        dk = k[span:] - k[:-span]
+        ok = dk > 0
+        return float(np.median((t[span:] - t[:-span])[ok] / dk[ok])) if ok.any() else None
+
+    # In a short recording every pair 10 s apart can straddle a dropout and
+    # look far off; pairs a second apart rarely do.
+    slope = pair_slope(WINDOW_S)
+    if slope is None or abs(slope / nominal - 1.0) > 0.01:
+        slope = pair_slope(STEP_WINDOW_S)
+    if slope is None or abs(slope / nominal - 1.0) > 0.01:
+        return None
+
+    def window_floors(sl, window_s):
+        # Rows are in sample order, so each window is one run of rows.
+        windows = np.floor((k - k[0]) / (window_s * rate)).astype(np.int64)
+        starts = np.flatnonzero(np.r_[True, windows[1:] != windows[:-1]])
         o = t - sl * k
-        kk = np.array([np.mean(k[windows == w]) for w in ids])
-        ff = np.array([np.percentile(o[windows == w], FLOOR_PERCENTILE) for w in ids])
+        kk = np.array([g.mean() for g in np.split(k, starts[1:])])
+        ff = np.array([np.percentile(g, FLOOR_PERCENTILE) for g in np.split(o, starts[1:])])
         return kk, ff
 
     # Refine the slope through the window floors (the arrival times with the
     # scheduling delay taken out): Theil-Sen, the median of the slopes
     # between every pair of floors, which a step cannot tilt either.
-    knots, floors_a = window_floors(slope)
+    knots, floors_a = window_floors(slope, WINDOW_S)
     if len(knots) >= 3:
         i, j = np.triu_indices(len(knots), 1)
         slope += float(np.median((floors_a[j] - floors_a[i]) / (knots[j] - knots[i])))
-        knots, floors_a = window_floors(slope)
-    knots_k = knots
+        knots, floors_a = window_floors(slope, WINDOW_S)
     step_ms = float(np.ptp(floors_a)) / 1e6
     if step_ms <= MAX_STEP_MS:
         t0 = float(np.percentile(t - slope * k, FLOOR_PERCENTILE))
         return AudioClock(t0, slope, "timing_file", step_ms=step_ms)
+    # The step is real: place it by short windows, so only the second around
+    # it is ramped rather than the ten. A running median over a few of them
+    # takes out the noise of the fewer rows per window but keeps the step.
+    knots, floors_a = window_floors(slope, STEP_WINDOW_S)
+    floors_a = median_filter(floors_a, size=STEP_MEDIAN, mode="nearest")
     base = float(floors_a[0])
-    return AudioClock(
-        base, slope, "timing_file", np.asarray(knots_k), floors_a - base, step_ms=step_ms
-    )
+    return AudioClock(base, slope, "timing_file", knots, floors_a - base, step_ms=step_ms)
 
 
 def estimate_av_lag(mouth_activity, audio_db, hop_s: float) -> tuple[float, float, float]:

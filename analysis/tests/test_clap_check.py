@@ -59,6 +59,28 @@ def test_hands_meeting_are_seen_between_frames():
     assert len(clap.seen_claps(t, np.full(100, 0.05))) == 0
 
 
+def test_a_palm_clap_with_the_wrists_close_is_seen_once_at_its_lowest():
+    # As in a room recording: the wrists stay about 0.1 body heights apart and
+    # close to 0.06 at the clap, after a shallow first dip; then they wobble
+    # around 0.1 without opening (not a second clap).
+    t = np.arange(60) * 47.5
+    gap = np.full(60, 0.1)
+    gap[:10] = np.linspace(0.25, 0.11, 10)
+    gap[10:16] = [0.10, 0.105, 0.09, 0.06, 0.07, 0.10]
+    gap[30:33] = [0.08, 0.12, 0.09]
+    seen = clap.seen_claps(t, gap)
+    assert len(seen) == 1 and abs(seen[0] - 13 * 47.5) < 20.0
+
+
+def test_false_claps_lining_up_by_chance_give_no_offset():
+    # A blurred view: Pose sees six "claps", two of which happen to sit 1 s
+    # before two sounds. Two of six is not agreement.
+    seen = np.array([1590.0, 1610.0, 4230.0, 4520.0, 4700.0, 8670.0])
+    heard = np.array([2610.0, 4850.0, 8360.0, 13970.0])
+    assert clap.estimate_lag(heard, seen) is None
+    assert clap.match(heard, seen) == []
+
+
 def test_pairs_and_verdicts():
     pairs = clap.match([1030.0, 5000.0, 9999.0], [1000.0, 5010.0])
     assert [round(p[2]) for p in pairs] == [30, -10]

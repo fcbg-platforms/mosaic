@@ -40,14 +40,19 @@ scheduling), never before. So the plugin fits the line
 
 with a slope :math:`s` that a few odd rows cannot tilt: the median slope
 between rows about 10 s apart, refined by a Theil-Sen fit through the
-earliest arrivals of each 10 s window. It then lowers the line to the
+earliest arrivals of each 10 s window. In a short recording a dropout (below)
+can sit between every pair of rows 10 s apart and make that slope look more
+than 1% off; rows about 1 s apart then give it instead, since few of those
+pairs straddle the dropout. It then lowers the line to the
 earliest arrivals: :math:`t_0` is set so that only 2% of the points lie
 below the line.
 
 If those per-window floors differ by more than 20 ms, the clocks stepped
 apart during the recording. That happens when the program stalled for longer
-than the sound card's buffer and samples were lost. The floors then become a
-piecewise correction instead of one constant; the step is reported
+than the sound card's buffer and samples were lost. The floors of 1 s
+windows (a running median over five of them, which keeps a step sharp but
+not the noise of fewer rows) then become a piecewise correction instead of
+one constant, so only the second around the step is ramped; the step is reported
 (``clock_step_ms``) and logged. The slope also measures the sound card's clock against the computer's.
 They drift apart by tens of parts per million, about 0.1 s per half hour,
 which the line corrects.

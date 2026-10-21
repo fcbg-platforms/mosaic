@@ -52,17 +52,27 @@ Seeing a clap
 
 From a camera's Pose result: per frame, the distance between the main
 person's wrists (COCO 9 and 10, both seen with confidence above 0.3) in body
-heights (the person's box). A clap is a dip to 0.12 or less, from at least
-0.3 within the previous half second (hands brought together, not resting
-together). Its time is refined between frames from the dip's shape: the
-lowest point of a parabola through the lowest frame and its neighbours.
+heights (the person's box). A clap is a stretch of frames where the gap is
+0.12 or less, timed at its lowest frame, when the gap was at least 0.1
+wider within the previous half second and since the previous stretch (hands
+brought together, not resting together). A wide swing is not needed:
+clapping with the palms, the wrists stay about 0.1 apart and close to about
+0.06. One stretch gives one clap, so a wobble while the hands stay together
+is not a second one. Its time is refined between frames from the dip's
+shape: the lowest point of a parabola through the lowest frame and its
+neighbours.
 
 Matching and the verdict
 ------------------------
 
 First one offset for the whole recording: every heard-minus-seen
-difference within 2 s votes, in 20 ms bins, and the offset most seen claps
-agree on wins (ties to the smaller). Pairing each clap with its nearest
+difference within 2 s votes, in 20 ms bins (a difference counts for the
+neighbouring bins too), and the offset most seen claps agree on wins. It is
+believed only when at least two seen claps, and at least half of them,
+agree: with a poor view of the hands (a blurred camera, wrists half hidden)
+Pose sees false claps, and a pair of those can line up with sounds by
+chance. Such a camera then reports no matched clap rather than a wrong
+offset. Pairing each clap with its nearest
 sound instead would pair a clap with its neighbour when the audio is placed
 about a clap's spacing off, and call that fine. Then each seen clap is
 paired with the heard one nearest that offset, within 0.15 s, each heard
