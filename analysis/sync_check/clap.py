@@ -30,9 +30,13 @@ MIN_SHARPNESS = 6.0
 ECHO_S = 0.5
 #: A seen clap: the wrists at most this far apart (body heights) ...
 TOUCH = 0.12
-#: ... after being at least this far apart within the previous half second.
-APART = 0.3
+#: ... after opening at least this much wider within the previous half second
+#: (and since the last clap). A wide swing is not needed: clapping with the
+#: palms, the wrists stay about 0.1 apart and the gap shrinks by little more.
+OPENING = 0.1
 APPROACH_S = 0.5
+#: Seen claps that must agree on the offset before it is believed.
+MIN_AGREE = 2
 #: The audio may be placed this far off at most: the search for its offset.
 MAX_LAG_S = 2.0
 #: Offsets are voted in bins this wide; a seen clap then pairs with a heard
@@ -121,21 +125,26 @@ def refine_onset(x: np.ndarray, fs: int, frame_start: int, win: int, sos) -> flo
 
 
 def seen_claps(t_ms: np.ndarray, gap: np.ndarray) -> np.ndarray:
-    """Times (ms) the hands met: ``gap`` (the wrists' distance in body heights,
-    NaN where not seen) dips to :data:`TOUCH` or less, having been
-    :data:`APART` or more within :data:`APPROACH_S` before. Each dip's time is
+    """Times (ms) the hands met: one per stretch of frames where ``gap`` (the
+    wrists' distance in body heights, NaN where not seen) is :data:`TOUCH`
+    or less, at its lowest frame, when the gap was at least :data:`OPENING`
+    wider within :data:`APPROACH_S` before and since the previous stretch (a
+    wobble while the hands stay together is not a second clap). Each time is
     refined between frames from the dip's shape (a parabola through the
-    lowest frame and its neighbours)."""
+    lowest frame and its neighbours, which must both be seen)."""
     t = np.asarray(t_ms, dtype=np.float64)
     g = np.asarray(gap, dtype=np.float64)
+    close = np.isfinite(g) & (g <= TOUCH)
+    edges = np.flatnonzero(np.diff(np.r_[0, close.astype(np.int8), 0]))
     out = []
-    for i in range(1, len(g) - 1):
-        if not (np.isfinite(g[i]) and g[i] <= TOUCH):
+    last = -np.inf
+    for start, stop in zip(edges[::2], edges[1::2], strict=True):
+        i = start + int(np.argmin(g[start:stop]))
+        since, last = last, t[stop - 1]
+        if not (0 < i < len(g) - 1 and np.isfinite(g[i - 1]) and np.isfinite(g[i + 1])):
             continue
-        if not (g[i] <= g[i - 1] and g[i] < g[i + 1]):  # NaN neighbours fail too
-            continue
-        before = (t >= t[i] - APPROACH_S * 1000.0) & (t < t[i])
-        if not (np.nan_to_num(g[before], nan=0.0) >= APART).any():
+        before = (t >= max(t[i] - APPROACH_S * 1000.0, since)) & (t < t[i])
+        if not (np.nan_to_num(g[before], nan=0.0) >= g[i] + OPENING).any():
             continue
         a, b, c = g[i - 1], g[i], g[i + 1]
         denom = a - 2 * b + c
@@ -149,9 +158,11 @@ def seen_claps(t_ms: np.ndarray, gap: np.ndarray) -> np.ndarray:
 def estimate_lag(heard_ms: np.ndarray, seen_ms: np.ndarray) -> float | None:
     """The audio's offset from the video, ms: the heard-minus-seen difference
     (within :data:`MAX_LAG_S`) that the most seen claps agree on, in bins of
-    :data:`LAG_BIN_S`; ties go to the smaller offset. Found over the whole
+    :data:`LAG_BIN_S`. Found over the whole
     pattern of claps first, so a regular clapping cannot pair each clap with
-    its neighbour; ``None`` without a candidate."""
+    its neighbour. ``None`` unless at least :data:`MIN_AGREE` seen claps,
+    and at least half of them, agree: with a poor view of the hands Pose
+    sees false claps, and a pair of those can line up with sounds by chance."""
     heard = np.asarray(heard_ms, dtype=np.float64)
     seen = np.asarray(seen_ms, dtype=np.float64)
     votes: dict = {}
@@ -163,12 +174,16 @@ def estimate_lag(heard_ms: np.ndarray, seen_ms: np.ndarray) -> float | None:
             votes.setdefault(b, set()).add(k)
     if not votes:
         return None
-    # A difference on a bin edge counts for the neighbour too.
+    # A difference on a bin edge counts for the neighbour too, so a bin no
+    # difference fell in can still be the one two neighbours agree on.
     support = {
         b: len(votes.get(b, set()) | votes.get(b - 1, set()) | votes.get(b + 1, set()))
-        for b in votes
+        for b in {c + d for c in votes for d in (-1, 0, 1)}
     }
-    best = max(support, key=lambda b: (support[b], -abs(b)))
+    # Ties go to the bin more differences fall in, then the smaller offset.
+    best = max(support, key=lambda b: (support[b], len(votes.get(b, ())), -abs(b)))
+    if support[best] < max(MIN_AGREE, len(seen) / 2.0):
+        return None
     return best * LAG_BIN_S * 1000.0
 
 
