@@ -26,7 +26,7 @@ from facemask.masking import (
     rasterize_boxes,
 )
 from facemask.segmenters import DEFAULT_SEG_CONF, DEFAULT_SEG_MODEL, make_segmenter
-from video_publish import publish_video
+from video_publish import open_writer, publish_video
 
 _MARGIN_FRAC = 0.25  # padding around each detected face box; not CLI-exposed
 
@@ -268,7 +268,7 @@ def process_video(
     # which the Analysis tab then reports as complete and plays back as if it
     # were. The suffix makes an interrupted run obvious instead.
     partial_path = partial_path_for(out_path)
-    writer = _open_writer(partial_path, fps, (width, height))
+    writer = open_writer(partial_path, fps, (width, height))
     if writer is None:
         print(f"[run_face_mask] Could not open a video writer for {partial_path}", file=sys.stderr)
         partial_path.unlink(missing_ok=True)  # OpenCV may leave a 0-byte stub
@@ -392,19 +392,6 @@ def process_video(
         flush=True,
     )
     return True
-
-
-def _open_writer(out_path: Path, fps: float, size: tuple[int, int]):
-    # avc1 (H.264) plays back more reliably in Qt/Windows Media Foundation
-    # than mp4v, but isn't always available depending on the OpenCV build's
-    # bundled FFmpeg — fall back to mp4v (always available) if it fails.
-    for fourcc_name in ("avc1", "mp4v"):
-        fourcc = cv2.VideoWriter_fourcc(*fourcc_name)
-        writer = cv2.VideoWriter(str(out_path), fourcc, fps, size)
-        if writer.isOpened():
-            return writer
-        writer.release()
-    return None
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────

@@ -1,16 +1,53 @@
-"""Putting a finished annotated video in place of the previous one.
+"""Writing an annotated video, and putting it in place of the previous one.
 
-Every annotated video is written to a ``.partial.mp4`` file first and only
-renamed onto its real name once complete. On Windows that rename fails while
-another program has the old file open: MOSAIC's own player showing it, or a
-video player. This waits briefly for the file to come free, then says which
-file is in the way instead of a bare ``PermissionError``.
+:func:`open_writer` picks the codec. Every annotated video is written to a
+``.partial.mp4`` file first and only renamed onto its real name once
+complete. On Windows that rename fails while another program has the old
+file open: MOSAIC's own player showing it, or a video player. This waits
+briefly for the file to come free, then says which file is in the way
+instead of a bare ``PermissionError``.
 """
 
 from __future__ import annotations
 
+import ctypes
+import sys
 import time
+from functools import cache
 from pathlib import Path
+
+#: The library OpenCV's FFmpeg plugin needs for H.264 (avc1) on Windows. It is
+#: not shipped with opencv-python; without it every avc1 writer fails with
+#: "Unable to create encoder" and leaves the plugin in a state that has
+#: crashed Python on exit (0xC0000005 in opencv_videoio_ffmpeg) after the
+#: work was done.
+OPENH264_DLL = "openh264-2.5.0-win64.dll"
+
+
+@cache
+def has_h264() -> bool:
+    """Whether an H.264 writer can be opened here (always tried off Windows)."""
+    if sys.platform != "win32":
+        return True
+    try:
+        ctypes.WinDLL(OPENH264_DLL)
+    except OSError:
+        return False
+    return True
+
+
+def open_writer(path: Path, fps: float, size: tuple[int, int]):
+    """An mp4 writer: H.264 (avc1, plays most reliably in Qt and Windows Media
+    Foundation) when :func:`has_h264`, else MPEG-4 (mp4v), which every
+    OpenCV build has. ``None`` when neither opens."""
+    import cv2
+
+    for code in ("avc1", "mp4v") if has_h264() else ("mp4v",):
+        w = cv2.VideoWriter(str(path), cv2.VideoWriter_fourcc(*code), fps, size)
+        if w.isOpened():
+            return w
+        w.release()
+    return None
 
 
 def publish_video(partial: Path, out_path: Path, wait_s: float = 5.0) -> None:

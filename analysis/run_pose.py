@@ -35,6 +35,7 @@ from pose.depth_estimator import DepthEstimator
 from pose.human_pose import TRACKER_NAME, HumanPoseEstimator
 from pose.identity import stitch_tracks
 from pose.keypoints import COCO_KEYPOINTS, COCO_SKELETON, PoseResult
+from video_publish import open_writer
 
 # ── CLI ───────────────────────────────────────────────────────────────────────
 
@@ -394,7 +395,7 @@ def process_video_depth(
     model_slug = re.sub(r"\.pt$", "", model_name)
     out_path = output_dir / f"{video_path.stem}.{model_slug}{video_path.suffix}"
 
-    writer = _open_video_writer(out_path, fps, (width, height))
+    writer = open_writer(out_path, fps, (width, height))
     if writer is None:
         print(f"[run_pose] Could not open a video writer for {out_path}", file=sys.stderr)
         cap.release()
@@ -452,20 +453,6 @@ def process_video_depth(
         f"({frame_idx/elapsed:.1f} fps throughput) → {out_path}",
         flush=True,
     )
-
-
-def _open_video_writer(out_path: Path, fps: float, size: tuple[int, int]):
-    # Same avc1-then-mp4v fallback as run_face_mask.py's _open_writer() —
-    # avc1 (H.264) plays back more reliably in Qt/Windows Media Foundation
-    # than mp4v, but isn't always available depending on the OpenCV build's
-    # bundled FFmpeg.
-    for fourcc_name in ("avc1", "mp4v"):
-        fourcc = cv2.VideoWriter_fourcc(*fourcc_name)
-        writer = cv2.VideoWriter(str(out_path), fourcc, fps, size)
-        if writer.isOpened():
-            return writer
-        writer.release()
-    return None
 
 
 # ── Pipe mode ─────────────────────────────────────────────────────────────────

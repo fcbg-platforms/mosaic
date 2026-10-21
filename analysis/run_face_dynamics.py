@@ -32,7 +32,7 @@ import traceback
 from pathlib import Path
 
 import numpy as np
-from video_publish import publish_video
+from video_publish import open_writer, publish_video
 
 TAG = "[run_face_dynamics]"
 SCHEMA = "mosaic-face-dynamics-v1"
@@ -394,7 +394,7 @@ def render_video(
     ``.partial.mp4`` first, so a failed run leaves no half video behind."""
     import cv2
     from face_dynamics.extract import EYE_OUTLINE_LEFT, EYE_OUTLINE_RIGHT
-    from gaze.render import open_writer, partial_path
+    from gaze.render import partial_path
 
     n_r, n_l = len(EYE_OUTLINE_RIGHT), len(EYE_OUTLINE_LEFT)
     w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))

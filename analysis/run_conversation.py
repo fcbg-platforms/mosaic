@@ -32,7 +32,7 @@ import traceback
 from pathlib import Path
 
 import numpy as np
-from video_publish import publish_video
+from video_publish import open_writer, publish_video
 
 TAG = "[run_conversation]"
 SCHEMA = "mosaic-conversation-v1"
@@ -503,7 +503,7 @@ WINDOW_S = 6.0  # timeline span shown, seconds either side of now
 
 def render(video: Path, out_path: Path, frame_ms: np.ndarray, r: dict, progress) -> bool:
     import cv2
-    from gaze.render import open_writer, partial_path
+    from gaze.render import partial_path
 
     cap = cv2.VideoCapture(str(video))
     fps = cap.get(cv2.CAP_PROP_FPS) or 25.0

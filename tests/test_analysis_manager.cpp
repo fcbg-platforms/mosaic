@@ -1,9 +1,11 @@
 #include <gtest/gtest.h>
 
 #include <QCoreApplication>
+#include <QDir>
 #include <QEventLoop>
 #include <QFile>
 #include <QStringList>
+#include <QTemporaryDir>
 #include <QTimer>
 
 #include "analysis/analysis_manager.hpp"
@@ -159,6 +161,51 @@ TEST_F(AnalysisManagerTest, EnvVarsReachTheSubprocess) {
 
     EXPECT_TRUE(lines.contains("ENV:HF_TOKEN=secret-xyz"));
     EXPECT_TRUE(lines.contains("ENV:PYTHONIOENCODING=utf-8"));
+}
+
+// Frame Sync writes its summary last; Python crashing on exit after that
+// (seen inside OpenCV's FFmpeg plugin) lost nothing, so it counts as done.
+TEST_F(AnalysisManagerTest, FrameSyncCrashAfterItsSummaryCountsAsDone) {
+    QTemporaryDir session;
+    ASSERT_TRUE(session.isValid());
+    ASSERT_TRUE(QDir(session.path()).mkpath("synced"));
+    QFile summary(session.filePath("synced/sync_repair.json"));
+    ASSERT_TRUE(summary.open(QIODevice::WriteOnly));
+    summary.write("{}");
+    summary.close();
+    qputenv("MOSAIC_TEST_STUB_EXIT_CODE", "-1073741819");
+    bool sawSuccess = false;
+    QObject::connect(&mgr, &AnalysisManager::analysis_finished,
+                     [&sawSuccess](const QString&, bool success) { sawSuccess = success; });
+
+    mgr.run_sync_repair(session.path(), 0.0);
+    ASSERT_TRUE(wait_for_signal(&mgr, &AnalysisManager::analysis_finished));
+    EXPECT_TRUE(sawSuccess);
+}
+
+TEST_F(AnalysisManagerTest, FrameSyncCrashWithoutItsSummaryIsAFailure) {
+    QTemporaryDir session;
+    ASSERT_TRUE(session.isValid());
+    qputenv("MOSAIC_TEST_STUB_EXIT_CODE", "-1073741819");
+    bool sawSuccess = true;
+    QObject::connect(&mgr, &AnalysisManager::analysis_finished,
+                     [&sawSuccess](const QString&, bool success) { sawSuccess = success; });
+
+    mgr.run_sync_repair(session.path(), 0.0);
+    ASSERT_TRUE(wait_for_signal(&mgr, &AnalysisManager::analysis_finished));
+    EXPECT_FALSE(sawSuccess);
+}
+
+// What closing MOSAIC would stop: the running job, then the waiting ones.
+TEST_F(AnalysisManagerTest, PendingWorkNamesRunningAndWaitingJobs) {
+    qputenv("MOSAIC_TEST_STUB_SLEEP_MS", "800");
+    EXPECT_TRUE(mgr.pending_work().isEmpty());
+    mgr.run_sync_repair("rec/sub-31", 0.0);
+    mgr.analyze_session("rec/sub-32");
+    EXPECT_EQ(mgr.pending_work(), (QStringList{"Frame Sync on sub-31", "run_pose on sub-32"}));
+    ASSERT_TRUE(wait_for_signal(&mgr, &AnalysisManager::analysis_finished));
+    ASSERT_TRUE(wait_for_signal(&mgr, &AnalysisManager::analysis_finished, 3000));
+    EXPECT_TRUE(mgr.pending_work().isEmpty());
 }
 
 TEST_F(AnalysisManagerTest, QueuesSecondJobWhileFirstIsRunning) {

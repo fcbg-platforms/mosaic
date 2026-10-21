@@ -1,6 +1,7 @@
 #pragma once
 #include <QPair>
 #include <QString>
+#include <QStringList>
 #include <QVector>
 #include <cstdint>
 
@@ -97,5 +98,11 @@ class SyncRepairResult {
     QString alignment_;
     QVector<SyncRepairCamera> cameras_;
 };
+
+/// Sessions directly under recordDirectory whose Frame Sync started but did
+/// not finish: a synced/ folder without synced/sync_repair.json, which
+/// run_sync_repair.py writes last. MOSAIC was closed while it ran, or it was
+/// cut off; MOSAIC finishes them when it next starts.
+QStringList unfinished_frame_syncs(const QString& recordDirectory);
 
 } // namespace mosaic

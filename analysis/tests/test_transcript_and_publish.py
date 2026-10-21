@@ -7,8 +7,9 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+import video_publish
 from diarize import pipeline
-from video_publish import publish_video
+from video_publish import open_writer, publish_video
 
 
 def _word(start, end):
@@ -83,3 +84,26 @@ def test_publish_waits_for_the_file_to_come_free(tmp_path, monkeypatch):
     publish_video(partial, out, wait_s=5.0)
     assert out.read_bytes() == b"new"
     assert len(tries) == 2
+
+
+def test_writer_skips_h264_without_its_library(tmp_path, monkeypatch):
+    # Without OpenH264 an avc1 writer fails noisily and has left OpenCV's
+    # FFmpeg plugin crashing Python on exit: go straight to mp4v.
+    import cv2
+    import numpy as np
+
+    tried = []
+    real = cv2.VideoWriter
+
+    def spy(path, fourcc, fps, size):
+        tried.append(fourcc)
+        return real(path, fourcc, fps, size)
+
+    monkeypatch.setattr(video_publish, "has_h264", lambda: False)
+    monkeypatch.setattr(cv2, "VideoWriter", spy)
+    out = tmp_path / "v.mp4"
+    w = open_writer(out, 10.0, (64, 48))
+    assert w is not None and tried == [cv2.VideoWriter_fourcc(*"mp4v")]
+    w.write(np.zeros((48, 64, 3), np.uint8))
+    w.release()
+    assert out.stat().st_size > 0

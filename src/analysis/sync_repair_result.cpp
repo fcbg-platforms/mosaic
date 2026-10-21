@@ -1,5 +1,6 @@
 #include "analysis/sync_repair_result.hpp"
 
+#include <QDir>
 #include <QFile>
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -69,6 +70,18 @@ int SyncRepairResult::total_duplicated_frames() const {
         }
     }
     return total;
+}
+
+QStringList unfinished_frame_syncs(const QString& recordDirectory) {
+    QStringList out;
+    const QDir root(recordDirectory);
+    for (const QString& name : root.entryList(QDir::Dirs | QDir::NoDotAndDotDot, QDir::Name)) {
+        const QDir session(root.filePath(name));
+        if (session.exists("synced") && !session.exists("synced/sync_repair.json")) {
+            out << session.path();
+        }
+    }
+    return out;
 }
 
 int SyncRepairResult::skipped_camera_count() const {
