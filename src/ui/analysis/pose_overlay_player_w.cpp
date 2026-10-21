@@ -720,6 +720,7 @@ PoseOverlayPlayerW::PoseOverlayPlayerW(QWidget* parent)
     connect(d->player, &QMediaPlayer::durationChanged, this, [this](qint64 dur) {
         d->scrubber->setRange(0, static_cast<int>(dur));
         d->timeLbl->setText(format_ms(d->player->position()) + " / " + format_ms(dur));
+        emit duration_changed(dur);
     });
 
     connect(d->player, &QMediaPlayer::positionChanged, this, [this](qint64 pos) {

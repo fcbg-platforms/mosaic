@@ -114,6 +114,8 @@ class PoseOverlayPlayerW : public QWidget {
     // Emitted as playback advances (and on manual seeks), so a companion
     // metrics chart can keep its playhead in sync.
     void position_changed(int64_t positionMs);
+    // Emitted when a video is loaded and its length is known (0 while none).
+    void duration_changed(int64_t durationMs);
 
    private:
     struct Impl;
