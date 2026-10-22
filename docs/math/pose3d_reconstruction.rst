@@ -302,6 +302,33 @@ prints the totals. It follows the quality timeline of the 4by4k pipeline
 (``fourk/qa.py``, MIT licence), per session rather than per person, since
 MOSAIC does not fix the number of people.
 
+Drawing the room
+----------------------
+
+The Analysis tab's room view (``Skeleton3DRoomViewW``, OpenGL) draws the
+result in the room frame, which is the reference camera's own: x right,
+y down, z forward. That frame has no floor and no "up" of its own, so both
+are read from the result (``room_view_math.hpp``):
+
+- **Up** is the mean direction from the middle of the hips to the middle of
+  the shoulders, over every person and tick that has all four (a torso is
+  upright far more often than not, sitting or standing). It needs at least
+  10 such samples whose unit vectors average to a length over 0.5; with
+  fewer, or torsos pointing every way, each camera's image-up (minus its y
+  axis) is averaged instead, since room cameras hang about level; without
+  camera directions, it is -y.
+- **The floor** is the 5th percentile of the ankles' heights along up,
+  less 80 mm (an ankle's own height): a few low outliers do not sink it.
+  Without ankles, it is the lowest keypoint; without any keypoint, 2 m
+  below the lowest camera.
+- **Front** looks along the reference camera's viewing direction laid flat
+  on the floor; **Side** is at right angles to it; **Top** looks down.
+
+Each camera in ``skeleton3d.json`` carries ``rotation_room`` (room-from-
+camera, rows; its third column is the viewing direction) and ``fov_deg``
+(horizontal and vertical field of view, from the focal lengths and the
+calibrated image size), so the view can draw what each camera sees.
+
 .. _pose3d-recommendations:
 
 Practical recommendations

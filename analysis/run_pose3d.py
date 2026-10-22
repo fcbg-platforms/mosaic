@@ -246,8 +246,33 @@ def _resolve_cameras(meta: dict, manifest: dict) -> dict:
             "camera_matrix": np.array(cm, dtype=np.float64).reshape(3, 3),
             "dist_coeffs": np.array(dc, dtype=np.float64),
             "extrinsic_rt": np.array(ex, dtype=np.float64).reshape(4, 4),
+            # The calibrated image's size (absent from older calibrations).
+            "image_size": (calib.get("image_width"), calib.get("image_height")),
         }
     return cameras
+
+
+def camera_entry(idx: int, info: dict) -> dict:
+    """One camera of skeleton3d.json: where it is in the room, which way it
+    looks (``rotation_room``, room-from-camera, rows; its third column is the
+    viewing direction) and its field of view in degrees, so the 3D room view
+    can draw what each camera sees."""
+    rt = info["extrinsic_rt"]
+    k = info["camera_matrix"]
+    w, h = info.get("image_size") or (None, None)
+    # Without the image size (absent, or -1 as the app writes an unknown one)
+    # the principal point, about the image centre, stands in for half of it.
+    w = w if w and w > 0 else 2.0 * k[0, 2]
+    h = h if h and h > 0 else 2.0 * k[1, 2]
+    return {
+        "index": idx,
+        "position_room": [float(rt[0, 3]), float(rt[1, 3]), float(rt[2, 3])],
+        "rotation_room": [[float(v) for v in row] for row in rt[:3, :3]],
+        "fov_deg": [
+            round(float(np.degrees(2.0 * np.arctan(w / (2.0 * k[0, 0])))), 2),
+            round(float(np.degrees(2.0 * np.arctan(h / (2.0 * k[1, 1])))), 2),
+        ],
+    }
 
 
 # ── Per-camera .pose.json loading ────────────────────────────────────────────
@@ -657,17 +682,7 @@ def _write_results(
             {
                 "schema": "mosaic-skeleton3d-v1",
                 "source_videos": [info["video_file"] for info in cameras.values()],
-                "cameras": [
-                    {
-                        "index": idx,
-                        "position_room": [
-                            float(info["extrinsic_rt"][0, 3]),
-                            float(info["extrinsic_rt"][1, 3]),
-                            float(info["extrinsic_rt"][2, 3]),
-                        ],
-                    }
-                    for idx, info in cameras.items()
-                ],
+                "cameras": [camera_entry(idx, info) for idx, info in cameras.items()],
                 "keypoint_names": keypoint_names,
                 "skeleton_edges": [list(e) for e in skeleton_edges],
                 "master_fps": manifest.get("master_fps", 25.0),

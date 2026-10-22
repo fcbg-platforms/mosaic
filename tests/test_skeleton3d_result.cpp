@@ -4,6 +4,7 @@
 #include <QTemporaryDir>
 
 #include "analysis/skeleton3d_result.hpp"
+#include "ui/analysis/room_view_math.hpp"
 
 using mosaic::Skeleton3DResult;
 
@@ -20,7 +21,8 @@ const char* kFixtureJson = R"JSON(
   "source_videos": ["video/video_0.mp4", "video/video_1.mp4", "video/video_2.mp4"],
   "cameras": [
     {"index": 0, "position_room": [0.0, 0.0, 0.0]},
-    {"index": 1, "position_room": [500.0, 0.0, 100.0]},
+    {"index": 1, "position_room": [500.0, 0.0, 100.0],
+     "rotation_room": [[0, 0, 1], [0, 1, 0], [-1, 0, 0]], "fov_deg": [90.0, 58.7]},
     {"index": 2, "position_room": [0.0, 500.0, -100.0]}
   ],
   "keypoint_names": ["nose", "left_eye", "right_eye"],
@@ -138,6 +140,13 @@ TEST(Skeleton3DResult, LoadsValidFileWithFullSchema) {
     ASSERT_EQ(result.cameras().size(), 3);
     EXPECT_EQ(result.cameras()[1].index, 1);
     EXPECT_DOUBLE_EQ(result.cameras()[1].positionRoom[0], 500.0);
+    // Where camera 1 looks: the third column of its rotation, room +x.
+    EXPECT_TRUE(result.cameras()[1].hasRotation);
+    EXPECT_DOUBLE_EQ(result.cameras()[1].rotationRoom[2], 1.0);
+    EXPECT_DOUBLE_EQ(result.cameras()[1].rotationRoom[6], -1.0);
+    EXPECT_DOUBLE_EQ(result.cameras()[1].fovDeg[0], 90.0);
+    // An older result without it.
+    EXPECT_FALSE(result.cameras()[0].hasRotation);
     EXPECT_EQ(result.keypoint_names(), QStringList({"nose", "left_eye", "right_eye"}));
     ASSERT_EQ(result.skeleton_edges().size(), 2);
     EXPECT_EQ(result.skeleton_edges()[0].first, 0);
@@ -287,4 +296,75 @@ TEST(Skeleton3DResult, BackwardCompatFileWithNoSmoothedFieldFallsBackToRawPositi
     EXPECT_DOUBLE_EQ(kp0.positionRoomSmoothed[0], kp0.positionRoom[0]);
     EXPECT_DOUBLE_EQ(kp0.positionRoomSmoothed[1], kp0.positionRoom[1]);
     EXPECT_DOUBLE_EQ(kp0.positionRoomSmoothed[2], kp0.positionRoom[2]);
+}
+
+// ── room_view: which way is up, and where the floor is ───────────────────
+
+namespace {
+
+// One person standing upright for `frames` ticks, in a room frame whose up
+// is -y (a level reference camera): shoulders 1.4 m up, hips 0.9 m, ankles
+// 8 cm.
+Skeleton3DResult upright_person(QTemporaryDir& dir, int frames) {
+    QString json = R"({"schema": "mosaic-skeleton3d-v1", "source_videos": [],
+      "cameras": [{"index": 0, "position_room": [0, 0, 0]}],
+      "keypoint_names": ["left_shoulder", "right_shoulder", "left_hip", "right_hip",
+                         "left_ankle", "right_ankle"],
+      "skeleton_edges": [], "master_fps": 25.0, "params": {}, "frames": [)";
+    for (int t = 0; t < frames; ++t) {
+        json += QString(R"(%1{"tick": %2, "timestamp_ns": %3, "people": [{"track_id": 0,
+          "num_contributing_cameras": 2, "source_cameras": [0],
+          "keypoints_room": [[-200, -1400, 3000], [200, -1400, 3000], [-150, -900, 3000],
+                             [150, -900, 3000], [-100, -80, 3000], [100, -80, 3000]],
+          "keypoints_valid": [true, true, true, true, true, true],
+          "reprojection_error_px": [1, 1, 1, 1, 1, 1], "reprojected_px": {}}]})")
+                    .arg(t ? "," : "")
+                    .arg(t)
+                    .arg(1000000000LL + 40000000LL * t);
+    }
+    json += "]}";
+    const QString path = dir.path() + "/upright.json";
+    QFile f(path);
+    EXPECT_TRUE(f.open(QIODevice::WriteOnly));
+    f.write(json.toUtf8());
+    f.close();
+    return Skeleton3DResult::load(path);
+}
+
+} // namespace
+
+TEST(RoomView, UpAndFloorComeFromThePeople) {
+    QTemporaryDir dir;
+    const auto r = upright_person(dir, 12);
+    ASSERT_TRUE(r.is_valid());
+    const auto up = mosaic::room_view::estimate_up(r);
+    EXPECT_NEAR(up[1], -1.0, 1e-9);
+    // Ankles 80 mm up, less the ankle's own height: the floor is at 0.
+    EXPECT_NEAR(mosaic::room_view::floor_height(r, up), 0.0, 1e-6);
+    // The Front view looks the way the reference camera does (+z).
+    EXPECT_NEAR(mosaic::room_view::floor_forward(up)[2], 1.0, 1e-9);
+}
+
+TEST(RoomView, TooFewPeopleLeaveUpToTheCameras) {
+    QTemporaryDir dir;
+    // Two ticks are not enough to trust the people; the reference camera's
+    // image-up (-y) decides.
+    const auto r = upright_person(dir, 2);
+    ASSERT_TRUE(r.is_valid());
+    EXPECT_NEAR(mosaic::room_view::estimate_up(r)[1], -1.0, 1e-9);
+
+    // A camera turned so its image-up is room -z, and nobody seen: up is
+    // -z, the floor 2 m below the camera.
+    QFile f(dir.path() + "/cam.json");
+    ASSERT_TRUE(f.open(QIODevice::WriteOnly));
+    f.write(R"({"schema": "mosaic-skeleton3d-v1", "cameras": [{"index": 0,
+      "position_room": [0, 0, -2500], "rotation_room": [[1, 0, 0], [0, 0, 1], [0, 1, 0]],
+      "fov_deg": [60, 40]}], "keypoint_names": [], "skeleton_edges": [], "frames": [
+      {"tick": 0, "timestamp_ns": 0, "people": []}]})");
+    f.close();
+    const auto cams = Skeleton3DResult::load(dir.path() + "/cam.json");
+    ASSERT_TRUE(cams.is_valid());
+    const auto up = mosaic::room_view::estimate_up(cams);
+    EXPECT_NEAR(up[2], -1.0, 1e-9);
+    EXPECT_NEAR(mosaic::room_view::floor_height(cams, up), 500.0, 1e-6);
 }
