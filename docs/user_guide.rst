@@ -590,7 +590,11 @@ sitting alongside **Live**. The workflow is always the same shape:
       touched, one row per object. The line under the chart gives, per
       object, how much of the video it was seen in and who touched it for
       how long: "someone" when Pose was not run on this camera or does not
-      see the person. The chart always spans the whole video. When no touch
+      see the person. **Rename objects…** gives the objects found names of
+      your own ("red ball" for "toy 2"). They are saved with the camera's
+      result and shown as "red ball (toy 2)" in the chart, the line under it
+      and the session report; the annotated video keeps "toy 2". Running
+      Object Tracking again starts the names over, as its numbers can change. The chart always spans the whole video. When no touch
       was found, its title says so; a result from before hands were followed
       asks you to run Object Tracking again.
 

@@ -64,6 +64,33 @@ TEST(ObjectsResult, ReadsObjectsContactsAndSeenSpans) {
     EXPECT_TRUE(r.objects()[1].seenSpans.isEmpty());
 }
 
+TEST(ObjectsResult, NamesAreSavedIntoTheResultAndReadBack) {
+    QTemporaryDir dir;
+    const ObjectsResult before = load_fixture(dir, kFixtureJson);
+    ASSERT_TRUE(before.is_valid());
+    EXPECT_EQ(before.objects()[0].display_name(), "cup 1");
+    const QString path = dir.filePath("video_1.objects.json");
+
+    ASSERT_TRUE(ObjectsResult::save_names(path, {{1, "  blue mug "}, {2, "red ball"}}));
+    const ObjectsResult named = ObjectsResult::load(path);
+    ASSERT_TRUE(named.is_valid());
+    EXPECT_EQ(named.objects()[0].name, "blue mug"); // trimmed
+    EXPECT_EQ(named.objects()[0].display_name(), "blue mug (cup 1)");
+    EXPECT_EQ(named.objects()[1].display_name(), "red ball (toy 2)");
+    // Everything else is kept.
+    EXPECT_EQ(named.contacts().size(), 2);
+    EXPECT_DOUBLE_EQ(named.objects()[0].touchedSByPerson.value("1"), 0.8);
+    EXPECT_EQ(named.annotated_video(), "objects/video_1.objects.mp4");
+
+    // An empty name takes the name away; an id not given keeps its own.
+    ASSERT_TRUE(ObjectsResult::save_names(path, {{1, ""}}));
+    const ObjectsResult cleared = ObjectsResult::load(path);
+    EXPECT_TRUE(cleared.objects()[0].name.isEmpty());
+    EXPECT_EQ(cleared.objects()[1].name, "red ball");
+
+    EXPECT_FALSE(ObjectsResult::save_names(dir.filePath("missing.json"), {{1, "x"}}));
+}
+
 TEST(ObjectsResult, AnotherSchemaOrNoFileIsInvalid) {
     QTemporaryDir dir;
     EXPECT_FALSE(load_fixture(dir, R"({"schema": "mosaic-social-v1"})").is_valid());

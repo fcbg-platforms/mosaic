@@ -12,12 +12,15 @@
 #include <QComboBox>
 #include <QCursor>
 #include <QDesktopServices>
+#include <QDialog>
+#include <QDialogButtonBox>
 #include <QDir>
 #include <QDoubleSpinBox>
 #include <QEasingCurve>
 #include <QFile>
 #include <QFileDialog>
 #include <QFileInfo>
+#include <QFormLayout>
 #include <QGroupBox>
 #include <QHBoxLayout>
 #include <QHeaderView>
@@ -1331,6 +1334,7 @@ struct AnalysisTabW::Impl {
     QWidget* objectsRowW          = nullptr; // objects only
     QComboBox* objectsMetricCombo = nullptr; // objects only
     QLabel* objectsStatsLbl       = nullptr; // objects only
+    QPushButton* objectsRenameBtn = nullptr; // objects only: name what was found
     QComboBox* socialMetricCombo  = nullptr; // social only
     QLabel* socialStatsLbl        = nullptr; // social only
     QComboBox* eyeMetricCombo     = nullptr; // eye_contact only
@@ -3033,6 +3037,13 @@ void AnalysisTabW::build_ui() {
     d->objectsStatsLbl->setStyleSheet("color:#7070a0; font-size:11px;");
     d->objectsStatsLbl->setWordWrap(true);
     objectsRowLay->addWidget(d->objectsStatsLbl, 1);
+    d->objectsRenameBtn = new QPushButton("Rename objects…");
+    d->objectsRenameBtn->setToolTip(
+        "Give the objects found names of your own (\"red ball\" for \"toy 2\"). They are "
+        "saved with this camera's result and shown in the chart, here and in the session "
+        "report.");
+    connect(d->objectsRenameBtn, &QPushButton::clicked, this, [this] { rename_objects(); });
+    objectsRowLay->addWidget(d->objectsRenameBtn);
     d->objectsRowW->setVisible(false); // shown only for the objects plugin
     rightLay->addWidget(d->objectsRowW);
 
@@ -6255,8 +6266,60 @@ void AnalysisTabW::export_eye_contact_csv() {
     });
 }
 
+void AnalysisTabW::rename_objects() {
+    const auto* info = d->current_session();
+    const auto& r    = d->currentObjects;
+    if (!info || !r.is_valid() || r.objects().isEmpty()) {
+        return;
+    }
+    const QString path =
+        info->path + "/" + objects_json_path_for(d->cameraCombo->currentData().toString());
+
+    QDialog dlg(this);
+    dlg.setWindowTitle("Rename objects");
+    auto* lay  = new QVBoxLayout(&dlg);
+    auto* note = new QLabel(
+        "Names are saved with this camera's Object Tracking result. The annotated video keeps "
+        "showing what was found (\"toy 2\"). Running Object Tracking again starts over: its "
+        "numbers can change.");
+    note->setWordWrap(true);
+    note->setStyleSheet("color:#8080a8; font-size:11px;");
+    lay->addWidget(note);
+    auto* form = new QFormLayout;
+    QMap<int, QLineEdit*> edits;
+    for (const auto& o : r.objects()) {
+        auto* edit = new QLineEdit(o.name);
+        edit->setPlaceholderText("e.g. red ball");
+        edit->setMaxLength(60);
+        form->addRow(QString("%1 %2").arg(o.label).arg(o.id), edit);
+        edits.insert(o.id, edit);
+    }
+    lay->addLayout(form);
+    auto* buttons = new QDialogButtonBox(QDialogButtonBox::Save | QDialogButtonBox::Cancel);
+    connect(buttons, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
+    connect(buttons, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
+    lay->addWidget(buttons);
+    if (dlg.exec() != QDialog::Accepted) {
+        return;
+    }
+    QMap<int, QString> names;
+    for (auto it = edits.begin(); it != edits.end(); ++it) {
+        names.insert(it.key(), it.value()->text());
+    }
+    if (!ObjectsResult::save_names(path, names)) {
+        d->statusLbl->setText("Could not save the names into " + path + ".");
+        d->statusLbl->setStyleSheet("color:#cc4444; font-size:15px; font-weight:600;");
+        return;
+    }
+    d->currentObjects = ObjectsResult::load(path);
+    update_objects_view();
+    d->statusLbl->setText("Names saved.");
+    d->statusLbl->setStyleSheet("color:#44cc66; font-size:15px; font-weight:600;");
+}
+
 void AnalysisTabW::update_objects_view() {
     const auto& r = d->currentObjects;
+    d->objectsRenameBtn->setEnabled(r.is_valid() && !r.objects().isEmpty());
     if (!r.is_valid() || r.objects().isEmpty()) {
         d->chart->set_single_series({}, "Objects");
         d->chart->set_title(r.is_valid() ? "No object found" : "No analysis yet");
@@ -6296,8 +6359,7 @@ void AnalysisTabW::update_objects_view() {
                 span(s.first - t0, s.second - t0);
             }
         }
-        series.append({QString("%1 %2").arg(o.label).arg(o.id),
-                       kColours[k % static_cast<int>(std::size(kColours))], pts});
+        series.append({o.display_name(), kColours[k % static_cast<int>(std::size(kColours))], pts});
     }
     d->chart->set_named_series(series, touched ? "Touched (one row each)" : "Seen (one row each)",
                                lastMs);
@@ -6311,7 +6373,7 @@ void AnalysisTabW::update_objects_view() {
     d->chart->set_title(title);
     QStringList lines;
     for (const auto& o : r.objects()) {
-        QString line = QString("%1 %2: seen %3%").arg(o.label).arg(o.id).arg(o.seenPct, 0, 'f', 0);
+        QString line = QString("%1: seen %2%").arg(o.display_name()).arg(o.seenPct, 0, 'f', 0);
         if (touchesLooked) {
             QStringList who;
             for (auto it = o.touchedSByPerson.begin(); it != o.touchedSByPerson.end(); ++it) {

@@ -603,7 +603,13 @@ def test_objects_card(tmp_path):
             "summary": {
                 "objects": [
                     {"id": 1, "label": "cup", "seen_pct": 93.3, "touched_s_by_person": {"1": 0.8}},
-                    {"id": 2, "label": "toy", "seen_pct": 20.0, "touched_s_by_person": {}},
+                    {
+                        "id": 2,
+                        "label": "toy",
+                        "name": "red <ball>",  # named in the app; escaped on the page
+                        "seen_pct": 20.0,
+                        "touched_s_by_person": {},
+                    },
                 ]
             },
             "frames": [{"objects": [{"polygon": [[0, 0]] * 50}]}],
@@ -612,6 +618,7 @@ def test_objects_card(tmp_path):
     page = render.render(collect.collect(s))
     assert "Objects (SAM 3)" in page and "seen 93%; touched by person 1 0.8 s" in page
     assert "seen 20%; not touched" in page
+    assert "red &lt;ball&gt; (toy 2)" in page
     assert "objects" not in collect.collect(s, for_summary_only=True).cameras[0].results
 
 
