@@ -17,6 +17,7 @@ import time
 from pathlib import Path
 
 import cv2
+from camera_pick import add_camera_arg, pick_cameras
 from facemask.detectors import make_detector
 from facemask.masking import (
     apply_mask,
@@ -122,6 +123,7 @@ def parse_args() -> argparse.Namespace:
         help="Segmentation inference resolution for --region body (default: 640). "
         "Larger resolves small/distant people better, at proportionally more time.",
     )
+    add_camera_arg(parser)
     return parser.parse_args()
 
 
@@ -195,8 +197,9 @@ def process_session(
     device: str | None,
     region: str = "face",
     segmenter=None,
+    cameras: list | None = None,
 ) -> None:
-    videos = sorted((session_dir / "video").glob("*.mp4"))
+    videos = pick_cameras(sorted((session_dir / "video").glob("*.mp4")), cameras)
     if not videos:
         print(f"[run_face_mask] No .mp4 files found in {session_dir / 'video'}", file=sys.stderr)
         sys.exit(1)
@@ -419,6 +422,7 @@ def main() -> None:
             args.device,
             region=args.region,
             segmenter=segmenter,
+            cameras=args.camera,
         )
     elif args.video:
         video_path = Path(args.video)

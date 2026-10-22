@@ -71,6 +71,7 @@ struct AnalysisManager::Impl {
     QString pythonPath;        // empty = auto-detect
     QString model = "yolov8n-pose.pt";
     int frameSkip = 1;
+    QList<int> cameras; // set_cameras(): for the next job only
 
     QString currentSession;
     // The running script and its last error output, to name a failure.
@@ -92,6 +93,7 @@ bool AnalysisManager::auto_analyze() const { return d->autoAnalyze; }
 void AnalysisManager::set_python_path(const QString& p) { d->pythonPath = p; }
 void AnalysisManager::set_model(const QString& m) { d->model = m; }
 void AnalysisManager::set_frame_skip(int skip) { d->frameSkip = qMax(1, skip); }
+void AnalysisManager::set_cameras(const QList<int>& cameras) { d->cameras = cameras; }
 bool AnalysisManager::is_running() const { return d->process != nullptr; }
 
 // ── Public operations ──────────────────────────────────────────────────────
@@ -323,7 +325,14 @@ void AnalysisManager::run_sync_repair(const QString& sessionPath, double masterF
 
 void AnalysisManager::enqueue_or_launch(const QString& sessionPath, const QString& scriptRelPath,
                                         const QStringList& args, const QProcessEnvironment& env) {
-    const Job job{sessionPath, scriptRelPath, args, env};
+    Job job{sessionPath, scriptRelPath, args, env};
+    if (!d->cameras.isEmpty()) {
+        job.args << "--camera";
+        for (const int c : std::as_const(d->cameras)) {
+            job.args << QString::number(c);
+        }
+    }
+    d->cameras.clear();
     if (is_running() || d->launchesHeld) {
         d->queue.enqueue(job);
         log_info(QString("[AnalysisManager] Queued session: %1 (%2)%3")

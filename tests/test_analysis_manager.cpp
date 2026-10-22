@@ -163,6 +163,25 @@ TEST_F(AnalysisManagerTest, EnvVarsReachTheSubprocess) {
     EXPECT_TRUE(lines.contains("ENV:PYTHONIOENCODING=utf-8"));
 }
 
+// The Analysis tab's camera picker: the cameras reach the script, and only
+// the next job's.
+TEST_F(AnalysisManagerTest, PickedCamerasReachOnlyTheNextJob) {
+    QStringList lines;
+    QObject::connect(&mgr, &AnalysisManager::output_received,
+                     [&lines](const QString& line) { lines << line; });
+
+    mgr.set_cameras({1, 4});
+    mgr.run_clap_check("session-c");
+    ASSERT_TRUE(wait_for_signal(&mgr, &AnalysisManager::analysis_finished));
+    EXPECT_TRUE(lines.contains("ARGS:--session session-c --camera 1 4"))
+        << lines.join(" | ").toStdString();
+
+    lines.clear();
+    mgr.run_clap_check("session-d");
+    ASSERT_TRUE(wait_for_signal(&mgr, &AnalysisManager::analysis_finished));
+    EXPECT_TRUE(lines.contains("ARGS:--session session-d")) << lines.join(" | ").toStdString();
+}
+
 // Frame Sync writes its summary last; Python crashing on exit after that
 // (seen inside OpenCV's FFmpeg plugin) lost nothing, so it counts as done.
 TEST_F(AnalysisManagerTest, FrameSyncCrashAfterItsSummaryCountsAsDone) {

@@ -24,8 +24,9 @@
 //   MOSAIC_TEST_STUB_EXIT_CODE  - this process's exit code (default 0).
 //
 // Always prints one fixed line to stdout and one to stderr, and echoes
-// argv[1] (the "script path" AnalysisManager passed) -- see the STDOUT_
-// LINE/STDERR_LINE/SCRIPT: prefixes below.
+// argv[1] (the "script path" AnalysisManager passed) and the arguments after
+// it, space-separated -- see the STDOUT_LINE/STDERR_LINE/SCRIPT:/ARGS:
+// prefixes below.
 
 #include <chrono>
 #include <cstdlib>
@@ -65,6 +66,11 @@ int main(int argc, char** argv) {
 
     if (argc > 1) {
         std::cout << "SCRIPT:" << argv[1] << "\n";
+        std::cout << "ARGS:";
+        for (int i = 2; i < argc; ++i) {
+            std::cout << (i > 2 ? " " : "") << argv[i];
+        }
+        std::cout << "\n";
     }
 
     for (const auto& name : split_csv(env_or("MOSAIC_TEST_STUB_ECHO_ENV", ""))) {

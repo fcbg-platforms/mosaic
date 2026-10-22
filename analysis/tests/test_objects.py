@@ -116,6 +116,15 @@ def test_summary_counts_seen_travel_and_touch():
     assert s["contacts"] == 1 and s["touched_s_by_person"] == {"1": 0.4}
 
 
+def test_camera_pick_keeps_the_picked_cameras_only():
+    from camera_pick import pick_cameras
+
+    vids = [Path("video/video_0.mp4"), Path("video/video_4.mp4"), Path("video/clip.mp4")]
+    assert pick_cameras(vids, None) == vids
+    assert pick_cameras(vids, [4]) == [vids[1]]
+    assert run_objects.parse_args(["--session", "s", "--camera", "0", "4"]).camera == [0, 4]
+
+
 def test_labels_are_split_and_deduplicated():
     assert run_objects.parse_labels(" toy, cup,,Toy , tablet ") == ["toy", "cup", "tablet"]
     # Hands are always followed, and are not objects.

@@ -29,6 +29,7 @@
 #include <QListWidget>
 #include <QListWidgetItem>
 #include <QMap>
+#include <QMenu>
 #include <QMouseEvent>
 #include <QPainter>
 #include <QPersistentModelIndex>
@@ -36,6 +37,7 @@
 #include <QPushButton>
 #include <QRegularExpression>
 #include <QScatterSeries>
+#include <QSet>
 #include <QSpinBox>
 #include <QSplitter>
 #include <QStackedWidget>
@@ -266,6 +268,23 @@ QString subject_chip_tooltip(SubjectChoice choice, bool fileHasTrackedIdentity) 
                "re-runs of the analysis.")
         .arg(choice.id.value);
 }
+
+// A menu of ticks that stays open while they are clicked, so several cameras
+// can be ticked or unticked in one go (a plain QMenu closes on each click).
+class StayOpenMenu : public QMenu {
+   public:
+    using QMenu::QMenu;
+
+   protected:
+    void mouseReleaseEvent(QMouseEvent* e) override {
+        QAction* a = actionAt(e->position().toPoint());
+        if (a && a->isCheckable() && a->isEnabled()) {
+            a->trigger();
+            return;
+        }
+        QMenu::mouseReleaseEvent(e);
+    }
+};
 
 } // namespace
 
@@ -1151,7 +1170,9 @@ struct AnalysisTabW::Impl {
     QDoubleSpinBox* syncRepairMasterFpsSpin  = nullptr; // sync_repair — 0.0 = "Auto"
 
     QPushButton* runBtn = nullptr;
-    QLabel* statusLbl   = nullptr;
+    // Per-camera plugins: which cameras Run analyses (a menu of ticks).
+    QToolButton* camerasBtn = nullptr;
+    QLabel* statusLbl       = nullptr;
     // cameraProgressBar (coarse: which camera out of N, Pose plugin's
     // multi-camera session runs only) sits above progressBar (fine:
     // per-frame % within the camera currently being processed) — both
@@ -1392,6 +1413,39 @@ struct AnalysisTabW::Impl {
             }
         }
         return nullptr;
+    }
+
+    // The plugins that analyse each camera's video on its own, into files of
+    // its own, so Run can be limited to some cameras without touching the
+    // others' results.
+    [[nodiscard]] bool plugin_is_per_camera() const {
+        static const QStringList kPerCamera = {"pose",         "face_mask",   "expression",
+                                               "rppg",         "gaze2d",      "face_dynamics",
+                                               "conversation", "eye_contact", "objects"};
+        return kPerCamera.contains(currentPlugin);
+    }
+
+    // The cameras ticked under the Cameras button; empty when all are, which
+    // is what the scripts do without --camera.
+    [[nodiscard]] QList<int> picked_cameras() const {
+        QList<int> out;
+        const auto actions = camerasBtn->menu()->actions();
+        for (const QAction* a : actions) {
+            if (a->isChecked()) {
+                out << a->data().toInt();
+            }
+        }
+        return out.size() == actions.size() ? QList<int>{} : out;
+    }
+
+    void update_cameras_btn() {
+        const QList<int> picked = picked_cameras();
+        QStringList names;
+        for (const int c : picked) {
+            names << QString::number(c + 1);
+        }
+        camerasBtn->setText(picked.isEmpty() ? QString("Cameras: all")
+                                             : "Cameras: " + names.join(", "));
     }
 
     // Shared by update_kinematics_chart() and export_kinematics_csv() — both
@@ -2328,6 +2382,16 @@ void AnalysisTabW::build_ui() {
         "    stop:0 #1f8a44, stop:1 #186e35); }"
         "QPushButton:disabled { background: #12251a; border-color: #1e3a28; color: #4a6a55; }");
     connect(d->runBtn, &QPushButton::clicked, this, &AnalysisTabW::run_analysis);
+    // Filled per session in select_session(): one tick per camera, all ticked.
+    d->camerasBtn = new QToolButton;
+    d->camerasBtn->setText("Cameras: all");
+    d->camerasBtn->setFixedHeight(34);
+    d->camerasBtn->setPopupMode(QToolButton::InstantPopup);
+    d->camerasBtn->setMenu(new StayOpenMenu(d->camerasBtn));
+    d->camerasBtn->setToolTip(
+        "Which cameras Run analyses, e.g. only the camera that sees the objects. Each camera's "
+        "results are its own files, so the other cameras' results stay as they were.");
+    controlsRow->addWidget(d->camerasBtn);
     controlsRow->addWidget(d->runBtn);
     runLay->addLayout(controlsRow);
 
@@ -3234,6 +3298,16 @@ void AnalysisTabW::rebuild_session_list() {
 }
 
 void AnalysisTabW::select_session(const QString& path) {
+    // The session list is rebuilt now and then (a recording ends, a run
+    // finishes) and selects the same session again: its camera picks stay.
+    QSet<int> unticked;
+    if (path == d->currentSessionPath) {
+        for (const QAction* a : d->camerasBtn->menu()->actions()) {
+            if (!a->isChecked()) {
+                unticked << a->data().toInt();
+            }
+        }
+    }
     d->currentSessionPath = path;
     const auto* info      = d->current_session();
 
@@ -3264,6 +3338,37 @@ void AnalysisTabW::select_session(const QString& path) {
         }
     }
     d->cameraCombo->blockSignals(false);
+
+    // Every camera ticked for a new session.
+    QMenu* camerasMenu = d->camerasBtn->menu();
+    camerasMenu->clear();
+    if (info) {
+        for (const QString& v : info->videoFiles) {
+            const int cam = camera_index_from_video_file(v);
+            if (cam < 0) {
+                continue; // not a camera's video ("video_2_old.mp4")
+            }
+            QAction* a = camerasMenu->addAction(camera_label_for_video(v));
+            a->setCheckable(true);
+            a->setChecked(!unticked.contains(cam));
+            a->setData(cam);
+            connect(a, &QAction::toggled, this, [this, a](bool on) {
+                // At least one camera stays ticked: Run with none would do nothing.
+                const auto actions = d->camerasBtn->menu()->actions();
+                if (!on && std::ranges::none_of(actions, &QAction::isChecked)) {
+                    a->setChecked(true);
+                    return;
+                }
+                d->update_cameras_btn();
+            });
+        }
+    }
+    if (std::ranges::none_of(camerasMenu->actions(), &QAction::isChecked)) {
+        for (QAction* a : camerasMenu->actions()) {
+            a->setChecked(true);
+        }
+    }
+    d->update_cameras_btn();
 
     // The two people's cameras: those this session has; Camera 2 and Camera 5
     // by default (where the room's two seats are usually seen from).
@@ -3397,6 +3502,7 @@ void AnalysisTabW::select_plugin(const QString& pluginId) {
     set_visible_animated(d->overview, isOverview);
     // Nothing to run for the overview (its page explains why).
     d->runBtn->setVisible(!isOverview);
+    set_visible_animated(d->camerasBtn, d->plugin_is_per_camera());
     set_visible_animated(d->openFolderBtn, isFaceMask || is_pose_depth_selected() || isSyncRepair ||
                                                isGazeFusion || isFaceDyn || isConv || isEye ||
                                                isSocial || isObjects || isClapCheck);
@@ -6822,6 +6928,7 @@ void AnalysisTabW::run_analysis() {
     if (d->jobWritesVideo) {
         d->player->set_video(QString());
     }
+    d->analysisMgr->set_cameras(d->plugin_is_per_camera() ? d->picked_cameras() : QList<int>{});
     if (plugin == "pose") {
         d->analysisMgr->set_model(d->modelCombo->currentData().toString());
         d->analysisMgr->set_frame_skip(d->skipSpin->value());

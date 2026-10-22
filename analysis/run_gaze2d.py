@@ -27,6 +27,7 @@ import time
 from pathlib import Path
 
 import cv2
+from camera_pick import add_camera_arg, pick_cameras
 from gaze2d.estimator import Gaze2dEstimator, gaze_on_target
 
 # ── CLI ───────────────────────────────────────────────────────────────────────
@@ -52,6 +53,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--skip", type=int, default=1, help="Process every Nth frame (default: 1 = every frame)"
     )
+    add_camera_arg(parser)
     return parser.parse_args()
 
 
@@ -81,8 +83,9 @@ def process_session(
     session_dir: Path,
     min_confidence: float,
     skip: int,
+    cameras: list | None = None,
 ) -> None:
-    videos = sorted((session_dir / "video").glob("*.mp4"))
+    videos = pick_cameras(sorted((session_dir / "video").glob("*.mp4")), cameras)
     if not videos:
         print(f"[run_gaze2d] No .mp4 files found in {session_dir / 'video'}", file=sys.stderr)
         sys.exit(1)
@@ -280,7 +283,7 @@ def main() -> None:
     args = parse_args()
 
     if args.session:
-        process_session(Path(args.session), args.min_confidence, args.skip)
+        process_session(Path(args.session), args.min_confidence, args.skip, cameras=args.camera)
     elif args.video:
         estimator = Gaze2dEstimator(min_confidence=args.min_confidence)
         video_path = Path(args.video)

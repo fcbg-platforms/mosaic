@@ -32,6 +32,7 @@ import traceback
 from pathlib import Path
 
 import numpy as np
+from camera_pick import add_camera_arg, pick_cameras
 from video_publish import open_writer, publish_video
 
 TAG = "[run_face_dynamics]"
@@ -49,7 +50,7 @@ def parse_args(argv=None) -> argparse.Namespace:
     group = p.add_mutually_exclusive_group(required=True)
     group.add_argument("--session", metavar="DIR", help="Process the videos of a recorded session")
     group.add_argument("--video", metavar="FILE", help="Process one video file")
-    p.add_argument("--camera", type=int, default=None, help="Only this camera index (--session)")
+    add_camera_arg(p)  # with --session
     p.add_argument(
         "--min-confidence",
         type=float,
@@ -672,8 +673,7 @@ def main(argv=None) -> int:
 
     session = Path(args.session)
     videos = sorted((session / "video").glob("video_*.mp4"))
-    if args.camera is not None:
-        videos = [v for v in videos if camera_index_from_filename(v) == args.camera]
+    videos = pick_cameras(videos, args.camera)
     if not videos:
         print(f"{TAG} No videos to analyse in {session / 'video'}", file=sys.stderr, flush=True)
         return 1
