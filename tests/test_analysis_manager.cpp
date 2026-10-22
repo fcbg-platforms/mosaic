@@ -4,6 +4,7 @@
 #include <QDir>
 #include <QEventLoop>
 #include <QFile>
+#include <QFileInfo>
 #include <QStringList>
 #include <QTemporaryDir>
 #include <QTimer>
@@ -225,6 +226,29 @@ TEST_F(AnalysisManagerTest, PendingWorkNamesRunningAndWaitingJobs) {
     ASSERT_TRUE(wait_for_signal(&mgr, &AnalysisManager::analysis_finished));
     ASSERT_TRUE(wait_for_signal(&mgr, &AnalysisManager::analysis_finished, 3000));
     EXPECT_TRUE(mgr.pending_work().isEmpty());
+}
+
+// The synced-video exporter is MOSAIC's own program, run without Python. Built
+// only with FFmpeg, so skipped where it is not.
+TEST_F(AnalysisManagerTest, TheSyncedVideoExportRunsMosaicsOwnProgram) {
+    if (!QFile::exists(QCoreApplication::applicationDirPath() + "/mosaic_export_synced.exe") &&
+        !QFile::exists(QCoreApplication::applicationDirPath() + "/mosaic_export_synced")) {
+        GTEST_SKIP() << "mosaic_export_synced is not built (no FFmpeg)";
+    }
+    QTemporaryDir session; // no Frame Sync in it
+    QStringList lines;
+    QObject::connect(&mgr, &AnalysisManager::output_received,
+                     [&lines](const QString& line) { lines << line; });
+    bool ok = true;
+    QObject::connect(&mgr, &AnalysisManager::analysis_finished,
+                     [&ok](const QString&, bool success) { ok = success; });
+    mgr.run_synced_video_export(session.path());
+    EXPECT_EQ(mgr.pending_work(),
+              QStringList{"Synced video export on " + QFileInfo(session.path()).fileName()});
+    ASSERT_TRUE(wait_for_signal(&mgr, &AnalysisManager::analysis_finished));
+    EXPECT_FALSE(ok);
+    EXPECT_FALSE(lines.filter("run Frame Sync first").isEmpty()) << lines.join(" | ").toStdString();
+    EXPECT_TRUE(lines.filter("SCRIPT:").isEmpty()); // not the Python stand-in
 }
 
 TEST_F(AnalysisManagerTest, QueuesSecondJobWhileFirstIsRunning) {

@@ -434,9 +434,10 @@ struct RecordSettings {
     // see that every camera is delivering frames.
     bool hidePreviewsWhileRecording = true;
 
-    // After each recording, run Frame Sync Repair so every camera gets an
-    // aligned, equal-length copy in synced/ (one frame per trigger tick, a
-    // camera's missed frames tagged). Never started while a recording runs —
+    // After each recording, run Frame Sync Repair so every camera is lined
+    // up on the trigger ticks (repair maps in synced/: which frame belongs to
+    // each tick, which ticks a camera missed; the videos are exported on
+    // request). About a second. Never started while a recording runs —
     // see AnalysisManager::set_launches_held(). Skipped for sessions with
     // fewer than two cameras, where there is nothing to line up.
     bool autoSyncRepair = true;

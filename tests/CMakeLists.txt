@@ -108,6 +108,7 @@ add_executable(mosaic_tests
     "${CMAKE_SOURCE_DIR}/src/analysis/session_overview.cpp"
     "${CMAKE_SOURCE_DIR}/src/audio/audio_timing_log.cpp"
     "${CMAKE_SOURCE_DIR}/src/analysis/sync_repair_result.cpp"
+    "${CMAKE_SOURCE_DIR}/src/video/synced_video_export.cpp"
     "${CMAKE_SOURCE_DIR}/src/analysis/pose_analysis_result.cpp"
     "${CMAKE_SOURCE_DIR}/src/analysis/pose_kinematics.cpp"
     "${CMAKE_SOURCE_DIR}/src/analysis/dyadic_kinematics.cpp"
