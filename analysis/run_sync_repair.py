@@ -1,12 +1,18 @@
 """
-MOSAIC Frame Sync Repair runner — equalizes every camera's frame count in a
-recorded session by aligning all cameras to a shared master tick grid
-(analysis/sync_repair/alignment.py) and filling small per-camera
-frame-count mismatches (GVSP packet loss / trigger misses) by duplicating
-the nearest-available frame. Writes per-camera repaired copies into a
-sibling "synced/" folder, plus a per-camera audit-trail CSV marking which
-output frames are duplicates and one small JSON summary. Never touches the
-original recordings.
+MOSAIC Frame Sync Repair runner — lines every camera of a recorded session up
+on a shared master tick grid (analysis/sync_repair/alignment.py): which frame of
+each camera belongs to each tick, and which ticks a camera has no frame for
+(GVSP packet loss / trigger misses). Writes, into a sibling "synced/"
+folder, a repair map per camera (output frame k shows source frame
+source_frame_index, or repeats the last one where it is missing) and one
+small JSON summary. Never touches the original recordings.
+
+It writes no video. Reading the frames and encoding copies took about as
+long as the recording and gave files four to six times the originals' size
+(OpenCV can only reach Windows' fixed-rate H.264 encoder). Analyses line
+cameras up through the maps; the synced videos, to watch or share, are made
+on request by MOSAIC's own encoder (src/tools/export_synced_main.cpp, the
+Frame Sync page's "Export synced videos"), from these maps.
 
     python analysis/run_sync_repair.py --session /path/to/session_2026-06-07_14-30
     python analysis/run_sync_repair.py --session /path/to/session --master-fps 15.0
@@ -30,8 +36,9 @@ produced it (sync_repair/tick_alignment.py) and the output has one frame per
 tick over the window every camera was running in. Otherwise — older sessions,
 free-running cameras, an explicit --master-fps — frames are placed on a grid
 by arrival time, as before (sync_repair/alignment.py). Either way every
-camera's output has the same frame count, and a tick a camera has no frame
-for repeats its last real frame with a red MISSING tag (sync_repair/marker.py).
+camera's map has the same number of output frames, and a tick a camera has
+no frame for repeats its last real frame (with a red MISSING tag in the
+exported video).
 
 See analysis/README.rst for full documentation.
 """
@@ -55,14 +62,12 @@ from sync_repair.alignment import (
     build_tick_grid,
     compute_master_fps,
 )
-from sync_repair.marker import mark_missing
 from sync_repair.tick_alignment import (
     EXPOSURE_MIN_SHARE,
     TickCamera,
     build_tick_plan,
     gap_ranges,
 )
-from video_publish import open_writer
 
 _MAX_GAPS_LISTED = 100  # per camera in sync_repair.json; the total is always given
 
@@ -262,132 +267,92 @@ def _load_trigger_ticks(session_dir: Path) -> tuple[np.ndarray, set[int]] | None
 # ── Per-camera repair (single sequential forward pass) ──────────────────────
 
 
-def _repair_camera(
+def _video_frame_count(video_path: Path) -> int:
+    """Frames in the video as its container states them (no decoding); 0
+    when it cannot be read or does not say."""
+    cap = cv2.VideoCapture(str(video_path))
+    try:
+        return max(0, int(cap.get(cv2.CAP_PROP_FRAME_COUNT))) if cap.isOpened() else 0
+    finally:
+        cap.release()
+
+
+def _write_repair_map(
     video_path: Path,
     ordinal_map: dict[int, int],
     assigned_frame_ids: np.ndarray,
-    out_video_path: Path,
     out_csv_path: Path,
-    master_fps: float,
     missing: np.ndarray | None = None,
     first_tick: int | None = None,
 ) -> tuple[int, int, str | None]:
-    """Writes out_video_path (exactly len(assigned_frame_ids) frames, one
-    per master tick) and out_csv_path (its per-tick audit trail) via a
-    SINGLE sequential forward pass over video_path — never seeks backward,
-    never uses CAP_PROP_POS_FRAMES. Correct because assigned_frame_ids is
-    guaranteed non-decreasing across ticks by construction (see
-    build_tick_grid()'s own doc comment).
+    """Writes out_csv_path, one row per master tick: the source frame it
+    shows (``source_frame_id``, and ``source_frame_index``, its position in
+    the video, which the exporter decodes to) and whether it is missing.
 
     `missing` marks output frames that repeat an earlier frame because the
-    camera has none for that tick; they carry a red MISSING tag. Without it
-    (arrival-time alignment), a repeat of the previous tick's frame is the
-    same thing and is tagged the same way. `first_tick` numbers the repair
-    map's `tick` column when the output is on trigger ticks.
+    camera has none for that tick. Without it (arrival-time alignment), a
+    repeat of the previous tick's frame is the same thing. `first_tick`
+    numbers the map's `tick` column when the output is on trigger ticks.
 
-    Returns (output_frame_count, duplicated_frame_count, note_or_None).
-    note is set only if the source video ended earlier than its own CSV
-    claimed (a truncated/corrupt file) — the remaining ticks are then
-    filled by freezing on the last successfully-decoded frame, always
-    marked duplicated in the CSV (the pixel content genuinely didn't
-    change), never silently treated as fresh data.
+    A frame the video does not hold (a truncated file: fewer frames than its
+    timestamps file lists) cannot be shown: from there on the last frame it
+    does hold is repeated, marked missing, and the returned note says so.
+
+    Returns (output_frame_count, missing_frame_count, note_or_None).
     """
-    cap = cv2.VideoCapture(str(video_path))
-    if not cap.isOpened():
-        return 0, 0, f"could not open {video_path.name} for reading"
-
-    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-    writer = open_writer(out_video_path, master_fps, (width, height))
-    if writer is None:
-        cap.release()
-        return 0, 0, f"could not open a video writer for {out_video_path.name}"
-
-    total_ticks = len(assigned_frame_ids)
-    progress_interval = max(1, total_ticks // 200)
-
-    frames_read = -1  # ordinal of the last frame successfully decoded so far
-    current_frame: np.ndarray | None = None
+    frames_in_video = _video_frame_count(video_path)
+    rows: list[tuple[int, int, int, bool]] = []
+    last_index = -1
     truncated = False
-    truncated_at_ordinal = -1
-    duplicated_count = 0
     prev_frame_id: int | None = None
-    rows: list[tuple[int, int, bool]] = []
-    t_start = time.perf_counter()
-
-    for tick in range(total_ticks):
+    missing_count = 0
+    for tick in range(len(assigned_frame_ids)):
         frame_id = int(assigned_frame_ids[tick])
-        target_ordinal = ordinal_map.get(frame_id)
-
-        if target_ordinal is None and not truncated:
-            # Should not happen — every assigned frame_id came from this
-            # same camera's own CSV (see build_tick_grid()). Defensive
-            # fallback: treat exactly like a truncated read, never crash.
-            # truncated_at_ordinal is still recorded here (frames_read
-            # reflects however many frames were genuinely decoded in prior
-            # ticks) so the note below never under-reports how far the
-            # camera actually got, regardless of which branch tripped it.
+        ordinal = ordinal_map.get(frame_id)
+        # The container's count is only trusted when it states one.
+        if ordinal is None or (frames_in_video > 0 and ordinal >= frames_in_video):
             truncated = True
-            truncated_at_ordinal = frames_read
-
-        if not truncated and target_ordinal is not None:
-            while frames_read < target_ordinal:
-                ok, frame = cap.read()
-                if not ok:
-                    truncated = True
-                    truncated_at_ordinal = frames_read
-                    break
-                frames_read += 1
-                current_frame = frame
-
-        if current_frame is None:
-            # Never successfully decoded a single frame — write a
-            # correctly-sized black frame rather than crash; the returned
-            # note flags this camera's whole output as unreliable.
-            current_frame = np.zeros((height, width, 3), dtype=np.uint8)
-
         is_missing = (
             bool(missing[tick])
             if missing is not None
             else (prev_frame_id is not None and frame_id == prev_frame_id)
         )
-        is_duplicate = truncated or is_missing
-        # Tagged so a repeat is never mistaken for a fresh image — see
-        # sync_repair/marker.py.
-        writer.write(mark_missing(current_frame) if is_duplicate else current_frame)
-        if is_duplicate:
-            duplicated_count += 1
-        rows.append((tick, frame_id, is_duplicate))
+        if truncated:
+            is_missing = True
+        else:
+            last_index = ordinal
+        missing_count += int(is_missing)
+        rows.append((tick, frame_id, last_index, is_missing))
         prev_frame_id = frame_id
-
-        if (tick + 1) % progress_interval == 0:
-            elapsed = time.perf_counter() - t_start
-            pct = (tick + 1) / max(total_ticks, 1) * 100
-            print(f"  {pct:5.1f}%  ({tick + 1}/{total_ticks})  {elapsed:.1f}s elapsed", flush=True)
-
-    cap.release()
-    writer.release()
 
     with out_csv_path.open("w", newline="") as f:
         w = csv.writer(f)
         # `missing` is the newer name for the same flag; `duplicated` is kept
         # for readers of older maps. `tick` is the trigger tick (empty when
         # aligned on arrival time).
-        w.writerow(["output_frame_index", "source_frame_id", "duplicated", "missing", "tick"])
-        for out_idx, fid, dup in rows:
+        w.writerow(
+            [
+                "output_frame_index",
+                "source_frame_id",
+                "source_frame_index",
+                "duplicated",
+                "missing",
+                "tick",
+            ]
+        )
+        for out_idx, fid, src, dup in rows:
             flag = "true" if dup else "false"
             tick_col = "" if first_tick is None else first_tick + out_idx
-            w.writerow([out_idx, fid, flag, flag, tick_col])
+            w.writerow([out_idx, fid, src, flag, flag, tick_col])
 
     note = None
     if truncated:
         note = (
-            f"source video ended early (only {max(truncated_at_ordinal, 0) + 1} of an "
-            f"expected {len(ordinal_map)} frame(s) could be decoded) — remaining ticks "
-            f"were filled by duplicating the last successfully-decoded frame"
+            f"source video ended early (holds {frames_in_video} of the {len(ordinal_map)} "
+            f"frame(s) its timestamps file lists): from there on its last frame is repeated, "
+            f"marked missing"
         )
-
-    return len(rows), duplicated_count, note
+    return len(rows), missing_count, note
 
 
 # ── Session mode ─────────────────────────────────────────────────────────────
@@ -619,6 +584,17 @@ def process_session(session_dir: Path, master_fps_arg: float) -> None:
     # The summary is written last: until then this run is unfinished, and
     # MOSAIC finishes it on its next start if it is cut off.
     (out_dir / "sync_repair.json").unlink(missing_ok=True)
+    # Synced videos of an earlier run follow its maps, not these: they are
+    # exported again from the new ones.
+    stale = sorted(out_dir.glob("video_*.mp4"))
+    for old in stale:
+        old.unlink(missing_ok=True)
+    if stale:
+        print(
+            f"[run_sync_repair] Removed {len(stale)} synced video(s) of an earlier run; "
+            f"export them again from the new alignment.",
+            flush=True,
+        )
 
     summary_cameras: dict[int, dict] = {
         d.index: {
@@ -644,17 +620,14 @@ def process_session(session_dir: Path, master_fps_arg: float) -> None:
         )
 
         video_rel = f"video/{d.video_path.name}"
-        out_video = out_dir / d.video_path.name
         out_csv = out_dir / f"{d.video_path.stem}.repair_map.csv"
 
         pc = per_camera[d.index]
-        output_count, dup_count, note = _repair_camera(
+        output_count, dup_count, note = _write_repair_map(
             d.video_path,
             ordinal_maps[d.index],
             pc["frame_ids"],
-            out_video,
             out_csv,
-            master_fps,
             missing=pc["missing"],
             first_tick=first_tick if pc["alignment"].startswith("trigger_ticks") else None,
         )
@@ -666,7 +639,6 @@ def process_session(session_dir: Path, master_fps_arg: float) -> None:
                 f"frame(s), expected {total_ticks} — treating as failed.",
                 file=sys.stderr,
             )
-            out_video.unlink(missing_ok=True)
             out_csv.unlink(missing_ok=True)
             failures += 1
             summary_cameras[d.index] = {
@@ -686,6 +658,7 @@ def process_session(session_dir: Path, master_fps_arg: float) -> None:
         summary_cameras[d.index] = {
             "index": d.index,
             "source_video": video_rel,
+            # Where "Export synced videos" writes it; absent until then.
             "repaired_video": f"synced/{d.video_path.name}",
             "source_frames_captured": source_counts[d.index],
             "output_frame_count": output_count,
@@ -715,7 +688,7 @@ def process_session(session_dir: Path, master_fps_arg: float) -> None:
         print(
             f"[run_sync_repair] Done. Camera {d.index + 1} ({d.video_path.name}): "
             f"{output_count} frame(s), "
-            f"{dup_count} duplicated -> synced/{d.video_path.name}",
+            f"{dup_count} missing -> synced/{out_csv.name}",
             flush=True,
         )
 

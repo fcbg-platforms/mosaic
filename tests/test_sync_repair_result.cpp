@@ -5,6 +5,7 @@
 #include <QTemporaryDir>
 
 #include "analysis/sync_repair_result.hpp"
+#include "video/synced_video_export.hpp"
 
 using mosaic::SyncRepairResult;
 
@@ -220,4 +221,39 @@ TEST(SyncRepairResult, UnfinishedFrameSyncsAreThoseWithoutTheirSummary) {
     summary.close();
     EXPECT_EQ(mosaic::unfinished_frame_syncs(dir.path()), QStringList{root.filePath("cut_off")});
     EXPECT_TRUE(mosaic::unfinished_frame_syncs(root.filePath("missing")).isEmpty());
+}
+
+// ── The repair map the synced-video export follows ───────────────────────
+
+TEST(SyncedVideoExport, ReadsTheRepairMap) {
+    QTemporaryDir dir;
+    const QString path = dir.filePath("video_2.repair_map.csv");
+    QFile f(path);
+    ASSERT_TRUE(f.open(QIODevice::WriteOnly));
+    f.write(
+        "output_frame_index,source_frame_id,source_frame_index,duplicated,missing,tick\n"
+        "0,5,4,false,false,10\n"
+        "1,6,5,false,false,11\n"
+        "2,6,5,true,true,12\n");
+    f.close();
+    QString error;
+    const auto rows = mosaic::read_repair_map(path, &error);
+    ASSERT_EQ(rows.size(), 3u) << error.toStdString();
+    EXPECT_EQ(rows[0].sourceIndex, 4);
+    EXPECT_FALSE(rows[1].missing);
+    EXPECT_TRUE(rows[2].missing);
+    EXPECT_EQ(rows[2].sourceIndex, 5); // a missing frame repeats the last one
+}
+
+TEST(SyncedVideoExport, AMapFromBeforeTheExportAsksForFrameSyncAgain) {
+    QTemporaryDir dir;
+    const QString path = dir.filePath("video_0.repair_map.csv");
+    QFile f(path);
+    ASSERT_TRUE(f.open(QIODevice::WriteOnly));
+    f.write("output_frame_index,source_frame_id,duplicated,missing,tick\n0,1,false,false,0\n");
+    f.close();
+    QString error;
+    EXPECT_TRUE(mosaic::read_repair_map(path, &error).empty());
+    EXPECT_TRUE(error.contains("run Frame Sync again"));
+    EXPECT_TRUE(mosaic::read_repair_map(dir.filePath("none.csv"), &error).empty());
 }

@@ -30,8 +30,8 @@ for every camera control, see :doc:`camera_settings`.
       :link: synced-videos
       :link-type: ref
 
-      ``synced/``: every camera the same length, one frame per trigger,
-      with missed frames marked.
+      ``synced/``: every camera lined up frame by frame, one frame per
+      trigger, with missed frames marked.
 
    .. grid-item-card:: 🩺  When something goes wrong
       :link: acquisition-troubleshooting
@@ -160,12 +160,12 @@ their timing belongs to the experiment. The check can be turned off under
 
 Click **■ Stop** or press ``Ctrl+.``. The **Session Health** report opens:
 one row per camera with frames captured, dropped and incomplete, and the
-synchronisation quality. Shortly afterwards, **Frame Sync Repair** starts in
-the background and writes the equal-length videos into ``synced/`` (see
-:ref:`synced-videos`). It never starts while a new recording is running; it
-waits until that one stops. It takes about as long as the recording; closing
-MOSAIC before it is done asks first, and a Frame Sync cut off this way is
-finished the next time MOSAIC starts.
+synchronisation quality. Shortly afterwards, **Frame Sync Repair** lines the
+cameras up in the background, in about a second, and writes the result into
+``synced/`` (see :ref:`synced-videos`). It never starts while a new recording
+is running; it waits until that one stops. Closing MOSAIC before it is done
+asks first, and a Frame Sync cut off this way is finished the next time
+MOSAIC starts.
 
 .. _room-and-interview-mode:
 
@@ -242,8 +242,17 @@ Equal frame counts: ``synced/``
 
 The videos in ``video/`` are kept exactly as recorded, and they rarely have
 the same length: a camera can join a few triggers late, lose frames, or stop a
-little early. After each recording, MOSAIC writes an aligned copy of every
-camera's video into ``synced/``:
+little early. After each recording, MOSAIC lines every camera up on the
+triggers, in about a second: for each trigger, which frame of each camera
+belongs to it, and which triggers a camera missed. That goes into
+``synced/``, as one small table per camera. The analyses line the cameras up
+through it; they never need copies of the videos.
+
+To watch or share the cameras side by side, the Analysis tab's **Frame Sync
+Repair** page has **Export synced videos**. It writes an aligned copy of every
+camera's video into ``synced/``, encoded like the recording (on the graphics
+card, at the original's bitrate): about the originals' size, made in about a
+quarter of the recording's length. In those videos:
 
 - **Every camera has the same number of frames**, one per trigger, over the
   time every camera was recording.
@@ -261,7 +270,9 @@ camera's video into ``synced/``:
 
 The Analysis tab's **Frame Sync Repair** page lists, per camera, the frames
 missing (hover for the exact ranges), the frames trimmed, and how it was
-aligned. Older sessions, and sessions without hardware triggering, are aligned
+aligned, and says whether the synced videos have been exported. Running
+Frame Sync again removes exported videos, which followed the old alignment:
+export them again. Older sessions, and sessions without hardware triggering, are aligned
 on arrival time instead; the page says which.
 
 The automatic run can be turned off under **Settings → Record**, and it is
@@ -450,7 +461,7 @@ For a selected session you can:
   - **RECORDING** (green): it is being recorded right now.
   - **ARCHIVED** (grey): it has been moved to your archive folder (see
     below).
-  - **SYNCED**: the equal-length videos in ``synced/`` exist.
+  - **SYNCED**: Frame Sync has lined the cameras up (``synced/``).
   - **POSE**, **MOTION**, **TRANSCRIPT** (Speaker Diarization),
     **EXPRESSION**, **GAZE**, **3D POSE**, **HR** (Remote Heart Rate),
     **GAZE 2D**, **FACE DYN**, **TURNS** (Conversation Timing), **EYE CONTACT**: that analysis has
@@ -906,9 +917,9 @@ sitting alongside **Live**. The workflow is always the same shape:
       the calibrated plane, or simply at which point. It needs each camera's
       intrinsic calibration, and
       :ref:`room (extrinsic) calibration <room-extrinsic-calibration>` to
-      combine cameras. It works best on a session that has been through
-      Frame Sync Repair (its ``synced/`` videos), and uses the raw videos
-      otherwise.
+      combine cameras. It works best on a session whose synced videos have
+      been exported (Frame Sync Repair's **Export synced videos**), and uses
+      the raw videos otherwise.
 
       **Controls**:
 

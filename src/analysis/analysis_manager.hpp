@@ -354,13 +354,13 @@ class AnalysisManager : public QObject {
     void run_eye_contact_analysis(const QString& sessionPath, const QString& target,
                                   bool annotatedVideo);
 
-    /// @brief Produces per-camera "repaired" copies with EQUALIZED frame
-    /// counts, aligned to a shared master tick grid, filling small
-    /// per-camera frame-count mismatches (GVSP packet loss / trigger
-    /// misses) by duplicating the nearest-available frame. Writes
-    /// "synced/video_N.mp4" (+ a per-camera "synced/video_N.repair_map.csv"
-    /// audit trail marking which output frames are duplicates) and one
-    /// "synced/sync_repair.json" summary — originals are never modified.
+    /// @brief Lines every camera up on a shared master tick grid: which
+    /// frame of each camera belongs to each tick, and which ticks a camera
+    /// has no frame for (GVSP packet loss / trigger misses). Writes a
+    /// per-camera "synced/video_N.repair_map.csv" and one
+    /// "synced/sync_repair.json" summary, in about a second; no video
+    /// (run_synced_video_export() makes those on request). Originals are
+    /// never modified.
     ///
     /// Deliberately does NOT touch/depend on the session's canonical
     /// sync_manifest.json (used by SessionPlayerW at its own fixed 25fps
@@ -380,6 +380,12 @@ class AnalysisManager : public QObject {
     ///                     fastest achieved fps among this session's
     ///                     cameras — never upsamples beyond real capture).
     void run_sync_repair(const QString& sessionPath, double masterFps);
+
+    /// @brief Makes the session's synced videos, synced/video_N.mp4, from
+    /// Frame Sync's repair maps, with the recording's encoder (NVENC at the
+    /// original's bitrate): mosaic_export_synced, the program next to
+    /// MOSAIC, run and queued like an analysis script.
+    void run_synced_video_export(const QString& sessionPath);
 
     /// @brief Stop the currently running analysis process immediately.
     void stop();
@@ -405,6 +411,9 @@ class AnalysisManager : public QObject {
    private:
     [[nodiscard]] QString find_python() const;
     [[nodiscard]] QString find_script(const QString& scriptRelPath) const;
+    // One of MOSAIC's own programs next to it (".exe" added on Windows);
+    // empty when it is not there.
+    [[nodiscard]] static QString find_tool(const QString& name);
     [[nodiscard]] QString find_venv_python() const;
     void enqueue_or_launch(const QString& sessionPath, const QString& scriptRelPath,
                            const QStringList& args, const QProcessEnvironment& env);

@@ -1351,6 +1351,7 @@ struct AnalysisTabW::Impl {
     QTableWidget* syncRepairTable    = nullptr; // sync_repair only
     QLabel* syncRepairStatsLbl       = nullptr; // sync_repair only
     QPushButton* exportSyncRepairBtn = nullptr; // sync_repair only
+    QPushButton* exportSyncedBtn     = nullptr; // sync_repair only: make the synced videos
 
     // Kinematics view controls — reshape how the already-loaded
     // currentResult is displayed, not what gets launched (unlike runBox's
@@ -2259,10 +2260,10 @@ void AnalysisTabW::build_ui() {
     syncRepairCtlLay->addWidget(d->syncRepairMasterFpsSpin);
 
     auto* syncRepairHint = new QLabel(
-        "Produces per-camera copies with equalized frame counts, aligned to "
-        "a shared tick grid, filling small gaps by duplicating the nearest "
-        "frame. Written to a sibling \"synced/\" folder — originals are "
-        "never modified.");
+        "Lines every camera up on the trigger ticks: which frame of each camera belongs to each "
+        "tick, and which ticks a camera missed. Takes about a second and runs after every "
+        "recording; the maps go to \"synced/\" and originals are never modified. \"Export "
+        "synced videos\" makes the aligned videos when you want them.");
     syncRepairHint->setWordWrap(true);
     syncRepairHint->setProperty("role", "muted");
     syncRepairCtlLay->addWidget(syncRepairHint, 1);
@@ -3105,6 +3106,14 @@ void AnalysisTabW::build_ui() {
     connect(d->exportSyncRepairBtn, &QPushButton::clicked, this,
             &AnalysisTabW::export_sync_repair_csv);
     syncRepairRowLay->addWidget(d->exportSyncRepairBtn);
+    d->exportSyncedBtn = new QPushButton("Export synced videos");
+    d->exportSyncedBtn->setToolTip(
+        "Makes synced/video_N.mp4 for every camera: frame k is tick k in all of them, a missing "
+        "frame repeats the last one with a red MISSING tag. Encoded like the recording (NVENC), "
+        "about the originals' size, in about a quarter of the recording's length. To watch or "
+        "share the cameras side by side; the analyses do not need them.");
+    connect(d->exportSyncedBtn, &QPushButton::clicked, this, &AnalysisTabW::export_synced_videos);
+    syncRepairRowLay->addWidget(d->exportSyncedBtn);
 
     d->syncRepairRowW->setVisible(false); // shown only for the sync_repair plugin
     rightLay->addWidget(d->syncRepairRowW);
@@ -6855,6 +6864,7 @@ void AnalysisTabW::update_sync_repair_view() {
         set_cell(6, status);
     }
 
+    d->exportSyncedBtn->setEnabled(r.is_valid() && r.cameras().size() > r.skipped_camera_count());
     if (!r.is_valid()) {
         d->syncRepairStatsLbl->clear();
         return;
@@ -6870,7 +6880,35 @@ void AnalysisTabW::update_sync_repair_view() {
     if (r.skipped_camera_count() > 0) {
         stats += QString(", %1 camera(s) skipped").arg(r.skipped_camera_count());
     }
+    // Which synced videos exist: they are made on request.
+    if (const auto* info = d->current_session()) {
+        int made = 0, wanted = 0;
+        for (const auto& c : r.cameras()) {
+            if (!c.skipped && !c.repairedVideo.isEmpty()) {
+                ++wanted;
+                made += QFileInfo::exists(info->path + "/" + c.repairedVideo) ? 1 : 0;
+            }
+        }
+        stats += made == 0 ? QString(" · synced videos not exported")
+                 : made == wanted
+                     ? QString(" · synced videos exported")
+                     : QString(" · %1 of %2 synced videos exported").arg(made).arg(wanted);
+    }
     d->syncRepairStatsLbl->setText(stats);
+}
+
+void AnalysisTabW::export_synced_videos() {
+    if (d->currentSessionPath.isEmpty() || !d->currentSyncRepair.is_valid()) {
+        return;
+    }
+    // As a run: the page reloads when it ends, and the video on show is let
+    // go first, since on Windows a file open in the player cannot be
+    // replaced.
+    d->jobPlugin      = "sync_repair";
+    d->jobSession     = d->currentSessionPath;
+    d->jobWritesVideo = true;
+    d->player->set_video(QString());
+    d->analysisMgr->run_synced_video_export(d->currentSessionPath);
 }
 
 void AnalysisTabW::export_sync_repair_csv() {

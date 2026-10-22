@@ -336,8 +336,21 @@ Equal frame counts: ``synced/``
 The raw videos in ``video/`` are kept exactly as recorded, and they rarely
 have the same length. A camera can join a few triggers late, lose frames to
 packet loss, or stop slightly before the others. After each recording, MOSAIC
-therefore runs **Frame Sync Repair** in the background and writes an aligned
-copy of every camera's video to ``synced/video_N.mp4``:
+therefore runs **Frame Sync Repair** in the background. In about a second it
+works out, for every trigger tick, which frame of each camera belongs to it
+and which ticks a camera missed, and writes that per camera (the repair map
+below). Analyses line cameras up through it, or through ``sync_manifest.json``.
+
+The aligned videos, ``synced/video_N.mp4``, are made on request: the
+Frame Sync Repair page's **Export synced videos** runs ``mosaic_export_synced``,
+a program next to MOSAIC. It decodes each original video, follows the map, and
+encodes with the recording's own encoder (NVENC at the original's bitrate;
+libx264 without a GPU), so a copy is about the original's size and takes about
+a quarter of the recording's length. Before, Frame Sync wrote the videos
+itself through OpenCV, which can only reach Windows' own fixed-rate H.264
+encoder: on eight room-11 recordings that took up to 150 s and gave four to
+six times the originals' size (3.4 GB for 579 MB). The exported videos have
+these properties:
 
 - **Every camera has the same number of frames**, one per trigger tick, over
   the window in which every camera was recording.
@@ -382,15 +395,22 @@ instead, as before. The report says which method each camera used.
 
 What it writes, in ``synced/``:
 
-- ``video_N.mp4``, the aligned video;
 - ``video_N.repair_map.csv`` with
-  ``output_frame_index,source_frame_id,duplicated,missing,tick``, where
-  ``missing`` (and its older name ``duplicated``) marks a repeated, tagged
-  frame;
+  ``output_frame_index,source_frame_id,source_frame_index,duplicated,missing,tick``:
+  output frame *k* shows the frame ``source_frame_index`` of the original
+  video (its place in decode order; ``source_frame_id`` is its number in the
+  timestamps file), and ``missing`` (and its older name ``duplicated``) marks
+  a repeat of the last frame, tagged in the exported video. A video holding
+  fewer frames than its timestamps file lists repeats its last frame from
+  there, and the camera's ``note`` says so. A last frame stored but not
+  decodable (recordings up to October 2026) is found by the export, which
+  tags it;
 - ``sync_repair.json``, which holds per camera ``alignment``,
   ``missing_frame_count``, ``gaps`` (output-frame ranges), ``lead_in_trimmed``
   / ``tail_trimmed`` (its frames before and after the common window) and
-  ``alignment_uncertain``.
+  ``alignment_uncertain``;
+- ``video_N.mp4``, the aligned video, once exported. Running Frame Sync again
+  removes it, since it followed the earlier alignment.
 
 The Analysis tab's *Frame Sync Repair* page shows the same per camera, with
 the gap ranges on hover.

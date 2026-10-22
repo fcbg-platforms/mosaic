@@ -336,6 +336,21 @@ if(MOSAIC_ENABLE_FFMPEG)
         FFmpeg::avcodec FFmpeg::avformat FFmpeg::avutil
         FFmpeg::swscale FFmpeg::swresample)
     target_compile_definitions(mosaic PRIVATE MOSAIC_HAVE_FFMPEG)
+
+    # Makes a session's synced videos from Frame Sync's alignment, with the
+    # recording's encoder. A program of its own so the Analysis tab can run
+    # it like an analysis script (queued, held while recording); it lands
+    # next to mosaic.exe.
+    add_executable(mosaic_export_synced
+        tools/export_synced_main.cpp
+        video/synced_video_export.hpp
+        video/synced_video_export.cpp)
+    target_include_directories(mosaic_export_synced PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+    target_link_libraries(mosaic_export_synced PRIVATE
+        mosaic_compiler_options Qt6::Core
+        FFmpeg::avcodec FFmpeg::avformat FFmpeg::avutil FFmpeg::swscale)
+    target_compile_definitions(mosaic_export_synced PRIVATE MOSAIC_HAVE_FFMPEG)
+    add_dependencies(mosaic mosaic_export_synced)
 endif()
 
 if(MOSAIC_ENABLE_NVENC)

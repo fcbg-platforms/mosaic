@@ -22,6 +22,9 @@ namespace mosaic {
 
 namespace {
 
+// The synced-video exporter, a program next to MOSAIC (src/tools/).
+constexpr const char* kExportSyncedTool = "mosaic_export_synced";
+
 // A queued (or in-flight) analysis job — the full script + args are
 // snapshotted at analyze_session()/run_face_mask() call time rather than
 // rebuilt from Impl state at dequeue time, so a later set_model() call (e.g.
@@ -323,6 +326,10 @@ void AnalysisManager::run_sync_repair(const QString& sessionPath, double masterF
     enqueue_or_launch(sessionPath, "analysis/run_sync_repair.py", args, {});
 }
 
+void AnalysisManager::run_synced_video_export(const QString& sessionPath) {
+    enqueue_or_launch(sessionPath, kExportSyncedTool, {"--session", sessionPath}, {});
+}
+
 void AnalysisManager::enqueue_or_launch(const QString& sessionPath, const QString& scriptRelPath,
                                         const QStringList& args, const QProcessEnvironment& env) {
     Job job{sessionPath, scriptRelPath, args, env};
@@ -393,8 +400,13 @@ void AnalysisManager::stop() {
 
 void AnalysisManager::launch(const QString& sessionPath, const QString& scriptRelPath,
                              const QStringList& args, const QProcessEnvironment& env) {
-    const QString python = d->pythonPath.isEmpty() ? find_python() : d->pythonPath;
-    if (python.isEmpty()) {
+    // MOSAIC's own tools are programs next to it, run as they are; every
+    // other job is a Python script run by the analysis interpreter.
+    const bool tool      = scriptRelPath == kExportSyncedTool;
+    const QString python = tool                      ? QString()
+                           : d->pythonPath.isEmpty() ? find_python()
+                                                     : d->pythonPath;
+    if (!tool && python.isEmpty()) {
         const QString msg =
             "Python interpreter not found. "
             "Run 'bash analysis/setup.sh' to create the virtual environment.";
@@ -403,11 +415,13 @@ void AnalysisManager::launch(const QString& sessionPath, const QString& scriptRe
         return;
     }
 
-    const QString script = find_script(scriptRelPath);
+    const QString script = tool ? find_tool(scriptRelPath) : find_script(scriptRelPath);
     if (script.isEmpty()) {
-        const QString msg = scriptRelPath +
-                            " not found. "
-                            "Make sure the analysis/ directory is present next to the application.";
+        const QString msg =
+            tool ? scriptRelPath + " not found next to the application: build it with MOSAIC."
+                 : scriptRelPath +
+                       " not found. "
+                       "Make sure the analysis/ directory is present next to the application.";
         log_error("[AnalysisManager] " + msg);
         emit setup_error(msg);
         return;
@@ -458,11 +472,12 @@ void AnalysisManager::launch(const QString& sessionPath, const QString& scriptRe
     connect(d->process, qOverload<int, QProcess::ExitStatus>(&QProcess::finished), this,
             &AnalysisManager::on_process_finished);
 
-    const QStringList fullArgs = QStringList{script} + args;
+    const QString program      = tool ? script : python;
+    const QStringList fullArgs = tool ? args : QStringList{script} + args;
 
-    log_info(QString("[AnalysisManager] Starting: %1 %2").arg(python, fullArgs.join(' ')));
+    log_info(QString("[AnalysisManager] Starting: %1 %2").arg(program, fullArgs.join(' ')));
 
-    d->process->start(python, fullArgs);
+    d->process->start(program, fullArgs);
 
     if (!d->process->waitForStarted(5000)) {
         log_error("[AnalysisManager] Failed to start Python process: " + d->process->errorString());
@@ -562,9 +577,10 @@ void AnalysisManager::on_process_finished(int exitCode, int exitStatus) {
 
 QStringList AnalysisManager::pending_work() const {
     auto line = [](const QString& script, const QString& session) {
-        const QString what = QFileInfo(script).fileName() == "run_sync_repair.py"
-                                 ? QStringLiteral("Frame Sync")
-                                 : QFileInfo(script).completeBaseName();
+        const QString file = QFileInfo(script).fileName();
+        const QString what = file == "run_sync_repair.py" ? QStringLiteral("Frame Sync")
+                             : file == kExportSyncedTool  ? QStringLiteral("Synced video export")
+                                                          : QFileInfo(script).completeBaseName();
         return QString("%1 on %2").arg(what, QFileInfo(session).fileName());
     };
     QStringList out;
@@ -637,6 +653,16 @@ QString AnalysisManager::find_python() const {
         }
     }
     return {};
+}
+
+QString AnalysisManager::find_tool(const QString& name) {
+#if defined(Q_OS_WIN)
+    const QString file = name + ".exe";
+#else
+    const QString file = name;
+#endif
+    const QString path = QDir(QCoreApplication::applicationDirPath()).filePath(file);
+    return QFileInfo::exists(path) ? path : QString();
 }
 
 QString AnalysisManager::find_script(const QString& scriptRelPath) const {

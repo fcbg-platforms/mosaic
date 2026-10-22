@@ -247,14 +247,15 @@ struct SessionInfo {
         //
         // The summary JSON is written even when every camera failed or was
         // skipped, so its presence alone would light the SYNCED badge for a
-        // session that has no repaired video at all. run_sync_repair.py
-        // deletes a failed camera's output, so "at least one synced/
-        // video_*.mp4 survives" is the cheap, accurate test for "something
-        // was actually repaired" — no JSON parsing needed on this hot
+        // session that has no alignment at all. run_sync_repair.py deletes a
+        // failed camera's repair map, so "at least one synced/
+        // video_*.repair_map.csv survives" is the cheap, accurate test for
+        // "something was lined up" (the synced videos themselves are only
+        // made on request) — no JSON parsing needed on this hot
         // session-listing path.
         info.hasSyncRepair =
             QFileInfo::exists(dir + "/synced/sync_repair.json") &&
-            !QDir(dir + "/synced").entryList({"video_*.mp4"}, QDir::Files).isEmpty();
+            !QDir(dir + "/synced").entryList({"video_*.repair_map.csv"}, QDir::Files).isEmpty();
 
         // face_dynamics/, conversation/ and eye_contact/ hold annotated video
         // copies, so like synced/ they are not scanned by classify() (it would

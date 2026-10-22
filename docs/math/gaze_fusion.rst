@@ -264,7 +264,7 @@ debounced target is S2 and S2's is S1 at the same tick.
 Timeline
 --------
 
-When Frame Sync Repair has produced ``synced/`` videos, frame *k* of every
+When Frame Sync Repair's synced videos have been exported, frame *k* of every
 camera is tick *k*, and tick times come from the trigger log. Frames the
 repair filled in for a camera that missed a tick repeat an older image; they
 are never analysed (the last estimate is held) but are still drawn in the

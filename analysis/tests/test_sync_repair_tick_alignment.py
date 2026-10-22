@@ -287,30 +287,6 @@ def test_latency_longer_than_a_period_labels_ticks_exactly():
 # ── The visible mark ─────────────────────────────────────────────────────────
 
 
-def test_mark_missing_tags_the_corner_and_leaves_the_rest_and_the_input_alone():
-    from sync_repair.marker import mark_missing, tag_geometry
-
-    frame = np.full((1080, 1920, 3), 90, dtype=np.uint8)
-    marked = mark_missing(frame)
-    assert (frame == 90).all()  # input untouched
-    box_w, box_h, _, _ = tag_geometry(1920, 1080)
-    edge = marked[:2, :box_w]  # the tag's top edge, above the lettering
-    assert (edge[..., 2] > 150).all() and (edge[..., 0] < 100).all()  # red (BGR)
-    assert (marked[box_h + 5 :, :] == 90).all()  # nothing below the tag
-    assert (marked[:, box_w + 5 :] == 90).all()  # nothing right of it
-    assert box_h < 1080 // 10  # small: plugins still see the image
-
-
-def test_mark_missing_fits_a_tiny_frame():
-    from sync_repair.marker import mark_missing
-
-    tiny = np.zeros((20, 30, 3), dtype=np.uint8)
-    assert mark_missing(tiny).shape == tiny.shape
-
-
-# ── Cameras that drop out or join late ───────────────────────────────────────
-
-
 def test_a_camera_that_drops_out_does_not_cut_the_others():
     # The rig case: Camera 2 unplugged at tick 215 and never came back, while
     # five cameras ran to 558. The first version trimmed everyone to 215.

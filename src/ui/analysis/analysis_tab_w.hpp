@@ -141,6 +141,9 @@ class AnalysisTabW : public QWidget {
     // A dialog to name the objects found; saved into the camera's result.
     void rename_objects();
     void export_sync_repair_csv();
+    // Makes the session's synced videos from Frame Sync's maps
+    // (mosaic_export_synced, through the analysis queue).
+    void export_synced_videos();
     [[nodiscard]] bool is_pose_plugin() const;
     [[nodiscard]] bool is_diarize_plugin() const;
     [[nodiscard]] bool is_expression_plugin() const;
