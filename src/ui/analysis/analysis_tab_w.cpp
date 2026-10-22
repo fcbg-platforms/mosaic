@@ -6152,26 +6152,30 @@ void AnalysisTabW::update_objects_view() {
     }
     d->chart->set_named_series(series, touched ? "Touched (one row each)" : "Seen (one row each)",
                                lastMs);
-    QString title = "Objects: " + d->objectsMetricCombo->currentText().toLower();
+    QString title            = "Objects: " + d->objectsMetricCombo->currentText().toLower();
+    const bool touchesLooked = r.hands_followed() || r.pose_used();
     if (touched && r.contacts().isEmpty()) {
-        title += r.pose_used() ? " (none found: Pose did not place a hand on an object)"
-                               : " (run Pose on this camera first)";
+        title += r.hands_followed() ? " (none found: no hand met an object)"
+                 : r.pose_used()    ? " (none found: Pose did not place a hand on an object)"
+                                    : " (run Object Tracking again: it now finds hands)";
     }
     d->chart->set_title(title);
     QStringList lines;
     for (const auto& o : r.objects()) {
         QString line = QString("%1 %2: seen %3%").arg(o.label).arg(o.id).arg(o.seenPct, 0, 'f', 0);
-        if (r.pose_used()) {
+        if (touchesLooked) {
             QStringList who;
             for (auto it = o.touchedSByPerson.begin(); it != o.touchedSByPerson.end(); ++it) {
-                who << QString("person %1 %2 s").arg(it.key()).arg(it.value(), 0, 'f', 1);
+                // "?": a hand Pose did not place, on a camera that sees only an arm.
+                const QString person = it.key() == "?" ? "someone" : "person " + it.key();
+                who << QString("%1 %2 s").arg(person).arg(it.value(), 0, 'f', 1);
             }
             line += who.isEmpty() ? QString(", not touched") : ", touched by " + who.join(", ");
         }
         lines << line;
     }
     if (!r.pose_used()) {
-        lines << "Run Pose on this camera to see who touches what.";
+        lines << "Run Pose on this camera to see whose hand it is.";
     }
     d->objectsStatsLbl->setText(lines.join("  ·  "));
     d->chart->set_playhead_ms(d->player->position_ms());
