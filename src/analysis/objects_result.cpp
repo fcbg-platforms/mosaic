@@ -22,6 +22,7 @@ ObjectsResult ObjectsResult::load(const QString& path) {
     }
     r.videoStartMs_   = root["video_start_ms"].toDouble();
     r.poseUsed_       = root["pose_used"].toBool();
+    r.handsFollowed_  = root["hands_followed"].toBool();
     r.annotatedVideo_ = root["annotated_video"].toString();
     for (const auto& v : root["summary"].toObject()["objects"].toArray()) {
         const QJsonObject o = v.toObject();
@@ -45,7 +46,8 @@ ObjectsResult ObjectsResult::load(const QString& path) {
     }
     for (const auto& v : root["contacts"].toArray()) {
         const QJsonObject o = v.toObject();
-        // The person is a Pose subject id: a number, or null when untracked.
+        // The person is a Pose subject id: a number, or null for a hand Pose
+        // did not place (or a person it did not track).
         r.contacts_ << Contact{
             o["object_id"].toInt(),
             o["person"].isDouble() ? QString::number(o["person"].toInt()) : QStringLiteral("?"),

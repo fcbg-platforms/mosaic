@@ -952,11 +952,15 @@ def _objects(ob: dict) -> str:
     rows = []
     for o in ob.get("objects", []):
         detail = f"seen {num(o.get('seen_pct'), 0, '%')}"
-        if ob.get("pose_used"):
+        if ob.get("pose_used") or ob.get("hands_followed"):
             who = o.get("touched_s_by_person") or {}
+            # "?": a hand Pose did not place, on a camera that sees only an arm.
             detail += (
                 "; touched by "
-                + ", ".join(f"person {esc(p)} {num(s, 1, ' s')}" for p, s in who.items())
+                + ", ".join(
+                    f"{'someone' if p == '?' else 'person ' + esc(p)} {num(s, 1, ' s')}"
+                    for p, s in who.items()
+                )
                 if who
                 else "; not touched"
             )
@@ -966,7 +970,7 @@ def _objects(ob: dict) -> str:
     note = (
         ""
         if ob.get("pose_used")
-        else "<p class='note'>Run Pose on this camera to see who touches what.</p>"
+        else "<p class='note'>Run Pose on this camera to see whose hand it is.</p>"
     )
     return _small("Objects (SAM 3)", rows) + note
 

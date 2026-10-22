@@ -12,7 +12,15 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import run_objects
-from objects.contact import contact_events, frame_contacts, outline, summarise, touches
+from objects.contact import (
+    contact_events,
+    frame_contacts,
+    hand_owner,
+    outline,
+    outlines_meet,
+    summarise,
+    touches,
+)
 
 SQUARE = [[100, 100], [200, 100], [200, 200], [100, 200]]
 
@@ -45,6 +53,35 @@ def test_frame_contacts_need_a_seen_wrist_near_the_outline():
     assert frame_contacts(objs, [_person(1, (205, 150))]) == [(3, 1)]  # within the margin
     assert frame_contacts(objs, [_person(1, (400, 150))]) == []
     assert frame_contacts(objs, [_person(1, (150, 150), vis=0.1)]) == []  # wrist not seen
+
+
+def _box(x0, y0, x1, y1):
+    return [[x0, y0], [x1, y0], [x1, y1], [x0, y1]]
+
+
+def test_outlines_meet_when_they_overlap_touch_or_nearly_touch():
+    assert outlines_meet(_box(150, 150, 260, 260), SQUARE, 0)  # overlapping
+    assert outlines_meet(_box(203, 120, 300, 180), SQUARE, 4)  # 3 px apart
+    assert not outlines_meet(_box(210, 120, 300, 180), SQUARE, 4)  # 10 px apart
+    # Two edges crossing with no corner of either inside the other.
+    assert outlines_meet(_box(140, 50, 160, 250), _box(50, 140, 250, 160), 0)
+    assert not outlines_meet([], SQUARE, 50)
+
+
+def test_a_hand_on_an_object_is_a_touch_by_its_wrists_owner_or_by_someone():
+    objs = [{"id": 3, "polygon": SQUARE}]
+    hand = {"polygon": _box(195, 130, 280, 170)}  # over the cup's right edge
+    far = {"polygon": _box(400, 130, 480, 170)}
+    # A close-up camera: no Pose person, the touch is still found.
+    assert frame_contacts(objs, [], [hand]) == [(3, None)]
+    assert frame_contacts(objs, [], [far]) == []
+    # The wrist of person 2 sits at the hand's back; person 1's is elsewhere.
+    people = [_person(1, (600, 400)), _person(2, (285, 150))]
+    assert hand_owner(hand["polygon"], people) == 2
+    assert frame_contacts(objs, people, [hand]) == [(3, 2)]
+    # Seen both ways (the wrist is on the cup too): one touch, by person 2.
+    on = [_person(2, (205, 150))]
+    assert frame_contacts(objs, on, [hand]) == [(3, 2)]
 
 
 def test_contact_runs_bridge_short_gaps_and_drop_blips():
@@ -90,6 +127,8 @@ def test_camera_pick_keeps_the_picked_cameras_only():
 
 def test_labels_are_split_and_deduplicated():
     assert run_objects.parse_labels(" toy, cup,,Toy , tablet ") == ["toy", "cup", "tablet"]
+    # Hands are always followed, and are not objects.
+    assert run_objects.parse_labels("toy, Hand") == ["toy"]
 
 
 # ── The runner, with a stand-in for SAM 3 ────────────────────────────────────
@@ -120,10 +159,14 @@ def _session(root: Path, n: int = 30) -> Path:
 
 def fake_track(video, labels, weights, stride):
     # As SAM 3's loader: frames stride - 1, 2 * stride - 1, ...
+    assert labels[-1] == "hand"
     for idx in range(stride - 1, 30, stride):
         objs = [{"id": 1, "label": labels[0], "score": 0.9, "polygon": SQUARE}]
         if idx < 5:  # a brief false detection, well under a second
             objs.append({"id": 2, "label": labels[0], "score": 0.7, "polygon": SQUARE[:3]})
+        # A hand away from the cup, then on it from frame 20 to 27.
+        x = 190 if 20 <= idx < 28 else 260
+        objs.append({"id": 9, "label": "hand", "score": 0.8, "polygon": _box(x, 130, x + 60, 170)})
         yield idx, objs
 
 
@@ -136,10 +179,15 @@ def test_runner_writes_objects_contacts_and_video(tmp_path):
     frames = json.loads((s / res["frames_file"]).read_text())["frames"]
     assert len(frames) == 15 and frames[0]["frame_index"] == 1
     assert frames[0]["timestamp_ms"] == 5100.0
-    # The wrist is on the cup in frames 10-19: analysed frames 11 to 19.
-    (c,) = res["contacts"]
-    assert c["person"] == 1 and c["start_ms"] == 6100.0 and c["end_ms"] == 7100.0
-    assert res["summary"]["objects"][0]["touched_s_by_person"] == {"1": 1.0}
+    # The wrist is on the cup in frames 10-19: analysed frames 11 to 19. The
+    # hand is on it in frames 20 to 27, with person 1's wrist away from it.
+    wrist, hand = res["contacts"]
+    assert wrist["person"] == 1 and wrist["start_ms"] == 6100.0 and wrist["end_ms"] == 7100.0
+    assert hand["person"] is None and hand["start_ms"] == 7100.0 and hand["end_ms"] == 7900.0
+    assert res["summary"]["objects"][0]["touched_s_by_person"] == {"1": 1.0, "?": 0.8}
+    assert res["hands_followed"] and len(frames[0]["hands"]) == 1
+    # Hands are not objects.
+    assert all(o["label"] == "cup" for f in frames for o in f["objects"])
     assert (s / res["annotated_video"]).stat().st_size > 0
     # The brief object is left out of the results, but kept in the frames file.
     assert [o["id"] for o in res["summary"]["objects"]] == [1]
@@ -163,4 +211,15 @@ def test_contacts_survive_different_pose_and_object_steps(tmp_path):
     args = ["--session", str(s), "--objects", "cup", "--stride", "4", "--no-video"]
     assert run_objects.main(args, track=fake_track) == 0
     res = json.loads((s / "objects" / "video_1.objects.json").read_text())
-    assert len(res["contacts"]) == 1 and res["contacts"][0]["person"] == 1
+    assert res["contacts"][0]["person"] == 1
+
+
+def test_a_hand_touch_is_found_without_pose(tmp_path):
+    s = _session(tmp_path)
+    for f in (s / "pose").iterdir():
+        f.unlink()
+    args = ["--session", str(s), "--objects", "cup", "--no-video"]
+    assert run_objects.main(args, track=fake_track) == 0
+    res = json.loads((s / "objects" / "video_1.objects.json").read_text())
+    assert not res["pose_used"]
+    assert [(c["person"], c["start_ms"]) for c in res["contacts"]] == [(None, 7100.0)]

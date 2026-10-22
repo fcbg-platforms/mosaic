@@ -2,10 +2,12 @@
 
 Every object a frame shows is kept as its outline (a simplified polygon of its
 mask), so the result stays small and contact can be tested against the real
-shape, not only its box. A hand "touches" an object when a wrist keypoint
-(COCO 9 and 10, from the Pose plugin) lies inside the outline or within a
-margin of it: the wrist sits a little back from the fingertips, which are what
-actually touch.
+shape, not only its box. A hand "touches" an object when its own outline
+(SAM 3 follows hands too) meets the object's, or when a wrist keypoint (COCO 9
+and 10, from the Pose plugin) lies inside the outline or within a margin of
+it: the wrist sits a little back from the fingertips, which are what actually
+touch. The hand finds touches on close-up cameras, where Pose sees no person;
+Pose says whose hand it is.
 """
 
 from __future__ import annotations
@@ -19,6 +21,14 @@ WRISTS = (9, 10)
 #: touching (fingers reach beyond the wrist keypoint).
 MARGIN_SHARE = 0.25
 MIN_MARGIN_PX = 12.0
+#: SAM 3 follows hands under this name, next to the objects; a hand is not
+#: an object of the results.
+HAND = "hand"
+#: A hand closer to an outline than this share of the hand's size counts as
+#: touching it: the two masks meet at the fingers, and simplifying both
+#: outlines moves their edges by a few pixels.
+HAND_MARGIN_SHARE = 0.05
+MIN_HAND_MARGIN_PX = 3.0
 #: Contacts shorter than this are noise; gaps shorter than that are bridged.
 MIN_CONTACT_S = 0.2
 BRIDGE_GAP_S = 0.3
@@ -49,16 +59,67 @@ def touches(polygon: list, point, margin_px: float) -> bool:
     return d >= -margin_px
 
 
+def size_of(polygon: list) -> float:
+    """The square root of the outline's bounding box area, pixels."""
+    p = np.asarray(polygon, float)
+    return float(np.sqrt(max(1.0, (np.ptp(p[:, 0]) + 1) * (np.ptp(p[:, 1]) + 1))))
+
+
 def margin_for(polygon: list) -> float:
     if len(polygon) < 3:
         return MIN_MARGIN_PX
-    p = np.asarray(polygon, float)
-    size = float(np.sqrt(max(1.0, (np.ptp(p[:, 0]) + 1) * (np.ptp(p[:, 1]) + 1))))
-    return max(MIN_MARGIN_PX, MARGIN_SHARE * size)
+    return max(MIN_MARGIN_PX, MARGIN_SHARE * size_of(polygon))
 
 
-def frame_contacts(objects: list, people: list) -> list:
-    """Which person's wrist touches which object in one frame.
+def outlines_meet(a: list, b: list, margin_px: float) -> bool:
+    """Whether two outlines overlap or come within ``margin_px`` of each other.
+
+    Both are drawn into a small mask around them, ``a`` grown by the margin:
+    testing only the vertices would miss two edges that cross between them.
+    """
+    if len(a) < 3 or len(b) < 3:
+        return False
+    pa, pb = np.asarray(a, np.int32), np.asarray(b, np.int32)
+    gap = np.maximum(pa.min(axis=0) - pb.max(axis=0), pb.min(axis=0) - pa.max(axis=0))
+    if gap.max() > margin_px:  # their boxes are already too far apart
+        return False
+    r = int(np.ceil(margin_px))
+    lo = np.minimum(pa.min(axis=0), pb.min(axis=0)) - r - 1
+    hi = np.maximum(pa.max(axis=0), pb.max(axis=0)) + r + 1
+    ma = np.zeros((hi[1] - lo[1] + 1, hi[0] - lo[0] + 1), np.uint8)
+    mb = np.zeros_like(ma)
+    cv2.fillPoly(ma, [(pa - lo).reshape(-1, 1, 2)], 1)
+    cv2.fillPoly(mb, [(pb - lo).reshape(-1, 1, 2)], 1)
+    if r > 0:
+        ma = cv2.dilate(ma, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * r + 1, 2 * r + 1)))
+    return bool((ma & mb).any())
+
+
+def _seen_wrists(person: dict) -> list:
+    kp = np.asarray(person.get("keypoints") or [], float).reshape(-1, 2)
+    vis = np.asarray(person.get("visibilities") or [], float)
+    return [kp[w] for w in WRISTS if w < len(kp) and w < len(vis) and vis[w] > 0.5]
+
+
+def hand_owner(hand: list, people: list):
+    """The Pose subject whose seen wrist is on or nearest this hand's outline,
+    within the wrist margin; ``None`` when no wrist is (Pose found no one, or
+    only an arm is in view)."""
+    best, best_d = None, None
+    if len(hand) < 3:
+        return None
+    poly = np.asarray(hand, np.float32).reshape(-1, 1, 2)
+    margin = margin_for(hand)
+    for p in people:
+        for w in _seen_wrists(p):
+            d = -cv2.pointPolygonTest(poly, (float(w[0]), float(w[1])), True)
+            if d <= margin and (best_d is None or d < best_d):
+                best, best_d = p.get("subject_id"), d
+    return best
+
+
+def frame_contacts(objects: list, people: list, hands: list = ()) -> list:
+    """Which person's hand touches which object in one frame.
 
     Parameters
     ----------
@@ -66,23 +127,34 @@ def frame_contacts(objects: list, people: list) -> list:
         ``{"id", "polygon"}`` per object.
     people : list of dict
         Pose subjects: ``{"subject_id", "keypoints", "visibilities"}``.
+    hands : list of dict
+        The hands SAM 3 found, ``{"polygon"}`` each.
 
     Returns
     -------
-    list of (object id, person id)
+    list of (object id, person id), the person ``None`` for a hand Pose did
+    not place; such a pair is left out when a known person touches the same
+    object in that frame (the same touch, seen both ways).
     """
     out = []
     for o in objects:
         poly = o.get("polygon") or []
         margin = margin_for(poly)
         for p in people:
-            kp = np.asarray(p.get("keypoints") or [], float).reshape(-1, 2)
-            vis = np.asarray(p.get("visibilities") or [], float)
-            for w in WRISTS:
-                if w < len(kp) and w < len(vis) and vis[w] > 0.5 and touches(poly, kp[w], margin):
-                    out.append((o["id"], p.get("subject_id")))
-                    break
-    return out
+            if any(touches(poly, w, margin) for w in _seen_wrists(p)):
+                out.append((o["id"], p.get("subject_id")))
+    for h in hands:
+        hand = h.get("polygon") or []
+        if len(hand) < 3:
+            continue
+        margin = max(MIN_HAND_MARGIN_PX, HAND_MARGIN_SHARE * size_of(hand))
+        met = [o["id"] for o in objects if outlines_meet(hand, o.get("polygon") or [], margin)]
+        if met:
+            owner = hand_owner(hand, people)
+            out.extend((oid, owner) for oid in met)
+    known = {obj for obj, person in out if person is not None}
+    out = [(obj, person) for obj, person in out if person is not None or obj not in known]
+    return list(dict.fromkeys(out))
 
 
 def _runs(times_ms: list, step_ms: float) -> list:
@@ -100,7 +172,8 @@ def _runs(times_ms: list, step_ms: float) -> list:
 
 
 def person_key(person) -> str:
-    """A Pose subject id as text; ``?`` for a person Pose did not track."""
+    """A Pose subject id as text; ``?`` for a person Pose did not track or a
+    hand it did not place."""
     return "?" if person is None else str(person)
 
 

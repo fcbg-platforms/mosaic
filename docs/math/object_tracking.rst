@@ -43,6 +43,12 @@ Each object is kept per frame as:
   against the real shape, not only its box. An object whose mask comes back
   empty in a frame does not count as seen there.
 
+SAM 3 also follows **hands**, under the phrase "hand", in the same run: one
+more phrase, not a second pass over the video. Hands are not objects: they
+are kept per frame next to the objects (``hands``), are not in the summary,
+and are drawn thin and grey in the annotated video. Naming "hand" as an
+object does nothing more.
+
 Every frame's objects go to ``objects/video_N.objects.frames.json``, apart
 from the summary in ``video_N.objects.json``, because they can be large.
 
@@ -57,15 +63,31 @@ fork of OpenAI's CLIP), which the analysis environment includes.
 Who touches what
 ----------------
 
-When the Pose plugin was run on the same camera, each analysed frame's
-people are matched against the objects: the people of the nearest frame
-Pose analysed, within half of Pose's own step (Pose may analyse every Nth
-frame too). A person **touches** an object when
-a wrist keypoint (COCO 9 or 10, seen with confidence above 0.5) lies inside
-the object's outline, or closer to it than a margin: the wrist sits a little
-back from the fingertips, which are what actually touch. The margin is a
-quarter of the object's size (the square root of its outline's bounding box
-area), and at least 12 px.
+A touch is found in two ways, and either is enough:
+
+- **A hand on the object.** A hand's outline overlaps the object's, or comes
+  closer to it than 5% of the hand's size (the square root of its outline's
+  bounding box area), at least 3 px: the two masks meet at the fingers, and
+  simplifying both outlines moves their edges by a few pixels. The test is
+  done on the two outlines drawn as masks, so edges that cross between
+  corners count too. This needs no Pose result, so it works on a close-up
+  camera that sees only an arm, where Pose finds no person. On the first
+  room-11 test (sub-31, Camera 5, a close-up of a table) SAM 3 found hands
+  in 327 of 340 analysed frames, and Pose none.
+- **A wrist on the object** (needs Pose on the same camera). The people of
+  the nearest frame Pose analysed, within half of Pose's own step (Pose may
+  analyse every Nth frame too), are matched against the objects: a wrist
+  keypoint (COCO 9 or 10, seen with confidence above 0.5) lies inside the
+  object's outline, or closer to it than a margin: the wrist sits a little
+  back from the fingertips, which are what actually touch. The margin is a
+  quarter of the object's size, and at least 12 px.
+
+**Whose hand**: a hand belongs to the Pose person whose seen wrist is on or
+nearest its outline, within the same wrist margin (of the hand's size).
+When no wrist is, the touch is kept as "?" ("someone" in the app): Pose was
+not run, or sees only an arm. When the same object is touched by a known
+person and by "?" in one frame, it is the same touch seen both ways, and
+"?" is dropped.
 
 Frame by frame touches become **contacts**: runs of the same person and
 object, joined across gaps of up to 0.3 s or one and a half analysed steps,
@@ -90,9 +112,15 @@ Limits
   object that leaves and comes back can get a new id.
 - **Hidden objects**: an object covered by a hand or out of view is not
   seen; a toy held inside a closed hand may be lost.
-- **2D contact**: a wrist in front of an object, between it and the
-  camera, also counts as a touch. Several cameras would tell (a later step,
-  with the room calibration).
+- **2D contact**: a hand or wrist in front of an object, between it and
+  the camera, also counts as a touch, and so does a hand resting right next
+  to one. Several cameras would tell (a later step, with the room
+  calibration).
+- **Hands as objects**: a held object can be taken into the hand's mask, or
+  a hand-sized object found as a hand; the annotated video shows both
+  outlines, to check.
+- **No person from the hand alone**: on a camera without Pose, touches by
+  two people are both "someone".
 - **Speed**: SAM 3 needs a GPU. On the room PC's RTX A4000 a 22 s video
   took 3 minutes at every second frame, about 8 times the recording's
   length, so a 10 minute recording takes about 80 minutes per camera.

@@ -567,11 +567,13 @@ sitting alongside **Live**. The workflow is always the same shape:
 
       **What it does**: finds objects you name, "toy, cup, tablet computer" by
       default, in each camera's video with SAM 3, follows each one (its own
-      id, so two cups are told apart), and, when Pose was run on that camera,
-      says who touched which object and for how long (a wrist on or next to
-      its outline). Writes ``objects/video_N.objects.json`` and, with
-      **Annotated video**, ``objects/video_N.objects.mp4`` with every object's
-      outline and name (thicker while touched). See
+      id, so two cups are told apart), and when a hand touched which object
+      and for how long. It follows hands too, so touches are found on a
+      close-up camera that sees only an arm; when Pose was run on that
+      camera, it also says whose hand it was. Writes
+      ``objects/video_N.objects.json`` and, with **Annotated video**,
+      ``objects/video_N.objects.mp4`` with every object's outline and name
+      (thicker while touched) and the hands in grey. See
       :doc:`math/object_tracking`.
 
       **Before the first run**: download the SAM 3 weights, ``sam3.pt``, from
@@ -587,10 +589,10 @@ sitting alongside **Live**. The workflow is always the same shape:
       **Reading it**: **Show** picks when each object is seen, or when it is
       touched, one row per object. The line under the chart gives, per
       object, how much of the video it was seen in and who touched it for
-      how long; without a Pose result for the camera it says to run Pose.
-      The chart always spans the whole video. When no touch was found, its
-      title says why: on a close-up camera that sees only an arm, Pose cannot
-      place the wrist, so use a camera that sees the whole person.
+      how long: "someone" when Pose was not run on this camera or does not
+      see the person. The chart always spans the whole video. When no touch
+      was found, its title says so; a result from before hands were followed
+      asks you to run Object Tracking again.
 
    .. tab-item:: Audio-Video Check
 
