@@ -16,11 +16,20 @@ class ObjectsResult {
     struct Object {
         int id{};
         QString label;
+        /// The name given in the app ("red ball"); empty until then.
+        QString name;
         double seenPct{};
         double travelPx{};
         int contacts{};
         QMap<QString, double> touchedSByPerson;   ///< person (Pose subject id, or ?) -> seconds
         QVector<QPair<double, double>> seenSpans; ///< when it was seen, session elapsed ms
+
+        /// "toy 2", or "red ball (toy 2)" once named: the label and id stay,
+        /// as the annotated video shows them.
+        [[nodiscard]] QString display_name() const {
+            const QString found = QString("%1 %2").arg(label).arg(id);
+            return name.isEmpty() ? found : QString("%1 (%2)").arg(name, found);
+        }
     };
     struct Contact {
         int objectId{};
@@ -30,6 +39,12 @@ class ObjectsResult {
     };
 
     [[nodiscard]] static ObjectsResult load(const QString& path);
+
+    /// Writes the names given in the app into the result at `path`, by
+    /// object id: a "name" on each of its summary objects, removed for an
+    /// empty name. The rest of the file is kept as it is. Returns false, and
+    /// leaves the file alone, when it cannot be read or written.
+    [[nodiscard]] static bool save_names(const QString& path, const QMap<int, QString>& names);
 
     [[nodiscard]] bool is_valid() const { return valid_; }
     [[nodiscard]] const QVector<QString>& labels() const { return labels_; }

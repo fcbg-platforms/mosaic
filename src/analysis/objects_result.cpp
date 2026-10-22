@@ -4,6 +4,7 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QSaveFile>
 
 namespace mosaic {
 
@@ -29,6 +30,7 @@ ObjectsResult ObjectsResult::load(const QString& path) {
         Object x;
         x.id                 = o["id"].toInt();
         x.label              = o["label"].toString();
+        x.name               = o["name"].toString();
         x.seenPct            = o["seen_pct"].toDouble();
         x.travelPx           = o["travel_px"].toDouble();
         x.contacts           = o["contacts"].toInt();
@@ -55,6 +57,46 @@ ObjectsResult ObjectsResult::load(const QString& path) {
     }
     r.valid_ = true;
     return r;
+}
+
+bool ObjectsResult::save_names(const QString& path, const QMap<int, QString>& names) {
+    QFile in(path);
+    if (!in.open(QIODevice::ReadOnly)) {
+        return false;
+    }
+    QJsonParseError err{};
+    QJsonDocument doc = QJsonDocument::fromJson(in.readAll(), &err);
+    in.close();
+    if (err.error != QJsonParseError::NoError || !doc.isObject()) {
+        return false;
+    }
+    QJsonObject root    = doc.object();
+    QJsonObject summary = root["summary"].toObject();
+    QJsonArray objects  = summary["objects"].toArray();
+    for (int i = 0; i < objects.size(); ++i) {
+        QJsonObject o = objects[i].toObject();
+        const int id  = o["id"].toInt();
+        if (!names.contains(id)) {
+            continue;
+        }
+        const QString name = names.value(id).trimmed();
+        if (name.isEmpty()) {
+            o.remove("name");
+        } else {
+            o["name"] = name;
+        }
+        objects[i] = o;
+    }
+    summary["objects"] = objects;
+    root["summary"]    = summary;
+    // Written whole and swapped in, so a failed write never leaves half a
+    // result behind.
+    QSaveFile out(path);
+    if (!out.open(QIODevice::WriteOnly)) {
+        return false;
+    }
+    out.write(QJsonDocument(root).toJson(QJsonDocument::Indented));
+    return out.commit();
 }
 
 } // namespace mosaic

@@ -138,6 +138,8 @@ class AnalysisTabW : public QWidget {
     void update_sync_repair_view();
     void update_social_view();
     void update_objects_view();
+    // A dialog to name the objects found; saved into the camera's result.
+    void rename_objects();
     void export_sync_repair_csv();
     [[nodiscard]] bool is_pose_plugin() const;
     [[nodiscard]] bool is_diarize_plugin() const;

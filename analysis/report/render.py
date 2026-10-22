@@ -964,7 +964,9 @@ def _objects(ob: dict) -> str:
                 if who
                 else "; not touched"
             )
-        rows.append((f"{o.get('label')} {o.get('id')}", detail))
+        # A name given in the app, with what was found ("red ball (toy 2)").
+        found = f"{o.get('label')} {o.get('id')}"
+        rows.append((f"{o['name']} ({found})" if o.get("name") else found, detail))
     if not rows:
         rows = [("Found", "none of " + ", ".join(ob.get("labels", [])))]
     note = (
