@@ -264,3 +264,25 @@ def test_triangulate_with_rejection_never_keeps_views_that_disagree():
     observations[1] = (observations[1][0] + np.array([300.0, 0.0]), 1.0)
     observations[2] = (observations[2][0] + np.array([0.0, -300.0]), 1.0)
     assert triangulate_with_rejection(observations, cameras, max_reprojection_error_px=5.0) is None
+
+
+def test_a_camera_entry_says_where_it_is_where_it_looks_and_how_wide():
+    import run_pose3d
+
+    rt = np.eye(4)
+    rt[:3, :3] = [[0, 0, 1], [0, 1, 0], [-1, 0, 0]]  # turned to look along room +x
+    rt[:3, 3] = [100.0, -200.0, 300.0]
+    k = np.array([[960.0, 0, 960], [0, 960.0, 540], [0, 0, 1]])
+    info = {"extrinsic_rt": rt, "camera_matrix": k, "image_size": (1920, 1080)}
+    e = run_pose3d.camera_entry(2, info)
+    assert e["index"] == 2 and e["position_room"] == [100.0, -200.0, 300.0]
+    # The third column of rotation_room is the viewing direction.
+    assert [row[2] for row in e["rotation_room"]] == [1, 0, 0]
+    assert e["fov_deg"] == [90.0, 58.72]
+    # An older calibration without its image size: about the same, from the
+    # principal point.
+    for unknown in [(None, None), (-1, -1)]:  # -1: how the app saves an unknown size
+        assert run_pose3d.camera_entry(2, {**info, "image_size": unknown})["fov_deg"] == [
+            90.0,
+            58.72,
+        ]

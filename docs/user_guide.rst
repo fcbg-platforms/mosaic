@@ -968,6 +968,20 @@ sitting alongside **Live**. The workflow is always the same shape:
       triangulation, cross-camera association, and tracking math, and for
       its important caveat about 2-camera rigs with multiple people.
 
+      **The room view**: people are drawn as shaded limbs and joints, upright
+      on a floor with a grid every 0.5 m (brighter each metre) and a soft
+      shadow under each person. Each camera shows what it sees as a coloured
+      pyramid. The buttons at its top right choose the view: **3D** (drag to
+      turn, right-drag to pan, scroll to zoom), or **Top** (a flat map of the
+      floor), **Front** and **Side**, flat views where dragging pans.
+      Double-click returns to the view's starting framing. **Trails** shows
+      where each person's hips were over the last 2 seconds, and their path
+      on the floor. Hover over a joint to read its name and position, x, y
+      and z in metres, in the room frame: the reference camera's own (x
+      right, y down, z forward), as in every export; the axes at the bottom
+      right turn with the view. Results from before this version have no
+      camera directions: run 3D Pose again to see the pyramids.
+
    .. tab-item:: Remote Heart Rate (rPPG)
 
       .. important::

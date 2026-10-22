@@ -40,8 +40,20 @@ Skeleton3DResult Skeleton3DResult::load(const QString& jsonPath) {
     for (const auto& camVal : root["cameras"].toArray()) {
         const QJsonObject camObj = camVal.toObject();
         Skeleton3DRoomCamera cam;
-        cam.index        = camObj["index"].toInt();
-        cam.positionRoom = vec3_from_json(camObj["position_room"].toArray());
+        cam.index             = camObj["index"].toInt();
+        cam.positionRoom      = vec3_from_json(camObj["position_room"].toArray());
+        const QJsonArray rows = camObj["rotation_room"].toArray();
+        const QJsonArray fov  = camObj["fov_deg"].toArray();
+        if (rows.size() == 3 && fov.size() == 2) {
+            for (int r = 0; r < 3; ++r) {
+                const Skeleton3DVec3 row = vec3_from_json(rows[r].toArray());
+                for (int c = 0; c < 3; ++c) {
+                    cam.rotationRoom[3 * r + c] = row[c];
+                }
+            }
+            cam.fovDeg      = {fov[0].toDouble(), fov[1].toDouble()};
+            cam.hasRotation = true;
+        }
         result.cameras_ << cam;
     }
 

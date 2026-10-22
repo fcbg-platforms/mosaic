@@ -263,6 +263,7 @@ qt_add_executable(mosaic MACOSX_BUNDLE
     ui/analysis/gaze_room_view_w.cpp
     ui/analysis/skeleton3d_room_view_w.hpp
     ui/analysis/skeleton3d_room_view_w.cpp
+    ui/analysis/room_view_math.hpp
 
     # ── QML bridge ────────────────────────────────────────────────────────
     ui/monitor_bridge.hpp
@@ -303,6 +304,7 @@ target_link_libraries(mosaic PRIVATE
     Qt6::Quick
     Qt6::QuickWidgets
     Qt6::Charts
+    Qt6::OpenGLWidgets # the 3D Pose room view (part of Qt's base install)
 )
 
 if(WIN32)
