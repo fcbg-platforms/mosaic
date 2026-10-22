@@ -42,6 +42,7 @@
 #include <QSplitter>
 #include <QStackedWidget>
 #include <QStyledItemDelegate>
+#include <QTabBar>
 #include <QTableWidget>
 #include <QTextEdit>
 #include <QTextStream>
@@ -255,6 +256,10 @@ WavEnvelopeResult load_wav_envelope(const QString& wavPath, int numColumns) {
 // still fits a normal window while keeping a fragmented recording's track
 // list from unbounding the row.
 constexpr int kMaxSubjectChips = 12;
+
+// The 3D Pose page's tabs (AnalysisTabW::Impl::pose3dTabs).
+constexpr int kPose3dTabRoom   = 0;
+constexpr int kPose3dTabCharts = 1;
 
 QString subject_chip_tooltip(SubjectChoice choice, bool fileHasTrackedIdentity) {
     if (!fileHasTrackedIdentity) {
@@ -1267,6 +1272,9 @@ struct AnalysisTabW::Impl {
     QSpinBox* dyadWindowSpin   = nullptr; // pose3d only — congruent-motion rolling window
     QLabel* dyadStatsLbl       = nullptr; // pose3d only
     QPushButton* exportDyadBtn = nullptr; // pose3d only
+    // pose3d only: the room view or the charts, one at a time beside the video
+    // (kPose3dTabRoom / kPose3dTabCharts), so either gets the width.
+    QTabBar* pose3dTabs = nullptr;
 
     // EEG/Trigger sync view controls — mirrors pose3dRowW's own-container
     // pattern. No model/backend/skip controls page exists for this plugin
@@ -3199,6 +3207,30 @@ void AnalysisTabW::build_ui() {
     resultsSplitter->setStretchFactor(4, 1);
     resultsSplitter->setStretchFactor(5, 1);
     resultsSplitter->setStretchFactor(6, 1);
+    // Above the results: which of the 3D Pose views takes the space beside
+    // the video. The tabs keep the video in view, since it drives the time.
+    d->pose3dTabs = new QTabBar;
+    d->pose3dTabs->insertTab(kPose3dTabRoom, "3D Room");
+    d->pose3dTabs->insertTab(kPose3dTabCharts, "Charts");
+    d->pose3dTabs->setTabToolTip(kPose3dTabRoom,
+                                 "Every tracked person's 3D skeleton in the room, with the "
+                                 "cameras. Drag to orbit, scroll to zoom, double-click to reset.");
+    d->pose3dTabs->setTabToolTip(kPose3dTabCharts,
+                                 "Dyad Analysis over the whole recording: distance, approach, "
+                                 "facingness and congruent motion between two people.");
+    d->pose3dTabs->setDrawBase(false);
+    d->pose3dTabs->setVisible(false); // shown only for the pose3d plugin
+    connect(d->pose3dTabs, &QTabBar::currentChanged, this, [this](int tab) {
+        if (!is_pose3d_plugin()) {
+            return;
+        }
+        const bool charts = tab == kPose3dTabCharts;
+        d->chart->setVisible(charts);
+        d->dyadRowW->setVisible(charts);
+        d->skeleton3dRoomView->setVisible(!charts);
+        anim::fade_in_widget(charts ? static_cast<QWidget*>(d->chart) : d->skeleton3dRoomView, 130);
+    });
+    rightLay->addWidget(d->pose3dTabs);
     rightLay->addWidget(resultsSplitter, 1);
 
     d->chart->set_seek_callback([this](int64_t ms) { d->player->seek(ms); });
@@ -3425,7 +3457,8 @@ void AnalysisTabW::select_plugin(const QString& pluginId) {
     // Must land before the predicates below: every is_*_plugin() now reads
     // this member, so assigning it later would reshape the UI for the
     // *previous* plugin and leave the tab one click behind.
-    d->currentPlugin = pluginId;
+    const bool wasPose3D = d->currentPlugin == "pose3d";
+    d->currentPlugin     = pluginId;
 
     const bool isPose        = is_pose_plugin();
     const bool isDiarize     = is_diarize_plugin();
@@ -3468,11 +3501,11 @@ void AnalysisTabW::select_plugin(const QString& pluginId) {
     set_visible_animated(d->depthModeHintLbl, isPose && is_pose_depth_selected());
     set_visible_animated(d->blendshapeFieldW, isExpression);
     set_visible_animated(d->trackFieldW, isPose3D);
-    // isPose3D included so the shared chart can show the Dyad Analysis
-    // series — pose3d's own room-view/2D-overlay results view never needed
-    // it before Dyad Analysis was added.
+    // pose3d shows the shared chart (its Dyad Analysis series) on its Charts
+    // tab only; the room view has the 3D Room tab.
+    const bool pose3dCharts = isPose3D && d->pose3dTabs->currentIndex() == kPose3dTabCharts;
     set_visible_animated(d->chart, isPoseKeypoints || isExpression || isRppg || isGaze2d ||
-                                       isPose3D || isFaceDyn || isConv || isEye || isSocial ||
+                                       pose3dCharts || isFaceDyn || isConv || isEye || isSocial ||
                                        isObjects);
     set_visible_animated(d->kinematicsRowW, isPoseKeypoints);
     // subjectPickerRowW's own further narrowing (hidden when the session has
@@ -3486,8 +3519,9 @@ void AnalysisTabW::select_plugin(const QString& pluginId) {
     set_visible_animated(d->gazeFusionRowW, isGazeFusion);
     set_visible_animated(d->roomView, isGazeFusion);
     set_visible_animated(d->pose3dRowW, isPose3D);
-    set_visible_animated(d->dyadRowW, isPose3D);
-    set_visible_animated(d->skeleton3dRoomView, isPose3D);
+    set_visible_animated(d->pose3dTabs, isPose3D);
+    set_visible_animated(d->dyadRowW, pose3dCharts);
+    set_visible_animated(d->skeleton3dRoomView, isPose3D && !pose3dCharts);
     set_visible_animated(d->triggerSyncRowW, isTriggerSync);
     set_visible_animated(d->triggerSyncTable, isTriggerSync);
     set_visible_animated(d->rppgRowW, isRppg);
@@ -3530,6 +3564,15 @@ void AnalysisTabW::select_plugin(const QString& pluginId) {
     d->player->set_video_surface_visible(!isDiarize);
     d->player->setMaximumWidth(isDiarize ? 340 : QWIDGETSIZE_MAX);
     d->resultsSplitter->setStretchFactor(0, isDiarize ? 0 : 1);
+    // pose3d: the video a third of the width, its room view or charts two
+    // thirds; back to halves when leaving it. Only on the switch, so a
+    // splitter dragged by hand stays where it was put.
+    if (isPose3D != wasPose3D) {
+        const int w = std::max(d->resultsSplitter->width(), 3);
+        QList<int> sizes(d->resultsSplitter->count(), isPose3D ? 2 * w / 3 : w / 2);
+        sizes[0] = isPose3D ? w / 3 : w / 2;
+        d->resultsSplitter->setSizes(sizes);
+    }
 
     // controlsStack's own crossfade defers reload_current_camera_result()
     // until the new page is actually current (right as the fade-in phase
