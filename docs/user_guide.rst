@@ -951,10 +951,13 @@ sitting alongside **Live**. The workflow is always the same shape:
       camera's real observation is dropped rather than trusted), and a
       frame-skip spinbox.
 
-      **Reading the output**: an interactive 3D room view (drag to orbit,
-      scroll to zoom, double-click to reset) shows a floor grid, every
-      calibrated camera's position, and every currently-tracked person's
-      3D skeleton, color-coded by track ID. A **Track** dropdown filters
+      **Reading the output**: the selected camera's video stays on the
+      left, and two tabs choose what fills the space beside it. **3D Room**
+      is an interactive room view (drag to orbit, scroll to zoom,
+      double-click to reset) with a floor grid, every calibrated camera's
+      position, and every currently-tracked person's 3D skeleton,
+      color-coded by track ID. **Charts** holds the Dyad Analysis chart
+      and its controls, over the whole recording. A **Track** dropdown filters
       the stats/CSV export to one track or "All." The selected camera's
       video also shows the reprojected 2D skeleton overlay, letting you
       visually confirm the 3D reconstruction actually lines up with what
