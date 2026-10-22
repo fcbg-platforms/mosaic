@@ -17,6 +17,7 @@ const char* kFixtureJson = R"JSON(
  "labels": ["toy", "cup", "tablet"],
  "video_start_ms": 5000.0,
  "pose_used": true,
+ "hands_followed": true,
  "annotated_video": "objects/video_1.objects.mp4",
  "summary": {"objects": [
   {"id": 1, "label": "cup", "seen_pct": 93.3, "travel_px": 40.0, "contacts": 1,
@@ -50,6 +51,7 @@ TEST(ObjectsResult, ReadsObjectsContactsAndSeenSpans) {
     EXPECT_EQ(r.labels().size(), 3);
     EXPECT_DOUBLE_EQ(r.video_start_ms(), 5000.0);
     EXPECT_TRUE(r.pose_used());
+    EXPECT_TRUE(r.hands_followed());
     EXPECT_EQ(r.annotated_video(), "objects/video_1.objects.mp4");
     ASSERT_EQ(r.objects().size(), 2);
     EXPECT_EQ(r.objects()[0].label, "cup");
@@ -65,5 +67,9 @@ TEST(ObjectsResult, ReadsObjectsContactsAndSeenSpans) {
 TEST(ObjectsResult, AnotherSchemaOrNoFileIsInvalid) {
     QTemporaryDir dir;
     EXPECT_FALSE(load_fixture(dir, R"({"schema": "mosaic-social-v1"})").is_valid());
+    // A result from before hands were followed still loads.
+    const ObjectsResult old = load_fixture(dir, R"({"schema": "mosaic-objects-v1"})");
+    EXPECT_TRUE(old.is_valid());
+    EXPECT_FALSE(old.hands_followed());
     EXPECT_FALSE(ObjectsResult::load(dir.filePath("missing.json")).is_valid());
 }

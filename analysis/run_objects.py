@@ -1,6 +1,8 @@
 """
 MOSAIC Object Tracking: objects named in words (SAM 3), followed through each
-camera's video, and when each person's hand touches them.
+camera's video, and when each person's hand touches them. SAM 3 follows
+hands too, so touches are found on a camera that sees only an arm; the Pose
+plugin, when it was run on that camera, says whose hand it is.
 
     python analysis/run_objects.py --session DIR [--objects "toy, cup, tablet"]
         [--camera N] [--stride 2] [--weights sam3.pt] [--no-video]
@@ -9,11 +11,12 @@ Writes, per camera, in ``<session>/objects/``:
 
 * ``video_N.objects.json``: a summary per object (how much of the video it
   was seen in and when, how far it moved, how long each person touched it)
-  and the contacts: runs where a person's wrist (from the Pose plugin, when
-  it was run on that camera) is on or next to an object;
-* ``video_N.objects.frames.json``: every analysed frame's objects: id,
-  label, score, box and outline (kept apart: it can be large);
-* ``video_N.objects.mp4``: the video with the outlines drawn on it.
+  and the contacts: runs where a hand's outline meets an object's, or a
+  person's wrist (from Pose) is on or next to it;
+* ``video_N.objects.frames.json``: every analysed frame's objects and hands:
+  id, label, score, box and outline (kept apart: it can be large);
+* ``video_N.objects.mp4``: the video with the outlines drawn on it, hands
+  in grey.
 See docs/math/object_tracking.rst.
 """
 
@@ -27,7 +30,7 @@ import traceback
 from pathlib import Path
 
 import numpy as np
-from objects.contact import contact_events, frame_contacts, summarise
+from objects.contact import HAND, contact_events, frame_contacts, summarise
 from run_face_dynamics import frame_times_ms, read_timestamps_ms
 from video_publish import open_writer, publish_video
 
@@ -39,6 +42,7 @@ DEFAULT_OBJECTS = "toy, cup, tablet computer"
 MIN_SEEN_S = 1.0
 #: Distinct, readable outline colours (BGR), one per object id.
 COLOURS = [(90, 200, 90), (230, 160, 60), (80, 140, 240), (200, 90, 200), (60, 200, 220)]
+HAND_COLOUR = (170, 170, 170)
 
 
 def parse_args(argv=None) -> argparse.Namespace:
@@ -61,11 +65,12 @@ def log(msg: str) -> None:
 
 
 def parse_labels(text: str) -> list:
-    """``"toy, cup,,tablet "`` -> ``["toy", "cup", "tablet"]``, no repeats."""
+    """``"toy, cup,,tablet "`` -> ``["toy", "cup", "tablet"]``, no repeats;
+    "hand" is left out, as hands are always followed (and are not objects)."""
     out = []
     for part in text.split(","):
         name = part.strip()
-        if name and name.lower() not in (o.lower() for o in out):
+        if name and name.lower() != HAND and name.lower() not in (o.lower() for o in out):
             out.append(name)
     return out
 
@@ -123,20 +128,23 @@ def analyse_camera(
     step_ms = 1000.0 * stride / fps
     frames, pairs, pair_times = [], [], []
     t_start = time.perf_counter()
-    for k, (idx, objects) in enumerate(track(video, labels, weights, stride)):
+    for k, (idx, found) in enumerate(track(video, [*labels, HAND], weights, stride)):
         t = float(times[min(idx, len(times) - 1)])
-        frames.append({"frame_index": idx, "timestamp_ms": round(t, 1), "objects": objects})
-        if pose:
-            people = nearest_people(pose, keys, idx, reach)
-            pairs.append(frame_contacts(objects, people))
-            pair_times.append(t)
+        objects = [o for o in found if o["label"] != HAND]
+        hands = [o for o in found if o["label"] == HAND]
+        frames.append(
+            {"frame_index": idx, "timestamp_ms": round(t, 1), "objects": objects, "hands": hands}
+        )
+        people = nearest_people(pose, keys, idx, reach)
+        pairs.append(frame_contacts(objects, people, hands))
+        pair_times.append(t)
         if n and k % 10 == 0:
             pct = min(100.0, 100.0 * (idx + 1) / n)
             print(
                 f"  {pct:5.1f}%  ({idx + 1}/{n})  {time.perf_counter() - t_start:.1f}s elapsed",
                 flush=True,
             )
-    events = contact_events(pairs, pair_times, step_ms) if pose else []
+    events = contact_events(pairs, pair_times, step_ms)
     summary = summarise(frames, events, step_ms)
     kept = [o for o in summary if sum(b - a for a, b in o["seen_spans"]) >= 1000.0 * MIN_SEEN_S]
     keep_ids = {o["id"] for o in kept}
@@ -150,6 +158,9 @@ def analyse_camera(
         # The video's first frame, session elapsed ms: the chart's zero.
         "video_start_ms": round(float(times[0]), 1),
         "pose_used": bool(pose),
+        # Touches come from the hands as well; results from before have none
+        # without Pose.
+        "hands_followed": True,
         "summary": {
             "objects": kept,
             "brief_objects_left_out": len(summary) - len(kept),
@@ -161,8 +172,8 @@ def analyse_camera(
 
 
 def write_video(video: Path, result: dict, out_path: Path) -> bool:
-    """The video with each object's outline and label; a touched object's
-    outline is drawn thicker."""
+    """The video with each object's outline and label, and the hands' in
+    grey; a touched object's outline is drawn thicker."""
     import cv2
     from gaze.render import partial_path
 
@@ -170,6 +181,7 @@ def write_video(video: Path, result: dict, out_path: Path) -> bool:
     by_index = {
         f["frame_index"]: [o for o in f["objects"] if o["id"] in keep] for f in result["frames"]
     }
+    hands_at = {f["frame_index"]: f.get("hands", []) for f in result["frames"]}
     touching = [(e["object_id"], e["start_ms"], e["end_ms"]) for e in result["contacts"]]
     times = {f["frame_index"]: f["timestamp_ms"] for f in result["frames"]}
     cap = cv2.VideoCapture(str(video))
@@ -180,7 +192,7 @@ def write_video(video: Path, result: dict, out_path: Path) -> bool:
     if writer is None:
         cap.release()
         return False
-    shown, now = [], 0.0
+    shown, hands, now = [], [], 0.0
     idx = 0
     try:
         while True:
@@ -188,7 +200,11 @@ def write_video(video: Path, result: dict, out_path: Path) -> bool:
             if not ok:
                 break
             if idx in by_index:  # between analysed frames, the last result holds
-                shown, now = by_index[idx], times[idx]
+                shown, hands, now = by_index[idx], hands_at[idx], times[idx]
+            for h in hands:
+                poly = np.asarray(h.get("polygon") or [], np.int32)
+                if len(poly) >= 3:
+                    cv2.polylines(img, [poly.reshape(-1, 1, 2)], True, HAND_COLOUR, 1)
             for o in shown:
                 poly = np.asarray(o.get("polygon") or [], np.int32)
                 if len(poly) < 3:
@@ -264,7 +280,7 @@ def main(argv=None, track=None) -> int:
         log(
             f"{video.name}: {len(objs)} object(s), {len(res['contacts'])} contact(s)"
             + (f", {brief} seen under {MIN_SEEN_S:g} s left out" if brief else "")
-            + ("" if res["pose_used"] else " (no Pose result for this camera: no contacts)")
+            + ("" if res["pose_used"] else " (no Pose result for this camera: touches by '?')")
             + f" -> {path}"
         )
     print(f"  100.0%  ({len(videos)}/{len(videos)})", flush=True)

@@ -19,7 +19,7 @@ class ObjectsResult {
         double seenPct{};
         double travelPx{};
         int contacts{};
-        QMap<QString, double> touchedSByPerson;   ///< person (Pose subject id) -> seconds
+        QMap<QString, double> touchedSByPerson;   ///< person (Pose subject id, or ?) -> seconds
         QVector<QPair<double, double>> seenSpans; ///< when it was seen, session elapsed ms
     };
     struct Contact {
@@ -35,6 +35,9 @@ class ObjectsResult {
     [[nodiscard]] const QVector<QString>& labels() const { return labels_; }
     [[nodiscard]] double video_start_ms() const { return videoStartMs_; }
     [[nodiscard]] bool pose_used() const { return poseUsed_; }
+    /// Whether SAM 3 followed hands too, so touches were looked for without
+    /// Pose (results from before that have touches only with Pose).
+    [[nodiscard]] bool hands_followed() const { return handsFollowed_; }
     [[nodiscard]] QString annotated_video() const { return annotatedVideo_; }
     [[nodiscard]] const QVector<Object>& objects() const { return objects_; }
     [[nodiscard]] const QVector<Contact>& contacts() const { return contacts_; }
@@ -43,7 +46,8 @@ class ObjectsResult {
     bool valid_ = false;
     QVector<QString> labels_;
     double videoStartMs_{};
-    bool poseUsed_ = false;
+    bool poseUsed_      = false;
+    bool handsFollowed_ = false;
     QString annotatedVideo_;
     QVector<Object> objects_;
     QVector<Contact> contacts_;

@@ -615,6 +615,26 @@ def test_objects_card(tmp_path):
     assert "objects" not in collect.collect(s, for_summary_only=True).cameras[0].results
 
 
+def test_objects_card_names_an_unplaced_hand_someone(tmp_path):
+    s = make_session(tmp_path / "a")
+    _write(
+        s / "objects" / "video_2.objects.json",
+        {
+            "schema": "mosaic-objects-v1",
+            "labels": ["toy"],
+            "pose_used": False,
+            "hands_followed": True,
+            "summary": {
+                "objects": [
+                    {"id": 1, "label": "toy", "seen_pct": 90, "touched_s_by_person": {"?": 2}}
+                ]
+            },
+        },
+    )
+    page = render.render(collect.collect(s))
+    assert "touched by someone 2.0 s" in page and "whose hand it is" in page
+
+
 def test_clap_check_row(tmp_path):
     s = make_session(tmp_path / "a")
     _write(

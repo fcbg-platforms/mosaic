@@ -233,6 +233,7 @@ def _objects(session: Path, stem: str) -> dict | None:
     return {
         "labels": d.get("labels", []),
         "pose_used": d.get("pose_used", False),
+        "hands_followed": d.get("hands_followed", False),
         "objects": (d.get("summary") or {}).get("objects", []),
     }
 
