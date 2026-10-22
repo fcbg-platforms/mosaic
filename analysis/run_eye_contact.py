@@ -35,6 +35,7 @@ import traceback
 from pathlib import Path
 
 import numpy as np
+from camera_pick import add_camera_arg, pick_cameras
 from video_publish import open_writer, publish_video
 
 TAG = "[run_eye_contact]"
@@ -52,7 +53,7 @@ FIXED_RADIUS_DEG = 8.0
 def parse_args(argv=None) -> argparse.Namespace:
     p = argparse.ArgumentParser(description="MOSAIC eye contact and gaze aversion")
     p.add_argument("--session", metavar="DIR", required=True, help="Recorded session directory")
-    p.add_argument("--camera", type=int, default=None, help="Only this camera index")
+    add_camera_arg(p)
     p.add_argument("--min-confidence", type=float, default=0.5, help="Face detection threshold")
     p.add_argument(
         "--target",
@@ -638,8 +639,7 @@ def main(argv=None) -> int:
     args = parse_args(argv)
     session = Path(args.session)
     videos = sorted((session / "video").glob("video_*.mp4"))
-    if args.camera is not None:
-        videos = [v for v in videos if rfd.camera_index_from_filename(v) == args.camera]
+    videos = pick_cameras(videos, args.camera)
     if not videos:
         print(f"{TAG} No videos to analyse in {session / 'video'}", file=sys.stderr, flush=True)
         return 1

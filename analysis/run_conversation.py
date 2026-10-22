@@ -32,6 +32,7 @@ import traceback
 from pathlib import Path
 
 import numpy as np
+from camera_pick import add_camera_arg, pick_cameras
 from video_publish import open_writer, publish_video
 
 TAG = "[run_conversation]"
@@ -45,7 +46,7 @@ SIGNAL_STEP_MS = 50
 def parse_args(argv=None) -> argparse.Namespace:
     p = argparse.ArgumentParser(description="MOSAIC conversation timing")
     p.add_argument("--session", metavar="DIR", required=True, help="Recorded session directory")
-    p.add_argument("--camera", type=int, default=None, help="Only this camera index")
+    add_camera_arg(p)
     p.add_argument(
         "--audio", default=None, help="Microphone file name in audio/ (default: the first)"
     )
@@ -702,8 +703,7 @@ def main(argv=None) -> int:
         print(f"{TAG} No audio to analyse in {session / 'audio'}", file=sys.stderr, flush=True)
         return 1
     videos = sorted((session / "video").glob("video_*.mp4"))
-    if args.camera is not None:
-        videos = [v for v in videos if rfd.camera_index_from_filename(v) == args.camera]
+    videos = pick_cameras(videos, args.camera)
     if not videos:
         print(f"{TAG} No videos to analyse in {session / 'video'}", file=sys.stderr, flush=True)
         return 1

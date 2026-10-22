@@ -74,6 +74,14 @@ class AnalysisManager : public QObject {
     /// @c 5 = every 5th frame (≈6 fps at 30 fps recording).
     void set_frame_skip(int skip);
 
+    /// @brief Analyse only these cameras (configured indices, 0-based) in the
+    /// next job queued, as ``--camera N ...``; empty = every camera.
+    ///
+    /// Used up by that next job, so a later run (or a Frame Sync queued by
+    /// the app) never inherits it. Only the per-camera scripts take it: the
+    /// Analysis tab sets it for those and clears it for the others.
+    void set_cameras(const QList<int>& cameras);
+
     // ── Status ───────────────────────────────────────────────────────────────
 
     /// @returns @c true while the analysis subprocess is running.

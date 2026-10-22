@@ -25,6 +25,7 @@ from pathlib import Path
 
 import cv2
 import numpy as np
+from camera_pick import add_camera_arg, pick_cameras
 from expression.classifier import classify_expression
 from expression.detector import (
     BLENDSHAPE_NAMES,
@@ -69,6 +70,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--skip", type=int, default=1, help="Process every Nth frame (default: 1 = every frame)"
     )
+    add_camera_arg(parser)
     return parser.parse_args()
 
 
@@ -131,9 +133,14 @@ def _camera_index_from_filename(video_path: Path) -> int:
 
 
 def process_session(
-    session_dir: Path, backend: str, max_faces: int, min_confidence: float, skip: int
+    session_dir: Path,
+    backend: str,
+    max_faces: int,
+    min_confidence: float,
+    skip: int,
+    cameras: list | None = None,
 ) -> None:
-    videos = sorted((session_dir / "video").glob("*.mp4"))
+    videos = pick_cameras(sorted((session_dir / "video").glob("*.mp4")), cameras)
     if not videos:
         print(f"[run_expression] No .mp4 files found in {session_dir / 'video'}", file=sys.stderr)
         sys.exit(1)
@@ -329,7 +336,12 @@ def main() -> None:
 
     if args.session:
         process_session(
-            Path(args.session), args.backend, args.max_faces, args.min_confidence, args.skip
+            Path(args.session),
+            args.backend,
+            args.max_faces,
+            args.min_confidence,
+            args.skip,
+            cameras=args.camera,
         )
     elif args.video:
         detector = MediaPipeExpressionDetector(

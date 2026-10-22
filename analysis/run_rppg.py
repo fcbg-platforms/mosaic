@@ -33,6 +33,7 @@ from pathlib import Path
 
 import cv2
 import numpy as np
+from camera_pick import add_camera_arg, pick_cameras
 from rppg import hrv
 from rppg.algorithms import BACKENDS
 from rppg.hr_estimation import bandpass_filter, estimate_hr_welch, median_smooth
@@ -91,6 +92,7 @@ def parse_args() -> argparse.Namespace:
         default=0.5,
         help="Face detection/presence confidence threshold (default: 0.5)",
     )
+    add_camera_arg(parser)
     return parser.parse_args()
 
 
@@ -123,8 +125,9 @@ def process_session(
     hop_sec: float,
     smoothing_windows: int,
     min_confidence: float,
+    cameras: list | None = None,
 ) -> None:
-    videos = sorted((session_dir / "video").glob("*.mp4"))
+    videos = pick_cameras(sorted((session_dir / "video").glob("*.mp4")), cameras)
     if not videos:
         print(f"[run_rppg] No .mp4 files found in {session_dir / 'video'}", file=sys.stderr)
         sys.exit(1)
@@ -589,6 +592,7 @@ def main() -> None:
             args.hop_sec,
             args.smoothing_windows,
             args.min_confidence,
+            cameras=args.camera,
         )
     elif args.video:
         extractor = MediaPipeFaceRoiExtractor(min_confidence=args.min_confidence)

@@ -529,7 +529,13 @@ sitting alongside **Live**. The workflow is always the same shape:
 1. Pick a session from the left-hand session list.
 2. Pick a plugin from the plugin dropdown.
 3. Set that plugin's controls (model/backend/etc.; see the tab below for
-   each one).
+   each one). For a plugin that analyses each camera on its own (Pose, Face
+   Masking, Facial Expression, Heart Rate, 2D Gaze, Face Dynamics,
+   Conversation Timing, Eye Contact, Object Tracking), **Cameras** next to
+   **Run** picks which cameras to analyse, all by default: untick the others
+   to save time, for example to track objects only on the camera that sees
+   the table. The other cameras' results stay as they were. Every camera is
+   ticked again when you pick another session.
 4. Click **Run**. Progress streams into the log view; you can queue another
    session's run while one is in progress, since jobs serialize through one
    shared subprocess queue.

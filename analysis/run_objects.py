@@ -3,7 +3,7 @@ MOSAIC Object Tracking: objects named in words (SAM 3), followed through each
 camera's video, and when each person's hand touches them.
 
     python analysis/run_objects.py --session DIR [--objects "toy, cup, tablet"]
-        [--camera N] [--stride 2] [--weights sam3.pt] [--no-video]
+        [--camera N ...] [--stride 2] [--weights sam3.pt] [--no-video]
 
 Writes, per camera, in ``<session>/objects/``:
 
@@ -27,6 +27,7 @@ import traceback
 from pathlib import Path
 
 import numpy as np
+from camera_pick import add_camera_arg, pick_cameras
 from objects.contact import contact_events, frame_contacts, summarise
 from run_face_dynamics import frame_times_ms, read_timestamps_ms
 from video_publish import open_writer, publish_video
@@ -44,7 +45,7 @@ COLOURS = [(90, 200, 90), (230, 160, 60), (80, 140, 240), (200, 90, 200), (60, 2
 def parse_args(argv=None) -> argparse.Namespace:
     p = argparse.ArgumentParser(description="MOSAIC object tracking (SAM 3)")
     p.add_argument("--session", required=True, metavar="DIR")
-    p.add_argument("--camera", type=int, default=None, help="Only this camera index")
+    add_camera_arg(p)
     p.add_argument(
         "--objects",
         default=DEFAULT_OBJECTS,
@@ -230,8 +231,7 @@ def main(argv=None, track=None) -> int:
             return 1
         from objects.track import track_video as track
     videos = sorted((session / "video").glob("video_*.mp4"))
-    if args.camera is not None:
-        videos = [v for v in videos if v.stem == f"video_{args.camera}"]
+    videos = pick_cameras(videos, args.camera)
     if not videos:
         print(f"{TAG} No videos to analyse in {session / 'video'}", file=sys.stderr)
         return 1

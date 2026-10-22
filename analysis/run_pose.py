@@ -31,6 +31,7 @@ from pathlib import Path
 
 import cv2
 import numpy as np
+from camera_pick import add_camera_arg, pick_cameras
 from pose.depth_estimator import DepthEstimator
 from pose.human_pose import TRACKER_NAME, HumanPoseEstimator
 from pose.identity import stitch_tracks
@@ -77,6 +78,7 @@ def parse_args() -> argparse.Namespace:
         default="json",
         help="Output format for session/video mode (default: json)",
     )
+    add_camera_arg(parser)
     return parser.parse_args()
 
 
@@ -113,8 +115,9 @@ def process_session(
     model_name: str,
     skip: int = 1,
     out_format: str = "json",
+    cameras: list | None = None,
 ) -> None:
-    videos = sorted((session_dir / "video").glob("*.mp4"))
+    videos = pick_cameras(sorted((session_dir / "video").glob("*.mp4")), cameras)
     if not videos:
         print(f"[run_pose] No .mp4 files found in {session_dir / 'video'}", file=sys.stderr)
         sys.exit(1)
@@ -352,9 +355,13 @@ def _write_results(
 
 
 def process_session_depth(
-    session_dir: Path, estimator: DepthEstimator, model_name: str, skip: int = 1
+    session_dir: Path,
+    estimator: DepthEstimator,
+    model_name: str,
+    skip: int = 1,
+    cameras: list | None = None,
 ) -> None:
-    videos = sorted((session_dir / "video").glob("*.mp4"))
+    videos = pick_cameras(sorted((session_dir / "video").glob("*.mp4")), cameras)
     if not videos:
         print(f"[run_pose] No .mp4 files found in {session_dir / 'video'}", file=sys.stderr)
         sys.exit(1)
@@ -526,7 +533,9 @@ def main() -> None:
     if "depth" in args.model:
         depth_estimator = DepthEstimator(model_name=args.model, device=args.device)
         if args.session:
-            process_session_depth(Path(args.session), depth_estimator, args.model, skip=args.skip)
+            process_session_depth(
+                Path(args.session), depth_estimator, args.model, skip=args.skip, cameras=args.camera
+            )
         elif args.video:
             video_path = Path(args.video)
             # Same "write beside the session's video/ folder, into a sibling
@@ -558,7 +567,12 @@ def main() -> None:
         run_pipe(estimator)
     elif args.session:
         process_session(
-            Path(args.session), estimator, args.model, skip=args.skip, out_format=args.out_format
+            Path(args.session),
+            estimator,
+            args.model,
+            skip=args.skip,
+            out_format=args.out_format,
+            cameras=args.camera,
         )
     elif args.video:
         video_path = Path(args.video)
