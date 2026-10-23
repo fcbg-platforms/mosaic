@@ -1,8 +1,12 @@
 #include "ui/analysis/skeleton3d_room_view_w.hpp"
 
 #include <QButtonGroup>
+#include <QCheckBox>
+#include <QComboBox>
 #include <QFontMetrics>
 #include <QHBoxLayout>
+#include <QLabel>
+#include <QMap>
 #include <QMatrix4x4>
 #include <QMouseEvent>
 #include <QOpenGLBuffer>
@@ -11,8 +15,11 @@
 #include <QPainter>
 #include <QPainterPath>
 #include <QQuaternion>
+#include <QScrollArea>
+#include <QSet>
 #include <QSurfaceFormat>
 #include <QToolButton>
+#include <QVBoxLayout>
 #include <QVector3D>
 #include <QVector4D>
 #include <QWheelEvent>
@@ -23,7 +30,7 @@
 #include <optional>
 #include <vector>
 
-#include "ui/analysis/room_view_math.hpp"
+#include "analysis/room_view_math.hpp"
 #include "ui/analysis/subject_colors.hpp"
 #include "video/camera_label.hpp"
 
@@ -203,6 +210,9 @@ struct Skeleton3DRoomViewW::Impl {
     QVector<int> headIdx; // nose, eyes, ears: drawn as one head
     int dyadTrackA = -1;
     int dyadTrackB = -1;
+    // The People panel: who is hidden, and whom the view follows (-1: nobody).
+    QSet<int> hidden;
+    int follow = -1;
 
     // The room's orientation for drawing (room_view_math.hpp): up, a forward
     // along the floor, and right = forward x up.
@@ -246,11 +256,17 @@ struct Skeleton3DRoomViewW::Impl {
     int sphereCount   = 0;
     int cylinderCount = 0;
 
-    QWidget* bar        = nullptr;
-    QWidget* overlay    = nullptr;
-    QButtonGroup* views = nullptr;
+    QWidget* bar              = nullptr;
+    QWidget* overlay          = nullptr;
+    QWidget* peoplePanel      = nullptr; // top left: one tick per person, and Follow
+    QScrollArea* peopleScroll = nullptr;
+    int peopleListHeight      = 0;
+    QButtonGroup* views       = nullptr;
 
     [[nodiscard]] bool flat_view() const { return preset != kView3D; }
+    [[nodiscard]] bool shown(const Skeleton3DPerson& p) const {
+        return !hidden.contains(p.trackId);
+    }
 
     [[nodiscard]] QVector3D eye_direction() const {
         if (preset == kViewTop) {
@@ -474,14 +490,132 @@ void Skeleton3DRoomViewW::set_result(const Skeleton3DResult& result) {
         }
     }
     d->hover.reset();
+    d->hidden.clear();
+    d->follow = -1;
     d->recompute_room();
+    rebuild_people_panel();
     apply_preset(d->preset);
 }
 
 void Skeleton3DRoomViewW::set_position_ms(int64_t positionMs) {
     d->positionMs = positionMs;
     d->hover.reset(); // the joint under the mouse has moved
+    follow_person();
     refresh();
+}
+
+// Keeps the followed person in the middle of the view, at the height the
+// view looks at (so the camera glides along the floor, not up and down).
+void Skeleton3DRoomViewW::follow_person() {
+    if (d->follow < 0) {
+        return;
+    }
+    if (const auto* frame = d->current_frame()) {
+        for (const auto& p : frame->people) {
+            if (p.trackId == d->follow) {
+                if (const auto c = d->body_centre(p)) {
+                    const float h = QVector3D::dotProduct(d->target, d->U);
+                    d->target     = d->on_floor(*c) + d->U * (h - d->floorH);
+                }
+            }
+        }
+    }
+}
+
+// One tick per person (with the colour they are drawn in and how long they
+// were in 3D) and a Follow choice, rebuilt for each result.
+void Skeleton3DRoomViewW::rebuild_people_panel() {
+    delete d->peoplePanel;
+    d->peoplePanel = new QWidget(this);
+    d->peoplePanel->setObjectName("peoplePanel");
+    d->peoplePanel->setStyleSheet(
+        "#peoplePanel { background: rgba(14,14,32,215); border: 1px solid #34345a; "
+        "border-radius: 6px; } QLabel, QCheckBox { color: #d0d0ec; font-size: 12px; } "
+        "QComboBox { font-size: 12px; }");
+    auto* lay = new QVBoxLayout(d->peoplePanel);
+    lay->setContentsMargins(8, 6, 8, 6);
+    lay->setSpacing(2);
+    auto* title = new QLabel("<b>People</b>");
+    lay->addWidget(title);
+
+    QMap<int, int> ticks;
+    for (const auto& f : d->result.frames()) {
+        for (const auto& p : f.people) {
+            ticks[p.trackId] += 1;
+        }
+    }
+    const auto& frames = d->result.frames();
+    const double step =
+        frames.size() > 1
+            ? static_cast<double>(frames.last().timestampNs - frames.first().timestampNs) / 1e9 /
+                  (frames.size() - 1)
+            : 0.0;
+    // The ticks scroll when there are many (results from before people were
+    // joined can have one per track fragment).
+    auto* list    = new QWidget;
+    auto* listLay = new QVBoxLayout(list);
+    listLay->setContentsMargins(0, 0, 0, 0);
+    listLay->setSpacing(2);
+    auto* scroll = new QScrollArea;
+    scroll->setWidget(list);
+    scroll->setWidgetResizable(true);
+    scroll->setFrameShape(QFrame::NoFrame);
+    scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    scroll->setStyleSheet(
+        "QScrollArea, QScrollArea > QWidget > QWidget { background: transparent; }");
+    auto* follow = new QComboBox;
+    follow->addItem("Follow nobody", -1);
+    for (auto it = ticks.begin(); it != ticks.end(); ++it) {
+        const int id = it.key();
+        auto* box =
+            new QCheckBox(QString("Person %1  ·  %2 s").arg(id).arg(it.value() * step, 0, 'f', 1));
+        box->setChecked(!d->hidden.contains(id));
+        const QColor c = subject_color(id - 1);
+        box->setStyleSheet(QString("QCheckBox { color: %1; font-weight: 600; }").arg(c.name()));
+        box->setToolTip("Show or hide this person in the room view.");
+        connect(box, &QCheckBox::toggled, this, [this, id](bool on) {
+            if (on) {
+                d->hidden.remove(id);
+            } else {
+                d->hidden.insert(id);
+            }
+            refresh();
+        });
+        listLay->addWidget(box);
+        follow->addItem(QString("Follow Person %1").arg(id), id);
+    }
+    if (ticks.isEmpty()) {
+        listLay->addWidget(new QLabel("Nobody in 3D"));
+    }
+    list->adjustSize();
+    scroll->setMinimumWidth(list->sizeHint().width() + 16);
+    d->peopleListHeight = list->sizeHint().height();
+    d->peopleScroll     = scroll;
+    lay->addWidget(scroll);
+    follow->setToolTip("Keep this person in the middle of the view as the video plays.");
+    follow->setCurrentIndex(std::max(0, follow->findData(d->follow)));
+    connect(follow, &QComboBox::currentIndexChanged, this, [this, follow](int) {
+        d->follow = follow->currentData().toInt();
+        follow_person();
+        refresh();
+    });
+    lay->addWidget(follow);
+    place_people_panel();
+    d->peoplePanel->show();
+}
+
+// Top left, at most half the view's height (its list scrolls beyond that),
+// and below the view buttons when the view is too narrow for both side by
+// side.
+void Skeleton3DRoomViewW::place_people_panel() {
+    if (!d->peoplePanel || !d->peopleScroll) {
+        return;
+    }
+    d->peopleScroll->setFixedHeight(
+        std::min(d->peopleListHeight + 4, std::max(40, height() / 2 - 70)));
+    d->peoplePanel->adjustSize();
+    const bool clash = 8 + d->peoplePanel->width() + 8 > width() - d->bar->width() - 8;
+    d->peoplePanel->move(8, clash ? d->bar->y() + d->bar->height() + 8 : 8);
 }
 
 void Skeleton3DRoomViewW::set_show_smoothed(bool showSmoothed) {
@@ -543,6 +677,9 @@ void Skeleton3DRoomViewW::mouseMoveEvent(QMouseEvent* event) {
         const Skeleton3DFrame* frame = d->current_frame();
         if (frame && d->glReady) {
             for (const auto& p : frame->people) {
+                if (!d->shown(p)) {
+                    continue;
+                }
                 for (int i = 0; i < p.keypoints.size(); ++i) {
                     if (!p.keypoints[i].valid) {
                         continue;
@@ -670,6 +807,7 @@ void Skeleton3DRoomViewW::resizeEvent(QResizeEvent* e) {
     d->overlay->setGeometry(rect());
     d->bar->adjustSize();
     d->bar->move(width() - d->bar->width() - 8, 8);
+    place_people_panel();
 }
 
 // The scene and its text redraw together. Asking the overlay to repaint from
@@ -793,7 +931,7 @@ void Skeleton3DRoomViewW::paintGL() {
     if (frame) {
         std::vector<float> shadows;
         for (const auto& p : frame->people) {
-            const auto c = d->body_centre(p);
+            const auto c = d->shown(p) ? d->body_centre(p) : std::nullopt;
             if (!c) {
                 continue;
             }
@@ -819,6 +957,9 @@ void Skeleton3DRoomViewW::paintGL() {
         const int64_t from = frame->timestampNs - static_cast<int64_t>(kTrailSeconds * 1e9);
         std::vector<float> trails;
         for (const auto& p : frame->people) {
+            if (!d->shown(p)) {
+                continue;
+            }
             // The hips only: a centre of whatever happens to be seen jumps
             // about as keypoints come and go, and tangles the trail.
             std::optional<QVector3D> next = d->hip_middle(p, d->showSmoothed);
@@ -831,8 +972,10 @@ void Skeleton3DRoomViewW::paintGL() {
                     }
                 }
                 const double age = (frame->timestampNs - frames[k].timestampNs) / 1e9;
-                if (here && next) {
-                    const QColor c = subject_color(p.trackId);
+                // Never across a gap: a person joined from two tracks
+                // (analysis/pose3d/people.py) can reappear metres away.
+                if (here && next && age - nextAge <= 0.25) {
+                    const QColor c = subject_color(p.trackId - 1);
                     put_vertex(trails, *next, with_alpha(c, 0.9 * (1.0 - nextAge / kTrailSeconds)));
                     put_vertex(trails, *here, with_alpha(c, 0.9 * (1.0 - age / kTrailSeconds)));
                     // Its trace on the floor too, fainter: the path walked.
@@ -894,7 +1037,10 @@ void Skeleton3DRoomViewW::paintGL() {
     if (frame) {
         const auto& edges = d->result.skeleton_edges();
         for (const auto& p : frame->people) {
-            const QColor base  = subject_color(p.trackId);
+            if (!d->shown(p)) {
+                continue;
+            }
+            const QColor base  = subject_color(p.trackId - 1);
             const QColor limbC = base.darker(115);
             const QColor joint = base.lighter(125);
             auto at = [&](int i) { return qv(drawn_position(p.keypoints[i], d->showSmoothed)); };
@@ -962,26 +1108,27 @@ void Skeleton3DRoomViewW::paint_overlay(QPainter& p) {
     };
     auto pill = [&p](const QPointF& at, const QString& text, const QColor& fg, bool centred) {
         const QFontMetrics fm(p.font());
-        QRectF r = fm.boundingRect(text).adjusted(-5, -2, 5, 2);
+        QRectF r = fm.boundingRect(text).adjusted(-7, -3, 7, 3);
         if (centred) {
             r.moveCenter(at);
         } else {
             r.moveBottomLeft(at);
         }
-        p.setPen(Qt::NoPen);
-        p.setBrush(QColor(10, 10, 26, 200));
-        p.drawRoundedRect(r, 4, 4);
+        p.setPen(QPen(fg, 1.5));
+        p.setBrush(QColor(10, 10, 26, 220));
+        p.drawRoundedRect(r, 5, 5);
         p.setPen(fg);
         p.drawText(r, Qt::AlignCenter, text);
     };
 
-    // Camera names.
-    QFont small = p.font();
-    small.setPointSizeF(std::max(7.5, small.pointSizeF() - 1.0));
-    p.setFont(small);
+    // Camera names: bold, and larger in a larger view (12 to 18 px).
+    QFont label = p.font();
+    label.setPixelSize(std::clamp(height() / 38, 12, 18));
+    label.setBold(true);
+    p.setFont(label);
     for (const auto& cam : d->result.cameras()) {
         if (const auto s = project(qv(cam.positionRoom))) {
-            pill(*s + QPointF(8, -6), camera_short_label(cam.index),
+            pill(*s + QPointF(10, -8), camera_label(cam.index),
                  kCameraColors[((cam.index % 6) + 6) % 6], false);
         }
     }
@@ -990,6 +1137,9 @@ void Skeleton3DRoomViewW::paint_overlay(QPainter& p) {
     const Skeleton3DFrame* frame = d->current_frame();
     if (frame) {
         for (const auto& person : frame->people) {
+            if (!d->shown(person)) {
+                continue;
+            }
             QVector3D top;
             float best = -1e30f;
             for (const auto& kp : person.keypoints) {
@@ -1005,16 +1155,18 @@ void Skeleton3DRoomViewW::paint_overlay(QPainter& p) {
             }
             if (best > -1e29f) {
                 if (const auto s = project(top + d->U * 200.0f)) {
-                    pill(*s, QString("track %1").arg(person.trackId), subject_color(person.trackId),
-                         true);
+                    pill(*s, QString("Person %1").arg(person.trackId),
+                         subject_color(person.trackId - 1), true);
                 }
             }
         }
         if (d->dyadTrackA >= 0 && d->dyadTrackB >= 0 && d->dyadTrackA != d->dyadTrackB) {
             const Skeleton3DPerson *a = nullptr, *b = nullptr;
             for (const auto& q : frame->people) {
-                a = q.trackId == d->dyadTrackA ? &q : a;
-                b = q.trackId == d->dyadTrackB ? &q : b;
+                if (d->shown(q)) {
+                    a = q.trackId == d->dyadTrackA ? &q : a;
+                    b = q.trackId == d->dyadTrackB ? &q : b;
+                }
             }
             const auto ha = a ? d->hip_middle(*a, d->showSmoothed) : std::nullopt;
             const auto hb = b ? d->hip_middle(*b, d->showSmoothed) : std::nullopt;
@@ -1039,7 +1191,7 @@ void Skeleton3DRoomViewW::paint_overlay(QPainter& p) {
         p.setPen(QPen(QColor(255, 255, 255, 230), 2));
         p.setBrush(Qt::NoBrush);
         p.drawEllipse(h.screen, 8, 8);
-        const QString text = QString("track %1 · %2\nx %3   y %4   z %5 m")
+        const QString text = QString("Person %1 · %2\nx %3   y %4   z %5 m")
                                  .arg(h.trackId)
                                  .arg(h.name)
                                  .arg(h.pos[0] / 1000.0, 0, 'f', 2)
@@ -1081,6 +1233,10 @@ void Skeleton3DRoomViewW::paint_overlay(QPainter& p) {
         p.drawText(tip + QPointF(v.x() >= 0 ? 3 : -10, v.y() >= 0 ? -3 : 11), a.name);
     }
 
+    QFont plain = p.font();
+    plain.setBold(false);
+    plain.setPixelSize(12);
+    p.setFont(plain);
     p.setPen(QColor("#7070a0"));
     const QString info =
         (frame ? QString("tick %1  ·  %2 person(s)").arg(frame->tick).arg(frame->people.size())

@@ -42,6 +42,7 @@ from pathlib import Path
 import numpy as np
 from pose3d.association import PersonObservation, cluster_people
 from pose3d.audit import identity_audit, qa_timeline, view_agreement
+from pose3d.people import join_tracks
 from pose3d.smoothing import smooth_track_positions
 from pose3d.tracker import PersonTracker3D
 from pose3d.triangulation import CameraGeom, project_point_px, triangulate_with_rejection
@@ -643,6 +644,13 @@ def _write_results(
         "bone off its usual length",
         flush=True,
     )
+    # One person often becomes several tracks (see pose3d/people.py): join
+    # them into people, after the audit, which judges the tracker itself.
+    persons = join_tracks(frame_results)
+    print(
+        f"[run_pose3d] {len(persons)} person(s) from {ident['track_count']} track(s)",
+        flush=True,
+    )
     for cam, v in quality["views"].items():
         if v["dropped_pct"] is not None:
             print(
@@ -659,6 +667,7 @@ def _write_results(
             people.append(
                 {
                     "track_id": p["track_id"],
+                    "person_id": p["person_id"],
                     "num_contributing_cameras": p["num_contributing_cameras"],
                     "source_cameras": p["source_cameras"],
                     "keypoints_room": p["keypoints_room"],
@@ -696,6 +705,7 @@ def _write_results(
                     "smoothing_window": args.smoothing_window,
                 },
                 "quality": quality,
+                "people": persons,
                 "frames": out_frames,
             },
             indent=2,

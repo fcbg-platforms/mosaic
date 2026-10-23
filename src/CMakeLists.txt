@@ -263,7 +263,7 @@ qt_add_executable(mosaic MACOSX_BUNDLE
     ui/analysis/gaze_room_view_w.cpp
     ui/analysis/skeleton3d_room_view_w.hpp
     ui/analysis/skeleton3d_room_view_w.cpp
-    ui/analysis/room_view_math.hpp
+    analysis/room_view_math.hpp
 
     # ── QML bridge ────────────────────────────────────────────────────────
     ui/monitor_bridge.hpp

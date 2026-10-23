@@ -2,6 +2,8 @@
 #include <QOpenGLFunctions>
 #include <QOpenGLWidget>
 #include <QPainter>
+
+class QScrollArea;
 #include <cstdint>
 #include <memory>
 
@@ -10,8 +12,8 @@
 namespace mosaic {
 
 // Interactive 3D room view for the 3D Pose Reconstruction plugin's results:
-// every tracked person's skeleton as shaded limbs and joints (colour by
-// track_id), a metric floor grid, the calibrated cameras and what each one
+// every person's skeleton as shaded limbs and joints (one colour per person,
+// "Person 1", ...), a metric floor grid, the calibrated cameras and what each one
 // sees, fading movement trails, and a joint's room coordinates on hover.
 //
 // Drawn with OpenGL (QOpenGLWidget, from Qt's OpenGLWidgets module, which
@@ -82,6 +84,9 @@ class Skeleton3DRoomViewW : public QOpenGLWidget, protected QOpenGLFunctions {
 
     void apply_preset(int preset);
     void refresh();
+    void follow_person();
+    void rebuild_people_panel();
+    void place_people_panel();
     void paint_overlay(QPainter& p);
 };
 

@@ -3,8 +3,8 @@
 #include <QFile>
 #include <QTemporaryDir>
 
+#include "analysis/room_view_math.hpp"
 #include "analysis/skeleton3d_result.hpp"
-#include "ui/analysis/room_view_math.hpp"
 
 using mosaic::Skeleton3DResult;
 
@@ -161,7 +161,7 @@ TEST(Skeleton3DResult, LoadsValidFileWithFullSchema) {
     ASSERT_EQ(f0.people.size(), 2);
 
     const auto& p0 = f0.people[0];
-    EXPECT_EQ(p0.trackId, 0);
+    EXPECT_EQ(p0.trackId, 1); // no person_id in this file: track_id 0 + 1
     EXPECT_EQ(p0.numContributingCameras, 3);
     EXPECT_EQ(p0.sourceCameras, QVector<int>({0, 1, 2}));
     ASSERT_EQ(p0.keypoints.size(), 3);
@@ -367,4 +367,21 @@ TEST(RoomView, TooFewPeopleLeaveUpToTheCameras) {
     const auto up = mosaic::room_view::estimate_up(cams);
     EXPECT_NEAR(up[2], -1.0, 1e-9);
     EXPECT_NEAR(mosaic::room_view::floor_height(cams, up), 500.0, 1e-6);
+}
+
+TEST(Skeleton3DResult, PeopleJoinedFromTracksKeepTheirPersonNumber) {
+    QTemporaryDir dir;
+    QFile f(dir.filePath("p.json"));
+    ASSERT_TRUE(f.open(QIODevice::WriteOnly));
+    f.write(R"({"schema": "mosaic-skeleton3d-v1", "cameras": [], "keypoint_names": ["nose"],
+      "skeleton_edges": [], "frames": [
+      {"tick": 0, "timestamp_ns": 0, "people": [{"track_id": 0, "person_id": 1,
+        "keypoints_room": [[0,0,0]], "keypoints_valid": [true]}]},
+      {"tick": 1, "timestamp_ns": 40000000, "people": [{"track_id": 4, "person_id": 1,
+        "keypoints_room": [[0,0,0]], "keypoints_valid": [true]}]}]})");
+    f.close();
+    const auto r = Skeleton3DResult::load(dir.filePath("p.json"));
+    ASSERT_TRUE(r.is_valid());
+    // Track 4 continues person 1 (analysis/pose3d/people.py).
+    EXPECT_EQ(r.frames()[1].people[0].trackId, 1);
 }

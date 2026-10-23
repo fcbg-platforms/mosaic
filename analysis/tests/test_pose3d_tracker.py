@@ -78,3 +78,54 @@ def test_two_new_centroids_in_one_tick_each_get_a_distinct_id():
 def test_empty_tick_returns_empty_list_and_does_not_crash():
     tracker = PersonTracker3D()
     assert tracker.update(0, []) == []
+
+
+# ── Joining tracks into people (pose3d/people.py) ────────────────────────────
+
+
+def _frames(spans):
+    """Ticks at 10 per second; `spans` is (track_id, first tick, last tick,
+    x of the first tick in mm, x speed in mm per tick)."""
+    out = []
+    for tick in range(0, 200):
+        people = []
+        for tid, a, b, x0, vx in spans:
+            if a <= tick <= b:
+                x = x0 + vx * (tick - a)
+                people.append(
+                    {
+                        "track_id": tid,
+                        "keypoints_room": [[x, 0.0, 3000.0], [x, 500.0, 3000.0]],
+                        "keypoints_valid": [True, True],
+                    }
+                )
+        out.append({"tick": tick, "timestamp_ns": tick * 100_000_000, "people": people})
+    return out
+
+
+def test_one_person_split_by_a_short_gap_is_one_person():
+    from pose3d.people import join_tracks
+
+    # Walks out of view for 1 s and comes back 0.4 m on: one person.
+    frames = _frames([(0, 0, 49, 0.0, 10.0), (1, 60, 99, 900.0, 10.0)])
+    people = join_tracks(frames)
+    assert people == [{"person_id": 1, "track_ids": [0, 1], "seconds": 9.0}]
+    assert {p["person_id"] for f in frames for p in f["people"]} == {1}
+
+
+def test_two_people_at_once_stay_two():
+    from pose3d.people import join_tracks
+
+    frames = _frames([(0, 0, 99, 0.0, 0.0), (1, 20, 99, 300.0, 0.0)])
+    assert [p["track_ids"] for p in join_tracks(frames)] == [[0], [1]]
+
+
+def test_a_far_jump_or_a_long_gap_is_another_person():
+    from pose3d.people import join_tracks
+
+    # 3 m away after 0.5 s: too far to have walked.
+    far = _frames([(0, 0, 49, 0.0, 0.0), (1, 55, 99, 3000.0, 0.0)])
+    assert len(join_tracks(far)) == 2
+    # Back at the same place, but 5 s later: not joined either.
+    late = _frames([(0, 0, 49, 0.0, 0.0), (1, 100, 149, 0.0, 0.0)])
+    assert len(join_tracks(late)) == 2

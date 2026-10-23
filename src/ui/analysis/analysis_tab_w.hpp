@@ -122,6 +122,8 @@ class AnalysisTabW : public QWidget {
     void update_pose3d_view();
     void export_skeleton3d_csv();
     void update_dyadic_view();
+    // The Charts tab for one person: speed, head and hip height, cameras.
+    void update_person_chart();
     void export_dyad_csv();
     void update_trigger_sync_view();
     void export_trigger_sync_csv();

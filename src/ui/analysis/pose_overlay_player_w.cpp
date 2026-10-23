@@ -389,7 +389,8 @@ class SkeletonOverlayW : public QWidget {
                 continue;
             }
 
-            const QColor color = subject_color(person.trackId);
+            // Person N (1, 2, ...) in the Pose plugin's colour order.
+            const QColor color = subject_color(person.trackId - 1);
 
             painter.setPen(QPen(color, 2));
             for (const auto& [a, b] : skeletonEdges_) {
@@ -419,7 +420,7 @@ class SkeletonOverlayW : public QWidget {
             if (firstValid >= 0) {
                 painter.setPen(color);
                 painter.drawText(to_widget(pts[firstValid]) + QPointF(6, -6),
-                                 QString("track %1").arg(person.trackId));
+                                 QString("Person %1").arg(person.trackId));
             }
         }
     }
