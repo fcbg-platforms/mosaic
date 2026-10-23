@@ -120,7 +120,8 @@ jobs:
 
       - name: Check formatting of changed files only
         run: |
-          files=$(git diff --name-only ${{ steps.base.outputs.sha }} -- src tests | grep -E '\.(cpp|hpp)$' || true)
+          # --diff-filter=d: a deleted file has nothing to check (and would fail).
+          files=$(git diff --name-only --diff-filter=d ${{ steps.base.outputs.sha }} -- src tests | grep -E '\.(cpp|hpp)$' || true)
           if [ -z "$files" ]; then
             echo "No changed C++ files."
             exit 0
@@ -176,7 +177,8 @@ jobs:
         id: changed
         shell: bash
         run: |
-          files=$(git diff --name-only ${{ steps.base.outputs.sha }} -- src tests | grep -E '\.(cpp|hpp)$' || true)
+          # --diff-filter=d: a deleted file has nothing to check (and would fail).
+          files=$(git diff --name-only --diff-filter=d ${{ steps.base.outputs.sha }} -- src tests | grep -E '\.(cpp|hpp)$' || true)
           if [ -z "$files" ]; then
             echo "No changed C++ files — skipping clang-tidy entirely."
             echo "has_files=false" >> "$GITHUB_OUTPUT"
