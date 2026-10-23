@@ -1271,6 +1271,7 @@ struct AnalysisTabW::Impl {
     QWidget* dyadRowW          = nullptr; // pose3d only
     QComboBox* dyadTrackACombo = nullptr; // pose3d only
     QComboBox* dyadTrackBCombo = nullptr; // pose3d only
+    QLabel* dyadVsLbl          = nullptr; // pose3d only: "↔", hidden for one person
     QComboBox* dyadMetricCombo = nullptr; // pose3d only
     QSpinBox* dyadWindowSpin   = nullptr; // pose3d only — congruent-motion rolling window
     QLabel* dyadStatsLbl       = nullptr; // pose3d only
@@ -1384,6 +1385,7 @@ struct AnalysisTabW::Impl {
     ExpressionResult currentExpressionResult; // expression only
     GazeFusionResult currentGazeFusion;       // gaze_fusion only
     Skeleton3DResult currentSkeleton3D;       // pose3d only
+    PersonKinematicsSeries currentPerson;     // pose3d only: the Charts tab's one person
     DyadicKinematicsSeries currentDyad;       // pose3d only — derived from currentSkeleton3D +
                                         // the selected Track A/B pair, see update_dyadic_view()
     TriggerFrameMap currentTriggerFrameMap;  // trigger_sync only
@@ -2499,8 +2501,8 @@ void AnalysisTabW::build_ui() {
     d->trackCombo = new QComboBox;
     d->trackCombo->setToolTip(
         "Filters the stats/CSV export to one reconstructed person. The 3D room "
-        "view always shows every tracked person regardless of this selection.");
-    d->trackFieldW = make_field("Track:", d->trackCombo);
+        "view shows everyone; hide people in its People panel.");
+    d->trackFieldW = make_field("Person:", d->trackCombo);
     d->trackFieldW->setVisible(false); // shown only for the pose3d plugin
     connect(d->trackCombo, &QComboBox::currentIndexChanged, this,
             &AnalysisTabW::update_pose3d_view);
@@ -2768,9 +2770,9 @@ void AnalysisTabW::build_ui() {
 
     d->exportPose3dBtn = new QPushButton("Export CSV");
     d->exportPose3dBtn->setToolTip(
-        "Exports tick/timestamp/track/keypoint/raw position/smoothed position/validity/"
+        "Exports tick/timestamp/person/keypoint/raw position/smoothed position/validity/"
         "reprojection-error for every reconstructed keypoint as CSV (long format), "
-        "filtered by the Track picker above (or every track if \"All\").");
+        "filtered by the Person picker above (or everyone with \"All people\").");
     connect(d->exportPose3dBtn, &QPushButton::clicked, this, &AnalysisTabW::export_skeleton3d_csv);
     pose3dRow->addWidget(d->exportPose3dBtn);
 
@@ -2790,28 +2792,38 @@ void AnalysisTabW::build_ui() {
     auto* dyadRow = new QHBoxLayout(d->dyadRowW);
     dyadRow->setContentsMargins(0, 0, 0, 0);
 
-    dyadRow->addWidget(new QLabel("Dyad:"));
+    // One person's own charts first, so a recording with one person shows
+    // something; the two-person (Dyad Analysis) ones need a second person.
+    dyadRow->addWidget(new QLabel("Show:"));
+    d->dyadMetricCombo = new QComboBox;
+    d->dyadMetricCombo->addItem("Speed (m/s)", "speed");
+    d->dyadMetricCombo->addItem("Head and hip height (m)", "height");
+    d->dyadMetricCombo->addItem("Cameras seeing the person", "cameras");
+    d->dyadMetricCombo->insertSeparator(d->dyadMetricCombo->count());
+    d->dyadMetricCombo->addItem("Two people: distance (mm)", "distance");
+    d->dyadMetricCombo->addItem("Two people: approach rate (mm/s)", "approach_rate");
+    d->dyadMetricCombo->addItem("Two people: facingness (cosine)", "facing");
+    d->dyadMetricCombo->addItem("Two people: congruent motion (r)", "congruent_motion");
+    dyadRow->addWidget(d->dyadMetricCombo);
     d->dyadTrackACombo = new QComboBox;
-    d->dyadTrackACombo->setToolTip("First person of the pair to compare.");
+    d->dyadTrackACombo->setToolTip("The person to chart (the first of the two to compare).");
     dyadRow->addWidget(d->dyadTrackACombo);
-    dyadRow->addWidget(new QLabel("↔")); // <-> (left-right arrow), the "compared to" glyph
+    d->dyadVsLbl = new QLabel("↔"); // the "compared to" glyph
+    dyadRow->addWidget(d->dyadVsLbl);
     d->dyadTrackBCombo = new QComboBox;
     d->dyadTrackBCombo->setToolTip("Second person of the pair to compare.");
     dyadRow->addWidget(d->dyadTrackBCombo);
 
-    d->dyadMetricCombo = new QComboBox;
-    d->dyadMetricCombo->addItem("Distance (mm)", "distance");
-    d->dyadMetricCombo->addItem("Approach rate (mm/s)", "approach_rate");
-    d->dyadMetricCombo->addItem("Facingness (cosine)", "facing");
-    d->dyadMetricCombo->addItem("Congruent motion (r)", "congruent_motion");
     d->dyadMetricCombo->setToolTip(
+        "Speed: of the hips. Height: of the head and the hips above the floor, so standing, "
+        "sitting and bending show. Cameras: how many cameras the person was put in 3D from "
+        "(more agree better).\n\n"
         "Facingness: torso-heading cosine similarity. -1 = oriented oppositely (commonly "
         "face-to-face in a two-person interaction, but also consistent with standing "
         "back-to-back facing directly away from each other — position-independent by "
         "construction). +1 = oriented the same way (e.g. side-by-side). 0 = perpendicular.\n\n"
         "Congruent motion: rolling-window Pearson correlation of the two people's own "
         "instantaneous speed.");
-    dyadRow->addWidget(d->dyadMetricCombo);
 
     d->dyadWindowSpin = new QSpinBox;
     d->dyadWindowSpin->setRange(5, 120);
@@ -2828,8 +2840,8 @@ void AnalysisTabW::build_ui() {
 
     d->exportDyadBtn = new QPushButton("Export CSV");
     d->exportDyadBtn->setToolTip(
-        "Exports tick/timestamp/distance/approach-rate/facingness/congruent-motion for the "
-        "selected pair as CSV.");
+        "Exports the chart's numbers as CSV: one person's speed, heights and cameras, or the "
+        "selected pair's distance, approach rate, facingness and congruent motion.");
     connect(d->exportDyadBtn, &QPushButton::clicked, this, &AnalysisTabW::export_dyad_csv);
     dyadRow->addWidget(d->exportDyadBtn);
 
@@ -3233,11 +3245,12 @@ void AnalysisTabW::build_ui() {
     d->pose3dTabs->insertTab(kPose3dTabRoom, "3D Room");
     d->pose3dTabs->insertTab(kPose3dTabCharts, "Charts");
     d->pose3dTabs->setTabToolTip(kPose3dTabRoom,
-                                 "Every tracked person's 3D skeleton in the room, with the "
-                                 "cameras. Drag to orbit, scroll to zoom, double-click to reset.");
+                                 "Every person's 3D skeleton in the room, with the cameras. "
+                                 "Drag to orbit, scroll to zoom, double-click to reset.");
     d->pose3dTabs->setTabToolTip(kPose3dTabCharts,
-                                 "Dyad Analysis over the whole recording: distance, approach, "
-                                 "facingness and congruent motion between two people.");
+                                 "Charts over the whole recording: one person's speed, "
+                                 "height and cameras, or two people's distance, approach, "
+                                 "facingness and congruent motion.");
     d->pose3dTabs->setDrawBase(false);
     d->pose3dTabs->setVisible(false); // shown only for the pose3d plugin
     connect(d->pose3dTabs, &QTabBar::currentChanged, this, [this](int tab) {
@@ -4002,7 +4015,7 @@ void AnalysisTabW::load_camera_result_view() {
 
         d->trackCombo->blockSignals(true);
         d->trackCombo->clear();
-        d->trackCombo->addItem("All tracks", -1);
+        d->trackCombo->addItem("All people", -1);
         QList<int> trackIds;
         for (const auto& frame : d->currentSkeleton3D.frames()) {
             for (const auto& person : frame.people) {
@@ -4013,12 +4026,12 @@ void AnalysisTabW::load_camera_result_view() {
         }
         std::sort(trackIds.begin(), trackIds.end());
         for (int tid : trackIds) {
-            d->trackCombo->addItem(QString("Track %1").arg(tid), tid);
+            d->trackCombo->addItem(QString("Person %1").arg(tid), tid);
         }
         d->trackCombo->blockSignals(false);
 
         // Dyad Analysis track pickers — same trackIds list, real ids only
-        // (no "All tracks" entry, a dyad needs exactly two specific people).
+        // (no "All people" entry: a chart is of one or two specific people).
         // Default A/B to the first two distinct ids so the panel shows
         // something useful immediately rather than starting empty.
         d->dyadTrackACombo->blockSignals(true);
@@ -4026,17 +4039,18 @@ void AnalysisTabW::load_camera_result_view() {
         d->dyadTrackACombo->clear();
         d->dyadTrackBCombo->clear();
         for (int tid : trackIds) {
-            d->dyadTrackACombo->addItem(QString("Track %1").arg(tid), tid);
-            d->dyadTrackBCombo->addItem(QString("Track %1").arg(tid), tid);
+            d->dyadTrackACombo->addItem(QString("Person %1").arg(tid), tid);
+            d->dyadTrackBCombo->addItem(QString("Person %1").arg(tid), tid);
         }
         const bool hasDyadPair = trackIds.size() >= 2;
         if (hasDyadPair) {
             d->dyadTrackACombo->setCurrentIndex(0);
             d->dyadTrackBCombo->setCurrentIndex(1);
         }
-        d->dyadTrackACombo->setEnabled(hasDyadPair);
+        // One person is enough for their own charts; the pair needs two.
+        d->dyadTrackACombo->setEnabled(!trackIds.isEmpty());
+        d->dyadMetricCombo->setEnabled(!trackIds.isEmpty());
         d->dyadTrackBCombo->setEnabled(hasDyadPair);
-        d->dyadMetricCombo->setEnabled(hasDyadPair);
         d->dyadWindowSpin->setEnabled(hasDyadPair);
         d->dyadTrackACombo->blockSignals(false);
         d->dyadTrackBCombo->blockSignals(false);
@@ -5470,7 +5484,9 @@ void AnalysisTabW::export_skeleton3d_csv() {
         // established convention of never overwriting raw with smoothed
         // (item 16 pose kinematics, rPPG's own export_rppg_csv() bpm/
         // smoothed_bpm columns just above).
-        ts << "tick,timestamp_ns,track_id,keypoint_name,"
+        // `person` is the person's number ("Person 1"), the result's
+        // person_id, which joins one person's track fragments.
+        ts << "tick,timestamp_ns,person,keypoint_name,"
               "x_mm,y_mm,z_mm,x_mm_smoothed,y_mm_smoothed,z_mm_smoothed,"
               "valid,reprojection_error_px\n";
         for (const auto& frame : d->currentSkeleton3D.frames()) {
@@ -5504,12 +5520,23 @@ void AnalysisTabW::export_skeleton3d_csv() {
 // currentSkeleton3D — see src/analysis/dyadic_kinematics.hpp)
 
 void AnalysisTabW::update_dyadic_view() {
+    const QString metric = d->dyadMetricCombo->currentData().toString();
+    const bool onePerson = metric == "speed" || metric == "height" || metric == "cameras";
+    d->dyadVsLbl->setVisible(!onePerson);
+    d->dyadTrackBCombo->setVisible(!onePerson);
+    d->dyadWindowSpin->setVisible(metric == "congruent_motion");
+    if (onePerson) {
+        update_person_chart();
+        return;
+    }
     if (!d->dyadTrackACombo->isEnabled() || d->dyadTrackACombo->count() < 2) {
         d->currentDyad = DyadicKinematicsSeries();
-        d->dyadStatsLbl->setText("Only 1 tracked person in this result — dyad analysis needs 2.");
+        d->dyadStatsLbl->setText(
+            "Only one person in this result: the two-person charts need two. Choose Speed, "
+            "Height or Cameras to chart this person.");
         d->skeleton3dRoomView->set_dyad_tracks(-1, -1);
         d->chart->set_single_series({}, QString());
-        d->chart->set_title("Dyad Analysis — needs 2 tracked people");
+        d->chart->set_title("Two people — only one in this result");
         return;
     }
 
@@ -5527,7 +5554,7 @@ void AnalysisTabW::update_dyadic_view() {
         d->dyadStatsLbl->setText("Select two different people to compare.");
         d->skeleton3dRoomView->set_dyad_tracks(-1, -1);
         d->chart->set_single_series({}, QString());
-        d->chart->set_title("Dyad Analysis — select two different tracks");
+        d->chart->set_title("Two people — choose two different people");
         return;
     }
 
@@ -5563,7 +5590,6 @@ void AnalysisTabW::update_dyadic_view() {
             ? 0.0
             : (d->currentSkeleton3D.frames().last().timestampNs - t0) / 1e6;
 
-    const QString metric = d->dyadMetricCombo->currentData().toString();
     QString yAxisLabel;
     QVector<QPointF> points;
     points.reserve(d->currentDyad.samples.size());
@@ -5588,15 +5614,97 @@ void AnalysisTabW::update_dyadic_view() {
         points.append(QPointF((sample.timestampNs - t0) / 1e6, value));
     }
     d->chart->set_single_series(points, yAxisLabel, QString(), minDurationMs);
-    d->chart->set_title(QString("Dyad: Track %1 ↔ Track %2 — %3")
+    d->chart->set_title(QString("Person %1 ↔ Person %2 — %3")
                             .arg(trackIdA)
                             .arg(trackIdB)
                             .arg(d->dyadMetricCombo->currentText()));
     d->chart->set_playhead_ms(d->player->position_ms());
 }
 
+void AnalysisTabW::update_person_chart() {
+    const auto& r = d->currentSkeleton3D;
+    if (!r.is_valid() || d->dyadTrackACombo->count() == 0) {
+        d->currentPerson = PersonKinematicsSeries();
+        d->dyadStatsLbl->setText("Nobody was put in 3D in this result.");
+        d->chart->set_single_series({}, QString());
+        d->chart->set_title("No person in 3D");
+        return;
+    }
+    const int personId = d->dyadTrackACombo->currentData().toInt();
+    d->currentPerson   = compute_person_kinematics(r, personId);
+    d->skeleton3dRoomView->set_dyad_tracks(-1, -1);
+
+    const int64_t t0     = r.frames().first().timestampNs;
+    const double spanMs  = (r.frames().last().timestampNs - t0) / 1e6;
+    const QString metric = d->dyadMetricCombo->currentData().toString();
+    const QString who    = QString("Person %1").arg(personId);
+    if (metric == "height") {
+        QVector<QPointF> headPts, hipPts;
+        for (const auto& s : d->currentPerson.samples) {
+            const double t = (s.timestampNs - t0) / 1e6;
+            if (!std::isnan(s.headHeightMm)) {
+                headPts << QPointF(t, s.headHeightMm / 1000.0);
+            }
+            if (!std::isnan(s.hipHeightMm)) {
+                hipPts << QPointF(t, s.hipHeightMm / 1000.0);
+            }
+        }
+        d->chart->set_named_series(
+            {{"Head", QColor("#e6a03c"), headPts}, {"Hips", QColor("#3ca0e6"), hipPts}},
+            "Height above the floor (m)", spanMs);
+    } else {
+        QVector<QPointF> pts;
+        for (const auto& s : d->currentPerson.samples) {
+            const double v = metric == "speed" ? s.speedMmPerS / 1000.0
+                                               : (s.cameras > 0 ? s.cameras : std::nan(""));
+            if (!std::isnan(v)) {
+                pts << QPointF((s.timestampNs - t0) / 1e6, v);
+            }
+        }
+        d->chart->set_single_series(pts, metric == "speed" ? "Speed (m/s)" : "Cameras", QString(),
+                                    spanMs);
+    }
+    d->chart->set_title(who + " — " + d->dyadMetricCombo->currentText());
+
+    const auto& st = d->currentPerson.stats;
+    QString line   = QString("%1: in 3D for %2 s").arg(who).arg(st.secondsSeen, 0, 'f', 1);
+    if (!std::isnan(st.topSpeedMmPerS)) {
+        line += QString("  ·  top speed %1 m/s").arg(st.topSpeedMmPerS / 1000.0, 0, 'f', 2);
+    }
+    if (!std::isnan(st.medianHeadHeightMm)) {
+        line += QString("  ·  head usually %1 m above the floor")
+                    .arg(st.medianHeadHeightMm / 1000.0, 0, 'f', 2);
+    }
+    d->dyadStatsLbl->setText(line);
+    d->chart->set_playhead_ms(d->player->position_ms());
+}
+
 void AnalysisTabW::export_dyad_csv() {
-    const auto* info = d->current_session();
+    const auto* info     = d->current_session();
+    const QString metric = d->dyadMetricCombo->currentData().toString();
+    if (info && (metric == "speed" || metric == "height" || metric == "cameras")) {
+        if (d->currentPerson.samples.isEmpty()) {
+            return;
+        }
+        const int personId = d->dyadTrackACombo->currentData().toInt();
+        export_csv(this, "Export person chart",
+                   info->path + QString("/person_%1.csv").arg(personId), [&](QTextStream& ts) {
+                       ts << "# heights are above the floor found from the result (see "
+                             "docs/math/pose3d_reconstruction.rst)\n";
+                       ts << "tick,timestamp_ns,speed_mm_s,head_height_mm,hip_height_mm,cameras\n";
+                       const auto& frames = d->currentSkeleton3D.frames();
+                       for (int i = 0; i < d->currentPerson.samples.size(); ++i) {
+                           const auto& s  = d->currentPerson.samples[i];
+                           const auto num = [](double v) {
+                               return std::isnan(v) ? QString() : QString::number(v, 'f', 1);
+                           };
+                           ts << (i < frames.size() ? frames[i].tick : i) << "," << s.timestampNs
+                              << "," << num(s.speedMmPerS) << "," << num(s.headHeightMm) << ","
+                              << num(s.hipHeightMm) << "," << s.cameras << "\n";
+                       }
+                   });
+        return;
+    }
     if (!info || d->currentDyad.samples.isEmpty()) {
         return;
     }

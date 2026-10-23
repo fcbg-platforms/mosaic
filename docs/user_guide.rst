@@ -976,10 +976,15 @@ sitting alongside **Live**. The workflow is always the same shape:
       left, and two tabs choose what fills the space beside it. **3D Room**
       is an interactive room view (drag to orbit, scroll to zoom,
       double-click to reset) with a floor grid, every calibrated camera's
-      position, and every currently-tracked person's 3D skeleton,
-      color-coded by track ID. **Charts** holds the Dyad Analysis chart
-      and its controls, over the whole recording. A **Track** dropdown filters
-      the stats/CSV export to one track or "All." The selected camera's
+      position, and every person's 3D skeleton, one colour per person
+      ("Person 1", "Person 2"). **Charts** shows, over the whole recording,
+      one person's **speed**, **head and hip height** above the floor (standing,
+      sitting and bending show) or the **cameras** seeing them, and with two
+      people their distance, approach, facingness and congruent motion
+      (**Two people: …** in **Show**). The line under the chart gives how long
+      the person was in 3D, their top speed and their usual head height;
+      **Export CSV** saves the chart's numbers. A **Person** dropdown filters
+      the 3D Pose CSV export to one person or "All people". The selected camera's
       video also shows the reprojected 2D skeleton overlay, letting you
       visually confirm the 3D reconstruction actually lines up with what
       that camera really saw. The run's log, and the session report (a
@@ -1004,7 +1009,19 @@ sitting alongside **Live**. The workflow is always the same shape:
       and z in metres, in the room frame: the reference camera's own (x
       right, y down, z forward), as in every export; the axes at the bottom
       right turn with the view. Results from before this version have no
-      camera directions: run 3D Pose again to see the pyramids.
+      camera directions: run 3D Pose again to see the pyramids. The
+      **People** panel at its top left lists everyone with how long they
+      were in 3D: untick a person to hide them, and **Follow** keeps one in
+      the middle of the view as the video plays.
+
+      **People and tracks**: the tracker follows each person from frame to
+      frame, and loses them when too few cameras see them for a few frames
+      (5 ticks, 0.2 s at 25 fps); they come back as a new *track*. 3D Pose then joins the
+      tracks that are clearly the same person (the next one starts within 3
+      seconds, close to where the last ended) into one **person**, so one
+      person who steps out of view for a moment stays "Person 1". Two people
+      seen at the same time are never joined. Results from before this
+      version show one person per track: run 3D Pose again.
 
    .. tab-item:: Remote Heart Rate (rPPG)
 

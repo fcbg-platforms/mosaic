@@ -5,6 +5,9 @@
 #include <algorithm>
 #include <cmath>
 #include <optional>
+#include <vector>
+
+#include "analysis/room_view_math.hpp"
 
 namespace mosaic {
 
@@ -115,6 +118,86 @@ QMap<int, double> derive_speed(const QMap<int, Vec3>& hipMidByIdx,
 }
 
 } // namespace
+
+PersonKinematicsSeries compute_person_kinematics(const Skeleton3DResult& result, int personId) {
+    PersonKinematicsSeries out;
+    const auto& frames = result.frames();
+    if (!result.is_valid() || frames.isEmpty()) {
+        return out;
+    }
+    const auto& names = result.keypoint_names();
+    const int lh      = static_cast<int>(names.indexOf("left_hip"));
+    const int rh      = static_cast<int>(names.indexOf("right_hip"));
+    QVector<int> head;
+    for (const char* n : {"nose", "left_eye", "right_eye", "left_ear", "right_ear"}) {
+        if (const int i = static_cast<int>(names.indexOf(n)); i >= 0) {
+            head << i;
+        }
+    }
+    const room_view::Vec3 up  = room_view::estimate_up(result);
+    const double floor        = room_view::floor_height(result, up);
+    constexpr int64_t kNearNs = 250000000; // 0.25 s: neighbours closer than this
+
+    // The hip midpoint per tick, when the person is there with both hips.
+    const int n = static_cast<int>(frames.size());
+    std::vector<std::optional<room_view::Vec3>> hips(n);
+    std::vector<double> heads;
+    out.samples.resize(n);
+    int present = 0;
+    for (int k = 0; k < n; ++k) {
+        PersonSample& s = out.samples[k];
+        s.timestampNs   = frames[k].timestampNs;
+        const auto* p   = find_person(frames[k], personId);
+        if (!p) {
+            continue;
+        }
+        ++present;
+        s.cameras      = p->numContributingCameras;
+        const auto& kp = p->keypoints;
+        if (lh >= 0 && rh >= 0 && lh < kp.size() && rh < kp.size() && kp[lh].valid &&
+            kp[rh].valid) {
+            hips[k] =
+                room_view::scale(room_view::add(kp[lh].positionRoom, kp[rh].positionRoom), 0.5);
+            s.hipHeightMm = room_view::dot(*hips[k], up) - floor;
+        }
+        for (const int i : head) {
+            if (i < kp.size() && kp[i].valid) {
+                const double h = room_view::dot(kp[i].positionRoom, up) - floor;
+                s.headHeightMm = std::isnan(s.headHeightMm) ? h : std::max(s.headHeightMm, h);
+            }
+        }
+        if (!std::isnan(s.headHeightMm)) {
+            heads.push_back(s.headHeightMm);
+        }
+    }
+    for (int k = 0; k < n; ++k) {
+        if (k > 0 && k + 1 < n && hips[k - 1] && hips[k] && hips[k + 1] &&
+            frames[k + 1].timestampNs - frames[k - 1].timestampNs <= 2 * kNearNs) {
+            const double dt =
+                static_cast<double>(frames[k + 1].timestampNs - frames[k - 1].timestampNs) / 1e9;
+            if (dt > 0) {
+                out.samples[k].speedMmPerS =
+                    room_view::norm(room_view::sub(*hips[k + 1], *hips[k - 1])) / dt;
+            }
+        }
+        const double v = out.samples[k].speedMmPerS;
+        if (!std::isnan(v) &&
+            (std::isnan(out.stats.topSpeedMmPerS) || v > out.stats.topSpeedMmPerS)) {
+            out.stats.topSpeedMmPerS = v;
+        }
+    }
+    if (n > 1) {
+        const double stepS =
+            static_cast<double>(frames.last().timestampNs - frames.first().timestampNs) / 1e9 /
+            (n - 1);
+        out.stats.secondsSeen = present * stepS;
+    }
+    if (!heads.empty()) {
+        std::nth_element(heads.begin(), heads.begin() + heads.size() / 2, heads.end());
+        out.stats.medianHeadHeightMm = heads[heads.size() / 2];
+    }
+    return out;
+}
 
 DyadicKinematicsSeries compute_dyadic_kinematics(const Skeleton3DResult& result, int trackIdA,
                                                  int trackIdB, int congruentMotionWindow) {

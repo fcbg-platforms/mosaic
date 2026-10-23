@@ -56,6 +56,11 @@ struct Skeleton3DKeypoint {
 /// One reconstructed 3D person within one fused frame. Mirrors
 /// run_pose3d.py's per-person JSON object.
 struct Skeleton3DPerson {
+    /// The person's number, 1, 2, ... ("Person 1" in the app): the
+    /// result's person_id, which joins one person's track fragments
+    /// (analysis/pose3d/people.py). Results from before people were
+    /// joined have only track_id; it is then track_id + 1, one person
+    /// per track.
     int trackId                = -1;
     int numContributingCameras = 0;
     QVector<int> sourceCameras;

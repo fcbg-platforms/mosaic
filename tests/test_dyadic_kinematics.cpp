@@ -8,9 +8,13 @@
 #include "analysis/skeleton3d_result.hpp"
 
 using mosaic::compute_dyadic_kinematics;
+using mosaic::compute_person_kinematics;
 using mosaic::Skeleton3DResult;
 
 namespace {
+
+// The reader numbers people from 1: a result without person_id (all these
+// fixtures) gives person track_id + 1, so track 0 below is person 1.
 
 // One tick, 4 people, keypoint_names = [nose, left_shoulder, right_shoulder,
 // left_hip, right_hip] — every geometric value below was hand-derived (see
@@ -326,7 +330,7 @@ TEST(DyadicKinematics, FacingCosineFaceToFaceIsExactlyNegativeOne) {
     const auto result = load_fixture(dir, kFacingFixtureJson, "facing.json");
     ASSERT_TRUE(result.is_valid());
 
-    const auto series = compute_dyadic_kinematics(result, 0, 1);
+    const auto series = compute_dyadic_kinematics(result, 1, 2);
     ASSERT_EQ(series.samples.size(), 1);
     EXPECT_NEAR(series.samples[0].distanceMm, 1000.0, 1e-6);
     EXPECT_NEAR(series.samples[0].facingCosine, -1.0, 1e-9);
@@ -338,7 +342,7 @@ TEST(DyadicKinematics, FacingCosineSideBySideIsExactlyPositiveOne) {
     const auto result = load_fixture(dir, kFacingFixtureJson, "facing.json");
     ASSERT_TRUE(result.is_valid());
 
-    const auto series = compute_dyadic_kinematics(result, 0, 2);
+    const auto series = compute_dyadic_kinematics(result, 1, 3);
     ASSERT_EQ(series.samples.size(), 1);
     EXPECT_NEAR(series.samples[0].distanceMm, 300.0, 1e-6);
     EXPECT_NEAR(series.samples[0].facingCosine, 1.0, 1e-9);
@@ -349,7 +353,7 @@ TEST(DyadicKinematics, FacingCosinePerpendicularIsExactlyZero) {
     const auto result = load_fixture(dir, kFacingFixtureJson, "facing.json");
     ASSERT_TRUE(result.is_valid());
 
-    const auto series = compute_dyadic_kinematics(result, 0, 3);
+    const auto series = compute_dyadic_kinematics(result, 1, 4);
     ASSERT_EQ(series.samples.size(), 1);
     EXPECT_NEAR(series.samples[0].distanceMm, 1000.0, 1e-6);
     EXPECT_NEAR(series.samples[0].facingCosine, 0.0, 1e-9);
@@ -360,7 +364,7 @@ TEST(DyadicKinematics, ApproachRateUsesRealElapsedTimeAcrossAGap) {
     const auto result = load_fixture(dir, kApproachRateFixtureJson, "approach.json");
     ASSERT_TRUE(result.is_valid());
 
-    const auto series = compute_dyadic_kinematics(result, 0, 1);
+    const auto series = compute_dyadic_kinematics(result, 1, 2);
     ASSERT_EQ(series.samples.size(), 5);
 
     EXPECT_NEAR(series.samples[0].distanceMm, 2000.0, 1e-6);
@@ -387,7 +391,7 @@ TEST(DyadicKinematics, MissingFacingKeypointNamesLeavesFacingCosineAlwaysNan) {
     ASSERT_TRUE(result.is_valid());
     ASSERT_EQ(result.keypoint_names().indexOf("nose"), -1); // fixture has no facing keypoints
 
-    const auto series = compute_dyadic_kinematics(result, 0, 1);
+    const auto series = compute_dyadic_kinematics(result, 1, 2);
     for (const auto& sample : series.samples) {
         EXPECT_TRUE(std::isnan(sample.facingCosine));
     }
@@ -402,7 +406,7 @@ TEST(DyadicKinematics, CongruentMotionPerfectPositiveCorrelationIsExactlyOne) {
     const auto result = load_fixture(dir, kCongruentMotionFixtureJson, "congruent.json");
     ASSERT_TRUE(result.is_valid());
 
-    const auto series = compute_dyadic_kinematics(result, 0, 1, /*congruentMotionWindow=*/30);
+    const auto series = compute_dyadic_kinematics(result, 1, 2, /*congruentMotionWindow=*/30);
     ASSERT_EQ(series.samples.size(), 6);
 
     // First two paired speed samples (ticks 1,2) give a window of <3 ->
@@ -423,7 +427,7 @@ TEST(DyadicKinematics, CongruentMotionPerfectNegativeCorrelationIsExactlyNegativ
     const auto result = load_fixture(dir, kCongruentMotionFixtureJson, "congruent.json");
     ASSERT_TRUE(result.is_valid());
 
-    const auto series = compute_dyadic_kinematics(result, 2, 3, /*congruentMotionWindow=*/30);
+    const auto series = compute_dyadic_kinematics(result, 3, 4, /*congruentMotionWindow=*/30);
     ASSERT_EQ(series.samples.size(), 6);
 
     EXPECT_TRUE(std::isnan(series.samples[1].congruentMotionCorr));
@@ -434,14 +438,14 @@ TEST(DyadicKinematics, CongruentMotionPerfectNegativeCorrelationIsExactlyNegativ
 TEST(DyadicKinematics, InvalidResultOrSameTrackIdReturnsEmptySeries) {
     // A default-constructed (never load()'d) result is invalid.
     const Skeleton3DResult invalid;
-    const auto emptyFromInvalid = compute_dyadic_kinematics(invalid, 0, 1);
+    const auto emptyFromInvalid = compute_dyadic_kinematics(invalid, 1, 2);
     EXPECT_TRUE(emptyFromInvalid.samples.isEmpty());
 
     QTemporaryDir dir;
     const auto result = load_fixture(dir, kFacingFixtureJson, "facing.json");
     ASSERT_TRUE(result.is_valid());
 
-    const auto sameTrack = compute_dyadic_kinematics(result, 0, 0);
+    const auto sameTrack = compute_dyadic_kinematics(result, 1, 1);
     EXPECT_TRUE(sameTrack.samples.isEmpty());
 }
 
@@ -451,7 +455,7 @@ TEST(DyadicKinematics, OnePersonsSpeedIsUnaffectedByTheOtherPersonsAbsence) {
         load_fixture(dir, kIndependentPresenceFixtureJson, "independent_presence.json");
     ASSERT_TRUE(result.is_valid());
 
-    const auto series = compute_dyadic_kinematics(result, 0, 1, /*congruentMotionWindow=*/30);
+    const auto series = compute_dyadic_kinematics(result, 1, 2, /*congruentMotionWindow=*/30);
     ASSERT_EQ(series.samples.size(), 6);
 
     // Tick 3: B is entirely absent -> distance/facing NaN, as expected —
@@ -470,4 +474,62 @@ TEST(DyadicKinematics, OnePersonsSpeedIsUnaffectedByTheOtherPersonsAbsence) {
     EXPECT_TRUE(std::isnan(series.samples[2].congruentMotionCorr));
     EXPECT_NEAR(series.samples[4].congruentMotionCorr, 1.0, 1e-9);
     EXPECT_NEAR(series.samples[5].congruentMotionCorr, 1.0, 1e-9);
+}
+
+// ── One person's own series ──────────────────────────────────────────────
+
+TEST(PersonKinematics, SpeedAndHeightsOfOnePerson) {
+    // Up is -y (a level reference camera). Person 1 stands with the head
+    // 1.6 m and the hips 0.9 m above ankles at 0.08 m (floor at 0), and
+    // walks along x at 1 m/s, 10 ticks per second; at tick 5 it is not in
+    // 3D.
+    QString frames;
+    for (int k = 0; k < 10; ++k) {
+        const double x = 100.0 * k;
+        // Built from one-line strings: clang-format lays a multi-line raw
+        // string out differently with CRLF and LF line endings.
+        QString person;
+        if (k != 5) {
+            person = QString(R"({"track_id": 0, "num_contributing_cameras": 3, )"
+                             R"("keypoints_room": [[%1,-1600,3000],[%1,-900,3000],[%2,-900,3000],)"
+                             R"([%1,-80,3000],[%2,-80,3000]], )"
+                             R"("keypoints_valid": [true,true,true,true,true]})")
+                         .arg(x)
+                         .arg(x + 1.0);
+        }
+        frames += QString(R"(%1{"tick": %2, "timestamp_ns": %3, "people": [%4]})")
+                      .arg(k ? "," : "")
+                      .arg(k)
+                      .arg(100000000LL * k)
+                      .arg(person);
+    }
+    const QString json =
+        QString(
+            R"({"schema": "mosaic-skeleton3d-v1", "cameras": [], )"
+            R"("keypoint_names": ["nose", "left_hip", "right_hip", "left_ankle", "right_ankle"], )"
+            R"("skeleton_edges": [], "frames": [%1]})")
+            .arg(frames);
+    QTemporaryDir dir;
+    QFile f(dir.filePath("s.json"));
+    ASSERT_TRUE(f.open(QIODevice::WriteOnly));
+    f.write(json.toUtf8());
+    f.close();
+    const auto result = Skeleton3DResult::load(dir.filePath("s.json"));
+    ASSERT_TRUE(result.is_valid());
+
+    const auto s = compute_person_kinematics(result, 1);
+    ASSERT_EQ(s.samples.size(), 10);
+    EXPECT_NEAR(s.samples[2].speedMmPerS, 1000.0, 1e-6);
+    EXPECT_NEAR(s.samples[2].headHeightMm, 1600.0, 1e-6);
+    EXPECT_NEAR(s.samples[2].hipHeightMm, 900.0, 1e-6);
+    EXPECT_EQ(s.samples[2].cameras, 3);
+    // Not in 3D at tick 5: nothing there, and no speed across the gap.
+    EXPECT_EQ(s.samples[5].cameras, 0);
+    EXPECT_TRUE(std::isnan(s.samples[5].hipHeightMm));
+    EXPECT_TRUE(std::isnan(s.samples[4].speedMmPerS));
+    EXPECT_TRUE(std::isnan(s.samples[6].speedMmPerS));
+    EXPECT_NEAR(s.stats.secondsSeen, 0.9, 1e-9);
+    EXPECT_NEAR(s.stats.medianHeadHeightMm, 1600.0, 1e-6);
+    // Nobody with another number.
+    EXPECT_EQ(compute_person_kinematics(result, 2).samples[0].cameras, 0);
 }

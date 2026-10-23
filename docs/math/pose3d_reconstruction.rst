@@ -232,6 +232,36 @@ dropped. Any centroid left unmatched after the greedy pass (a new person,
 or a track that aged out) receives a fresh, monotonically-increasing
 ``track_id``.
 
+From tracks to people
+~~~~~~~~~~~~~~~~~~~~~
+
+A person seen by too few cameras for more than ``max_gap_ticks`` loses their
+track and comes back with a new one. On sub-32_ses-04 (room 11, one person,
+mostly seen by two cameras) that made one person six tracks, four under a
+second. :func:`~pose3d.people.join_tracks` then joins tracks into people,
+in the order they start: a track continues the person whose last appearance
+ended before it began,
+
+- at most ``MAX_GAP_S`` = 3 s before, and
+- at most ``MAX_JUMP_MM`` + ``WALK_MM_S`` :math:`\times` gap = 500 mm +
+  1.5 m/s :math:`\times` gap from where it begins (each track's centre is
+  the mean of its valid keypoints at its first or last tick),
+
+the nearest such person if several. Tracks that overlap in time are never
+joined, so two people seen together stay two. Each person entry gets
+``person_id`` (1, 2, ...) next to its ``track_id``, and the result lists
+``people``: each one's ``track_ids`` and seconds in 3D. The quality checks
+below judge the tracker itself, so they count tracks, before the joining;
+the log adds "N person(s) from M track(s)". Smoothing stays per track: it
+never runs across a gap. The app shows people ("Person 1"); a result
+without ``person_id`` shows one person per track.
+
+The Charts tab's one-person charts come from the joined person
+(``compute_person_kinematics``): the hip midpoint's speed by central
+difference over neighbouring ticks within 0.25 s (never across a gap), and
+the head (highest seen face point) and hip heights above the floor found as
+in :ref:`pose3d-drawing-the-room`.
+
 Quality checks
 ---------------
 
@@ -301,6 +331,8 @@ was ever seen). The session report draws it as a strip, and the run's log
 prints the totals. It follows the quality timeline of the 4by4k pipeline
 (``fourk/qa.py``, MIT licence), per session rather than per person, since
 MOSAIC does not fix the number of people.
+
+.. _pose3d-drawing-the-room:
 
 Drawing the room
 ----------------------

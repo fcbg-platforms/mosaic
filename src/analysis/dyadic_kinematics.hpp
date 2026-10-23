@@ -44,6 +44,43 @@ struct DyadicKinematicsSeries {
     DyadicStats stats;
 };
 
+/// @brief One person's own movement at one fused tick: what the 3D Pose
+/// Charts tab shows for a single person. NaN (cameras 0) where the person
+/// is not in 3D at that tick.
+struct PersonSample {
+    int64_t timestampNs = 0;
+    double speedMmPerS  = std::numeric_limits<double>::quiet_NaN(); ///< of the hip midpoint
+    double headHeightMm = std::numeric_limits<double>::quiet_NaN(); ///< above the floor
+    double hipHeightMm  = std::numeric_limits<double>::quiet_NaN(); ///< above the floor
+    int cameras         = 0; ///< cameras the person was triangulated from
+};
+
+/// @brief Summary of one compute_person_kinematics() call.
+struct PersonStats {
+    double secondsSeen        = 0.0; ///< ticks in 3D, times the tick step
+    double topSpeedMmPerS     = std::numeric_limits<double>::quiet_NaN();
+    double medianHeadHeightMm = std::numeric_limits<double>::quiet_NaN();
+};
+
+/// @brief Output of compute_person_kinematics(): one sample per tick of the
+/// result, in order, plus the summary.
+struct PersonKinematicsSeries {
+    QVector<PersonSample> samples;
+    PersonStats stats;
+};
+
+/// @brief One person's speed, head and hip heights and camera count over
+/// the recording, from an already-loaded Skeleton3DResult.
+///
+/// Heights are above the floor, along the room's up, both found from the
+/// result itself (room_view_math.hpp), since the room frame is the
+/// reference camera's own and has no floor. Speed is the hip midpoint's,
+/// by central difference over the neighbouring ticks when both are within
+/// 0.25 s (NaN otherwise: never across a gap). The head is the highest of
+/// the face's points (nose, eyes, ears) seen.
+[[nodiscard]] PersonKinematicsSeries compute_person_kinematics(const Skeleton3DResult& result,
+                                                               int personId);
+
 /// @brief Derives interpersonal distance/approach-rate/facingness/congruent-motion
 /// between two already-reconstructed people (by trackId) from an
 /// already-loaded Skeleton3DResult (the 3D Pose Reconstruction plugin's own

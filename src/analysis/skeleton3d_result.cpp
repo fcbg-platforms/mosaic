@@ -81,7 +81,8 @@ Skeleton3DResult Skeleton3DResult::load(const QString& jsonPath) {
             const QJsonObject personObj = personVal.toObject();
 
             Skeleton3DPerson person;
-            person.trackId                = personObj["track_id"].toInt();
+            person.trackId = personObj.contains("person_id") ? personObj["person_id"].toInt()
+                                                             : personObj["track_id"].toInt() + 1;
             person.numContributingCameras = personObj["num_contributing_cameras"].toInt();
             for (const auto& c : personObj["source_cameras"].toArray()) {
                 person.sourceCameras << c.toInt();
