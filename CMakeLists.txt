@@ -21,9 +21,9 @@ if(DEFINED ENV{VCPKG_ROOT} AND NOT DEFINED CMAKE_TOOLCHAIN_FILE)
     set(CMAKE_TOOLCHAIN_FILE "$ENV{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake" CACHE STRING "")
 endif()
 
-find_package(Qt6 6.4 REQUIRED COMPONENTS
+find_package(Qt6 6.8 REQUIRED COMPONENTS
     Core Gui Widgets Network Multimedia
-    Quick QuickWidgets Charts OpenGLWidgets
+    Quick QuickWidgets Charts Quick3D
 )
 find_package(Qt6 OPTIONAL_COMPONENTS SerialPort)
 qt_standard_project_setup()

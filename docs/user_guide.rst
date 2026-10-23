@@ -997,10 +997,12 @@ sitting alongside **Live**. The workflow is always the same shape:
       triangulation, cross-camera association, and tracking math, and for
       its important caveat about 2-camera rigs with multiple people.
 
-      **The room view**: people are drawn as shaded limbs and joints, upright
-      on a floor with a grid every 0.5 m (brighter each metre) and a soft
-      shadow under each person. Each camera shows what it sees as a coloured
-      pyramid. The buttons at its top right choose the view: **3D** (drag to
+      **The room view**: people are drawn as shaded limbs and joints with a
+      filled torso and a head, upright on a lit floor with a grid every 0.5 m
+      (brighter each metre), with real shadows from a light above. A small
+      cone in front of each head shows which way the face points. Each
+      camera is drawn as a small camera, its lens in its colour, with what it
+      sees as a coloured pyramid. The buttons at its top right choose the view: **3D** (drag to
       turn, right-drag to pan, scroll to zoom), or **Top** (a flat map of the
       floor), **Front** and **Side**, flat views where dragging pans.
       Double-click returns to the view's starting framing. **Trails** shows
@@ -1011,8 +1013,11 @@ sitting alongside **Live**. The workflow is always the same shape:
       right turn with the view. Results from before this version have no
       camera directions: run 3D Pose again to see the pyramids. The
       **People** panel at its top left lists everyone with how long they
-      were in 3D: untick a person to hide them, and **Follow** keeps one in
-      the middle of the view as the video plays.
+      were in 3D: click a person's colour box to hide or show them, and
+      **Follow** keeps one in the middle of the view as the video plays.
+      The view is drawn with Qt Quick 3D; if it cannot load (Qt Quick 3D
+      missing next to MOSAIC), it says so, and **Help > Problems on this PC**
+      has the error.
 
       **People and tracks**: the tracker follows each person from frame to
       frame, and loses them when too few cameras see them for a few frames

@@ -1,7 +1,7 @@
 find_package(GTest REQUIRED)
 # Network: needed for QPasswordDigestor, used by profile_manager.cpp
 # (PBKDF2 password hashing) — lives in QtNetwork, not QtCore.
-find_package(Qt6 REQUIRED COMPONENTS Core Network)
+find_package(Qt6 REQUIRED COMPONENTS Core Gui Network)
 
 # Hermetic stand-in for the real Python interpreter, used only by
 # test_analysis_manager.cpp (via AnalysisManager::set_python_path()) — see
@@ -96,6 +96,7 @@ add_executable(mosaic_tests
     "${CMAKE_SOURCE_DIR}/src/calibration/room_frame_solver.cpp"
     "${CMAKE_SOURCE_DIR}/src/analysis/gaze_fusion_result.cpp"
     "${CMAKE_SOURCE_DIR}/src/analysis/skeleton3d_result.cpp"
+    "${CMAKE_SOURCE_DIR}/src/ui/analysis/room3d_scene.cpp" # the 3D room view's maths
     "${CMAKE_SOURCE_DIR}/src/analysis/rppg_result.cpp"
     "${CMAKE_SOURCE_DIR}/src/analysis/gaze2d_result.cpp"
     "${CMAKE_SOURCE_DIR}/src/analysis/face_dynamics_result.cpp"
@@ -136,6 +137,7 @@ target_link_libraries(mosaic_tests PRIVATE
     mosaic_compiler_options
     Qt6::Core       # needed for QString / QDateTime used in timestamp.hpp
     Qt6::Network    # needed for QPasswordDigestor used by profile_manager.cpp
+    Qt6::Gui        # QColor/QVector3D/QQuaternion in the 3D room view's scene
 )
 
 if(WIN32)

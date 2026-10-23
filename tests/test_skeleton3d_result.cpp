@@ -5,6 +5,7 @@
 
 #include "analysis/room_view_math.hpp"
 #include "analysis/skeleton3d_result.hpp"
+#include "ui/analysis/room3d_scene.hpp"
 
 using mosaic::Skeleton3DResult;
 
@@ -384,4 +385,35 @@ TEST(Skeleton3DResult, PeopleJoinedFromTracksKeepTheirPersonNumber) {
     ASSERT_TRUE(r.is_valid());
     // Track 4 continues person 1 (analysis/pose3d/people.py).
     EXPECT_EQ(r.frames()[1].people[0].trackId, 1);
+}
+
+// ── The 3D room view's scene (Room3DScene) ───────────────────────────────
+
+TEST(Room3DScene, PeopleStandOnTheFloorAndCanBeHidden) {
+    QTemporaryDir dir;
+    const auto r = upright_person(dir, 12); // up is -y, ankles 80 mm up
+    ASSERT_TRUE(r.is_valid());
+    mosaic::Room3DScene scene;
+    scene.set_result(r);
+    scene.set_position_ms(0);
+
+    // Y-up, the floor at 0 (80 mm below the ankles, an ankle's own height,
+    // which puts it at room height 0 here): heights read straight off y.
+    EXPECT_NEAR(scene.to_scene({100, -80, 3000}).y(), 80.0f, 1e-3f);
+    EXPECT_NEAR(scene.to_scene({-200, -1400, 3000}).y(), 1400.0f, 1e-3f);
+    // The reference camera's forward (room +z) is the scene's -z.
+    EXPECT_NEAR(scene.dir_to_scene({0, 0, 1}).z(), -1.0f, 1e-6f);
+
+    // One person: six joints (no face points, so no head), one name tag
+    // above the shoulders, and the room coordinates on hover.
+    ASSERT_EQ(scene.joints().size(), 6);
+    ASSERT_EQ(scene.tags().size(), 1);
+    EXPECT_EQ(scene.tags()[0].toMap()["text"].toString(), "Person 1");
+    EXPECT_TRUE(scene.joints()[0].toMap()["info"].toString().contains("x -0.20"));
+    EXPECT_EQ(scene.people().size(), 1);
+
+    scene.set_shown(1, false);
+    EXPECT_TRUE(scene.joints().isEmpty());
+    EXPECT_TRUE(scene.tags().isEmpty());
+    EXPECT_FALSE(scene.people()[0].toMap()["shown"].toBool());
 }

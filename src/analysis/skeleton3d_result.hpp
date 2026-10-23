@@ -27,7 +27,8 @@ struct Skeleton3DRoomCamera {
     Skeleton3DVec3 positionRoom = {0, 0, 0};
     /// Room-from-camera rotation, row-major; its third column is the
     /// viewing direction. Absent (hasRotation false) in results written
-    /// before it was saved: the room view then draws the camera as a dot.
+    /// before it was saved: the room view then draws the camera unturned,
+    /// with no view pyramid.
     bool hasRotation                   = false;
     std::array<double, 9> rotationRoom = {1, 0, 0, 0, 1, 0, 0, 0, 1};
     std::array<double, 2> fovDeg       = {0, 0}; ///< horizontal, vertical
