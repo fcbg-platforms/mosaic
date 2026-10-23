@@ -35,7 +35,7 @@ opt-in `MOSAIC_ENABLE_*` flag; see [Feature flags](#feature-flags) below.
 |---|---|---|
 | CMake | ≥ 3.25 | always |
 | C++ compiler | MSVC 2022 / GCC 13 / Clang 17 (C++23) | always |
-| Qt | 6.4+ (Core, Gui, Widgets, Network, Multimedia, Quick, QuickWidgets) | always |
+| Qt | 6.8+ (Core, Gui, Widgets, Network, Multimedia, Quick, QuickWidgets, Charts, Quick3D with ShaderTools and QuickTimeline) | always |
 | vcpkg | n/a | GTest, OpenCV, FFmpeg |
 | Basler Pylon SDK | 7.x | `-EnableCameras` |
 | FFmpeg | via vcpkg (`x264` feature) | `-EnableFfmpeg` |

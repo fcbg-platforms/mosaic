@@ -263,6 +263,10 @@ qt_add_executable(mosaic MACOSX_BUNDLE
     ui/analysis/gaze_room_view_w.cpp
     ui/analysis/skeleton3d_room_view_w.hpp
     ui/analysis/skeleton3d_room_view_w.cpp
+    ui/analysis/room3d_scene.hpp
+    ui/analysis/room3d_scene.cpp
+    ui/analysis/room3d_mesh.hpp
+    ui/analysis/room3d_mesh.cpp
     analysis/room_view_math.hpp
 
     # ── QML bridge ────────────────────────────────────────────────────────
@@ -275,6 +279,7 @@ qt_add_resources(mosaic "qml_resources"
     BASE   "${CMAKE_CURRENT_SOURCE_DIR}"
     FILES
         qml/MonitorView.qml
+        qml/Room3D.qml
 )
 
 set_target_properties(mosaic PROPERTIES
@@ -304,7 +309,7 @@ target_link_libraries(mosaic PRIVATE
     Qt6::Quick
     Qt6::QuickWidgets
     Qt6::Charts
-    Qt6::OpenGLWidgets # the 3D Pose room view (part of Qt's base install)
+    Qt6::Quick3D # the 3D Pose room view (src/qml/Room3D.qml)
 )
 
 if(WIN32)

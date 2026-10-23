@@ -14,7 +14,7 @@ Prerequisites
 
       .. code-block:: bash
 
-         # Qt 6.4+ via Homebrew
+         # Qt 6.8+ via Homebrew
          brew install qt cmake
 
          # Optional extras
@@ -25,8 +25,15 @@ Prerequisites
       Install the following, in order:
 
       1. `Visual Studio 2022 <https://visualstudio.microsoft.com/>`_: *Desktop development with C++* workload.
-      2. `Qt 6.4+ <https://www.qt.io/download>`_: choose the **msvc2022_64** kit.
-         Note the install path (e.g. ``C:\Qt\6.8.1\msvc2022_64``).
+      2. `Qt 6.8+ <https://www.qt.io/download>`_ (the 3D room view uses Qt Quick 3D
+         features from 6.8): choose the **msvc2022_64** kit,
+         with the Qt Multimedia, Qt Charts, Qt Serial Port and **Qt Quick 3D**
+         modules (the 3D Pose room view; it brings Qt Shader Tools and Qt Quick
+         Timeline). Note the install path (e.g. ``C:\Qt\6.8.1\msvc2022_64``).
+         To add Qt Quick 3D to a Qt installed with aqtinstall:
+         ``uvx --from aqtinstall aqt install-qt windows desktop 6.8.3
+         win64_msvc2022_64 -m qtquick3d qtshadertools qtquicktimeline
+         --outputdir C:\Qt``, then run ``windeployqt`` again (below).
       3. `vcpkg <https://github.com/microsoft/vcpkg>`_: for GTest / FFmpeg / OpenCV.
       4. `Basler Pylon SDK 7.x <https://www.baslerweb.com/en/downloads/software-downloads/>`_: only needed with real cameras.
 

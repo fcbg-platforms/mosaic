@@ -337,7 +337,8 @@ MOSAIC does not fix the number of people.
 Drawing the room
 ----------------------
 
-The Analysis tab's room view (``Skeleton3DRoomViewW``, OpenGL) draws the
+The Analysis tab's room view (``Skeleton3DRoomViewW``, Qt Quick 3D:
+``Room3DScene`` works out the scene, ``qml/Room3D.qml`` draws it) draws the
 result in the room frame, which is the reference camera's own: x right,
 y down, z forward. That frame has no floor and no "up" of its own, so both
 are read from the result (``room_view_math.hpp``):

@@ -214,7 +214,7 @@ jobs:
         uses: jurplel/install-qt-action@v4
         with:
           version: '6.8.*'
-          modules: 'qtmultimedia qtserialport qtcharts'
+          modules: 'qtmultimedia qtserialport qtcharts qtquick3d qtshadertools qtquicktimeline'
           cache: true
 
       - name: Setup vcpkg
@@ -385,7 +385,7 @@ jobs:
         uses: jurplel/install-qt-action@v4
         with:
           version: '6.8.*'
-          modules: 'qtmultimedia qtserialport qtcharts'
+          modules: 'qtmultimedia qtserialport qtcharts qtquick3d qtshadertools qtquicktimeline'
           cache: true
 
       - name: Setup vcpkg
