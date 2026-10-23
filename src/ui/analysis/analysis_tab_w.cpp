@@ -63,7 +63,6 @@
 
 #include "analysis/analysis_plugins.hpp"
 #include "analysis/chart_data.hpp"
-#include "analysis/clap_check_result.hpp"
 #include "analysis/conversation_result.hpp"
 #include "analysis/dyadic_kinematics.hpp"
 #include "analysis/expression_result.hpp"
@@ -2271,21 +2270,6 @@ void AnalysisTabW::build_ui() {
     syncRepairCtlLay->addWidget(syncRepairHint, 1);
     add_plugin_page("sync_repair", syncRepairPage);
 
-    // Audio-Video Check: nothing to set; how to record for it.
-    auto* clapPage = new QWidget;
-    auto* clapLay  = new QVBoxLayout(clapPage);
-    clapLay->setContentsMargins(0, 0, 0, 0);
-    auto* clapHint = new QLabel(
-        "Checks that the audio is in time with the video. When recording, clap three times "
-        "clearly with uneven gaps (clap, 1 s, clap, 2 s, clap), hands in view of the cameras. Run "
-        "Pose on the cameras first: "
-        "the hands meeting are found from the wrists. The result gives, per camera, how far "
-        "the audio is from the video (ok within half a frame).");
-    clapHint->setWordWrap(true);
-    clapHint->setProperty("role", "muted");
-    clapLay->addWidget(clapHint);
-    add_plugin_page("clap_check", clapPage);
-
     // Object Tracking: what to look for, how often, and the annotated video.
     auto* objectsPage   = new QWidget;
     auto* objectsCtlLay = new QHBoxLayout(objectsPage);
@@ -3509,7 +3493,6 @@ void AnalysisTabW::select_plugin(const QString& pluginId) {
     const bool isOverview    = is_overview_plugin();
     const bool isSocial      = is_social_plugin();
     const bool isObjects     = is_objects_plugin();
-    const bool isClapCheck   = is_clap_check_plugin();
     // A depth model selected within the Pose plugin produces a colorized
     // video, not keypoints — the keypoint/chart controls below need to stay
     // hidden for it, same as they are for every non-pose plugin.
@@ -3572,7 +3555,7 @@ void AnalysisTabW::select_plugin(const QString& pluginId) {
     set_visible_animated(d->camerasBtn, d->plugin_is_per_camera());
     set_visible_animated(d->openFolderBtn, isFaceMask || is_pose_depth_selected() || isSyncRepair ||
                                                isGazeFusion || isFaceDyn || isConv || isEye ||
-                                               isSocial || isObjects || isClapCheck);
+                                               isSocial || isObjects);
     set_visible_animated(d->sourceRowW, !isDiarize);
     set_visible_animated(d->micRowW, isDiarize);
     set_visible_animated(d->transcriptTable, isDiarize);
@@ -3737,9 +3720,6 @@ PluginRunState AnalysisTabW::run_state_for(const QString& pluginId) const {
     }
     if (pluginId == "social") {
         return session_level("social/social.json");
-    }
-    if (pluginId == "clap_check") {
-        return session_level("sync_check/clap_check.json");
     }
     if (pluginId == "objects") {
         return per_input(info->videoFiles,
@@ -3908,7 +3888,6 @@ bool AnalysisTabW::is_sync_repair_plugin() const { return d->currentPlugin == "s
 bool AnalysisTabW::is_overview_plugin() const { return d->currentPlugin == "overview"; }
 bool AnalysisTabW::is_social_plugin() const { return d->currentPlugin == "social"; }
 bool AnalysisTabW::is_objects_plugin() const { return d->currentPlugin == "objects"; }
-bool AnalysisTabW::is_clap_check_plugin() const { return d->currentPlugin == "clap_check"; }
 
 bool AnalysisTabW::is_pose_depth_selected() const {
     return is_pose_plugin() && is_depth_model(d->modelCombo->currentData().toString());
@@ -4420,29 +4399,6 @@ void AnalysisTabW::load_camera_result_view() {
                 "2D Gaze ran, but no face was detected in this camera's "
                 "footage — try a different camera, or check its framing/lighting.");
             d->statusLbl->setStyleSheet("color:#ddaa33; font-size:15px; font-weight:600;");
-        }
-        return;
-    }
-
-    if (is_clap_check_plugin()) {
-        const QString jsonAbs = info->path + "/sync_check/clap_check.json";
-        const ClapCheckResult r =
-            QFileInfo::exists(jsonAbs) ? ClapCheckResult::load(jsonAbs) : ClapCheckResult();
-        d->player->set_video(videoAbs);
-        d->player->set_pose_result(PoseAnalysisResult());
-        d->openFolderBtn->setEnabled(r.is_valid());
-        if (!r.is_valid()) {
-            d->statusLbl->setText("No check yet: run Pose on the cameras, then click Run.");
-            d->statusLbl->setStyleSheet("color:#6060a0; font-size:15px; font-weight:600;");
-        } else {
-            const QString v = r.verdict();
-            d->statusLbl->setText(v == "none" ? "No clap was both heard and seen: clap clearly, "
-                                                "hands in view, and run again."
-                                              : r.summary());
-            d->statusLbl->setStyleSheet(QString("color:%1; font-size:15px; font-weight:600;")
-                                            .arg(v == "ok"      ? "#44cc66"
-                                                 : v == "check" ? "#ddaa33"
-                                                                : "#cc4444"));
         }
         return;
     }
@@ -7230,8 +7186,6 @@ void AnalysisTabW::run_analysis() {
                                                    d->faceDynVideoCheck->isChecked());
     } else if (plugin == "sync_repair") {
         d->analysisMgr->run_sync_repair(d->currentSessionPath, d->syncRepairMasterFpsSpin->value());
-    } else if (plugin == "clap_check") {
-        d->analysisMgr->run_clap_check(d->currentSessionPath);
     } else if (plugin == "objects") {
         d->analysisMgr->run_object_tracking(d->currentSessionPath, d->objectsNamesEdit->text(),
                                             d->objectsStrideSpin->value(),
@@ -7271,8 +7225,6 @@ void AnalysisTabW::open_output_folder() {
         folder = "social";
     } else if (is_objects_plugin()) {
         folder = "objects";
-    } else if (is_clap_check_plugin()) {
-        folder = "sync_check";
     }
     QDesktopServices::openUrl(QUrl::fromLocalFile(info->path + "/" + folder));
 }

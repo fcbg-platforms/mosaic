@@ -40,7 +40,6 @@ SESSION_ANALYSES = (
     ("pose3d", "3D Pose Reconstruction"),
     ("social", "Social Interaction"),
     ("sync_repair", "Frame Sync Repair"),
-    ("clap_check", "Audio-Video Check"),
 )
 
 
@@ -367,11 +366,6 @@ def _social(session: Path) -> dict | None:
     }
 
 
-def _clap_check(session: Path) -> dict | None:
-    d = read_json(session / "sync_check" / "clap_check.json")
-    return None if d is None or d.get("schema") != "mosaic-clap-check-v1" else d
-
-
 def _sync_repair(session: Path) -> dict | None:
     d = read_json(session / "synced" / "sync_repair.json")
     if d is None:
@@ -392,7 +386,6 @@ SESSION_READERS = {
     "pose3d": _pose3d,
     "social": _social,
     "sync_repair": _sync_repair,
-    "clap_check": _clap_check,
 }
 
 #: Session outputs the summary row does not use (large files).

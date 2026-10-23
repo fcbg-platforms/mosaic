@@ -640,32 +640,3 @@ def test_objects_card_names_an_unplaced_hand_someone(tmp_path):
     )
     page = render.render(collect.collect(s))
     assert "touched by someone 2.0 s" in page and "whose hand it is" in page
-
-
-def test_clap_check_row(tmp_path):
-    s = make_session(tmp_path / "a")
-    _write(
-        s / "sync_check" / "clap_check.json",
-        {
-            "schema": "mosaic-clap-check-v1",
-            "verdict": "check",
-            "cameras": [
-                {
-                    "camera": 2,
-                    "frame_ms": 40.0,
-                    "microphones": [
-                        {
-                            "file": "audio.wav",
-                            "matched": 3,
-                            "median_offset_ms": 31.0,
-                            "spread_ms": 2.0,
-                            "verdict": "check",
-                        }
-                    ],
-                }
-            ],
-        },
-    )
-    page = render.render(collect.collect(s))
-    assert "Audio vs Camera 3" in page and "audio +31 ms from the video over 3 clap(s)" in page
-    assert "<span class='dot warn'></span>Audio vs Camera 3" in page
