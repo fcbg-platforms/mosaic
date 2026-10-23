@@ -4016,14 +4016,9 @@ void AnalysisTabW::load_camera_result_view() {
         d->trackCombo->blockSignals(true);
         d->trackCombo->clear();
         d->trackCombo->addItem("All people", -1);
-        QList<int> trackIds;
-        for (const auto& frame : d->currentSkeleton3D.frames()) {
-            for (const auto& person : frame.people) {
-                if (!trackIds.contains(person.trackId)) {
-                    trackIds << person.trackId;
-                }
-            }
-        }
+        // People seen for under a second are left out of the pickers: more
+        // often a passing false detection than a person (lasting_people()).
+        QList<int> trackIds = d->currentSkeleton3D.lasting_people();
         std::sort(trackIds.begin(), trackIds.end());
         for (int tid : trackIds) {
             d->trackCombo->addItem(QString("Person %1").arg(tid), tid);

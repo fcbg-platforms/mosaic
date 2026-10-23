@@ -444,6 +444,7 @@ Rectangle {
                         }
                         Text {
                             text: modelData.label + "  ·  " + modelData.seconds.toFixed(1) + " s"
+                                  + (modelData.brief ? "  (brief)" : "")
                             color: modelData.color
                             font.pixelSize: 12
                             font.bold: true

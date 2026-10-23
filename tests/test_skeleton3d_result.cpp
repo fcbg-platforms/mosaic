@@ -417,3 +417,46 @@ TEST(Room3DScene, PeopleStandOnTheFloorAndCanBeHidden) {
     EXPECT_TRUE(scene.tags().isEmpty());
     EXPECT_FALSE(scene.people()[0].toMap()["shown"].toBool());
 }
+
+TEST(Skeleton3DResult, PeopleSeenUnderASecondAreBrief) {
+    // Person 1 in all 40 ticks (25 per second: 1.6 s); Person 2 in 3 (0.12 s),
+    // a passing false detection.
+    QString frames;
+    for (int t = 0; t < 40; ++t) {
+        QString people = R"({"track_id": 0, "person_id": 1, "keypoints_room": [[0,0,3000]], )"
+                         R"("keypoints_valid": [true]})";
+        if (t >= 10 && t < 13) {
+            people += R"(, {"track_id": 1, "person_id": 2, "keypoints_room": [[900,0,3000]], )"
+                      R"("keypoints_valid": [true]})";
+        }
+        frames += QString(R"(%1{"tick": %2, "timestamp_ns": %3, "people": [%4]})")
+                      .arg(t ? "," : "")
+                      .arg(t)
+                      .arg(40000000LL * t)
+                      .arg(people);
+    }
+    QTemporaryDir dir;
+    QFile f(dir.filePath("b.json"));
+    ASSERT_TRUE(f.open(QIODevice::WriteOnly));
+    f.write(
+        QString(R"({"schema": "mosaic-skeleton3d-v1", "cameras": [], "keypoint_names": ["nose"], )"
+                R"("skeleton_edges": [], "frames": [%1]})")
+            .arg(frames)
+            .toUtf8());
+    f.close();
+    const auto r = Skeleton3DResult::load(dir.filePath("b.json"));
+    ASSERT_TRUE(r.is_valid());
+    const auto seconds = r.seconds_by_person();
+    EXPECT_NEAR(seconds.value(1), 1.6, 0.05);
+    EXPECT_NEAR(seconds.value(2), 0.12, 0.01);
+    EXPECT_EQ(r.lasting_people(), QList<int>{1});
+
+    // The room view lists Person 2 as brief, hidden until shown.
+    mosaic::Room3DScene scene;
+    scene.set_result(r);
+    const auto people = scene.people();
+    ASSERT_EQ(people.size(), 2);
+    EXPECT_TRUE(people[0].toMap()["shown"].toBool());
+    EXPECT_FALSE(people[1].toMap()["shown"].toBool());
+    EXPECT_TRUE(people[1].toMap()["brief"].toBool());
+}
