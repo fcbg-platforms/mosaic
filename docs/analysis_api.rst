@@ -961,27 +961,6 @@ of head movement, body movement and heart rate against surrogate pairs
 
 .. autofunction:: social.signals.on_grid
 
-.. _analysis-api-clap:
-
-Audio-Video Check
------------------
-
-Claps heard in each microphone (:func:`sync_check.clap.onset_times`)
-against the hands meeting in each camera's Pose result
-(:func:`sync_check.clap.seen_claps`), paired (:func:`sync_check.clap.match`):
-how far the audio is placed from the video. See :doc:`math/clap_check`.
-
-.. automodule:: sync_check
-   :no-members:
-
-.. autofunction:: sync_check.clap.onset_times
-
-.. autofunction:: sync_check.clap.seen_claps
-
-.. autofunction:: sync_check.clap.match
-
-.. autofunction:: sync_check.clap.verdict
-
 .. _analysis-api-report:
 
 Session report

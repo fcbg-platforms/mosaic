@@ -302,14 +302,6 @@ class AnalysisManager : public QObject {
     void run_face_dynamics_analysis(const QString& sessionPath, double minConfidence,
                                     bool annotatedVideo);
 
-    /// @brief Audio-Video Check: claps found in each microphone's audio,
-    /// against the hands meeting in each camera with a Pose result
-    /// (analysis/run_clap_check.py); how far the audio is placed from the
-    /// video, written to the session's sync_check/ folder.
-    ///
-    /// @param sessionPath  Absolute path to the recorded session directory.
-    void run_clap_check(const QString& sessionPath);
-
     /// @brief Object Tracking: objects named in words, followed through each
     /// camera's video with SAM 3, and when each person's hand (from Pose)
     /// touches them (analysis/run_objects.py), written to the session's

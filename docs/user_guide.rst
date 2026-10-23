@@ -152,9 +152,6 @@ their timing belongs to the experiment. The check can be turned off under
 - Trigger events (keyboard bindings, serial bytes, parallel-port edges such
   as an EEG amplifier's trigger cable) are logged to the session's
   ``trigger.csv``.
-- To check later that the sound is in time with the video, clap three times
-  clearly at the start with uneven gaps (clap, 1 s, clap, 2 s, clap), hands
-  in view of the cameras (see the Audio-Video Check in the Analysis tab).
 
 .. rubric:: 6. Stop
 
@@ -608,23 +605,6 @@ sitting alongside **Live**. The workflow is always the same shape:
       Object Tracking again starts the names over, as its numbers can change. The chart always spans the whole video. When no touch
       was found, its title says so; a result from before hands were followed
       asks you to run Object Tracking again.
-
-   .. tab-item:: Audio-Video Check
-
-      **What it does**: checks that the audio is placed in time with the
-      video, from claps: each microphone's sharp sounds against the moments
-      the hands meet in each camera (from that camera's Pose result). Per
-      camera and microphone it gives how far the audio is from the video
-      (positive: the audio is late), over how many claps, and a verdict: ok
-      within half a frame, check within a frame, off beyond (sound and
-      image are then paired wrongly, and so are the analyses that use both).
-      Writes ``sync_check/clap_check.json``; the session report shows it in
-      Data quality. See :doc:`math/clap_check`.
-
-      **To use it**: clap three times clearly at the start of a recording,
-      with uneven gaps (clap, 1 s, clap, 2 s, clap), hands in view; run Pose
-      on the cameras; then Run here.
-      Nothing to set.
 
    .. tab-item:: Social Interaction
 

@@ -172,15 +172,16 @@ TEST_F(AnalysisManagerTest, PickedCamerasReachOnlyTheNextJob) {
                      [&lines](const QString& line) { lines << line; });
 
     mgr.set_cameras({1, 4});
-    mgr.run_clap_check("session-c");
+    mgr.run_sync_repair("session-c", 0.0);
     ASSERT_TRUE(wait_for_signal(&mgr, &AnalysisManager::analysis_finished));
-    EXPECT_TRUE(lines.contains("ARGS:--session session-c --camera 1 4"))
+    EXPECT_TRUE(lines.contains("ARGS:--session session-c --master-fps 0 --camera 1 4"))
         << lines.join(" | ").toStdString();
 
     lines.clear();
-    mgr.run_clap_check("session-d");
+    mgr.run_sync_repair("session-d", 0.0);
     ASSERT_TRUE(wait_for_signal(&mgr, &AnalysisManager::analysis_finished));
-    EXPECT_TRUE(lines.contains("ARGS:--session session-d")) << lines.join(" | ").toStdString();
+    EXPECT_TRUE(lines.contains("ARGS:--session session-d --master-fps 0"))
+        << lines.join(" | ").toStdString();
 }
 
 // Frame Sync writes its summary last; Python crashing on exit after that
