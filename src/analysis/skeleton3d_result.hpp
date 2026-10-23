@@ -1,4 +1,5 @@
 #pragma once
+#include <QList>
 #include <QMap>
 #include <QPair>
 #include <QPointF>
@@ -9,6 +10,10 @@
 #include <cstdint>
 
 namespace mosaic {
+
+/// People in 3D for less than this (seconds) are "brief": hidden by
+/// default in the room view and left out of the charts' person pickers.
+inline constexpr double kBriefPersonS = 1.0;
 
 /// Plain 3-vector (room-space mm) — std::array rather than QVector3D,
 /// matching CalibrationData's own std::array<double,N> convention for
@@ -121,6 +126,16 @@ class Skeleton3DResult {
     /// run_pose3d.py writes ascending master ticks in. Returns nullptr if
     /// there are no frames.
     [[nodiscard]] const Skeleton3DFrame* nearest_frame(int64_t timestampNsEstimate) const;
+
+    /// Seconds each person (by number) was in 3D: their ticks times the
+    /// result's tick step.
+    [[nodiscard]] QMap<int, double> seconds_by_person() const;
+
+    /// The people to show by default: everyone seen for at least
+    /// kBriefPersonS. A person seen for less is a passing false detection
+    /// more often than a person (sub-39_ses-04, one person walking: a
+    /// "Person 2" for 0.9 s). When nobody reaches it, everyone.
+    [[nodiscard]] QList<int> lasting_people() const;
 
    private:
     bool valid_ = false;

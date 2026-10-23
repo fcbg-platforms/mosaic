@@ -87,16 +87,25 @@ QVariantList Room3DScene::people() const {
                            {"label", QString("Person %1").arg(it.key())},
                            {"seconds", it.value()},
                            {"color", person_color(it.key())},
-                           {"shown", !hidden_.contains(it.key())}};
+                           {"shown", !hidden_.contains(it.key())},
+                           {"brief", it.value() < kBriefPersonS}};
     }
     return out;
 }
 
 void Room3DScene::set_result(const Skeleton3DResult& result) {
     result_ = result;
-    hidden_.clear();
     follow_ = -1;
     rebuild_static();
+    // People seen for under a second start hidden (see lasting_people());
+    // the People panel can show them.
+    hidden_.clear();
+    const QList<int> lasting = result_.lasting_people();
+    for (auto it = seconds_.cbegin(); it != seconds_.cend(); ++it) {
+        if (!lasting.contains(it.key())) {
+            hidden_.insert(it.key());
+        }
+    }
     emit resultChanged();
     emit peopleChanged();
     rebuild_frame();
@@ -179,16 +188,11 @@ void Room3DScene::rebuild_static() {
     // Where the people were (their mean, at 1 m), how far the cameras and
     // most of the people reach, and how long each person was in 3D.
     const auto& frames = result_.frames();
-    const double step =
-        frames.size() > 1
-            ? static_cast<double>(frames.last().timestampNs - frames.first().timestampNs) / 1e9 /
-                  (frames.size() - 1)
-            : 0.0;
+    seconds_           = result_.seconds_by_person();
     QVector3D sum;
     std::vector<QVector3D> pts;
     for (const auto& f : frames) {
         for (const auto& p : f.people) {
-            seconds_[p.trackId] += step;
             for (const auto& kp : p.keypoints) {
                 if (kp.valid) {
                     pts.push_back(to_scene(kp.positionRoom));

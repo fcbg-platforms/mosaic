@@ -1015,6 +1015,10 @@ sitting alongside **Live**. The workflow is always the same shape:
       **People** panel at its top left lists everyone with how long they
       were in 3D: click a person's colour box to hide or show them, and
       **Follow** keeps one in the middle of the view as the video plays.
+      Someone in 3D for under a second is marked **(brief)** and starts
+      hidden: more often a passing false detection than a person. Brief
+      people are also left out of the **Person** pickers (unless nobody
+      lasts a second); "All people" in the CSV export still includes them.
       The view is drawn with Qt Quick 3D; if it cannot load (Qt Quick 3D
       missing next to MOSAIC), it says so, and **Help > Problems on this PC**
       has the error.

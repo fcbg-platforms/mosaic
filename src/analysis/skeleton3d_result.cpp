@@ -142,6 +142,35 @@ Skeleton3DResult Skeleton3DResult::load(const QString& jsonPath) {
     return result;
 }
 
+QMap<int, double> Skeleton3DResult::seconds_by_person() const {
+    QMap<int, double> out;
+    if (frames_.isEmpty()) {
+        return out;
+    }
+    const double step =
+        frames_.size() > 1
+            ? static_cast<double>(frames_.last().timestampNs - frames_.first().timestampNs) / 1e9 /
+                  (frames_.size() - 1)
+            : 0.0;
+    for (const auto& f : frames_) {
+        for (const auto& p : f.people) {
+            out[p.trackId] += step;
+        }
+    }
+    return out;
+}
+
+QList<int> Skeleton3DResult::lasting_people() const {
+    const auto seconds = seconds_by_person();
+    QList<int> out;
+    for (auto it = seconds.cbegin(); it != seconds.cend(); ++it) {
+        if (it.value() >= kBriefPersonS) {
+            out << it.key();
+        }
+    }
+    return out.isEmpty() ? seconds.keys() : out;
+}
+
 const Skeleton3DFrame* Skeleton3DResult::nearest_frame(int64_t timestampNsEstimate) const {
     return nearest_by_key(frames_, timestampNsEstimate,
                           [](const Skeleton3DFrame& f) { return f.timestampNs; });
