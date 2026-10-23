@@ -486,26 +486,29 @@ TEST(PersonKinematics, SpeedAndHeightsOfOnePerson) {
     QString frames;
     for (int k = 0; k < 10; ++k) {
         const double x = 100.0 * k;
-        const QString person =
-            k == 5
-                ? QString()
-                : QString(R"({"track_id": 0, "num_contributing_cameras": 3, "source_cameras": [],
-              "keypoints_room": [[%1,-1600,3000],[%1,-900,3000],[%2,-900,3000],
-                                 [%1,-80,3000],[%2,-80,3000]],
-              "keypoints_valid": [true,true,true,true,true],
-              "reprojection_error_px": [0,0,0,0,0], "reprojected_px": {}})")
-                      .arg(x)
-                      .arg(x + 1.0);
+        // Built from one-line strings: clang-format lays a multi-line raw
+        // string out differently with CRLF and LF line endings.
+        QString person;
+        if (k != 5) {
+            person = QString(R"({"track_id": 0, "num_contributing_cameras": 3, )"
+                             R"("keypoints_room": [[%1,-1600,3000],[%1,-900,3000],[%2,-900,3000],)"
+                             R"([%1,-80,3000],[%2,-80,3000]], )"
+                             R"("keypoints_valid": [true,true,true,true,true]})")
+                         .arg(x)
+                         .arg(x + 1.0);
+        }
         frames += QString(R"(%1{"tick": %2, "timestamp_ns": %3, "people": [%4]})")
                       .arg(k ? "," : "")
                       .arg(k)
                       .arg(100000000LL * k)
                       .arg(person);
     }
-    const QString json = QString(R"({"schema": "mosaic-skeleton3d-v1", "cameras": [],
-      "keypoint_names": ["nose", "left_hip", "right_hip", "left_ankle", "right_ankle"],
-      "skeleton_edges": [], "frames": [%1]})")
-                             .arg(frames);
+    const QString json =
+        QString(
+            R"({"schema": "mosaic-skeleton3d-v1", "cameras": [], )"
+            R"("keypoint_names": ["nose", "left_hip", "right_hip", "left_ankle", "right_ankle"], )"
+            R"("skeleton_edges": [], "frames": [%1]})")
+            .arg(frames);
     QTemporaryDir dir;
     QFile f(dir.filePath("s.json"));
     ASSERT_TRUE(f.open(QIODevice::WriteOnly));
