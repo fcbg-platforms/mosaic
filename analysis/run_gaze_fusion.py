@@ -51,6 +51,7 @@ from gaze.fusion import (  # noqa: E402
     apply_subject_scale,
     assign_subjects,
     drop_duplicates,
+    drop_single_view_echoes,
     finalize,
 )
 from gaze.io_v2 import load_targets, summarise, write_csv, write_results  # noqa: E402
@@ -246,6 +247,12 @@ def detect_camera(args) -> tuple[int, str | None]:
     return cam_index, note
 
 
+def step(n: int, args, what: str) -> None:
+    """The run's stage, for the Analysis tab's step bar: finding faces,
+    fusing, writing the videos (without --no-render, three steps)."""
+    log(f"Step {n}/{2 if args.no_render else 3}: {what}")
+
+
 def _workers(args, n_jobs: int) -> int:
     return args.workers or max(1, min(n_jobs, (os.cpu_count() or 2) // 2))
 
@@ -257,6 +264,7 @@ def run_pass_a(out_dir: Path, timeline, cameras, ids, args) -> dict:
     A worker that raises, or dies outright (a native crash in MediaPipe or
     OpenCV), ends the run with a clear message instead of leaving it waiting.
     """
+    step(1, args, "finding faces")
     skip = max(1, args.skip)
     analyse_tick = np.zeros(timeline.n_ticks, dtype=bool)
     analyse_tick[::skip] = True
@@ -270,7 +278,7 @@ def run_pass_a(out_dir: Path, timeline, cameras, ids, args) -> dict:
         if not args.refresh and cache.exists() and key_path.exists():
             try:
                 if json.loads(key_path.read_text(encoding="utf-8")) == key:
-                    log(f"Camera {idx + 1}: reusing cached landmarks.")
+                    log(f"Camera {idx + 1}: reusing its faces from the last run.")
                     continue
             except (OSError, json.JSONDecodeError):
                 pass
@@ -286,7 +294,7 @@ def run_pass_a(out_dir: Path, timeline, cameras, ids, args) -> dict:
         return caches
 
     workers = _workers(args, len(jobs))
-    log(f"Finding faces in {len(jobs)} camera(s) with {workers} process(es)...")
+    log(f"Finding faces in {len(jobs)} camera(s) at once, {workers} process(es)...")
     done = dict.fromkeys(jobs, 0)
     total = {idx: max(1, int(j["analyse"].sum())) for idx, j in jobs.items()}
     t0 = time.perf_counter()
@@ -332,7 +340,10 @@ def run_pass_a(out_dir: Path, timeline, cameras, ids, args) -> dict:
                     log(f"Camera {cam + 1}: {note}; its later ticks have no faces.")
                 else:
                     jobs[cam]["key_path"].write_text(json.dumps(jobs[cam]["key"]), encoding="utf-8")
-                log(f"Camera {finished}/{len(jobs)}: faces found, video_{cam} ({elapsed:.0f} s)")
+                log(
+                    f"Camera {cam + 1}: faces found ({finished} of {len(jobs)} camera(s) done, "
+                    f"{elapsed:.0f} s)"
+                )
     return caches
 
 
@@ -362,6 +373,7 @@ def fuse(rig: GazeRig, faces: dict, timeline, args, plane, regions):
     times_s = (timeline.times_ns - timeline.times_ns[0]) / 1e9
     ticks = sorted(faces)
     entries = []
+    step(2, args, "fusing the cameras")
     log(f"Fusing {len(ticks)} analysed tick(s) across cameras...")
     for n, tick in enumerate(ticks):
         for group in rig.associate(faces[tick]):
@@ -369,6 +381,15 @@ def fuse(rig: GazeRig, faces: dict, timeline, args, plane, regions):
         if n % max(1, len(ticks) // 50) == 0:
             print(f"  {100.0 * (n + 1) / len(ticks):5.1f}%  ({n + 1}/{len(ticks)})", flush=True)
 
+    # One person seen alone by one camera, as well as by several, is not a
+    # second person (see drop_single_view_echoes).
+    before = len(entries)
+    entries = drop_single_view_echoes(entries, rig.cameras)
+    if before > len(entries):
+        log(
+            f"{before - len(entries)} single-camera sighting(s) of someone the other cameras "
+            "already place left out (the same person seen alone by one camera)."
+        )
     subjects = assign_subjects(entries, times_s, max_subjects=args.subjects)
     apply_subject_scale(entries, rig.cameras)
     for e in entries:
@@ -512,6 +533,7 @@ def render(
         )
         for i in sorted(cameras)
     ]
+    step(3, args, "writing the videos")
     log(f"Writing {len(jobs)} annotated video(s) and the room view...")
     written, room_ok = set(), False
     with ProcessPoolExecutor(max_workers=_workers(args, len(jobs) + 1)) as pool:
@@ -529,7 +551,9 @@ def render(
                 log(f"Camera {cam + 1}: video not written: {err}")
             else:
                 written.add(cam)
-                log(f"Camera {n}/{len(jobs)}: wrote gaze_fusion/video_{cam}.gaze.mp4")
+                log(
+                    f"Camera {cam + 1}: wrote gaze_fusion/video_{cam}.gaze.mp4 ({n} of {len(jobs)})"
+                )
             print(f"  {100.0 * n / len(jobs):5.1f}%  ({n}/{len(jobs)})", flush=True)
         try:
             room.result()

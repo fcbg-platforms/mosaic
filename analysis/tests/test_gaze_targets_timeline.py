@@ -278,3 +278,71 @@ def test_an_impossible_jump_is_a_second_person():
     # 4 m away 0.2 s later: nobody walks that fast.
     entries = [_entry(k, 0.0) for k in range(0, 100)] + [_entry(k, 4000.0) for k in range(105, 205)]
     assert assign_subjects(entries, times) == ["S1", "S2"]
+
+
+def test_one_camera_seeing_someone_the_others_place_is_not_a_second_person():
+    from gaze.fusion import Entry, FaceObs, drop_single_view_echoes
+    from gaze.head_pose import HeadPose
+    from pose3d.triangulation import CameraGeom, project_point_px
+
+    k = np.array([[1000.0, 0, 960], [0, 1000.0, 540], [0, 0, 1]])
+    cam = CameraGeom(0, k, np.zeros(5), np.eye(4))  # at the origin, looking along +z
+    head = np.array([300.0, -100.0, 2500.0])
+
+    def face_at(camera, u, v):
+        box = np.array([u - 40, v - 40, u + 40, v + 40])
+        return FaceObs(camera=camera, box=box, points=np.zeros((1, 2)))
+
+    def placed(tick, cameras=(1, 2), at=head):  # seen by several cameras
+        views = [face_at(c, 0.0, 0.0) for c in cameras]
+        return Entry(tick=tick, views=views, pose=HeadPose(np.eye(3), at.copy(), 1.0, 0.0))
+
+    def alone(tick, where, depth):
+        # Camera 0 alone: a face box around where it sees `where`, and a head
+        # placed from the face's size alone, `depth` mm away.
+        u, v = project_point_px(where, cam)[:2]
+        p = where * (depth / where[2])
+        return Entry(tick=tick, views=[face_at(0, u, v)], pose=HeadPose(np.eye(3), p, 1.0, 0.0))
+
+    # The same face, its head placed 0.8 m too far: an echo, left out.
+    echo = alone(0, head, 3300.0)
+    # A face elsewhere in the image (another person): kept.
+    other = alone(0, np.array([-900.0, -100.0, 2500.0]), 2500.0)
+    # Alone at a tick where nobody is placed by several cameras: kept.
+    lone = alone(1, head, 3300.0)
+    kept = drop_single_view_echoes([placed(0), echo, other, lone], {0: cam})
+    kept_ids = {id(e) for e in kept}  # Entry holds arrays: compare by identity
+    assert id(echo) not in kept_ids
+    assert id(other) in kept_ids and id(lone) in kept_ids and len(kept) == 3
+
+    def survives(entry, *others):
+        return any(e is entry for e in drop_single_view_echoes([*others, entry], {0: cam}))
+
+    # Camera 0 already sees the placed person: its other face is someone else.
+    assert survives(alone(0, head, 3300.0), placed(0, cameras=(0, 1)))
+    # A face well in front of the placed head (1.5 m vs 2.5 m): someone
+    # between camera 0 and that person, kept.
+    assert survives(alone(0, head, 1500.0), placed(0))
+    # A placed head behind camera 0 (at -head) projects onto the same pixel
+    # as head: not a match.
+    assert survives(alone(0, head, 2500.0), placed(0, at=-head))
+
+
+def test_a_person_split_for_a_few_ticks_stays_one_subject():
+    from gaze.fusion import assign_subjects
+
+    times = np.arange(300) / 25.0
+    # One person at x=0 for 4 s, then a second track 5 cm on for 4 s; for 2
+    # ticks both are there (two cameras that each saw the face alone).
+    entries = [_entry(k, 0.0) for k in range(0, 100)]
+    entries += [_entry(k, 50.0) for k in range(98, 200)]
+    assert assign_subjects(entries, times) == ["S1"]
+    # Two people side by side all along stay two.
+    pair = [_entry(k, 0.0) for k in range(100)] + [_entry(k, 600.0) for k in range(100)]
+    assert assign_subjects(pair, times) == ["S1", "S2"]
+    # A 2-tick blip 3 m away, seen only while S1 is: nothing says it is S1,
+    # so S1 keeps only its own entries.
+    blip = [_entry(50, 3000.0), _entry(51, 3000.0)]
+    subjects = [_entry(k, 0.0) for k in range(200)] + blip
+    assert assign_subjects(subjects, times) == ["S1"]
+    assert all(e.subject != "S1" for e in blip)

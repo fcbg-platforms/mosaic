@@ -911,6 +911,12 @@ sitting alongside **Live**. The workflow is always the same shape:
       - **subjects**: how many people to keep (auto keeps everyone seen for
         at least a second).
 
+      **While it's running**: it works in three steps, named on the upper
+      bar ("Step 1 of 3 · Finding faces", then "Fusing the cameras", then
+      "Writing the videos"); the lower bar is the progress of that step, so
+      it starts again at 0 for each. Faces are found in every camera at
+      once, so the log says which camera is done and how many are.
+
       **Reading the output**:
 
       - The camera video plays with every person's face box, name, gaze ray,
@@ -922,6 +928,12 @@ sitting alongside **Live**. The workflow is always the same shape:
       - The room view beside it shows the room from above: cameras, named
         regions, every person and their gaze, and below it what each one
         looks at right now.
+      - One line per person: a face that only one camera sees, where the
+        other cameras already place someone, is that person, not a second
+        one, and a person split for a moment is joined back (see
+        :doc:`math/gaze_fusion`). Two lines from one face are most often
+        a camera off its calibration: check the room calibration and
+        recalibrate if a camera is off.
       - The stats line gives, per person, how much of the time a gaze was
         found and what they looked at most, plus the share of time with
         mutual gaze.

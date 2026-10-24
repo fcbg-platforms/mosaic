@@ -211,13 +211,35 @@ If the joint head fit still explains the landmarks poorly (above 8 px RMS),
 the faces are kept as separate subjects rather than merged into a compromise
 head.
 
+**One camera alone.** When one camera's view of a face does not fit the
+others' (that camera off its calibration, a face at a steep angle), it stays
+a one-camera entry of its own, its head placed from the face's size alone,
+often half a metre or more off, while the other cameras place the same
+person. Tracked, it became a second person, a second gaze line from the same
+face (sub-39_ses-04, one person: "S2", nearly always one camera next to a
+several-camera "S1"). A camera sees one face at one place, so a one-camera
+entry is left out when the head of a several-camera entry of the same tick,
+projected into that camera, lands on its face box or within one face width
+of it (room for calibration error). The log says how many. It is kept when
+that camera already sees the placed person (faces are found once per
+camera, so this face is someone else), when the face is clearly nearer the
+camera, under 0.8 of the placed head's depth (someone in front of that
+person; on sub-39 the echoes stayed at 0.87 to 1.73 of it), and when the
+placed head is behind the camera.
+
 **Tracking.** Head positions are followed from tick to tick (a track may go
-unseen for 2 s, and move at most 400 mm between sightings). Two tracks never
-seen at the same tick are joined when every hand-over between them is
-walkable: the head moved at most 0.5 m plus 1 m/s times the time between the
-two sightings. That joins a seated person who looked away from every camera,
-and someone who got up, walked around and came back; it never joins two
-people seen at once. Two tracks that run side by side within 250 mm on most
+unseen for 2 s, and move at most 400 mm between sightings). Two tracks
+(almost) never seen at the same tick are joined when every hand-over between
+them is walkable: the head moved at most 0.5 m plus 1 m/s times the time
+between the two sightings. They may share at most 2 ticks, or a tenth of
+the shorter one's: two cameras that each saw the face alone for a moment
+(on sub-39 one person was split for 5 ticks). Hand-overs are judged away
+from the shared ticks, so each track must also be seen at ticks the other
+is not; a track seen only at shared ticks could be anyone and is not
+joined. The better entry is kept at each shared tick. That joins a seated
+person who looked away from every camera, and someone who got up, walked
+around and came back; two people seen together share nearly all their ticks
+and stay apart. Two tracks that run side by side within 250 mm on most
 shared ticks are one person seen twice, and are joined too. Tracks seen for
 less than a second are dropped. Subjects are named ``S1``, ``S2``... from left to right in
 the room, so names are stable between runs; ``gaze_targets.json`` can rename
