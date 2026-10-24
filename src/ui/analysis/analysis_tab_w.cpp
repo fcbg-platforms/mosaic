@@ -2784,6 +2784,11 @@ void AnalysisTabW::build_ui() {
     d->dyadMetricCombo->addItem("Head and hip height (m)", "height");
     d->dyadMetricCombo->addItem("Cameras seeing the person", "cameras");
     d->dyadMetricCombo->insertSeparator(d->dyadMetricCombo->count());
+    d->dyadMetricCombo->addItem("Knee flexion (°)", "knee");
+    d->dyadMetricCombo->addItem("Hip flexion (°)", "hip");
+    d->dyadMetricCombo->addItem("Elbow flexion (°)", "elbow");
+    d->dyadMetricCombo->addItem("Arm raise at the shoulder (°)", "arm");
+    d->dyadMetricCombo->insertSeparator(d->dyadMetricCombo->count());
     d->dyadMetricCombo->addItem("Two people: distance (mm)", "distance");
     d->dyadMetricCombo->addItem("Two people: approach rate (mm/s)", "approach_rate");
     d->dyadMetricCombo->addItem("Two people: facingness (cosine)", "facing");
@@ -2802,6 +2807,10 @@ void AnalysisTabW::build_ui() {
         "Speed: of the hips. Height: of the head and the hips above the floor, so standing, "
         "sitting and bending show. Cameras: how many cameras the person was put in 3D from "
         "(more agree better).\n\n"
+        "Joint angles, left and right: flexion in degrees, 0 standing upright with the arms "
+        "hanging. Knee and elbow: 0 straight. Hip: the thigh against the trunk, about 90 "
+        "sitting. Arm raise: the upper arm against the trunk, 90 out to the side, 180 "
+        "overhead.\n\n"
         "Facingness: torso-heading cosine similarity. -1 = oriented oppositely (commonly "
         "face-to-face in a two-person interaction, but also consistent with standing "
         "back-to-back facing directly away from each other — position-independent by "
@@ -5470,9 +5479,67 @@ void AnalysisTabW::export_skeleton3d_csv() {
 // (interpersonal metrics derived from the pose3d plugin's own already-loaded
 // currentSkeleton3D — see src/analysis/dyadic_kinematics.hpp)
 
+namespace {
+
+// The 3D Pose charts of one person, as opposed to those of two.
+bool is_person_metric(const QString& metric) {
+    return !QStringList{"distance", "approach_rate", "facing", "congruent_motion"}.contains(metric);
+}
+
+// The joint a one-person chart shows, by its Show key; nullptr for the others.
+const LeftRight PersonSample::*joint_of(const QString& metric) {
+    if (metric == "knee") {
+        return &PersonSample::kneeFlexionDeg;
+    }
+    if (metric == "hip") {
+        return &PersonSample::hipFlexionDeg;
+    }
+    if (metric == "elbow") {
+        return &PersonSample::elbowFlexionDeg;
+    }
+    if (metric == "arm") {
+        return &PersonSample::armRaiseDeg;
+    }
+    return nullptr;
+}
+
+// A joint's left or right angle over the recording, as chart pieces that
+// break where the angle is missing for over a second rather than draw
+// across the gap. Shorter gaps are bridged: a keypoint that comes and goes
+// (legs under a table) would otherwise make a piece, a chart series, per
+// tick.
+void append_angle_series(QVector<NamedSeries>& out, const QString& name, const QColor& color,
+                         const QVector<PersonSample>& samples, int64_t t0,
+                         const std::function<double(const PersonSample&)>& value) {
+    constexpr double kMaxGapMs = 1000.0;
+    QVector<QPointF> run;
+    bool listed      = false;
+    const auto flush = [&] {
+        if (!run.isEmpty()) {
+            out.append({name, color, run, run.size() == 1, !listed, 2});
+            listed = true;
+            run.clear();
+        }
+    };
+    for (const auto& s : samples) {
+        const double v = value(s);
+        if (std::isnan(v)) {
+            continue;
+        }
+        const double t = (s.timestampNs - t0) / 1e6;
+        if (!run.isEmpty() && t - run.last().x() > kMaxGapMs) {
+            flush();
+        }
+        run << QPointF(t, v);
+    }
+    flush();
+}
+
+} // namespace
+
 void AnalysisTabW::update_dyadic_view() {
     const QString metric = d->dyadMetricCombo->currentData().toString();
-    const bool onePerson = metric == "speed" || metric == "height" || metric == "cameras";
+    const bool onePerson = is_person_metric(metric);
     d->dyadVsLbl->setVisible(!onePerson);
     d->dyadTrackBCombo->setVisible(!onePerson);
     d->dyadWindowSpin->setVisible(metric == "congruent_motion");
@@ -5483,8 +5550,8 @@ void AnalysisTabW::update_dyadic_view() {
     if (!d->dyadTrackACombo->isEnabled() || d->dyadTrackACombo->count() < 2) {
         d->currentDyad = DyadicKinematicsSeries();
         d->dyadStatsLbl->setText(
-            "Only one person in this result: the two-person charts need two. Choose Speed, "
-            "Height or Cameras to chart this person.");
+            "Only one person in this result: the two-person charts need two. Choose one of "
+            "the one-person charts above them (speed, height, cameras, joint angles).");
         d->skeleton3dRoomView->set_dyad_tracks(-1, -1);
         d->chart->set_single_series({}, QString());
         d->chart->set_title("Two people — only one in this result");
@@ -5603,6 +5670,13 @@ void AnalysisTabW::update_person_chart() {
         d->chart->set_named_series(
             {{"Head", QColor("#e6a03c"), headPts}, {"Hips", QColor("#3ca0e6"), hipPts}},
             "Height above the floor (m)", spanMs);
+    } else if (const LeftRight PersonSample::*joint = joint_of(metric)) {
+        QVector<NamedSeries> series;
+        append_angle_series(series, "Left", QColor("#3ca0e6"), d->currentPerson.samples, t0,
+                            [joint](const PersonSample& s) { return (s.*joint).left; });
+        append_angle_series(series, "Right", QColor("#e6a03c"), d->currentPerson.samples, t0,
+                            [joint](const PersonSample& s) { return (s.*joint).right; });
+        d->chart->set_named_series(series, d->dyadMetricCombo->currentText(), spanMs);
     } else {
         QVector<QPointF> pts;
         for (const auto& s : d->currentPerson.samples) {
@@ -5626,6 +5700,19 @@ void AnalysisTabW::update_person_chart() {
         line += QString("  ·  head usually %1 m above the floor")
                     .arg(st.medianHeadHeightMm / 1000.0, 0, 'f', 2);
     }
+    // On an angle chart, the usual (median) angle.
+    const auto deg = [](double v) {
+        return std::isnan(v) ? QString("n/a") : QString("%1°").arg(v, 0, 'f', 0);
+    };
+    if (const LeftRight PersonSample::*joint = joint_of(metric)) {
+        const LeftRight PersonStats::*usual =
+            joint == &PersonSample::kneeFlexionDeg    ? &PersonStats::medianKneeFlexionDeg
+            : joint == &PersonSample::hipFlexionDeg   ? &PersonStats::medianHipFlexionDeg
+            : joint == &PersonSample::elbowFlexionDeg ? &PersonStats::medianElbowFlexionDeg
+                                                      : &PersonStats::medianArmRaiseDeg;
+        line += QString("  ·  usually left %1, right %2")
+                    .arg(deg((st.*usual).left), deg((st.*usual).right));
+    }
     d->dyadStatsLbl->setText(line);
     d->chart->set_playhead_ms(d->player->position_ms());
 }
@@ -5633,25 +5720,35 @@ void AnalysisTabW::update_person_chart() {
 void AnalysisTabW::export_dyad_csv() {
     const auto* info     = d->current_session();
     const QString metric = d->dyadMetricCombo->currentData().toString();
-    if (info && (metric == "speed" || metric == "height" || metric == "cameras")) {
+    if (info && is_person_metric(metric)) {
         if (d->currentPerson.samples.isEmpty()) {
             return;
         }
         const int personId = d->dyadTrackACombo->currentData().toInt();
         export_csv(this, "Export person chart",
                    info->path + QString("/person_%1.csv").arg(personId), [&](QTextStream& ts) {
-                       ts << "# heights are above the floor found from the result (see "
+                       ts << "# heights are above the floor found from the result; angles are "
+                             "flexion in degrees, 0 standing upright with the arms hanging (see "
                              "docs/math/pose3d_reconstruction.rst)\n";
-                       ts << "tick,timestamp_ns,speed_mm_s,head_height_mm,hip_height_mm,cameras\n";
+                       ts << "tick,timestamp_ns,speed_mm_s,head_height_mm,hip_height_mm,cameras,"
+                             "knee_flexion_left_deg,knee_flexion_right_deg,"
+                             "hip_flexion_left_deg,hip_flexion_right_deg,"
+                             "elbow_flexion_left_deg,elbow_flexion_right_deg,"
+                             "arm_raise_left_deg,arm_raise_right_deg\n";
                        const auto& frames = d->currentSkeleton3D.frames();
                        for (int i = 0; i < d->currentPerson.samples.size(); ++i) {
                            const auto& s  = d->currentPerson.samples[i];
                            const auto num = [](double v) {
                                return std::isnan(v) ? QString() : QString::number(v, 'f', 1);
                            };
+                           const auto both = [&](const LeftRight& a) {
+                               return num(a.left) + "," + num(a.right);
+                           };
                            ts << (i < frames.size() ? frames[i].tick : i) << "," << s.timestampNs
                               << "," << num(s.speedMmPerS) << "," << num(s.headHeightMm) << ","
-                              << num(s.hipHeightMm) << "," << s.cameras << "\n";
+                              << num(s.hipHeightMm) << "," << s.cameras << ","
+                              << both(s.kneeFlexionDeg) << "," << both(s.hipFlexionDeg) << ","
+                              << both(s.elbowFlexionDeg) << "," << both(s.armRaiseDeg) << "\n";
                        }
                    });
         return;

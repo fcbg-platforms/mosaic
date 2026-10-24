@@ -44,15 +44,29 @@ struct DyadicKinematicsSeries {
     DyadicStats stats;
 };
 
+/// @brief One joint angle on each side of the body, in degrees; NaN where
+/// a point it needs is missing.
+struct LeftRight {
+    double left  = std::numeric_limits<double>::quiet_NaN();
+    double right = std::numeric_limits<double>::quiet_NaN();
+};
+
 /// @brief One person's own movement at one fused tick: what the 3D Pose
 /// Charts tab shows for a single person. NaN (cameras 0) where the person
 /// is not in 3D at that tick.
+///
+/// The angles are flexion, 0 in the upright standing pose with the arms
+/// hanging (see compute_person_kinematics()).
 struct PersonSample {
     int64_t timestampNs = 0;
     double speedMmPerS  = std::numeric_limits<double>::quiet_NaN(); ///< of the hip midpoint
     double headHeightMm = std::numeric_limits<double>::quiet_NaN(); ///< above the floor
     double hipHeightMm  = std::numeric_limits<double>::quiet_NaN(); ///< above the floor
-    int cameras         = 0; ///< cameras the person was triangulated from
+    int cameras         = 0;   ///< cameras the person was triangulated from
+    LeftRight kneeFlexionDeg;  ///< thigh to shank
+    LeftRight hipFlexionDeg;   ///< trunk to thigh: about 90 when sitting
+    LeftRight elbowFlexionDeg; ///< upper arm to forearm
+    LeftRight armRaiseDeg;     ///< trunk to upper arm: 90 with the arm out, 180 overhead
 };
 
 /// @brief Summary of one compute_person_kinematics() call.
@@ -60,6 +74,10 @@ struct PersonStats {
     double secondsSeen        = 0.0; ///< ticks in 3D, times the tick step
     double topSpeedMmPerS     = std::numeric_limits<double>::quiet_NaN();
     double medianHeadHeightMm = std::numeric_limits<double>::quiet_NaN();
+    LeftRight medianKneeFlexionDeg; ///< the usual angle, over the ticks it is known
+    LeftRight medianHipFlexionDeg;
+    LeftRight medianElbowFlexionDeg;
+    LeftRight medianArmRaiseDeg;
 };
 
 /// @brief Output of compute_person_kinematics(): one sample per tick of the
@@ -78,6 +96,14 @@ struct PersonKinematicsSeries {
 /// by central difference over the neighbouring ticks when both are within
 /// 0.25 s (NaN otherwise: never across a gap). The head is the highest of
 /// the face's points (nose, eyes, ears) seen.
+///
+/// Joint angles are the angle between the two segments' directions, so a
+/// straight limb is 0: knee (hip to knee, knee to ankle), elbow (shoulder
+/// to elbow, elbow to wrist), hip (shoulder midpoint to hip midpoint, hip
+/// to knee) and arm raise (shoulder midpoint to hip midpoint, shoulder to
+/// elbow). They use the smoothed keypoints, the raw ones when the run did
+/// not smooth. There is no trunk lean: it needs the true vertical, which
+/// the calibration does not give (see docs/math/pose3d_reconstruction.rst).
 [[nodiscard]] PersonKinematicsSeries compute_person_kinematics(const Skeleton3DResult& result,
                                                                int personId);
 

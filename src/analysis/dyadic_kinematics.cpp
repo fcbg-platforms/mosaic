@@ -4,6 +4,7 @@
 #include <QMap>
 #include <algorithm>
 #include <cmath>
+#include <numbers>
 #include <optional>
 #include <vector>
 
@@ -117,6 +118,27 @@ QMap<int, double> derive_speed(const QMap<int, Vec3>& hipMidByIdx,
     return speed;
 }
 
+// The middle value (the upper one of an even count), NaN when there is none.
+double median(std::vector<double> v) {
+    if (v.empty()) {
+        return std::numeric_limits<double>::quiet_NaN();
+    }
+    std::nth_element(v.begin(), v.begin() + v.size() / 2, v.end());
+    return v[v.size() / 2];
+}
+
+// The angle between two directions in degrees, NaN when either has no
+// length (two points on top of each other).
+double angle_deg(const room_view::Vec3& a, const room_view::Vec3& b) {
+    const double na = room_view::norm(a);
+    const double nb = room_view::norm(b);
+    if (na < 1e-9 || nb < 1e-9) {
+        return std::numeric_limits<double>::quiet_NaN();
+    }
+    return std::acos(std::clamp(room_view::dot(a, b) / (na * nb), -1.0, 1.0)) * 180.0 /
+           std::numbers::pi;
+}
+
 } // namespace
 
 PersonKinematicsSeries compute_person_kinematics(const Skeleton3DResult& result, int personId) {
@@ -134,6 +156,12 @@ PersonKinematicsSeries compute_person_kinematics(const Skeleton3DResult& result,
             head << i;
         }
     }
+    const auto at_name = [&](const char* name) { return static_cast<int>(names.indexOf(name)); };
+    const int ls = at_name("left_shoulder"), rs = at_name("right_shoulder");
+    const int le = at_name("left_elbow"), re = at_name("right_elbow");
+    const int lw = at_name("left_wrist"), rw = at_name("right_wrist");
+    const int lk = at_name("left_knee"), rk = at_name("right_knee");
+    const int la = at_name("left_ankle"), ra = at_name("right_ankle");
     const room_view::Vec3 up  = room_view::estimate_up(result);
     const double floor        = room_view::floor_height(result, up);
     constexpr int64_t kNearNs = 250000000; // 0.25 s: neighbours closer than this
@@ -169,6 +197,47 @@ PersonKinematicsSeries compute_person_kinematics(const Skeleton3DResult& result,
         if (!std::isnan(s.headHeightMm)) {
             heads.push_back(s.headHeightMm);
         }
+
+        // Joint angles, from the smoothed keypoints: a 3D keypoint jitters
+        // by a few centimetres, a few degrees on a forearm.
+        const auto pos = [&](int i) -> std::optional<room_view::Vec3> {
+            if (i < 0 || i >= kp.size() || !kp[i].valid) {
+                return std::nullopt;
+            }
+            return kp[i].positionRoomSmoothed;
+        };
+        const auto mid = [&](int a, int b) -> std::optional<room_view::Vec3> {
+            const auto pa = pos(a);
+            const auto pb = pos(b);
+            if (!pa || !pb) {
+                return std::nullopt;
+            }
+            return room_view::scale(room_view::add(*pa, *pb), 0.5);
+        };
+        // Down the trunk: from the shoulders' midpoint to the hips'.
+        std::optional<room_view::Vec3> down;
+        if (const auto sh = mid(ls, rs), hp = mid(lh, rh); sh && hp) {
+            down = room_view::sub(*hp, *sh);
+        }
+        // At b, between a to b and b to c: 0 when a, b and c are in line.
+        const auto bend = [&](int a, int b, int c) {
+            const auto pa = pos(a);
+            const auto pb = pos(b);
+            const auto pc = pos(c);
+            return pa && pb && pc ? angle_deg(room_view::sub(*pb, *pa), room_view::sub(*pc, *pb))
+                                  : std::numeric_limits<double>::quiet_NaN();
+        };
+        // Between the trunk, downwards, and a to b: 0 when a to b hangs along it.
+        const auto from_trunk = [&](int a, int b) {
+            const auto pa = pos(a);
+            const auto pb = pos(b);
+            return down && pa && pb ? angle_deg(*down, room_view::sub(*pb, *pa))
+                                    : std::numeric_limits<double>::quiet_NaN();
+        };
+        s.kneeFlexionDeg  = {bend(lh, lk, la), bend(rh, rk, ra)};
+        s.elbowFlexionDeg = {bend(ls, le, lw), bend(rs, re, rw)};
+        s.hipFlexionDeg   = {from_trunk(lh, lk), from_trunk(rh, rk)};
+        s.armRaiseDeg     = {from_trunk(ls, le), from_trunk(rs, re)};
     }
     for (int k = 0; k < n; ++k) {
         if (k > 0 && k + 1 < n && hips[k - 1] && hips[k] && hips[k + 1] &&
@@ -192,10 +261,23 @@ PersonKinematicsSeries compute_person_kinematics(const Skeleton3DResult& result,
             (n - 1);
         out.stats.secondsSeen = present * stepS;
     }
-    if (!heads.empty()) {
-        std::nth_element(heads.begin(), heads.begin() + heads.size() / 2, heads.end());
-        out.stats.medianHeadHeightMm = heads[heads.size() / 2];
-    }
+    out.stats.medianHeadHeightMm = median(heads);
+    const auto median_of         = [&](const LeftRight PersonSample::*joint) {
+        std::vector<double> left, right;
+        for (const auto& s : out.samples) {
+            if (!std::isnan((s.*joint).left)) {
+                left.push_back((s.*joint).left);
+            }
+            if (!std::isnan((s.*joint).right)) {
+                right.push_back((s.*joint).right);
+            }
+        }
+        return LeftRight{median(left), median(right)};
+    };
+    out.stats.medianKneeFlexionDeg  = median_of(&PersonSample::kneeFlexionDeg);
+    out.stats.medianHipFlexionDeg   = median_of(&PersonSample::hipFlexionDeg);
+    out.stats.medianElbowFlexionDeg = median_of(&PersonSample::elbowFlexionDeg);
+    out.stats.medianArmRaiseDeg     = median_of(&PersonSample::armRaiseDeg);
     return out;
 }
 

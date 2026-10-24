@@ -262,6 +262,36 @@ difference over neighbouring ticks within 0.25 s (never across a gap), and
 the head (highest seen face point) and hip heights above the floor found as
 in :ref:`pose3d-drawing-the-room`.
 
+Its joint angles are flexion, in degrees: the angle between the two
+segments' directions, so a straight limb is 0 and every angle is 0 standing
+upright with the arms hanging, the usual clinical convention. The line
+under the chart gives each side's median.
+
+- **Knee**: hip to knee against knee to ankle.
+- **Elbow**: shoulder to elbow against elbow to wrist.
+- **Hip**: the trunk, from the shoulders' midpoint down to the hips', against
+  hip to knee; about 90 sitting upright, more leaning forward.
+- **Arm raise**: the trunk, downwards, against shoulder to elbow; 90 with the
+  arm out, 180 overhead.
+
+They use the smoothed keypoints when the run smoothed them, since a
+keypoint's few centimetres of jitter make several degrees on a forearm. An
+angle is missing at a tick where any of its points is, and is never filled
+in; the chart bridges gaps under a second and breaks the line at longer
+ones. The keypoints are the 2D detector's joint centres made 3D, so the
+angles are only as good as those: a few degrees for a limb seen well by two
+or more cameras, much worse when the limb is hidden (legs under a table) or
+seen by cameras off their calibration. The angles of a joint flexing out of
+its usual plane (a hip turned out) are its 3D angle, not split into
+flexion, abduction and rotation, which would need markers or a body model.
+
+There is no trunk lean. It needs the true vertical, and the calibration does
+not give one: the up of :ref:`pose3d-drawing-the-room` is the people's mean
+torso, so someone slouching all session would lean 0 against it, and the
+cameras' mean image-up and the plane of the ankles are 7 to 9 degrees from
+it on a room-11 recording (sub-39). Hip flexion and arm raise are measured
+against the trunk itself, so they do not need the vertical.
+
 Quality checks
 ---------------
 
