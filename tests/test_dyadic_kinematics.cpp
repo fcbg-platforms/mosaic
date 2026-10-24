@@ -1,8 +1,11 @@
 #include <gtest/gtest.h>
 
 #include <QFile>
+#include <QStringList>
 #include <QTemporaryDir>
+#include <array>
 #include <cmath>
+#include <numbers>
 
 #include "analysis/dyadic_kinematics.hpp"
 #include "analysis/skeleton3d_result.hpp"
@@ -532,4 +535,106 @@ TEST(PersonKinematics, SpeedAndHeightsOfOnePerson) {
     EXPECT_NEAR(s.stats.medianHeadHeightMm, 1600.0, 1e-6);
     // Nobody with another number.
     EXPECT_EQ(compute_person_kinematics(result, 2).samples[0].cameras, 0);
+}
+
+TEST(PersonKinematics, JointAnglesAreFlexionFromStandingStraight) {
+    // Forward is -z, up -y. Tick 0: upright, the left leg bent as sitting
+    // (thigh forward, shank down), the right leg straight, the left arm
+    // hanging, the right arm straight out sideways with the forearm pointing
+    // up. Tick 1: the same, the shoulders 30 degrees forward over the hips.
+    // Tick 2: as tick 0 without the right wrist. Tick 3: without the left
+    // hip. The raw keypoints have the left leg straight: the angles must
+    // come from the smoothed ones.
+    using P            = std::array<double, 3>;
+    const double s30   = 500.0 * std::sin(std::numbers::pi / 6);
+    const double c30   = 500.0 * std::cos(std::numbers::pi / 6);
+    const auto pose_at = [&](bool lean, int missing) {
+        // Shoulders 500 mm above the hips; leaning moves them forward.
+        const P sh = lean ? P{0, -800 - c30, 3000 - s30} : P{0, -1300, 3000};
+        const QVector<P> kp{
+            {sh[0], sh[1] - 250, sh[2]},       // nose
+            {sh[0] - 200, sh[1], sh[2]},       // left_shoulder
+            {sh[0] + 200, sh[1], sh[2]},       // right_shoulder
+            {sh[0] - 200, sh[1] + 300, sh[2]}, // left_elbow, below the shoulder
+            {sh[0] + 500, sh[1], sh[2]},       // right_elbow, out to the side
+            {sh[0] - 200, sh[1] + 600, sh[2]}, // left_wrist, below the elbow
+            {sh[0] + 500, sh[1] - 300, sh[2]}, // right_wrist, above the elbow
+            {-150, -800, 3000},                // left_hip
+            {150, -800, 3000},                 // right_hip
+            {-150, -800, 2600},                // left_knee, forward
+            {150, -440, 3000},                 // right_knee, below
+            {-150, -80, 2600},                 // left_ankle, below the knee
+            {150, -80, 3000},                  // right_ankle
+        };
+        const auto at = [](const P& p) {
+            return QString("[%1,%2,%3]")
+                .arg(p[0], 0, 'f', 6)
+                .arg(p[1], 0, 'f', 6)
+                .arg(p[2], 0, 'f', 6);
+        };
+        QStringList raw, smoothed, valid;
+        for (int i = 0; i < kp.size(); ++i) {
+            smoothed << at(kp[i]);
+            // Raw: the left knee and ankle straight below the hip.
+            raw << (i == 9 ? at({-150, -440, 3000}) : i == 11 ? at({-150, -80, 3000}) : at(kp[i]));
+            valid << (i == missing ? "false" : "true");
+        }
+        return QString(R"({"track_id": 0, "num_contributing_cameras": 2, )"
+                       R"("keypoints_room": [%1], "keypoints_room_smoothed": [%2], )"
+                       R"("keypoints_valid": [%3]})")
+            .arg(raw.join(","), smoothed.join(","), valid.join(","));
+    };
+    constexpr int kRightWrist = 6;
+    constexpr int kLeftHip    = 7;
+    const QString frames      = QString(R"({"tick": 0, "timestamp_ns": 0, "people": [%1]},)"
+                                             R"({"tick": 1, "timestamp_ns": 100000000, "people": [%2]},)"
+                                             R"({"tick": 2, "timestamp_ns": 200000000, "people": [%3]},)"
+                                             R"({"tick": 3, "timestamp_ns": 300000000, "people": [%4]})")
+                               .arg(pose_at(false, -1), pose_at(true, -1),
+                                    pose_at(false, kRightWrist), pose_at(false, kLeftHip));
+    const QString json =
+        QString(R"({"schema": "mosaic-skeleton3d-v1", "cameras": [], "keypoint_names": [)"
+                R"("nose","left_shoulder","right_shoulder","left_elbow","right_elbow",)"
+                R"("left_wrist","right_wrist","left_hip","right_hip","left_knee","right_knee",)"
+                R"("left_ankle","right_ankle"], "skeleton_edges": [], "frames": [%1]})")
+            .arg(frames);
+    QTemporaryDir dir;
+    QFile f(dir.filePath("s.json"));
+    ASSERT_TRUE(f.open(QIODevice::WriteOnly));
+    f.write(json.toUtf8());
+    f.close();
+    const auto result = Skeleton3DResult::load(dir.filePath("s.json"));
+    ASSERT_TRUE(result.is_valid());
+
+    const auto s = compute_person_kinematics(result, 1);
+    ASSERT_EQ(s.samples.size(), 4);
+    const auto& up = s.samples[0];
+    EXPECT_NEAR(up.kneeFlexionDeg.left, 90.0, 1e-6);
+    EXPECT_NEAR(up.kneeFlexionDeg.right, 0.0, 1e-6);
+    EXPECT_NEAR(up.hipFlexionDeg.left, 90.0, 1e-6);
+    EXPECT_NEAR(up.hipFlexionDeg.right, 0.0, 1e-6);
+    EXPECT_NEAR(up.armRaiseDeg.left, 0.0, 1e-6);
+    EXPECT_NEAR(up.armRaiseDeg.right, 90.0, 1e-6);
+    EXPECT_NEAR(up.elbowFlexionDeg.left, 0.0, 1e-6);
+    EXPECT_NEAR(up.elbowFlexionDeg.right, 90.0, 1e-6);
+    // Leaning 30 degrees forward over a thigh at 90: the hip is at 120.
+    EXPECT_NEAR(s.samples[1].hipFlexionDeg.left, 120.0, 1e-6);
+    // Without the right wrist, no right elbow; the rest is unaffected.
+    EXPECT_TRUE(std::isnan(s.samples[2].elbowFlexionDeg.right));
+    EXPECT_NEAR(s.samples[2].elbowFlexionDeg.left, 0.0, 1e-6);
+    EXPECT_NEAR(s.samples[2].armRaiseDeg.right, 90.0, 1e-6);
+    // Without the left hip there is no trunk: no hip flexion or arm raise on
+    // either side, and no left knee; the right knee and the elbows stay.
+    const auto& noHip = s.samples[3];
+    EXPECT_TRUE(std::isnan(noHip.hipFlexionDeg.left));
+    EXPECT_TRUE(std::isnan(noHip.hipFlexionDeg.right));
+    EXPECT_TRUE(std::isnan(noHip.armRaiseDeg.right));
+    EXPECT_TRUE(std::isnan(noHip.kneeFlexionDeg.left));
+    EXPECT_NEAR(noHip.kneeFlexionDeg.right, 0.0, 1e-6);
+    EXPECT_NEAR(noHip.elbowFlexionDeg.right, 90.0, 1e-6);
+    // The usual angles, over the ticks each is known: hip left 90, 120, 90.
+    EXPECT_NEAR(s.stats.medianHipFlexionDeg.left, 90.0, 1e-6);
+    EXPECT_NEAR(s.stats.medianKneeFlexionDeg.left, 90.0, 1e-6);
+    EXPECT_NEAR(s.stats.medianElbowFlexionDeg.right, 90.0, 1e-6);
+    EXPECT_NEAR(s.stats.medianArmRaiseDeg.left, 0.0, 1e-6);
 }
