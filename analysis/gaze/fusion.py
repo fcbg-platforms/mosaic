@@ -469,6 +469,8 @@ def assign_subjects(
     walk_mm_s: float = 1000.0,
     min_seconds: float = 1.0,
     max_subjects: int | None = None,
+    max_shared_ticks: int = 2,
+    max_shared_share: float = 0.1,
 ) -> list[str]:
     """Track heads over time and name subjects ``S1``, ``S2``...
 
@@ -494,6 +496,10 @@ def assign_subjects(
         Tracks shorter than this (in seen time) are discarded as noise.
     max_subjects : int, optional
         Keep only this many subjects, those seen the longest.
+    max_shared_ticks, max_shared_share : int, float
+        Two tracks seen at the same ticks can still be one person when they
+        share at most this many ticks, or this share of the shorter one's,
+        and each is also seen at ticks the other is not.
 
     Returns
     -------
@@ -530,8 +536,12 @@ def assign_subjects(
         for tid, es in tracks.items()
     }
 
-    # Join tracks of one person: never seen at the same tick, and every
-    # hand-over between them is walkable (see _walkable). Closest first.
+    # Join tracks of one person: (almost) never seen at the same tick, and
+    # every hand-over between them is walkable (see _walkable). Closest
+    # first. A few shared ticks are allowed: two cameras that each saw the
+    # face alone, not fitted together (sub-39_ses-04: one person split for
+    # 5 ticks); two real people share nearly all their ticks.
+    # drop_duplicates() later keeps the better entry at a shared tick.
     parent = {tid: tid for tid in info}
 
     def root(t):
@@ -552,9 +562,19 @@ def assign_subjects(
     merged_samples = dict(samples)
     for _dist, a, b in pairs:
         ra, rb = root(a), root(b)
-        if ra == rb or merged_ticks[ra] & merged_ticks[rb]:
+        if ra == rb:
             continue
-        if not _walkable(merged_samples[ra], merged_samples[rb], merge_distance_mm, walk_mm_s):
+        shared = merged_ticks[ra] & merged_ticks[rb]
+        smaller = min(len(merged_ticks[ra]), len(merged_ticks[rb]))
+        if len(shared) > max(max_shared_ticks, max_shared_share * smaller):
+            continue
+        # The hand-overs are judged away from the shared ticks.
+        shared_t = {float(times[t]) for t in shared}
+        sa = [x for x in merged_samples[ra] if x[0] not in shared_t]
+        sb = [x for x in merged_samples[rb] if x[0] not in shared_t]
+        # A track seen only at shared ticks has no hand-over to judge: it
+        # could be anyone, anywhere in the room, so it is not joined.
+        if not sa or not sb or not _walkable(sa, sb, merge_distance_mm, walk_mm_s):
             continue
         parent[rb] = ra
         merged_ticks[ra] |= merged_ticks.pop(rb)
@@ -624,6 +644,80 @@ def _join_split_people(people: dict, same_mm: float = 250.0, share: float = 0.8)
             merged[target].extend(people[r])
             pos[target].update({t: p for t, p in pos[r].items() if t not in pos[target]})
     return merged
+
+
+def drop_single_view_echoes(
+    entries: list[Entry], cameras: dict, reach: float = 1.0, in_front: float = 0.8
+) -> list:
+    """Leave out one camera's sighting of someone several cameras place.
+
+    When a camera's view of a face does not fit the others' well enough
+    (a camera off its calibration, a face seen at a steep angle), that view
+    stays a one-camera entry of its own, while the other cameras place the
+    same person. Its head comes only from the face's size, often half a
+    metre or more off, so it is tracked as a second person, drawn as a
+    second gaze line from the same face (sub-39_ses-04, one person: "S2",
+    nearly always a one-camera entry next to a several-camera "S1").
+
+    A camera sees one face at one place: a one-camera entry is an echo when
+    the head of a several-camera entry of the same tick, projected into that
+    camera, lands on its face box or within ``reach`` face widths of it
+    (room for the calibration's error). Echoes are left out. Kept:
+
+    - a face of a camera that already sees that person (faces are found
+      once per camera, so it is someone else);
+    - a face clearly nearer the camera than that person's head, under
+      ``in_front`` of its depth: someone in front of them. An echo's depth
+      can be far off but on sub-39_ses-04 it stayed at 0.87 to 1.73 times
+      the placed head's;
+    - a head behind the camera, which still projects to a pixel.
+
+    Parameters
+    ----------
+    entries : list of Entry
+    cameras : dict of int to pose3d.triangulation.CameraGeom
+    reach : float
+        How far, in face widths, around the face box still counts.
+    in_front : float
+        Depth ratio under which a face is someone in front, not an echo.
+
+    Returns
+    -------
+    list of Entry
+        The entries kept, in their order.
+    """
+    from pose3d.triangulation import project_point_px
+
+    by_tick: dict = {}
+    for e in entries:
+        by_tick.setdefault(e.tick, []).append(e)
+    echoes = set()
+    for group in by_tick.values():
+        placed = [e for e in group if e.n_cameras >= 2]
+        if not placed:
+            continue
+        for e in group:
+            if e.n_cameras != 1:
+                continue
+            face = e.views[0]
+            cam = cameras.get(face.camera)
+            if cam is None:
+                continue
+            m = reach * face.size
+            x1, y1, x2, y2 = face.box
+            r, t = cam.camera_from_room[:3, :3], cam.camera_from_room[:3, 3]
+            z_face = float((r @ e.pose.t + t)[2])
+            for p in placed:
+                if any(f.camera == face.camera for f in p.views):
+                    continue
+                z_head = float((r @ p.pose.t + t)[2])
+                if z_head <= 0 or z_face < in_front * z_head:
+                    continue
+                u, v = np.asarray(project_point_px(p.pose.t, cam), dtype=float)[:2]
+                if np.isfinite(u) and x1 - m <= u <= x2 + m and y1 - m <= v <= y2 + m:
+                    echoes.add(id(e))
+                    break
+    return [e for e in entries if id(e) not in echoes]
 
 
 def drop_duplicates(entries: list[Entry]) -> list[Entry]:

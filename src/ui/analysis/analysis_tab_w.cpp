@@ -1187,6 +1187,7 @@ struct AnalysisTabW::Impl {
     // regexes there.
     QProgressBar* cameraProgressBar = nullptr;
     QProgressBar* progressBar       = nullptr; // per-frame progress, parsed out of output_received
+    bool runInSteps                 = false;   // the run printed a "Step i/n:" line
     QTextEdit* logView              = nullptr;
 
     // Source-picker rows: sourceRowW (Camera/Keypoint, pose+face_mask) and
@@ -1530,11 +1531,38 @@ AnalysisTabW::AnalysisTabW(AppSettings& settings, AnalysisManager* analysisMgr,
         d->progressBar->setFormat("%p%");
         d->progressBar->setVisible(false);
         d->cameraProgressBar->setValue(0);
+        d->cameraProgressBar->setFormat("Camera"); // not a previous run's step
+        d->runInSteps = false;
         d->cameraProgressBar->setVisible(false);
     });
     connect(analysisMgr, &AnalysisManager::output_received, this, [this](const QString& line) {
         if (!d->jobIsMine) {
             return;
+        }
+
+        // A run in stages (3D Gaze: finding faces, fusing, writing the
+        // videos) prints "Step i/n: <what>" as each begins: the upper bar
+        // then names the stage, and the lower one is that stage's progress,
+        // so a bar starting again at 0 reads as the next stage, not as a
+        // restart.
+        static const QRegularExpression stepRe(
+            QStringLiteral(R"(^\[run_\w+\] Step (\d+)/(\d+):\s*(.*)$)"));
+        const auto stepMatch = stepRe.match(line);
+        if (stepMatch.hasMatch()) {
+            const int stepIdx   = stepMatch.captured(1).toInt();
+            const int stepTotal = stepMatch.captured(2).toInt();
+            d->cameraProgressBar->setVisible(true);
+            d->cameraProgressBar->setRange(0, stepTotal);
+            d->cameraProgressBar->setValue(stepIdx);
+            QString what = stepMatch.captured(3).trimmed();
+            if (!what.isEmpty()) {
+                what[0] = what[0].toUpper();
+            }
+            d->cameraProgressBar->setFormat(
+                QString("Step %1 of %2 · %3").arg(stepIdx).arg(stepTotal).arg(what));
+            d->progressBar->setValue(0);
+            d->progressBar->setVisible(true);
+            d->runInSteps = true;
         }
 
         // Multi-camera session runs print one "Camera N/M: <file>" banner
@@ -1588,9 +1616,13 @@ AnalysisTabW::AnalysisTabW(AppSettings& settings, AnalysisManager* analysisMgr,
             const double pct = match.captured(1).toDouble();
             d->progressBar->setVisible(true);
             d->progressBar->setValue(static_cast<int>(pct * 10.0));
-            d->progressBar->setFormat(QString("%1%  (%2/%3 frames)")
-                                          .arg(pct, 0, 'f', 1)
-                                          .arg(match.captured(2), match.captured(3)));
+            // In a run in stages the counts are not frames (ticks, videos):
+            // the step bar above says what is being counted.
+            d->progressBar->setFormat(d->runInSteps
+                                          ? QString("%1%").arg(pct, 0, 'f', 1)
+                                          : QString("%1%  (%2/%3 frames)")
+                                                .arg(pct, 0, 'f', 1)
+                                                .arg(match.captured(2), match.captured(3)));
             return;
         }
         d->logView->append(line);
