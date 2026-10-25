@@ -139,16 +139,22 @@ TEST(Gaze3DPage, LoadsAndRunsItsViewsWithoutAWarning) {
     page->setProperty("width", 900);
     page->setProperty("height", 600);
 
-    // A result, playback through mutual gaze, the targets lit, a person
-    // missing; the toggles, every view, the view from each camera; then no
-    // result again.
-    scene.set_result(result);
+    // A result with its 3D Pose bodies, playback through mutual gaze, the
+    // targets lit, a person missing; the toggles, every view, the view from
+    // each camera; then no result again.
+    ASSERT_TRUE(write_gaze3d_pose_fixture(dir.filePath("pose.json")));
+    const auto pose = mosaic::Skeleton3DResult::load(dir.filePath("pose.json"));
+    ASSERT_TRUE(pose.is_valid());
+    scene.set_result(result, &pose);
     for (const int64_t ms : {0, 400, 640}) {
         scene.set_position_ms(ms);
         QCoreApplication::processEvents();
     }
     EXPECT_TRUE(page->property("info").toString().contains("person(s) shown"));
     scene.set_trails(false);
+    scene.set_show_bodies(false);
+    QCoreApplication::processEvents();
+    scene.set_show_bodies(true);
     scene.set_follow("S2");
     scene.set_position_ms(400);
     for (int preset = 0; preset < 4; ++preset) {

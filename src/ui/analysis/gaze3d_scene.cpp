@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <cmath>
 
+#include "analysis/gaze_pose_match.hpp"
 #include "analysis/gaze_summary.hpp"
 #include "analysis/room_view_math.hpp"
 #include "ui/analysis/gaze_colors.hpp"
@@ -27,7 +28,13 @@ QVector3D unit_or(const QVector3D& v, const QVector3D& fallback) {
 
 } // namespace
 
-Gaze3DScene::Gaze3DScene(QObject* parent) : Room3DMeshSource(parent) {}
+Gaze3DScene::Gaze3DScene(QObject* parent) : Room3DMeshSource(parent) {
+    // The bodies share this room, and follow this result's ticks; theirs
+    // are drawn without trails.
+    bodies_.share_stage(&stage_);
+    bodies_.set_trails(false);
+    bodies_.set_time_ns(std::nullopt);
+}
 
 // As on the video: the annotated videos' and the live overlay's colour.
 QColor Gaze3DScene::color_of(const QString& id) const { return gaze_subject_color(id); }
@@ -44,13 +51,15 @@ QVariantList Gaze3DScene::people() const {
     return out;
 }
 
-void Gaze3DScene::set_result(const GazeFusionResult& result,
-                             std::optional<Room3DStage::Basis> room) {
+void Gaze3DScene::set_result(const GazeFusionResult& result, const Skeleton3DResult* pose) {
     result_ = result;
     follow_.clear();
     hidden_.clear();
     seen_.clear();
+    personOf_.clear();
+    const bool withPose = pose && pose->is_valid() && !pose->frames().isEmpty();
     if (!result_.is_valid()) {
+        bodies_.set_result(Skeleton3DResult());
         stage_.clear_room();
         emit resultChanged();
         emit peopleChanged();
@@ -65,8 +74,8 @@ void Gaze3DScene::set_result(const GazeFusionResult& result,
     // calibrated plane's normal, turned towards the cameras, else the
     // cameras'.
     Room3DStage::Basis basis;
-    if (room) {
-        basis = *room;
+    if (withPose) {
+        basis = Room3DStage::basis_of(*pose);
     } else {
         std::optional<QVector3D> up;
         if (result_.plane_defined()) {
@@ -101,6 +110,21 @@ void Gaze3DScene::set_result(const GazeFusionResult& result,
         points.push_back(r.centre);
     }
     stage_.set_room(basis, result_.cameras(), points);
+
+    // The bodies, a matched person's in their gaze colour and name.
+    QMap<int, QPair<QString, QColor>> matched;
+    if (withPose) {
+        for (const auto& m : match_gaze_to_pose(result_, *pose)) {
+            if (m.person >= 0) {
+                personOf_[m.subject] = m.person;
+                matched[m.person]    = {result_.subject_name(m.subject), color_of(m.subject)};
+            }
+        }
+    }
+    bodies_.set_result(withPose ? *pose : Skeleton3DResult());
+    // Others grey: the two palettes are close, and an unmatched body in
+    // nearly a gaze person's colour would read as them.
+    bodies_.set_matched(matched, QColor("#9aa0b8"));
     emit resultChanged();
     emit peopleChanged();
     rebuild_frame();
@@ -117,6 +141,9 @@ void Gaze3DScene::set_shown(const QString& id, bool shown) {
     } else {
         hidden_.insert(id);
     }
+    if (const int person = person_of(id); person >= 0) {
+        bodies_.set_shown(person, shown); // and their body
+    }
     emit peopleChanged();
     rebuild_frame();
 }
@@ -129,6 +156,11 @@ void Gaze3DScene::set_follow(const QString& id) {
 
 void Gaze3DScene::set_trails(bool on) {
     trails_ = on;
+    rebuild_frame();
+}
+
+void Gaze3DScene::set_show_bodies(bool on) {
+    showBodies_ = on;
     rebuild_frame();
 }
 
@@ -281,6 +313,19 @@ void Gaze3DScene::rebuild_frame() {
         }
     }
     set_mesh("trails", std::move(trails));
+    // The bodies at this tick, on the shared clock; a matched person's head
+    // and label are drawn here when their gaze is (else the body's own).
+    QSet<int> headsHere;
+    if (frame) {
+        for (const auto& s : frame->subjects) {
+            if (const int person = person_of(s.id); person >= 0 && !hidden_.contains(s.id)) {
+                headsHere.insert(person);
+            }
+        }
+    }
+    bodies_.set_heads_elsewhere(headsHere);
+    bodies_.set_time_ns(frame && showBodies_ ? std::optional<int64_t>(frame->timestampNs)
+                                             : std::nullopt);
     emit frameChanged();
 }
 

@@ -58,9 +58,26 @@ class Room3DScene : public Room3DMeshSource {
     void set_trails(bool on);
     void set_paths(bool on);
 
-    [[nodiscard]] Room3DStage& stage() { return stage_; }
-    [[nodiscard]] const Room3DStage& stage() const { return stage_; }
-    [[nodiscard]] QObject* stage_object() { return &stage_; }
+    // For another page's room (the 3D Gaze view's bodies): draw on its
+    // stage, which that page sets up; this scene then leaves the room alone.
+    void share_stage(Room3DStage* stage);
+    // The frame nearest `ns` on the result's clock, within 100 ms (none:
+    // nothing drawn), instead of by player position; for a page following
+    // another result's ticks.
+    void set_time_ns(std::optional<int64_t> ns);
+    // People known by another name and colour (the 3D Gaze person they
+    // are): drawn in it, and everyone else in `others` when given (so no
+    // one else looks like them).
+    void set_matched(const QMap<int, QPair<QString, QColor>>& matched,
+                     std::optional<QColor> others = std::nullopt);
+    // People whose head and label the other page draws at this tick (its
+    // matched people it sees then): none of their own. Takes effect at the
+    // next frame (set_time_ns()).
+    void set_heads_elsewhere(const QSet<int>& people) { headsElsewhere_ = people; }
+
+    [[nodiscard]] Room3DStage& stage() { return *stage_; }
+    [[nodiscard]] const Room3DStage& stage() const { return *stage_; }
+    [[nodiscard]] QObject* stage_object() { return stage_; }
     [[nodiscard]] QVariantList people() const;
     [[nodiscard]] bool has_result() const { return result_.is_valid(); }
     [[nodiscard]] QVariantList bones() const { return bones_; }
@@ -79,10 +96,10 @@ class Room3DScene : public Room3DMeshSource {
 
     // Room frame (mm) to the scene, as the stage turns it.
     [[nodiscard]] QVector3D to_scene(const Skeleton3DVec3& room) const {
-        return stage_.to_scene(room);
+        return stage_->to_scene(room);
     }
     [[nodiscard]] QVector3D dir_to_scene(const QVector3D& roomDir) const {
-        return stage_.dir_to_scene(roomDir);
+        return stage_->dir_to_scene(roomDir);
     }
 
     // Its meshes (mesh()): the trails, the paths and the torsos.
@@ -101,6 +118,7 @@ class Room3DScene : public Room3DMeshSource {
     // when Show smoothed is on); none when not valid.
     [[nodiscard]] std::optional<QVector3D> point(const Skeleton3DPerson& p, int i) const;
     [[nodiscard]] std::optional<QVector3D> hips(const Skeleton3DPerson& p) const;
+    [[nodiscard]] QColor color_of(int person) const;
 
     Skeleton3DResult result_;
     int64_t positionMs_ = 0;
@@ -111,7 +129,14 @@ class Room3DScene : public Room3DMeshSource {
     QSet<int> hidden_;
     int follow_ = -1;
 
-    Room3DStage stage_;
+    Room3DStage ownStage_;
+    Room3DStage* stage_ = &ownStage_;
+    bool ownsRoom_      = true;
+    bool byTime_        = false; // set_time_ns() rather than the player position
+    std::optional<int64_t> timeNs_;
+    QMap<int, QPair<QString, QColor>> matched_;
+    std::optional<QColor> others_;
+    QSet<int> headsElsewhere_;
     QMap<int, double> seconds_; // person -> seconds in 3D
     QVector<int> headIdx_;
     int lHip_ = -1, rHip_ = -1, lSh_ = -1, rSh_ = -1, nose_ = -1, lEar_ = -1, rEar_ = -1;

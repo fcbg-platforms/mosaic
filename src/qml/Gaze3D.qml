@@ -3,6 +3,8 @@
 // (Gaze3DScene) gives what to draw, in the stage's Y-up scene in
 // millimetres; this page lays out the heads, the gaze rays and points, the
 // regions and the plane, the labels, the People panel, and follows a person.
+// With the session's 3D Pose result, everyone's body too (RoomBodies.qml):
+// a gaze person's in their colour, with this page's head and label.
 import QtQuick
 import QtQuick3D
 import Mosaic.Room3D
@@ -25,11 +27,19 @@ RoomStage {
     }
 
     buttons: [
-        RoomPill { text: "Trails"; on: gaze3d.trails; onClicked: gaze3d.trails = !gaze3d.trails }
+        RoomPill { text: "Trails"; on: gaze3d.trails; onClicked: gaze3d.trails = !gaze3d.trails },
+        RoomPill {
+            visible: gaze3d.hasBodies
+            text: "Bodies"
+            on: gaze3d.showBodies
+            onClicked: gaze3d.showBodies = !gaze3d.showBodies
+        }
     ]
 
     // Made per index (model: count), so a new tick only moves them.
     scene: [
+        // The 3D Pose bodies, at this tick (empty when switched off).
+        RoomBodies { bodies: gaze3d.bodies },
         // Heads: hover one for who it is and what they look at.
         Repeater3D {
             model: gaze3d.heads.length
@@ -121,6 +131,22 @@ RoomStage {
             materials: DefaultMaterial { vertexColorsEnabled: true; lighting: DefaultMaterial.NoLighting; opacity: 0.99 }
         }
     ]
+
+    // ── Labels: a body not matched to a gaze person (they have their own) ──
+    Repeater {
+        model: gaze3d.bodies.tags.length
+        delegate: RoomTag {
+            required property int index
+            readonly property var modelData: gaze3d.bodies.tags[index] || ({ pos: Qt.vector3d(0, 0, 0) })
+            readonly property vector3d s: page.screen(modelData.pos)
+            text: modelData.text
+            tint: modelData.color
+            pageHeight: page.height
+            x: s.x - width / 2
+            y: s.y - height
+            visible: s.z > 0
+        }
+    }
 
     // ── Labels: each person and what they look at; each region's name ──
     Repeater {

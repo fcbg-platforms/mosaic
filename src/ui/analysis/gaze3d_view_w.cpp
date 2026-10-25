@@ -30,9 +30,8 @@ Gaze3DViewW::~Gaze3DViewW() {
     delete d->host;
 }
 
-void Gaze3DViewW::set_result(const GazeFusionResult& result,
-                             std::optional<Room3DStage::Basis> room) {
-    d->scene.set_result(result, room);
+void Gaze3DViewW::set_result(const GazeFusionResult& result, const Skeleton3DResult* pose) {
+    d->scene.set_result(result, pose);
 }
 
 void Gaze3DViewW::set_position_ms(int64_t positionMs) { d->scene.set_position_ms(positionMs); }

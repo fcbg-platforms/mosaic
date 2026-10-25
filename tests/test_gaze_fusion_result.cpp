@@ -2,6 +2,7 @@
 
 #include <QColor>
 #include <QFile>
+#include <QStringList>
 #include <QTemporaryDir>
 #include <QTextStream>
 #include <QVector3D>
@@ -514,13 +515,56 @@ TEST(Gaze3DScene, HeadsRaysAndTargetsInTheRoom) {
     EXPECT_EQ(scene.heads().size(), 1);
     EXPECT_FALSE(scene.people()[0].toMap()["shown"].toBool());
 
-    // The 3D Pose room, when given, sets the floor: here 1.5 m below the
-    // cameras.
-    mosaic::Room3DStage::Basis room;
-    room.floorH = -1500.0f;
-    scene.set_result(r, room);
+    // With the session's 3D Pose result: its room (up from the torsos, the
+    // floor from the ankles, 1.78 m below the heads here) and its bodies.
+    // Its one person stands where Child's head is, so is Child: in Child's
+    // colour and name, and without a head or label of their own.
+    ASSERT_TRUE(write_gaze3d_pose_fixture(dir.filePath("pose.json")));
+    const auto pose = mosaic::Skeleton3DResult::load(dir.filePath("pose.json"));
+    ASSERT_TRUE(pose.is_valid());
+    scene.set_result(r, &pose);
     scene.set_position_ms(0);
-    EXPECT_NEAR(scene.heads()[0].toMap()["pos"].value<QVector3D>().y(), 1500.0f, 1e-3f);
+    EXPECT_NEAR(scene.heads()[0].toMap()["pos"].value<QVector3D>().y(), 1780.0f, 1e-3f);
+    ASSERT_TRUE(scene.has_bodies());
+    EXPECT_EQ(scene.person_of("S1"), 1);
+    EXPECT_EQ(scene.person_of("S2"), -1);
+    auto& bodies = scene.bodies();
+    EXPECT_FALSE(bodies.bones().isEmpty());
+    // Child's head and label are the gaze layer's; Person 2 (nobody's gaze)
+    // keeps theirs, in grey, not in a gaze colour.
+    ASSERT_EQ(bodies.heads().size(), 1);
+    ASSERT_EQ(bodies.tags().size(), 1);
+    EXPECT_EQ(bodies.tags()[0].toMap()["text"].toString(), "Person 2");
+    EXPECT_EQ(bodies.tags()[0].toMap()["color"].value<QColor>(), QColor("#9aa0b8"));
+    EXPECT_EQ(bodies.bones()[0].toMap()["color"].value<QColor>(), QColor(255, 200, 60));
+    EXPECT_EQ(bodies.people()[0].toMap()["label"].toString(), "Person 1");
+    // Hiding Child hides their body (Person 2's stays); Bodies off draws
+    // none.
+    const auto bonesOf = [&](const QColor& c) {
+        int n = 0;
+        for (const auto& b : bodies.bones()) {
+            n += b.toMap()["color"].value<QColor>() == c;
+        }
+        return n;
+    };
+    scene.set_shown("S1", false);
+    EXPECT_EQ(bonesOf(QColor(255, 200, 60)), 0);
+    EXPECT_GT(bonesOf(QColor("#9aa0b8")), 0);
+    scene.set_shown("S1", true);
+    scene.set_show_bodies(false);
+    EXPECT_TRUE(bodies.bones().isEmpty());
+    scene.set_show_bodies(true);
+    // Later ticks follow on the shared clock: frame 9 (0.72 s) is tick 18.
+    // Child is not in the gaze then, so their body has its own head and
+    // label, under their name.
+    scene.set_position_ms(720);
+    EXPECT_EQ(bodies.tick(), 18);
+    ASSERT_EQ(bodies.tags().size(), 2);
+    EXPECT_EQ(bodies.tags()[0].toMap()["text"].toString(), "Child");
+    // Nothing in 3D Pose within 100 ms of a time: no bodies then.
+    bodies.set_time_ns(5000000000LL);
+    EXPECT_TRUE(bodies.bones().isEmpty());
+    EXPECT_EQ(bodies.tick(), -1);
 
     // A plane on a wall (its normal level, room +z) is not taken for up:
     // the cameras' up stands, and the screen, at the cameras' height but

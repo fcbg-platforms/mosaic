@@ -73,3 +73,42 @@ inline bool write_gaze3d_fixture(const QString& path, bool withCameraDirections 
     f.write(gaze3d_fixture_json(withCameraDirections).toUtf8());
     return true;
 }
+
+// The session's 3D Pose result to go with it, 12 ticks 80 ms apart: Person
+// 1 standing, their face where Child's head is (so Child is them), ankles
+// 1.7 m below it; Person 2 the same 2 m to the side, nobody's gaze.
+inline bool write_gaze3d_pose_fixture(const QString& path) {
+    QStringList frames;
+    for (int k = 0; k < 12; ++k) {
+        const auto person = [](int track, int x) {
+            return QString(R"({"track_id": %1, "keypoints_room": [[%2,0,2500],[%3,0,2500],)"
+                           R"([%4,0,2500],[%5,300,2500],[%6,300,2500],[%7,800,2500],)"
+                           R"([%8,800,2500],[%7,1700,2500],[%8,1700,2500]], "keypoints_valid": )"
+                           R"([true,true,true,true,true,true,true,true,true]})")
+                .arg(track)
+                .arg(x)
+                .arg(x - 75)
+                .arg(x + 75)
+                .arg(x - 200)
+                .arg(x + 200)
+                .arg(x - 150)
+                .arg(x + 150);
+        };
+        frames << QString(R"({"tick": %1, "timestamp_ns": %2, "people": [%3, %4]})")
+                      .arg(2 * k)
+                      .arg(80000000LL * k)
+                      .arg(person(0, -700), person(1, 2700));
+    }
+    QFile f(path);
+    if (!f.open(QIODevice::WriteOnly)) {
+        return false;
+    }
+    f.write(QString(R"({"schema": "mosaic-skeleton3d-v1", "cameras": [], "keypoint_names": )"
+                    R"(["nose", "left_eye", "right_eye", "left_shoulder", "right_shoulder", )"
+                    R"("left_hip", "right_hip", "left_ankle", "right_ankle"], )"
+                    R"("skeleton_edges": [[3, 5], [5, 7], [4, 6], [6, 8], [3, 4]], )"
+                    R"("frames": [%1]})")
+                .arg(frames.join(","))
+                .toUtf8());
+    return true;
+}

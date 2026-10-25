@@ -935,7 +935,12 @@ sitting alongside **Live**. The workflow is always the same shape:
         at them, and with **Trails** each person's gaze points over the
         last 2 seconds. Hover a head for who it is, what they look at, how
         many cameras saw them and how sure the gaze is. The **People**
-        panel hides or follows a person. Up and the floor are those of the
+        panel hides or follows a person. With a 3D Pose result for the
+        session, **Bodies** draws everyone's 3D skeleton too, at the same
+        moment: a person whose head the gaze puts where a 3D Pose person's
+        is (see :doc:`math/pose3d_reconstruction`) is shown as one, in the
+        gaze colour and name; anyone else keeps their 3D Pose colour and
+        "Person N" label. Up and the floor are those of the
         session's 3D Pose result when there is one, so the two views show
         the same room; else up is the calibrated plane's normal when it is
         level (a table), or the cameras', and the floor 2 m below the

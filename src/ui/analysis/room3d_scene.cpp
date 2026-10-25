@@ -3,6 +3,7 @@
 #include <QQuaternion>
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
 #include <optional>
 
 #include "ui/analysis/subject_colors.hpp"
@@ -38,7 +39,7 @@ QVariantList Room3DScene::people() const {
         out << QVariantMap{{"id", it.key()},
                            {"label", QString("Person %1").arg(it.key())},
                            {"seconds", it.value()},
-                           {"color", person_color(it.key())},
+                           {"color", color_of(it.key())},
                            {"shown", !hidden_.contains(it.key())},
                            {"brief", it.value() < kBriefPersonS}};
     }
@@ -67,6 +68,31 @@ void Room3DScene::set_result(const Skeleton3DResult& result) {
 void Room3DScene::set_position_ms(int64_t positionMs) {
     positionMs_ = positionMs;
     rebuild_frame();
+}
+
+void Room3DScene::share_stage(Room3DStage* stage) {
+    stage_    = stage;
+    ownsRoom_ = false;
+}
+
+void Room3DScene::set_time_ns(std::optional<int64_t> ns) {
+    byTime_ = true;
+    timeNs_ = ns;
+    rebuild_frame();
+}
+
+void Room3DScene::set_matched(const QMap<int, QPair<QString, QColor>>& matched,
+                              std::optional<QColor> others) {
+    matched_ = matched;
+    others_  = others;
+    emit peopleChanged();
+    rebuild_paths();
+    rebuild_frame();
+}
+
+QColor Room3DScene::color_of(int person) const {
+    const auto it = matched_.constFind(person);
+    return it != matched_.cend() ? it->second : others_.value_or(person_color(person));
 }
 
 void Room3DScene::set_show_smoothed(bool smoothed) {
@@ -148,7 +174,7 @@ void Room3DScene::rebuild_paths() {
                 // Points closer than a few centimetres add nothing visible
                 // and would make a long recording's mesh large.
                 if ((here - it->drawn).length() >= kPathStepMm) {
-                    const QColor col = alpha(person_color(p.trackId), 0.85);
+                    const QColor col = alpha(color_of(p.trackId), 0.85);
                     put(paths.vertices, it->drawn, col);
                     put(paths.vertices, here, col);
                     it->drawn = here;
@@ -176,12 +202,18 @@ void Room3DScene::rebuild_static() {
         }
     }
     if (!result_.is_valid()) {
-        stage_.clear_room();
+        if (ownsRoom_) {
+            stage_->clear_room();
+        }
         return;
     }
 
-    // The room: up and the floor from the people, framed on them.
+    // The room: up and the floor from the people, framed on them (not when
+    // another page's room is shared).
     seconds_ = result_.seconds_by_person();
+    if (!ownsRoom_) {
+        return;
+    }
     std::vector<Skeleton3DVec3> points;
     for (const auto& f : result_.frames()) {
         for (const auto& p : f.people) {
@@ -192,7 +224,7 @@ void Room3DScene::rebuild_static() {
             }
         }
     }
-    stage_.set_room(Room3DStage::basis_of(result_), result_.cameras(), points);
+    stage_->set_room(Room3DStage::basis_of(result_), result_.cameras(), points);
 }
 
 // The frame on show: people, trails, the two-person line, the labels.
@@ -211,7 +243,15 @@ void Room3DScene::rebuild_frame() {
     const auto& frames           = result_.frames();
     const Skeleton3DFrame* frame = nullptr;
     if (result_.is_valid() && !frames.isEmpty()) {
-        frame = result_.nearest_frame(frames.first().timestampNs + positionMs_ * 1000000LL);
+        if (!byTime_) {
+            frame = result_.nearest_frame(frames.first().timestampNs + positionMs_ * 1000000LL);
+        } else if (timeNs_) {
+            frame                         = result_.nearest_frame(*timeNs_);
+            constexpr int64_t kSameTimeNs = 100000000; // further: nobody in 3D then
+            if (frame && std::llabs(frame->timestampNs - *timeNs_) > kSameTimeNs) {
+                frame = nullptr;
+            }
+        }
     }
     if (!frame) {
         set_mesh("trails", std::move(trails));
@@ -230,8 +270,10 @@ void Room3DScene::rebuild_frame() {
             continue;
         }
         ++shownCount;
-        const QColor col  = person_color(p.trackId);
-        const QString who = QString("Person %1").arg(p.trackId);
+        const QColor col     = color_of(p.trackId);
+        const bool elsewhere = headsElsewhere_.contains(p.trackId);
+        const QString who    = matched_.contains(p.trackId) ? matched_.value(p.trackId).first
+                                                            : QString("Person %1").arg(p.trackId);
 
         for (const auto& e : result_.skeleton_edges()) {
             if (headIdx_.contains(e.first) && headIdx_.contains(e.second)) {
@@ -277,7 +319,7 @@ void Room3DScene::rebuild_frame() {
                              .arg(r[1] / 1000.0, 0, 'f', 2)
                              .arg(r[2] / 1000.0, 0, 'f', 2)}};
         }
-        if (headN) {
+        if (headN && !elsewhere) { // else the other page's head
             const QVector3D head = headSum / static_cast<float>(headN);
             QVariantMap h{{"pos", head}, {"color", col}, {"hasFacing", false}};
             // Facing: from between the ears (else the head's centre) to the
@@ -297,7 +339,7 @@ void Room3DScene::rebuild_frame() {
             }
             heads_ << h;
         }
-        if (topY > -1e29f) {
+        if (topY > -1e29f && !elsewhere) {
             tags_ << QVariantMap{
                 {"pos", top + QVector3D(0, 260, 0)}, {"text", who}, {"color", col}};
         }

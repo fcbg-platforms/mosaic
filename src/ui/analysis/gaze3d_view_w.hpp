@@ -2,10 +2,9 @@
 #include <QWidget>
 #include <cstdint>
 #include <memory>
-#include <optional>
 
 #include "analysis/gaze_fusion_result.hpp"
-#include "ui/analysis/room3d_stage.hpp"
+#include "analysis/skeleton3d_result.hpp"
 
 namespace mosaic {
 
@@ -28,11 +27,10 @@ class Gaze3DViewW : public QWidget {
     explicit Gaze3DViewW(QWidget* parent = nullptr);
     ~Gaze3DViewW() override;
 
-    // The result to show. `room`, the session's 3D Pose room when there is
-    // one, sets up and the floor (see Gaze3DScene::set_result). An invalid
-    // result clears the view.
-    void set_result(const GazeFusionResult& result,
-                    std::optional<Room3DStage::Basis> room = std::nullopt);
+    // The result to show. `pose`, the session's 3D Pose result when there
+    // is one, sets up and the floor and gives the bodies (see
+    // Gaze3DScene::set_result). An invalid result clears the view.
+    void set_result(const GazeFusionResult& result, const Skeleton3DResult* pose = nullptr);
 
     // Which frame to draw, by player position; see
     // GazeFusionResult::frame_at_position_ms().

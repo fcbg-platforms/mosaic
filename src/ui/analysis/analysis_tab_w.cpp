@@ -1252,11 +1252,12 @@ struct AnalysisTabW::Impl {
     QLabel* gazeStatsLbl       = nullptr; // gaze_fusion only
     QPushButton* exportGazeBtn = nullptr; // gaze_fusion only
     Gaze3DViewW* roomView      = nullptr; // gaze_fusion only
-    // gaze_fusion: the session's 3D Pose room (up and the floor), so the 3D
-    // Gaze view shares it; read once per skeleton3d.json, which can be large.
+    // gaze_fusion: the session's 3D Pose result, for the 3D Gaze view's room
+    // (up and the floor) and bodies; read once per skeleton3d.json, which can
+    // be large.
     QString gazeRoomFile;
     QDateTime gazeRoomStamp;
-    std::optional<Room3DStage::Basis> gazeRoomBasis;
+    Skeleton3DResult gazeRoomPose;
 
     // 3D Pose Reconstruction view controls — mirrors gazeFusionRowW's
     // own-container pattern. skeleton3dRoomView is the interactive
@@ -4091,15 +4092,10 @@ void AnalysisTabW::load_camera_result_view() {
         if (skeleton.filePath() != d->gazeRoomFile || skeleton.lastModified() != d->gazeRoomStamp) {
             d->gazeRoomFile  = skeleton.filePath();
             d->gazeRoomStamp = skeleton.lastModified();
-            d->gazeRoomBasis.reset();
-            if (skeleton.exists()) {
-                const auto room = Skeleton3DResult::load(skeleton.filePath());
-                if (room.is_valid() && !room.frames().isEmpty()) {
-                    d->gazeRoomBasis = Room3DStage::basis_of(room);
-                }
-            }
+            d->gazeRoomPose  = skeleton.exists() ? Skeleton3DResult::load(skeleton.filePath())
+                                                 : Skeleton3DResult();
         }
-        d->roomView->set_result(d->currentGazeFusion, d->gazeRoomBasis);
+        d->roomView->set_result(d->currentGazeFusion, &d->gazeRoomPose);
         d->roomView->set_image_folder(info->path);
 
         if (d->cameraCombo->currentIndex() >= 0) {
