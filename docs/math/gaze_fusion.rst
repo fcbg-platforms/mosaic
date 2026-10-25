@@ -283,6 +283,19 @@ gaze point stays the measured one; the output's ``measured`` field shows
 when it differs from the debounced label. **Mutual gaze** is when S1's
 debounced target is S2 and S2's is S1 at the same tick.
 
+The Analysis tab's **Charts** (``summarize_gaze`` in
+``src/analysis/gaze_summary.cpp``) sum these labels up over the recording.
+Each analysed tick stands for the step between analysed ticks (their median
+gap: two ticks with ``--skip 2``), so a person's times add up to the time
+they were seen. At each tick a person looks at a target (another person's
+face, a region, the plane), at **nothing** (a gaze found, landing on no
+target), or has **no gaze** (seen, without usable eyes). A **stretch** is a
+run of ticks on one target; ticks more than one and a half steps apart
+(the person not seen in between) start a new one, so a stretch never
+spans a gap. A **mutual gaze episode** is such a run of mutual ticks for
+one pair. Shares are of the time the person was seen, not of the
+recording.
+
 Timeline
 --------
 

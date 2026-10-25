@@ -41,6 +41,8 @@ qt_add_executable(mosaic MACOSX_BUNDLE
     analysis/trigger_frame_map.cpp
     analysis/gaze_fusion_result.hpp
     analysis/gaze_fusion_result.cpp
+    analysis/gaze_summary.hpp
+    analysis/gaze_summary.cpp
     analysis/skeleton3d_result.hpp
     analysis/skeleton3d_result.cpp
     analysis/rppg_result.hpp
