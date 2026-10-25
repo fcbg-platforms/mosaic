@@ -255,6 +255,7 @@ qt_add_executable(mosaic MACOSX_BUNDLE
 
     # ── Analysis tab ─────────────────────────────────────────────────────
     ui/analysis/subject_colors.hpp
+    ui/analysis/gaze_colors.hpp
     ui/analysis/pose_overlay_player_w.hpp
     ui/analysis/pose_overlay_player_w.cpp
     ui/analysis/analysis_tab_w.hpp
@@ -263,8 +264,12 @@ qt_add_executable(mosaic MACOSX_BUNDLE
     ui/analysis/plugin_rail_w.cpp
     ui/analysis/overview_timeline_w.hpp
     ui/analysis/overview_timeline_w.cpp
-    ui/analysis/gaze_room_view_w.hpp
-    ui/analysis/gaze_room_view_w.cpp
+    ui/analysis/gaze3d_scene.hpp
+    ui/analysis/gaze3d_scene.cpp
+    ui/analysis/gaze3d_view_w.hpp
+    ui/analysis/gaze3d_view_w.cpp
+    ui/analysis/room3d_host_w.hpp
+    ui/analysis/room3d_host_w.cpp
     ui/analysis/skeleton3d_room_view_w.hpp
     ui/analysis/skeleton3d_room_view_w.cpp
     ui/analysis/room3d_scene.hpp
@@ -286,6 +291,7 @@ qt_add_resources(mosaic "qml_resources"
     FILES
         qml/MonitorView.qml
         qml/Room3D.qml
+        qml/Gaze3D.qml
         qml/RoomStage.qml
         qml/RoomPill.qml
         qml/RoomTag.qml

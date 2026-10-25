@@ -35,6 +35,35 @@ inline Vec3 unit(const Vec3& a) {
 /// hip samples before they decide which way is up.
 inline constexpr int kMinUprightSamples = 10;
 
+/// The room's up from the cameras alone: the mean of each camera's own
+/// image-up direction (minus its y axis), since room cameras are mounted
+/// roughly level; -y, the reference camera's image-up, without camera
+/// directions.
+inline Vec3 up_from_cameras(const QVector<Skeleton3DRoomCamera>& cameras) {
+    Vec3 camUp{0, 0, 0};
+    for (const auto& c : cameras) {
+        if (c.hasRotation) {
+            // The camera's y axis in the room is the rotation's second column.
+            const auto& m = c.rotationRoom;
+            camUp         = sub(camUp, Vec3{m[1], m[4], m[7]});
+        }
+    }
+    return norm(camUp) > 1e-9 ? unit(camUp) : Vec3{0, -1, 0};
+}
+
+/// The floor's height along `up` from the cameras alone: 2 m below the
+/// lowest (room cameras hang at about head height).
+inline double floor_below_cameras(const QVector<Skeleton3DRoomCamera>& cameras, const Vec3& up) {
+    double camLow = 0.0;
+    bool anyCam   = false;
+    for (const auto& c : cameras) {
+        const double h = dot(c.positionRoom, up);
+        camLow         = anyCam ? std::min(camLow, h) : h;
+        anyCam         = true;
+    }
+    return camLow - 2000.0;
+}
+
 /// The room's up direction, a unit vector in the room frame.
 ///
 /// From the people: the mean direction from the middle of the hips to the
@@ -72,18 +101,7 @@ inline Vec3 estimate_up(const Skeleton3DResult& r) {
     if (n >= kMinUprightSamples && norm(sum) > 0.5 * n) {
         return unit(sum);
     }
-    Vec3 camUp{0, 0, 0};
-    for (const auto& c : r.cameras()) {
-        if (c.hasRotation) {
-            // The camera's y axis in the room is the rotation's second column.
-            const auto& m = c.rotationRoom;
-            camUp         = sub(camUp, Vec3{m[1], m[4], m[7]});
-        }
-    }
-    if (norm(camUp) > 1e-9) {
-        return unit(camUp);
-    }
-    return {0, -1, 0};
+    return up_from_cameras(r.cameras());
 }
 
 /// The floor's height along `up` (mm, as dot(point, up)).
@@ -121,14 +139,7 @@ inline double floor_height(const Skeleton3DResult& r, const Vec3& up) {
     if (any) {
         return lowest;
     }
-    double camLow = 0.0;
-    bool anyCam   = false;
-    for (const auto& c : r.cameras()) {
-        const double h = dot(c.positionRoom, up);
-        camLow         = anyCam ? std::min(camLow, h) : h;
-        anyCam         = true;
-    }
-    return camLow - 2000.0;
+    return floor_below_cameras(r.cameras(), up);
 }
 
 /// The view's "forward": the reference camera's viewing direction (room +z)

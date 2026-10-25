@@ -1,12 +1,16 @@
 #include <gtest/gtest.h>
 
+#include <QColor>
 #include <QFile>
 #include <QTemporaryDir>
 #include <QTextStream>
+#include <QVector3D>
 
 #include "analysis/gaze_fusion_result.hpp"
 #include "analysis/gaze_pose_match.hpp"
 #include "analysis/gaze_summary.hpp"
+#include "gaze3d_fixture.hpp"
+#include "ui/analysis/gaze3d_scene.hpp"
 
 using mosaic::GazeFusionResult;
 
@@ -451,4 +455,88 @@ TEST(GazePoseMatch, SubjectsMatchThePersonWhoseHeadIsThere) {
     }
     EXPECT_EQ(person2, 20); // every tick: in the frame
     EXPECT_EQ(person3, 12); // only where in the frame
+}
+
+// ── The 3D Gaze view's scene (Gaze3DScene) ───────────────────────────────
+
+TEST(Gaze3DScene, HeadsRaysAndTargetsInTheRoom) {
+    QTemporaryDir dir;
+    ASSERT_TRUE(write_gaze3d_fixture(dir.filePath("g.json")));
+    const auto r = GazeFusionResult::load(dir.filePath("g.json"));
+    ASSERT_TRUE(r.is_valid());
+    // The cameras say which way they look, as skeleton3d.json's do.
+    ASSERT_EQ(r.cameras().size(), 2);
+    EXPECT_TRUE(r.cameras()[1].hasRotation);
+    EXPECT_DOUBLE_EQ(r.cameras()[1].fovDeg[1], 40.0);
+
+    mosaic::Gaze3DScene scene;
+    scene.set_result(r);
+    ASSERT_EQ(scene.stage().cameras().size(), 2);
+    // Up is the table's normal turned towards the cameras (room -y); the
+    // floor 2 m below the cameras: the heads, at the cameras' height, are
+    // 2 m up.
+    scene.set_position_ms(0);
+    ASSERT_EQ(scene.heads().size(), 2);
+    EXPECT_NEAR(scene.heads()[0].toMap()["pos"].value<QVector3D>().y(), 2000.0f, 1e-3f);
+
+    // Frame 0: mutual gaze, a ray each, from the eyes to the other's face.
+    ASSERT_EQ(scene.rays().size(), 2);
+    const auto ray = scene.rays()[0].toMap();
+    EXPECT_TRUE(ray["mutual"].toBool());
+    EXPECT_NEAR(ray["len"].toDouble(), 1400.0, 1e-3);
+    EXPECT_EQ(scene.tags()[0].toMap()["text"].toString(),
+              QString("Child %1 S2").arg(QChar(0x2194))); // as on the video
+    EXPECT_EQ(scene.tick(), 0);
+    EXPECT_FALSE(scene.regions()[0].toMap()["lit"].toBool());
+
+    // Frame 5 (0.4 s, tick 10): Child at the screen, S2 at the table: both
+    // lit, each in the looker's colour (the video's: S1 orange-yellow).
+    scene.set_position_ms(400);
+    EXPECT_EQ(scene.tick(), 10);
+    const auto screen = scene.regions()[0].toMap();
+    EXPECT_TRUE(screen["lit"].toBool());
+    EXPECT_EQ(screen["color"].value<QColor>(), scene.heads()[0].toMap()["color"].value<QColor>());
+    EXPECT_EQ(scene.heads()[0].toMap()["color"].value<QColor>(), QColor(255, 200, 60));
+    EXPECT_TRUE(scene.plane()["lit"].toBool());
+    EXPECT_EQ(scene.points().size(), 2);
+    // The gaze points of the ticks before trail behind.
+    EXPECT_FALSE(scene.mesh("trails").vertices.empty());
+
+    // Frame 8: Child not seen, S2 without eyes: a head, no ray.
+    scene.set_position_ms(640);
+    EXPECT_EQ(scene.heads().size(), 1);
+    EXPECT_TRUE(scene.rays().isEmpty());
+    EXPECT_TRUE(scene.heads()[0].toMap()["info"].toString().contains("no gaze"));
+
+    // Hidden: left out.
+    scene.set_position_ms(0);
+    scene.set_shown("S1", false);
+    EXPECT_EQ(scene.heads().size(), 1);
+    EXPECT_FALSE(scene.people()[0].toMap()["shown"].toBool());
+
+    // The 3D Pose room, when given, sets the floor: here 1.5 m below the
+    // cameras.
+    mosaic::Room3DStage::Basis room;
+    room.floorH = -1500.0f;
+    scene.set_result(r, room);
+    scene.set_position_ms(0);
+    EXPECT_NEAR(scene.heads()[0].toMap()["pos"].value<QVector3D>().y(), 1500.0f, 1e-3f);
+
+    // A plane on a wall (its normal level, room +z) is not taken for up:
+    // the cameras' up stands, and the screen, at the cameras' height but
+    // further away, stays 2 m up (with +z as up it would not).
+    QFile wall(dir.filePath("wall.json"));
+    ASSERT_TRUE(wall.open(QIODevice::WriteOnly));
+    wall.write(
+        gaze3d_fixture_json().replace(R"("normal": [0, 1, 0])", R"("normal": [0, 0, 1])").toUtf8());
+    wall.close();
+    scene.set_result(GazeFusionResult::load(dir.filePath("wall.json")));
+    scene.set_position_ms(0);
+    EXPECT_NEAR(scene.regions()[0].toMap()["pos"].value<QVector3D>().y(), 2000.0f, 1e-3f);
+
+    // Older results: cameras without directions.
+    ASSERT_TRUE(write_gaze3d_fixture(dir.filePath("old.json"), false));
+    const auto old = GazeFusionResult::load(dir.filePath("old.json"));
+    ASSERT_TRUE(old.is_valid());
+    EXPECT_FALSE(old.cameras()[0].hasRotation);
 }

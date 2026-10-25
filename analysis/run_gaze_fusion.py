@@ -143,6 +143,23 @@ def resolve_cameras(meta: dict, timeline, only: int | None) -> dict:
     return {}
 
 
+def recorded_sizes(meta: dict) -> dict:
+    """Each camera's recorded image size, ``(width, height)`` by index: the
+    recording's (a crop in interview mode), else its calibration's."""
+
+    def known(*values):
+        return next((v for v in values if v and v > 0), None)  # -1: not recorded
+
+    sizes = {}
+    for cam in meta.get("cameras", []):
+        cal = cam.get("calibration") or {}
+        sizes[int(cam.get("index", -1))] = (
+            known(cam.get("width"), cal.get("image_width")),
+            known(cam.get("height"), cal.get("image_height")),
+        )
+    return sizes
+
+
 def adjust_for_crop(k: np.ndarray, cal: dict, cam: dict) -> np.ndarray:
     """Shift the principal point when the recording used a different region
     of the sensor than the calibration (interview mode crops)."""
@@ -434,6 +451,7 @@ def main(argv=None) -> None:
         fail("--camera is 1-based: Camera 1 is --camera 1.")
     only = args.camera - 1 if args.camera is not None else None
     cameras = resolve_cameras(meta, timeline, only)
+    image_sizes = recorded_sizes(meta)
     if not cameras:
         fail(
             "No usable camera: gaze needs each camera's intrinsic calibration, and room "
@@ -471,6 +489,7 @@ def main(argv=None) -> None:
         skip,
         videos,
         room_video,
+        image_sizes,
     )
     write_csv(out_dir / "gaze_fusion.csv", timeline, entries, names)
     tick_s = 1.0 / timeline.fps
@@ -511,6 +530,7 @@ def main(argv=None) -> None:
                 skip,
                 {i: videos[i] for i in written},
                 room_video if room_ok else None,
+                image_sizes,
             )
     log("Done.")
 

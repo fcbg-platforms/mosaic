@@ -97,6 +97,32 @@ def invert_rt(m: np.ndarray) -> np.ndarray:
     return out
 
 
+def field_of_view_deg(camera_matrix, width=None, height=None) -> list[float]:
+    """A camera's horizontal and vertical field of view, in degrees.
+
+    Parameters
+    ----------
+    camera_matrix : array_like
+        The intrinsic matrix, ``(3, 3)``.
+    width, height : float, optional
+        The image's size in pixels. Without one (absent, or -1 as the app
+        writes an unknown size) the principal point, about the image's
+        centre, stands in for half of it.
+
+    Returns
+    -------
+    list of float
+        ``[horizontal, vertical]``, rounded to 0.01 degree.
+    """
+    k = np.asarray(camera_matrix, dtype=np.float64).reshape(3, 3)
+    w = width if width and width > 0 else 2.0 * k[0, 2]
+    h = height if height and height > 0 else 2.0 * k[1, 2]
+    return [
+        round(float(np.degrees(2.0 * np.arctan(w / (2.0 * k[0, 0])))), 2),
+        round(float(np.degrees(2.0 * np.arctan(h / (2.0 * k[1, 1])))), 2),
+    ]
+
+
 def normalize_point(uv_px, cam: CameraGeom) -> np.ndarray:
     """Undistort a single pixel into ideal, K-free normalized coordinates.
 

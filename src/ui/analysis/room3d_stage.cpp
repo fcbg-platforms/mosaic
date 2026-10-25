@@ -35,6 +35,14 @@ Room3DStage::Basis Room3DStage::basis_of(const Skeleton3DResult& result) {
             static_cast<float>(room_view::floor_height(result, up))};
 }
 
+Room3DStage::Basis Room3DStage::basis_of_cameras(const QVector<Skeleton3DRoomCamera>& cameras,
+                                                 std::optional<QVector3D> up) {
+    const room_view::Vec3 u =
+        up ? room_view::Vec3{up->x(), up->y(), up->z()} : room_view::up_from_cameras(cameras);
+    return {qv(u), qv(room_view::floor_forward(u)),
+            static_cast<float>(room_view::floor_below_cameras(cameras, u))};
+}
+
 QVector3D Room3DStage::to_scene(const Skeleton3DVec3& room) const {
     const QVector3D v = qv(room);
     return {QVector3D::dotProduct(v, right_), QVector3D::dotProduct(v, up_) - floorH_,

@@ -100,6 +100,7 @@ add_executable(mosaic_tests
     "${CMAKE_SOURCE_DIR}/src/analysis/skeleton3d_result.cpp"
     "${CMAKE_SOURCE_DIR}/src/ui/analysis/room3d_scene.cpp" # the 3D room view's maths
     "${CMAKE_SOURCE_DIR}/src/ui/analysis/room3d_stage.cpp"
+    "${CMAKE_SOURCE_DIR}/src/ui/analysis/gaze3d_scene.cpp"
     "${CMAKE_SOURCE_DIR}/src/analysis/rppg_result.cpp"
     "${CMAKE_SOURCE_DIR}/src/analysis/gaze2d_result.cpp"
     "${CMAKE_SOURCE_DIR}/src/analysis/face_dynamics_result.cpp"
@@ -186,6 +187,9 @@ add_executable(mosaic_qml_tests
     test_qml_main.cpp
     test_room3d_page.cpp
     "${CMAKE_SOURCE_DIR}/src/analysis/skeleton3d_result.cpp"
+    "${CMAKE_SOURCE_DIR}/src/analysis/gaze_fusion_result.cpp"
+    "${CMAKE_SOURCE_DIR}/src/analysis/gaze_summary.cpp"
+    "${CMAKE_SOURCE_DIR}/src/ui/analysis/gaze3d_scene.cpp"
     "${CMAKE_SOURCE_DIR}/src/ui/analysis/room3d_scene.cpp"
     "${CMAKE_SOURCE_DIR}/src/ui/analysis/room3d_stage.cpp"
     "${CMAKE_SOURCE_DIR}/src/ui/analysis/room3d_mesh.cpp"
@@ -195,6 +199,7 @@ qt_add_resources(mosaic_qml_tests "qml_pages"
     BASE   "${CMAKE_SOURCE_DIR}/src"
     FILES
         "${CMAKE_SOURCE_DIR}/src/qml/Room3D.qml"
+        "${CMAKE_SOURCE_DIR}/src/qml/Gaze3D.qml"
         "${CMAKE_SOURCE_DIR}/src/qml/RoomStage.qml"
         "${CMAKE_SOURCE_DIR}/src/qml/RoomPill.qml"
         "${CMAKE_SOURCE_DIR}/src/qml/RoomTag.qml"

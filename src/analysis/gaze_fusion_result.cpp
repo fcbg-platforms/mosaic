@@ -151,11 +151,7 @@ GazeFusionResult GazeFusionResult::load(const QString& jsonPath) {
     }
 
     for (const auto& camVal : root["cameras"].toArray()) {
-        const QJsonObject camObj = camVal.toObject();
-        GazeFusionRoomCamera cam;
-        cam.index        = camObj["index"].toInt();
-        cam.positionRoom = vec3_from_json(camObj["position_room"]);
-        result.cameras_ << cam;
+        result.cameras_ << Skeleton3DRoomCamera::from_json(camVal.toObject());
     }
 
     const QJsonObject plane = root["plane"].toObject();

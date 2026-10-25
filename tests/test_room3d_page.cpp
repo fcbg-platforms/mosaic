@@ -1,5 +1,5 @@
-// The 3D room page (qml/Room3D.qml), loaded headless with a real scene and
-// driven through its views and toggles. Nobody can look at it in CI, and a
+// The 3D room pages (qml/Room3D.qml, qml/Gaze3D.qml), loaded headless with a
+// real scene and driven through their views and toggles. Nobody can look at it in CI, and a
 // QML mistake (a misspelt property, a binding on something undefined) only
 // shows as a warning when the page runs: any warning fails these tests.
 #include <gtest/gtest.h>
@@ -14,7 +14,10 @@
 #include <QtQml>
 #include <memory>
 
+#include "analysis/gaze_fusion_result.hpp"
 #include "analysis/skeleton3d_result.hpp"
+#include "gaze3d_fixture.hpp"
+#include "ui/analysis/gaze3d_scene.hpp"
 #include "ui/analysis/room3d_mesh.hpp"
 #include "ui/analysis/room3d_scene.hpp"
 
@@ -110,6 +113,56 @@ TEST(Room3DPage, LoadsAndRunsItsViewsWithoutAWarning) {
     }
     scene.set_shown(1, false);
     scene.set_result(mosaic::Skeleton3DResult());
+    QCoreApplication::processEvents();
+
+    EXPECT_TRUE(g_qmlMessages.isEmpty()) << g_qmlMessages.join("\n").toStdString();
+}
+
+TEST(Gaze3DPage, LoadsAndRunsItsViewsWithoutAWarning) {
+    QTemporaryDir dir;
+    ASSERT_TRUE(write_gaze3d_fixture(dir.filePath("g.json")));
+    const auto result = mosaic::GazeFusionResult::load(dir.filePath("g.json"));
+    ASSERT_TRUE(result.is_valid());
+
+    static const int registered =
+        qmlRegisterType<mosaic::SceneMesh>("Mosaic.Room3D", 1, 0, "SceneMesh");
+    Q_UNUSED(registered);
+    mosaic::Gaze3DScene scene;
+    QQmlEngine engine;
+    engine.rootContext()->setContextProperty("gaze3d", &scene);
+    g_qmlMessages.clear();
+
+    QQmlComponent component(&engine, QUrl("qrc:/qml/Gaze3D.qml"));
+    ASSERT_TRUE(component.isReady()) << component.errorString().toStdString();
+    std::unique_ptr<QObject> page(component.create());
+    ASSERT_TRUE(page);
+    page->setProperty("width", 900);
+    page->setProperty("height", 600);
+
+    // A result, playback through mutual gaze, the targets lit, a person
+    // missing; the toggles, every view, the view from each camera; then no
+    // result again.
+    scene.set_result(result);
+    for (const int64_t ms : {0, 400, 640}) {
+        scene.set_position_ms(ms);
+        QCoreApplication::processEvents();
+    }
+    EXPECT_TRUE(page->property("info").toString().contains("person(s) shown"));
+    scene.set_trails(false);
+    scene.set_follow("S2");
+    scene.set_position_ms(400);
+    for (int preset = 0; preset < 4; ++preset) {
+        page->setProperty("preset", preset);
+        QMetaObject::invokeMethod(page.get(), "reset");
+        QCoreApplication::processEvents();
+    }
+    for (int cam = 0; cam < 2; ++cam) {
+        page->setProperty("fromCamera", cam);
+        scene.set_position_ms(0);
+        QCoreApplication::processEvents();
+    }
+    scene.set_shown("S1", false);
+    scene.set_result(mosaic::GazeFusionResult());
     QCoreApplication::processEvents();
 
     EXPECT_TRUE(g_qmlMessages.isEmpty()) << g_qmlMessages.join("\n").toStdString();
