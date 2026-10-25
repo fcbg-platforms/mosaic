@@ -43,6 +43,10 @@ qt_add_executable(mosaic MACOSX_BUNDLE
     analysis/gaze_fusion_result.cpp
     analysis/gaze_summary.hpp
     analysis/gaze_summary.cpp
+    analysis/gaze_pose_match.hpp
+    analysis/gaze_pose_match.cpp
+    analysis/pose3d_people.hpp
+    analysis/pose3d_people.cpp
     analysis/skeleton3d_result.hpp
     analysis/skeleton3d_result.cpp
     analysis/rppg_result.hpp

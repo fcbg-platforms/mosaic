@@ -1185,6 +1185,9 @@ def session_sections(data: SessionData) -> str:
         strip = coverage_svg((p3.get("quality") or {}).get("timeline") or {})
         if strip:
             out.append(strip)
+    # Also when skeleton3d.json's quality header could not be read.
+    if p3 or data.session_results.get("pose3d_people"):
+        out.append(_pose3d_people_rows(data.session_results.get("pose3d_people")))
     so = data.session_results.get("social")
     if so:
         out.append(social_html(so))
@@ -1205,6 +1208,41 @@ def session_sections(data: SessionData) -> str:
     if not out:
         return ""
     return "<h2 id='session'>Whole session</h2><div class='card'>" + "".join(out) + "</div>"
+
+
+def _pose3d_people_rows(pp: dict | None) -> str:
+    """Each lasting person's posture, joint angles and movement, from
+    pose3d_people.json; a note when MOSAIC has not written it yet."""
+    if not pp:
+        return _small(
+            "3D Pose, per person",
+            [("Not summarised yet", "open this session's 3D Pose result in MOSAIC once")],
+        )
+    rows = []
+    for p in pp["people"]:
+        if p.get("brief"):
+            continue  # under a second in 3D: hidden in MOSAIC too
+        post = p.get("seconds_by_posture") or {}
+        posture = ", ".join(
+            f"{k} {num(post.get(k), 0, ' s')}"
+            for k in ("sitting", "standing", "walking")
+            if post.get(k)
+        )
+        move = (p.get("movement") or {}).get("motion_m_s") or {}
+        knees = ((p.get("median_angles_deg") or {}).get("knee_flexion")) or [None, None]
+        parts = [f"in 3D {num(p.get('seconds_in_3d'), 0, ' s')}"]
+        if posture:
+            parts.append(posture)
+        if move.get("median") is not None:
+            parts.append(
+                f"moving {num(move.get('median'), 2, ' m/s')} (high {num(move.get('p95'), 2)})"
+            )
+        if any(k is not None for k in knees):
+            parts.append(f"knees usually {num(knees[0], 0, '°')} / {num(knees[1], 0, '°')}")
+        rows.append((esc(p.get("label")), "; ".join(parts)))
+    if pp.get("stale"):
+        rows.append(("Note", "older than the 3D Pose result: open it in MOSAIC to update"))
+    return _small("3D Pose, per person", rows) if rows else ""
 
 
 def not_run(data: SessionData) -> str:

@@ -343,6 +343,24 @@ On sub-39 (a 31 s recording: a walk, then sitting at a desk) it gave
 walking with short stops for the first 15 s, sitting from 17 to 26 s, then
 getting up.
 
+For the session report MOSAIC writes each person's summary,
+``pose3d_people.json`` (``pose3d_people_summary``), from the same code as
+the charts: the seconds in 3D and in each posture, the top speed, the usual
+head height and joint angles (medians), and the movement's median and 95th
+percentile. It is rewritten whenever it is older than ``skeleton3d.json``.
+
+**Which 3D Gaze person is which 3D Pose person** (``match_gaze_to_pose``),
+for exports joining the two: at each gaze tick, the 3D Pose frame within
+50 ms is taken, and every gaze subject's head (between the eyes) is
+compared with every person's (the mean of their seen face points). A pair
+is a candidate when they share at least 5 ticks and the heads are within
+250 mm on at least half of them, with a median within 250 mm too.
+Candidates are taken by how many ticks their heads agree on, most first,
+then the closest, each subject and person once. Not the closest first: on
+a room-11 recording (sub-39) a split track's few ticks at the end sat 27 mm
+from the gaze head against the real person's 33 mm over 282 ticks. A
+subject without a sure match is left unmatched, never guessed.
+
 There is no trunk lean. It needs the true vertical, and the calibration does
 not give one: the up of :ref:`pose3d-drawing-the-room` is the people's mean
 torso, so someone slouching all session would lean 0 against it, and the

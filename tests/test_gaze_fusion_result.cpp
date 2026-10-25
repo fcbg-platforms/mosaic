@@ -3,9 +3,11 @@
 #include <QColor>
 #include <QFile>
 #include <QTemporaryDir>
+#include <QTextStream>
 #include <QVector3D>
 
 #include "analysis/gaze_fusion_result.hpp"
+#include "analysis/gaze_pose_match.hpp"
 #include "analysis/gaze_summary.hpp"
 #include "gaze3d_fixture.hpp"
 #include "ui/analysis/gaze3d_scene.hpp"
@@ -352,6 +354,107 @@ TEST(GazeSummary, TimeOnTargetsStretchesAndMutualGaze) {
     EXPECT_NEAR(g.pairs[0].seconds, 0.80, 1e-9);
     EXPECT_EQ(g.pairs[0].spans.size(), 2);
     EXPECT_NEAR(g.pairs[0].longestS, 0.40, 1e-9);
+}
+
+// ── Which 3D Pose person a 3D Gaze subject is (match_gaze_to_pose) ──────
+
+TEST(GazePoseMatch, SubjectsMatchThePersonWhoseHeadIsThere) {
+    // 3D Pose: Person 1 at x = -700, Person 2 at x = +700 (their face
+    // points), 20 ticks 40 ms apart. 3D Gaze, on every other tick: S1 at
+    // Person 2's head (8 cm off), S2 at Person 1's, and S3 at 0.5 m from
+    // everyone (a false face, or someone 3D Pose did not see).
+    QStringList poseFrames, gazeFrames;
+    for (int k = 0; k < 20; ++k) {
+        const auto person = [](int track, double x) {
+            return QString(
+                       R"({"track_id": %1, "keypoints_room": [[%2,-1600,2500],)"
+                       R"([%3,-1600,2500],[%4,-1600,2500]], "keypoints_valid": [true,true,true]})")
+                .arg(track)
+                .arg(x)
+                .arg(x - 75)
+                .arg(x + 75);
+        };
+        // Person 3, for the last 12 ticks only (6 gaze ticks), 2 cm from
+        // S1: nearer than Person 2, but there for a moment (a split track).
+        poseFrames << QString(R"({"tick": %1, "timestamp_ns": %2, "people": [%3, %4%5]})")
+                          .arg(k)
+                          .arg(40000000LL * k)
+                          .arg(person(0, -700), person(1, 700),
+                               k >= 8 ? "," + person(2, 760) : QString());
+        if (k % 2 == 0) {
+            const auto subject = [](const char* id, double x) {
+                return QString(R"({"id": "%1", "name": "%1", "origin": [%2, -1600, 2500], )"
+                               R"("direction": [0, 0, 1], "n_cameras": 2})")
+                    .arg(id)
+                    .arg(x);
+            };
+            gazeFrames << QString(R"({"tick": %1, "timestamp_ns": %2, "subjects": [%3, %4, %5]})")
+                              .arg(k)
+                              .arg(40000000LL * k)
+                              .arg(subject("S1", 780), subject("S2", -700), subject("S3", 0));
+        }
+    }
+    QTemporaryDir dir;
+    QFile pf(dir.filePath("s.json"));
+    ASSERT_TRUE(pf.open(QIODevice::WriteOnly));
+    pf.write(QString(R"({"schema": "mosaic-skeleton3d-v1", "cameras": [], "keypoint_names": )"
+                     R"(["nose", "left_eye", "right_eye"], "skeleton_edges": [], "frames": [%1]})")
+                 .arg(poseFrames.join(","))
+                 .toUtf8());
+    pf.close();
+    QFile gf(dir.filePath("g.json"));
+    ASSERT_TRUE(gf.open(QIODevice::WriteOnly));
+    gf.write(QString(R"({"schema": "mosaic-gaze-fusion-v2", "fps": 25.0, "analysed_every": 2, )"
+                     R"("cameras": [], "plane": {"defined": false}, "regions": [], "subjects": [)"
+                     R"({"id": "S1"}, {"id": "S2"}, {"id": "S3"}], "frames": [%1]})")
+                 .arg(gazeFrames.join(","))
+                 .toUtf8());
+    gf.close();
+    const auto pose = mosaic::Skeleton3DResult::load(dir.filePath("s.json"));
+    const auto gaze = GazeFusionResult::load(dir.filePath("g.json"));
+    ASSERT_TRUE(pose.is_valid());
+    ASSERT_TRUE(gaze.is_valid());
+
+    const auto m = mosaic::match_gaze_to_pose(gaze, pose);
+    ASSERT_EQ(m.size(), 3);
+    EXPECT_EQ(m[0].subject, "S1");
+    EXPECT_EQ(m[0].person, 2);
+    EXPECT_NEAR(m[0].medianMm, 80.0, 1e-6);
+    EXPECT_EQ(m[0].sharedTicks, 10); // Person 2 all along, not Person 3's moment
+    EXPECT_EQ(m[1].person, 1);
+    // S3 is 0.5 m from both: no match, rather than a guess.
+    EXPECT_EQ(m[2].person, -1);
+    // A limit tighter than anyone's distance (Person 3's 2 cm) leaves S1
+    // unmatched too.
+    EXPECT_EQ(mosaic::match_gaze_to_pose(gaze, pose, 10.0)[0].person, -1);
+
+    // The everyone table: a row per tick and person in the frame, as many
+    // columns as the header; Person 2's gaze is S1's (paired with the gaze
+    // tick within 50 ms, so every pose tick here), Person 3's empty.
+    QString csv;
+    QTextStream ts(&csv);
+    mosaic::write_people_csv(ts, pose, gaze);
+    ts.flush();
+    const QStringList lines = csv.split('\n', Qt::SkipEmptyParts);
+    ASSERT_GE(lines.size(), 3);
+    EXPECT_TRUE(lines[0].startsWith("# ") && lines[0].contains("S1 = Person 2"));
+    const int columns = static_cast<int>(lines[1].split(',').size());
+    EXPECT_TRUE(lines[1].endsWith(",gaze_subject,gaze_target_type,gaze_target,gaze_mutual"));
+    int person2 = 0, person3 = 0;
+    for (int i = 2; i < lines.size(); ++i) {
+        const QStringList f = lines[i].split(',');
+        ASSERT_EQ(f.size(), columns) << lines[i].toStdString();
+        if (f[2] == "2") {
+            ++person2;
+            EXPECT_EQ(f[columns - 4], "S1");
+            EXPECT_EQ(f[columns - 1], "false");
+        } else if (f[2] == "3") {
+            ++person3;
+            EXPECT_TRUE(f[columns - 4].isEmpty() && f[columns - 1].isEmpty());
+        }
+    }
+    EXPECT_EQ(person2, 20); // every tick: in the frame
+    EXPECT_EQ(person3, 12); // only where in the frame
 }
 
 // ── The 3D Gaze view's scene (Gaze3DScene) ───────────────────────────────

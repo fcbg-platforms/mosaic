@@ -1,6 +1,9 @@
 #include <gtest/gtest.h>
 
+#include <QDateTime>
 #include <QFile>
+#include <QJsonArray>
+#include <QJsonObject>
 #include <QStringList>
 #include <QTemporaryDir>
 #include <array>
@@ -8,6 +11,7 @@
 #include <numbers>
 
 #include "analysis/dyadic_kinematics.hpp"
+#include "analysis/pose3d_people.hpp"
 #include "analysis/skeleton3d_result.hpp"
 
 using mosaic::compute_dyadic_kinematics;
@@ -836,4 +840,75 @@ TEST(PersonKinematics, PostureFromTheHipsHeightAndSpeed) {
     for (int k = 0; k < 60; ++k) {
         EXPECT_EQ(d[k], Posture::Standing) << k;
     }
+}
+
+TEST(PersonKinematics, PeopleSummaryForTheReport) {
+    // Person 1 walks along x at 1 m/s, hips 0.9 m up, for 2 s at 10 ticks a
+    // second; up is -y (too few torsos to tell), the floor at the ankles
+    // (8 cm) less 8 cm.
+    QStringList frames;
+    for (int k = 0; k < 20; ++k) {
+        const double x = 100.0 * k;
+        frames << QString(R"({"tick": %1, "timestamp_ns": %2, "people": [{"track_id": 0, )"
+                          R"("num_contributing_cameras": 2, "keypoints_room": )"
+                          R"([[%3,-1600,3000],[%3,-900,3000],[%4,-900,3000],)"
+                          R"([%3,-80,3000],[%4,-80,3000]], )"
+                          R"("keypoints_valid": [true,true,true,true,true]}]})")
+                      .arg(k)
+                      .arg(100000000LL * k)
+                      .arg(x)
+                      .arg(x + 1.0);
+    }
+    QTemporaryDir dir;
+    QFile f(dir.filePath("skeleton3d.json"));
+    ASSERT_TRUE(f.open(QIODevice::WriteOnly));
+    f.write(QString(R"({"schema": "mosaic-skeleton3d-v1", "cameras": [], "keypoint_names": )"
+                    R"(["nose", "left_hip", "right_hip", "left_ankle", "right_ankle"], )"
+                    R"("skeleton_edges": [], "frames": [%1]})")
+                .arg(frames.join(","))
+                .toUtf8());
+    f.close();
+    const auto result = Skeleton3DResult::load(dir.filePath("skeleton3d.json"));
+    ASSERT_TRUE(result.is_valid());
+
+    const QJsonObject summary = mosaic::pose3d_people_summary(result);
+    EXPECT_EQ(summary["schema"].toString(), "mosaic-pose3d-people-v1");
+    const QJsonArray people = summary["people"].toArray();
+    ASSERT_EQ(people.size(), 1);
+    const QJsonObject p = people[0].toObject();
+    EXPECT_EQ(p["person"].toInt(), 1);
+    EXPECT_FALSE(p["brief"].toBool());
+    EXPECT_NEAR(p["seconds_in_3d"].toDouble(), 2.0, 1e-9);
+    EXPECT_NEAR(p["seconds_by_posture"].toObject()["walking"].toDouble(), 2.0, 1e-9);
+    EXPECT_NEAR(p["top_speed_m_s"].toDouble(), 1.0, 1e-9);
+    EXPECT_NEAR(p["median_head_height_m"].toDouble(), 1.6, 1e-9);
+    // No knees in this skeleton: the angles are null, not 0.
+    EXPECT_TRUE(p["median_angles_deg"].toObject()["knee_flexion"].toArray()[0].isNull());
+
+    // The CSV's columns and a row's values line up.
+    const auto k = mosaic::compute_person_kinematics(result, 1);
+    EXPECT_EQ(mosaic::person_csv_columns().count(','),
+              mosaic::person_csv_values(k.samples[5]).count(','));
+    EXPECT_TRUE(mosaic::person_csv_values(k.samples[5]).endsWith(",walking"));
+
+    // Written once, then up to date until skeleton3d.json is newer.
+    EXPECT_TRUE(mosaic::pose3d_people_stale(dir.path()));
+    EXPECT_TRUE(mosaic::write_pose3d_people_if_stale(dir.path(), result));
+    EXPECT_FALSE(mosaic::pose3d_people_stale(dir.path()));
+    QFile people_file(dir.filePath("pose3d_people.json"));
+    ASSERT_TRUE(people_file.open(QIODevice::ReadWrite));
+    people_file.setFileTime(QDateTime::currentDateTime().addSecs(-60),
+                            QFileDevice::FileModificationTime);
+    people_file.close();
+    EXPECT_TRUE(mosaic::pose3d_people_stale(dir.path()));
+
+    // A skeleton3d.json dated in the future (another PC's clock): once
+    // written, the summary is up to date, not rewritten at each opening.
+    QFile skeleton(dir.filePath("skeleton3d.json"));
+    ASSERT_TRUE(skeleton.open(QIODevice::ReadWrite));
+    skeleton.setFileTime(QDateTime::currentDateTime().addSecs(3600),
+                         QFileDevice::FileModificationTime);
+    skeleton.close();
+    EXPECT_TRUE(mosaic::write_pose3d_people_if_stale(dir.path(), result));
+    EXPECT_FALSE(mosaic::pose3d_people_stale(dir.path()));
 }

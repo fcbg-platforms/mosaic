@@ -134,6 +134,22 @@ def session_row(data: SessionData) -> dict:
         row.update({prefix + k: v for k, v in camera_row(cam.results).items()})
     for t in data.session_results.get("transcripts") or []:
         row["transcript_words"] = (row.get("transcript_words") or 0) + t["words"]
+    # Per lasting 3D Pose person: seconds in 3D and in each posture, and the
+    # usual movement (pose3d_people.json, written by MOSAIC).
+    people = data.session_results.get("pose3d_people") or {}
+    if people:
+        # Older than skeleton3d.json: open the result in MOSAIC to update.
+        row["pose3d_people_stale"] = bool(people.get("stale"))
+    for p in people.get("people", []):
+        if p.get("brief"):
+            continue
+        key = f"pose3d_p{p.get('person')}"
+        row[f"{key}_seconds"] = p.get("seconds_in_3d")
+        for posture, sec in (p.get("seconds_by_posture") or {}).items():
+            row[f"{key}_{posture}_s"] = sec
+        row[f"{key}_motion_median_m_s"] = ((p.get("movement") or {}).get("motion_m_s") or {}).get(
+            "median"
+        )
     gz = data.session_results.get("gaze_fusion")
     if gz:
         # Columns by subject id (S1, S2, ...), not display names, which can
