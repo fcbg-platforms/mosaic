@@ -285,6 +285,33 @@ seen by cameras off their calibration. The angles of a joint flexing out of
 its usual plane (a hip turned out) are its 3D angle, not split into
 flexion, abduction and rotation, which would need markers or a body model.
 
+Its movement measures are rates per second, by central difference over the
+neighbouring ticks within 0.25 s like the speed (never across a gap), but
+from the smoothed keypoints (the speed uses the raw hips, as it always has):
+
+- **Hand speed**: each wrist's.
+- **Knee and elbow bending speed**: the flexion's rate of change, positive
+  while bending, negative while straightening.
+- **Whole-body motion**: the mean speed of the keypoints seen at the tick and
+  both its neighbours, a 3D version of the quantity of motion used in
+  interaction research. A mean, not a sum, so it does not grow when more
+  keypoints are seen; but it changes when a fast keypoint goes out of view,
+  and 5 of COCO's 17 keypoints are on the face, so a head turn alone shows
+  in it.
+- **Head speed** (the ears' midpoint) and **head turning**: the angle the
+  ear-to-ear line turns through, in any direction, so it needs no vertical.
+
+The line under a movement chart gives the usual value (median) and a high
+one, the 95th percentile by nearest rank; for bending speed, of its size.
+Not the maximum: a rate's few largest values are mostly the keypoints'
+noise. Differencing magnifies that noise, and a speed or a turn is a size,
+so the noise adds up rather than averages out: a rate has a floor above
+zero. On a room-11 recording (sub-39), over 2 s of sitting still, the
+median whole-body motion was 0.13 to 0.16 m/s and the median head turning
+12 to 13 degrees per second, the ears being only 15 cm apart. Compare
+rates within a session, or against such a still period, rather than read
+them as absolute.
+
 There is no trunk lean. It needs the true vertical, and the calibration does
 not give one: the up of :ref:`pose3d-drawing-the-room` is the people's mean
 torso, so someone slouching all session would lean 0 against it, and the
