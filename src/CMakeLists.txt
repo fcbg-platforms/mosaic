@@ -263,6 +263,8 @@ qt_add_executable(mosaic MACOSX_BUNDLE
     ui/analysis/skeleton3d_room_view_w.cpp
     ui/analysis/room3d_scene.hpp
     ui/analysis/room3d_scene.cpp
+    ui/analysis/room3d_stage.hpp
+    ui/analysis/room3d_stage.cpp
     ui/analysis/room3d_mesh.hpp
     ui/analysis/room3d_mesh.cpp
     analysis/room_view_math.hpp
@@ -278,6 +280,9 @@ qt_add_resources(mosaic "qml_resources"
     FILES
         qml/MonitorView.qml
         qml/Room3D.qml
+        qml/RoomStage.qml
+        qml/RoomPill.qml
+        qml/RoomTag.qml
 )
 
 set_target_properties(mosaic PROPERTIES

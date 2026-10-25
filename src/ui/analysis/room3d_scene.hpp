@@ -12,6 +12,7 @@
 #include <vector>
 
 #include "analysis/skeleton3d_result.hpp"
+#include "ui/analysis/room3d_stage.hpp"
 
 namespace mosaic {
 
@@ -19,28 +20,15 @@ namespace mosaic {
 //
 // Turns the result into what the page draws: for the frame on show, each
 // bone (centre, rotation, length), joint and head of every person shown, the
-// cameras, the trails, each person's whole path, the two-person line, and the
-// labels' anchor points.
-// The page only lays these out; the maths stays here, testable.
-//
-// The scene is Y-up, in millimetres, with the floor at y = 0: the room
-// frame (the reference camera's own, x right, y down, z forward) is turned
-// so the room's up (found from the people and cameras, room_view_math.hpp)
-// is +y, its forward along the floor is -z, and its right +x. Coordinates
-// shown to the user stay the room frame's, in metres, as in every export.
-class Room3DScene : public QObject {
+// trails, each person's whole path, the two-person line, and the labels'
+// anchor points. The room itself (the floor, the cameras, the framing) is
+// its stage (room3d_stage.hpp), shared with the 3D Gaze view. The page only
+// lays these out; the maths stays here, testable.
+class Room3DScene : public Room3DMeshSource {
     Q_OBJECT
-    Q_PROPERTY(QVariantList cameras READ cameras NOTIFY resultChanged)
+    Q_PROPERTY(QObject* stage READ stage_object CONSTANT)
     Q_PROPERTY(QVariantList people READ people NOTIFY peopleChanged)
-    Q_PROPERTY(float floorSize READ floor_size NOTIFY resultChanged)
-    Q_PROPERTY(QVector3D home READ home NOTIFY resultChanged)
-    // The floor plate's and the grid's centre: `home` on whole metres.
-    Q_PROPERTY(QVector3D floorCentre READ floor_centre NOTIFY resultChanged)
-    Q_PROPERTY(float extent READ extent NOTIFY resultChanged)
     Q_PROPERTY(bool hasResult READ has_result NOTIFY resultChanged)
-    Q_PROPERTY(QString frameCamera READ frame_camera NOTIFY resultChanged)
-    // The room frame's x, y and z in the scene, for the axes marker.
-    Q_PROPERTY(QVariantList axes READ axes NOTIFY resultChanged)
     Q_PROPERTY(QVariantList bones READ bones NOTIFY frameChanged)
     Q_PROPERTY(QVariantList joints READ joints NOTIFY frameChanged)
     Q_PROPERTY(QVariantList heads READ heads NOTIFY frameChanged)
@@ -69,21 +57,12 @@ class Room3DScene : public QObject {
     void set_follow(int person);
     void set_trails(bool on);
     void set_paths(bool on);
-    // The page's Save image: the widget around the page saves it.
-    Q_INVOKABLE void request_save_image() { emit saveImageRequested(); }
 
-    [[nodiscard]] QVariantList cameras() const { return cameras_; }
+    [[nodiscard]] Room3DStage& stage() { return stage_; }
+    [[nodiscard]] const Room3DStage& stage() const { return stage_; }
+    [[nodiscard]] QObject* stage_object() { return &stage_; }
     [[nodiscard]] QVariantList people() const;
-    [[nodiscard]] float floor_size() const { return floorSize_; }
-    [[nodiscard]] QVector3D home() const { return home_; }
-    [[nodiscard]] QVector3D floor_centre() const {
-        return {std::round(home_.x() / 1000.0f) * 1000.0f, 0.0f,
-                std::round(home_.z() / 1000.0f) * 1000.0f};
-    }
-    [[nodiscard]] float extent() const { return extent_; }
     [[nodiscard]] bool has_result() const { return result_.is_valid(); }
-    [[nodiscard]] QString frame_camera() const { return frameCamera_; }
-    [[nodiscard]] QVariantList axes() const;
     [[nodiscard]] QVariantList bones() const { return bones_; }
     [[nodiscard]] QVariantList joints() const { return joints_; }
     [[nodiscard]] QVariantList heads() const { return heads_; }
@@ -98,26 +77,21 @@ class Room3DScene : public QObject {
     // The tick on show, -1 for none (Save image names the file after it).
     [[nodiscard]] int64_t tick() const { return tick_; }
 
-    // Room frame (mm) to scene (mm, Y-up, floor at 0), and the room frame
-    // direction to the scene's.
-    [[nodiscard]] QVector3D to_scene(const Skeleton3DVec3& room) const;
-    [[nodiscard]] QVector3D dir_to_scene(const QVector3D& roomDir) const;
+    // Room frame (mm) to the scene, as the stage turns it.
+    [[nodiscard]] QVector3D to_scene(const Skeleton3DVec3& room) const {
+        return stage_.to_scene(room);
+    }
+    [[nodiscard]] QVector3D dir_to_scene(const QVector3D& roomDir) const {
+        return stage_.dir_to_scene(roomDir);
+    }
 
-    // Line and triangle meshes, as x y z r g b a per vertex: the floor grid,
-    // the camera pyramids (lines and their translucent far faces), the
-    // trails, the paths, and the torsos.
-    struct Mesh {
-        std::vector<float> vertices;
-        bool triangles = false;
-    };
-    [[nodiscard]] const Mesh& mesh(const QString& part) const;
+    // Its meshes (mesh()): the trails, the paths and the torsos.
 
    signals:
     void resultChanged();
     void frameChanged();
     void peopleChanged();
     void pathsChanged();
-    void saveImageRequested();
 
    private:
     void rebuild_frame();
@@ -137,24 +111,17 @@ class Room3DScene : public QObject {
     QSet<int> hidden_;
     int follow_ = -1;
 
-    // Room basis: up, forward along the floor, right; and the floor's height.
-    QVector3D up_{0, -1, 0}, fwd_{0, 0, 1}, right_{1, 0, 0};
-    float floorH_ = 0.0f;
-    QVector3D home_;
-    float extent_    = 2000.0f;
-    float floorSize_ = 6000.0f;
-    QString frameCamera_;
+    Room3DStage stage_;
     QMap<int, double> seconds_; // person -> seconds in 3D
     QVector<int> headIdx_;
     int lHip_ = -1, rHip_ = -1, lSh_ = -1, rSh_ = -1, nose_ = -1, lEar_ = -1, rEar_ = -1;
 
-    QVariantList cameras_, bones_, joints_, heads_, tags_;
+    QVariantList bones_, joints_, heads_, tags_;
     QVariantMap dyad_;
     QString info_;
     QVector3D followTarget_;
     bool followFound_ = false;
     int64_t tick_     = -1;
-    QMap<QString, Mesh> meshes_;
 };
 
 } // namespace mosaic

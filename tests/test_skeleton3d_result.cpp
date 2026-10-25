@@ -516,6 +516,6 @@ TEST(Room3DScene, PathsCoverTheWholeRecordingButNoGap) {
     EXPECT_TRUE(scene.mesh("paths").vertices.empty());
 
     // The view from the camera needs its vertical field of view.
-    ASSERT_EQ(scene.cameras().size(), 1);
-    EXPECT_NEAR(scene.cameras()[0].toMap()["fovY"].toDouble(), 40.0, 1e-9);
+    ASSERT_EQ(scene.stage().cameras().size(), 1);
+    EXPECT_NEAR(scene.stage().cameras()[0].toMap()["fovY"].toDouble(), 40.0, 1e-9);
 }

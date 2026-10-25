@@ -96,6 +96,7 @@ add_executable(mosaic_tests
     "${CMAKE_SOURCE_DIR}/src/analysis/gaze_fusion_result.cpp"
     "${CMAKE_SOURCE_DIR}/src/analysis/skeleton3d_result.cpp"
     "${CMAKE_SOURCE_DIR}/src/ui/analysis/room3d_scene.cpp" # the 3D room view's maths
+    "${CMAKE_SOURCE_DIR}/src/ui/analysis/room3d_stage.cpp"
     "${CMAKE_SOURCE_DIR}/src/analysis/rppg_result.cpp"
     "${CMAKE_SOURCE_DIR}/src/analysis/gaze2d_result.cpp"
     "${CMAKE_SOURCE_DIR}/src/analysis/face_dynamics_result.cpp"
@@ -174,3 +175,31 @@ include(GoogleTest)
 # Listing the tests runs the program once; a busy CI runner can take longer
 # than CMake's default 5 s for that, which failed the build (PR #122).
 gtest_discover_tests(mosaic_tests DISCOVERY_TIMEOUT 60)
+
+# The QML pages, loaded without a window (nothing drawn): a page's QML
+# errors and binding warnings, which only show when it runs, fail the test.
+# Its own program, since a page needs a QGuiApplication.
+add_executable(mosaic_qml_tests
+    test_qml_main.cpp
+    test_room3d_page.cpp
+    "${CMAKE_SOURCE_DIR}/src/analysis/skeleton3d_result.cpp"
+    "${CMAKE_SOURCE_DIR}/src/ui/analysis/room3d_scene.cpp"
+    "${CMAKE_SOURCE_DIR}/src/ui/analysis/room3d_stage.cpp"
+    "${CMAKE_SOURCE_DIR}/src/ui/analysis/room3d_mesh.cpp"
+)
+qt_add_resources(mosaic_qml_tests "qml_pages"
+    PREFIX "/"
+    BASE   "${CMAKE_SOURCE_DIR}/src"
+    FILES
+        "${CMAKE_SOURCE_DIR}/src/qml/Room3D.qml"
+        "${CMAKE_SOURCE_DIR}/src/qml/RoomStage.qml"
+        "${CMAKE_SOURCE_DIR}/src/qml/RoomPill.qml"
+        "${CMAKE_SOURCE_DIR}/src/qml/RoomTag.qml"
+)
+target_link_libraries(mosaic_qml_tests PRIVATE
+    GTest::gtest
+    mosaic_compiler_options
+    Qt6::Gui Qt6::Qml Qt6::Quick Qt6::Quick3D
+)
+target_include_directories(mosaic_qml_tests PRIVATE "${CMAKE_SOURCE_DIR}/src")
+gtest_discover_tests(mosaic_qml_tests DISCOVERY_TIMEOUT 60)

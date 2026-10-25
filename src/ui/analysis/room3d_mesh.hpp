@@ -2,13 +2,14 @@
 #include <QQuick3DGeometry>
 #include <QString>
 
-#include "ui/analysis/room3d_scene.hpp"
+#include "ui/analysis/room3d_stage.hpp"
 
 namespace mosaic {
 
-// A mesh of the scene (Room3DScene::mesh), as a Qt Quick 3D geometry:
-// `SceneMesh { scene: room3d; part: "trails" }` in the page. It follows the
-// scene: rebuilt whenever the frame or the result changes.
+// A mesh of a room page (Room3DMeshSource::mesh: the stage's grid and
+// camera pyramids, a scene's people), as a Qt Quick 3D geometry:
+// `SceneMesh { scene: room3d; part: "trails" }` in the page. Rebuilt when
+// its source says that part changed.
 class SceneMesh : public QQuick3DGeometry {
     Q_OBJECT
     Q_PROPERTY(QObject* scene READ scene WRITE set_scene NOTIFY sceneChanged)
@@ -27,7 +28,7 @@ class SceneMesh : public QQuick3DGeometry {
 
    private:
     void rebuild();
-    Room3DScene* scene_ = nullptr;
+    Room3DMeshSource* scene_ = nullptr;
     QString part_;
 };
 

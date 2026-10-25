@@ -5,47 +5,22 @@
 #include <cmath>
 #include <optional>
 
-#include "analysis/room_view_math.hpp"
 #include "ui/analysis/subject_colors.hpp"
-#include "video/camera_label.hpp"
 
 namespace mosaic {
 
+using room3d::alpha;
+using room3d::put;
+using room3d::qv;
+
 namespace {
 
-const QColor kCameraColors[] = {
-    QColor("#44cc44"), QColor("#4488ff"), QColor("#ffaa44"),
-    QColor("#ff4488"), QColor("#44cccc"), QColor("#cc44cc"),
-};
 constexpr double kTrailSeconds = 2.0;
 constexpr double kTrailGapS    = 0.25;  // a trail or a path never spans a longer gap
 constexpr float kPathStepMm    = 20.0f; // a path's points at least this far apart
-constexpr float kGridStepMm    = 500.0f;
-
-QVector3D qv(const Skeleton3DVec3& p) {
-    return QVector3D(static_cast<float>(p[0]), static_cast<float>(p[1]), static_cast<float>(p[2]));
-}
-
-QVector3D column(const std::array<double, 9>& m, int j) {
-    return QVector3D(static_cast<float>(m[j]), static_cast<float>(m[3 + j]),
-                     static_cast<float>(m[6 + j]));
-}
-
-QColor camera_color(int index) { return kCameraColors[((index % 6) + 6) % 6]; }
 
 // Person N (1, 2, ...) in the Pose plugin's colour order (subject_colors.hpp).
 QColor person_color(int person) { return subject_color(person - 1); }
-
-void put(std::vector<float>& v, const QVector3D& p, const QColor& c) {
-    v.insert(v.end(),
-             {p.x(), p.y(), p.z(), static_cast<float>(c.redF()), static_cast<float>(c.greenF()),
-              static_cast<float>(c.blueF()), static_cast<float>(c.alphaF())});
-}
-
-QColor alpha(QColor c, double a) {
-    c.setAlphaF(static_cast<float>(std::clamp(a, 0.0, 1.0)));
-    return c;
-}
 
 QString pretty(const QString& name) {
     QString s = name;
@@ -55,31 +30,7 @@ QString pretty(const QString& name) {
 
 } // namespace
 
-Room3DScene::Room3DScene(QObject* parent) : QObject(parent) {}
-
-QVector3D Room3DScene::to_scene(const Skeleton3DVec3& room) const {
-    const QVector3D v = qv(room);
-    return {QVector3D::dotProduct(v, right_), QVector3D::dotProduct(v, up_) - floorH_,
-            -QVector3D::dotProduct(v, fwd_)};
-}
-
-QVector3D Room3DScene::dir_to_scene(const QVector3D& d) const {
-    return {QVector3D::dotProduct(d, right_), QVector3D::dotProduct(d, up_),
-            -QVector3D::dotProduct(d, fwd_)};
-}
-
-const Room3DScene::Mesh& Room3DScene::mesh(const QString& part) const {
-    static const Mesh kEmpty;
-    const auto it = meshes_.constFind(part);
-    return it == meshes_.cend() ? kEmpty : it.value();
-}
-
-QVariantList Room3DScene::axes() const {
-    return {
-        QVariantMap{{"name", "x"}, {"dir", dir_to_scene({1, 0, 0})}, {"color", QColor("#ff6666")}},
-        QVariantMap{{"name", "y"}, {"dir", dir_to_scene({0, 1, 0})}, {"color", QColor("#66dd66")}},
-        QVariantMap{{"name", "z"}, {"dir", dir_to_scene({0, 0, 1})}, {"color", QColor("#6699ff")}}};
-}
+Room3DScene::Room3DScene(QObject* parent) : Room3DMeshSource(parent) {}
 
 QVariantList Room3DScene::people() const {
     QVariantList out;
@@ -205,16 +156,14 @@ void Room3DScene::rebuild_paths() {
             }
         }
     }
-    meshes_["paths"] = paths;
+    set_mesh("paths", std::move(paths));
     emit pathsChanged();
 }
 
-// What does not change during playback: the room's orientation, the
-// framing, the cameras, the floor grid.
+// What does not change during playback: the keypoints' places in the
+// result, how long each person was in 3D, and the room.
 void Room3DScene::rebuild_static() {
-    cameras_.clear();
     seconds_.clear();
-    meshes_.clear();
     const auto& names = result_.keypoint_names();
     auto idx          = [&](const char* n) { return static_cast<int>(names.indexOf(n)); };
     lHip_ = idx("left_hip"), rHip_ = idx("right_hip");
@@ -227,120 +176,23 @@ void Room3DScene::rebuild_static() {
         }
     }
     if (!result_.is_valid()) {
+        stage_.clear_room();
         return;
     }
 
-    const auto up  = room_view::estimate_up(result_);
-    const auto fwd = room_view::floor_forward(up);
-    up_            = qv(up);
-    fwd_           = qv(fwd);
-    right_         = QVector3D::crossProduct(fwd_, up_).normalized();
-    floorH_        = static_cast<float>(room_view::floor_height(result_, up));
-
-    frameCamera_ = "the reference camera";
-    for (const auto& c : result_.cameras()) {
-        if (room_view::norm(c.positionRoom) < 1.0 &&
-            (!c.hasRotation ||
-             std::abs(c.rotationRoom[0] + c.rotationRoom[4] + c.rotationRoom[8] - 3.0) < 1e-6)) {
-            frameCamera_ = camera_label(c.index);
-        }
-    }
-
-    // Where the people were (their mean, at 1 m), how far the cameras and
-    // most of the people reach, and how long each person was in 3D.
-    const auto& frames = result_.frames();
-    seconds_           = result_.seconds_by_person();
-    QVector3D sum;
-    std::vector<QVector3D> pts;
-    for (const auto& f : frames) {
+    // The room: up and the floor from the people, framed on them.
+    seconds_ = result_.seconds_by_person();
+    std::vector<Skeleton3DVec3> points;
+    for (const auto& f : result_.frames()) {
         for (const auto& p : f.people) {
             for (const auto& kp : p.keypoints) {
                 if (kp.valid) {
-                    pts.push_back(to_scene(kp.positionRoom));
-                    sum += pts.back();
+                    points.push_back(kp.positionRoom);
                 }
             }
         }
     }
-    if (pts.empty()) {
-        for (const auto& c : result_.cameras()) {
-            pts.push_back(to_scene(c.positionRoom));
-            sum += pts.back();
-        }
-    }
-    home_ = pts.empty() ? QVector3D(0, 1000, 0) : sum / static_cast<float>(pts.size());
-    home_.setY(1000.0f);
-    auto flat = [this](const QVector3D& p) {
-        return QVector2D(p.x() - home_.x(), p.z() - home_.z()).length();
-    };
-    float r = 1500.0f;
-    for (const auto& c : result_.cameras()) {
-        r = std::max(r, flat(to_scene(c.positionRoom)));
-    }
-    if (!pts.empty()) {
-        std::sort(pts.begin(), pts.end(),
-                  [&](const QVector3D& a, const QVector3D& b) { return flat(a) < flat(b); });
-        r = std::max(r, flat(pts[pts.size() * 95 / 100])); // strays do not count
-    }
-    extent_    = r;
-    floorSize_ = 2.0f * (std::ceil((r + 1000.0f) / 1000.0f) * 1000.0f);
-
-    // The floor grid: every 0.5 m, brighter each metre, on whole metres.
-    Mesh grid;
-    const float half = floorSize_ / 2.0f;
-    const float cx   = floor_centre().x();
-    const float cz   = floor_centre().z();
-    for (float g = -half; g <= half + 1.0f; g += kGridStepMm) {
-        const bool metre = std::fmod(std::abs(g), 1000.0f) < 1.0f;
-        // Dark colours rather than transparency (lines ignore alpha); they
-        // are linear light, brightened on the way to the screen.
-        const QColor c = metre ? QColor(34, 38, 62) : QColor(18, 20, 34);
-        put(grid.vertices, {cx + g, 1.0f, cz - half}, c);
-        put(grid.vertices, {cx + g, 1.0f, cz + half}, c);
-        put(grid.vertices, {cx - half, 1.0f, cz + g}, c);
-        put(grid.vertices, {cx + half, 1.0f, cz + g}, c);
-    }
-    meshes_["grid"] = grid;
-
-    // The cameras: their bodies are posed in the page; what each sees is a
-    // pyramid 0.45 m deep, outlined, with a translucent far face.
-    Mesh frusta, faces;
-    faces.triangles = true;
-    for (const auto& c : result_.cameras()) {
-        const QVector3D o = to_scene(c.positionRoom);
-        QVariantMap cam{{"pos", o},
-                        {"color", camera_color(c.index)},
-                        {"label", camera_label(c.index)},
-                        {"hasRotation", c.hasRotation},
-                        {"fovY", c.fovDeg[1]}};
-        if (c.hasRotation) {
-            const QVector3D x = dir_to_scene(column(c.rotationRoom, 0));
-            const QVector3D y = dir_to_scene(column(c.rotationRoom, 1));
-            const QVector3D z = dir_to_scene(column(c.rotationRoom, 2));
-            // A node looks down its -z with +y up: the camera's look is z,
-            // its image-up is -y.
-            cam["rot"]           = QQuaternion::fromAxes(x, -y, -z);
-            const float depth    = 450.0f;
-            const float tx       = depth * static_cast<float>(std::tan(c.fovDeg[0] * M_PI / 360.0));
-            const float ty       = depth * static_cast<float>(std::tan(c.fovDeg[1] * M_PI / 360.0));
-            const QVector3D k[4] = {
-                o + z * depth - x * tx - y * ty, o + z * depth + x * tx - y * ty,
-                o + z * depth + x * tx + y * ty, o + z * depth - x * tx + y * ty};
-            const QColor col = camera_color(c.index);
-            for (int i = 0; i < 4; ++i) {
-                put(frusta.vertices, o, alpha(col, 0.9));
-                put(frusta.vertices, k[i], alpha(col, 0.9));
-                put(frusta.vertices, k[i], alpha(col, 0.9));
-                put(frusta.vertices, k[(i + 1) % 4], alpha(col, 0.9));
-            }
-            for (const int i : {0, 1, 2, 0, 2, 3}) {
-                put(faces.vertices, k[i], alpha(col, 0.18));
-            }
-        }
-        cameras_ << cam;
-    }
-    meshes_["frusta"]       = frusta;
-    meshes_["frustumFaces"] = faces;
+    stage_.set_room(Room3DStage::basis_of(result_), result_.cameras(), points);
 }
 
 // The frame on show: people, trails, the two-person line, the labels.
@@ -362,8 +214,8 @@ void Room3DScene::rebuild_frame() {
         frame = result_.nearest_frame(frames.first().timestampNs + positionMs_ * 1000000LL);
     }
     if (!frame) {
-        meshes_["trails"] = trails;
-        meshes_["torsos"] = torsos;
+        set_mesh("trails", std::move(trails));
+        set_mesh("torsos", std::move(torsos));
         emit frameChanged();
         return;
     }
@@ -530,9 +382,9 @@ void Room3DScene::rebuild_frame() {
             }
         }
     }
-    info_             = QString("tick %1  ·  %2 person(s) shown").arg(frame->tick).arg(shownCount);
-    meshes_["trails"] = trails;
-    meshes_["torsos"] = torsos;
+    info_ = QString("tick %1  ·  %2 person(s) shown").arg(frame->tick).arg(shownCount);
+    set_mesh("trails", std::move(trails));
+    set_mesh("torsos", std::move(torsos));
     emit frameChanged();
 }
 

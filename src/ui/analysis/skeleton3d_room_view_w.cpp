@@ -59,7 +59,7 @@ Skeleton3DRoomViewW::Skeleton3DRoomViewW(QWidget* parent)
     // tick on show. Queued: the dialog runs its own event loop, better not
     // inside the page's mouse handling.
     connect(
-        &d->scene, &Room3DScene::saveImageRequested, this,
+        &d->scene.stage(), &Room3DStage::saveImageRequested, this,
         [this] {
             const QString folder =
                 d->imageFolder.isEmpty()
