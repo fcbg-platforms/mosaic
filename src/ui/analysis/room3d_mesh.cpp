@@ -2,8 +2,6 @@
 
 #include <algorithm>
 
-#include "ui/analysis/room3d_scene.hpp"
-
 namespace mosaic {
 
 // ── SceneMesh ────────────────────────────────────────────────────────────
@@ -14,23 +12,15 @@ void SceneMesh::set_scene(QObject* scene) {
     if (scene_) {
         disconnect(scene_, nullptr, this, nullptr);
     }
-    scene_ = qobject_cast<Room3DScene*>(scene);
+    scene_ = qobject_cast<Room3DMeshSource*>(scene);
     if (scene_) {
-        // The grid and the camera pyramids only change with the result, the
-        // paths when they are rebuilt (they hold the whole recording: not
-        // copied each tick).
-        connect(scene_, &Room3DScene::frameChanged, this, [this] {
-            if (part_ != "grid" && part_ != "frusta" && part_ != "frustumFaces" &&
-                part_ != "paths") {
+        // Only its own part: the paths hold a whole recording and the grid
+        // the whole floor, not to be copied each tick.
+        connect(scene_, &Room3DMeshSource::meshChanged, this, [this](const QString& part) {
+            if (part.isEmpty() || part == part_) {
                 rebuild();
             }
         });
-        connect(scene_, &Room3DScene::pathsChanged, this, [this] {
-            if (part_ == "paths") {
-                rebuild();
-            }
-        });
-        connect(scene_, &Room3DScene::resultChanged, this, &SceneMesh::rebuild);
     }
     emit sceneChanged();
     rebuild();
