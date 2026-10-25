@@ -16,6 +16,7 @@
 #include <cmath>
 #include <functional>
 
+#include "ui/analysis/gaze_colors.hpp"
 #include "ui/analysis/subject_colors.hpp"
 #include "video/camera_label.hpp"
 
@@ -333,10 +334,6 @@ class SkeletonOverlayW : public QWidget {
     // Only used when no annotated video was rendered: those already show
     // the projected gaze ray and gaze point, which needs the calibration.
     void paint_gaze(QPainter& painter, const std::function<QPointF(QPointF)>& to_widget) {
-        static const QColor kGazeSubjectColors[] = {
-            QColor(255, 200, 60), QColor(40, 160, 255), QColor(90, 230, 90),
-            QColor(230, 90, 230), QColor(90, 255, 255), QColor(255, 120, 80),
-        };
         const QFontMetrics fm(painter.font());
         for (const auto& subject : gazeFrame_->subjects) {
             const GazeFusionCamera* cam = nullptr;
@@ -349,9 +346,7 @@ class SkeletonOverlayW : public QWidget {
             if (!cam || cam->faceBoxPx.isEmpty()) {
                 continue;
             }
-            bool ok        = false;
-            const int n    = subject.id.mid(1).toInt(&ok);
-            const QColor c = kGazeSubjectColors[ok && n > 0 ? (n - 1) % 6 : 0];
+            const QColor c = gaze_subject_color(subject.id);
 
             const QRectF box(to_widget(cam->faceBoxPx.topLeft()),
                              to_widget(cam->faceBoxPx.bottomRight()));

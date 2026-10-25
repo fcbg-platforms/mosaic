@@ -925,9 +925,23 @@ sitting alongside **Live**. The workflow is always the same shape:
         are rendered by the analysis into the session's ``gaze_fusion/``
         folder; **Open output folder** shows them, with a top-down room
         video and a heat map per person.
-      - The room view beside it shows the room from above: cameras, named
-        regions, every person and their gaze, and below it what each one
-        looks at right now.
+      - The **Room** tab beside it shows the room in 3D, as the 3D Pose
+        room view does (the floor, the cameras with what each sees, the 3D,
+        Top, Front and Side views, the view from any camera by clicking its
+        label, Save image): every person's head, their gaze as a ray from
+        the eyes to where it lands, with a label saying what they look at
+        (brighter, and marked, when two look at each other), the named
+        regions and the calibrated plane, lit in the colour of whoever looks
+        at them, and with **Trails** each person's gaze points over the
+        last 2 seconds. Hover a head for who it is, what they look at, how
+        many cameras saw them and how sure the gaze is. The **People**
+        panel hides or follows a person. Up and the floor are those of the
+        session's 3D Pose result when there is one, so the two views show
+        the same room; else up is the calibrated plane's normal when it is
+        level (a table), or the cameras', and the floor 2 m below the
+        cameras. A person has the same colour as on the video. Results from before
+        this version have no camera directions: run the gaze again to see
+        what each camera sees and to look from it.
       - One line per person: a face that only one camera sees, where the
         other cameras already place someone, is that person, not a second
         one, and a person split for a moment is joined back (see

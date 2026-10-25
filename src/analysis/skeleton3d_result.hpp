@@ -1,4 +1,5 @@
 #pragma once
+#include <QJsonObject>
 #include <QList>
 #include <QMap>
 #include <QPair>
@@ -37,6 +38,10 @@ struct Skeleton3DRoomCamera {
     bool hasRotation                   = false;
     std::array<double, 9> rotationRoom = {1, 0, 0, 0, 1, 0, 0, 0, 1};
     std::array<double, 2> fovDeg       = {0, 0}; ///< horizontal, vertical
+
+    /// One camera of a result file's "cameras": skeleton3d.json's, and
+    /// gaze_fusion.json's, which say the same.
+    [[nodiscard]] static Skeleton3DRoomCamera from_json(const QJsonObject& camObj);
 };
 
 /// One triangulated keypoint within one reconstructed person. `valid`

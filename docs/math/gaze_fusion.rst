@@ -283,6 +283,17 @@ gaze point stays the measured one; the output's ``measured`` field shows
 when it differs from the debounced label. **Mutual gaze** is when S1's
 debounced target is S2 and S2's is S1 at the same tick.
 
+The Analysis tab's **Room** (``Gaze3DScene`` on the room stage shared
+with 3D Pose, :ref:`pose3d-drawing-the-room`) draws each tick: a ray from
+the eyes (``origin``) to the gaze point, or 1.5 m along the gaze when it
+lands on no target. Which way is up and where the floor is come from the
+session's 3D Pose result when there is one (the people's torsos and
+ankles); without it, up is the calibrated plane's normal turned towards
+the cameras when that is within 45 degrees of the cameras' mean image-up (a
+table, not a wall), else the cameras' mean image-up, and the floor is 2 m below
+the lowest camera, a guess: heads seen at camera height are drawn about
+2 m up.
+
 The Analysis tab's **Charts** (``summarize_gaze`` in
 ``src/analysis/gaze_summary.cpp``) sum these labels up over the recording.
 Each analysed tick stands for the step between analysed ticks (their median

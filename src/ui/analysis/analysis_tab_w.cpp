@@ -86,7 +86,7 @@
 #include "analysis/voice_result.hpp"
 #include "audio/audio_envelope.hpp"
 #include "session/session_info.hpp"
-#include "ui/analysis/gaze_room_view_w.hpp"
+#include "ui/analysis/gaze3d_view_w.hpp"
 #include "ui/analysis/overview_timeline_w.hpp"
 #include "ui/analysis/plugin_rail_w.hpp"
 #include "ui/analysis/pose_overlay_player_w.hpp"
@@ -1243,13 +1243,18 @@ struct AnalysisTabW::Impl {
 
     // Gaze-fusion view controls — mirrors expressionRowW/kinematicsRowW's
     // own-container pattern so select_plugin() can hide the whole row with
-    // one call. roomView is the 3D top-down view, added as a 4th
+    // one call. roomView is the 3D room view (Gaze3DViewW), added as a 4th
     // resultsSplitter child (not part of this row) since it needs the same
     // stretch-factor treatment as player/chart/transcriptTable.
     QWidget* gazeFusionRowW    = nullptr; // gaze_fusion only
     QLabel* gazeStatsLbl       = nullptr; // gaze_fusion only
     QPushButton* exportGazeBtn = nullptr; // gaze_fusion only
-    GazeRoomViewW* roomView    = nullptr; // gaze_fusion only
+    Gaze3DViewW* roomView      = nullptr; // gaze_fusion only
+    // gaze_fusion: the session's 3D Pose room (up and the floor), so the 3D
+    // Gaze view shares it; read once per skeleton3d.json, which can be large.
+    QString gazeRoomFile;
+    QDateTime gazeRoomStamp;
+    std::optional<Room3DStage::Basis> gazeRoomBasis;
 
     // 3D Pose Reconstruction view controls — mirrors gazeFusionRowW's
     // own-container pattern. skeleton3dRoomView is the interactive
@@ -3256,7 +3261,7 @@ void AnalysisTabW::build_ui() {
     });
     resultsSplitter->addWidget(d->transcriptTable);
 
-    d->roomView = new GazeRoomViewW; // shown only for the gaze_fusion plugin
+    d->roomView = new Gaze3DViewW; // shown only for the gaze_fusion plugin
     d->roomView->setVisible(false);
     resultsSplitter->addWidget(d->roomView);
 
@@ -3659,7 +3664,8 @@ void AnalysisTabW::select_plugin(const QString& pluginId) {
     d->roomTabs->setTabText(kRoomTab, isGazeFusion ? "Room" : "3D Room");
     d->roomTabs->setTabToolTip(
         kRoomTab, isGazeFusion
-                      ? "The room from above: every person, their gaze and what it lands on."
+                      ? "Every person's head and gaze in the room, with what it lands on and "
+                        "the cameras. Drag to orbit, scroll to zoom, double-click to reset."
                       : "Every person's 3D skeleton in the room, with the cameras. "
                         "Drag to orbit, scroll to zoom, double-click to reset.");
     d->roomTabs->setTabToolTip(
@@ -4062,7 +4068,21 @@ void AnalysisTabW::load_camera_result_view() {
         const QString gazeAbs = info->path + "/gaze_fusion.json";
         d->currentGazeFusion =
             QFileInfo::exists(gazeAbs) ? GazeFusionResult::load(gazeAbs) : GazeFusionResult();
-        d->roomView->set_result(d->currentGazeFusion);
+        // The 3D Pose room, when the session has one and it changed.
+        const QFileInfo skeleton(info->path + "/skeleton3d.json");
+        if (skeleton.filePath() != d->gazeRoomFile || skeleton.lastModified() != d->gazeRoomStamp) {
+            d->gazeRoomFile  = skeleton.filePath();
+            d->gazeRoomStamp = skeleton.lastModified();
+            d->gazeRoomBasis.reset();
+            if (skeleton.exists()) {
+                const auto room = Skeleton3DResult::load(skeleton.filePath());
+                if (room.is_valid() && !room.frames().isEmpty()) {
+                    d->gazeRoomBasis = Room3DStage::basis_of(room);
+                }
+            }
+        }
+        d->roomView->set_result(d->currentGazeFusion, d->gazeRoomBasis);
+        d->roomView->set_image_folder(info->path);
 
         if (d->cameraCombo->currentIndex() >= 0) {
             const int camIdx        = combo_camera_index(d->cameraCombo);

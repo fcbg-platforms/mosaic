@@ -284,9 +284,24 @@ def test_outputs_are_written_and_consistent(scene, tmp_path):
         1,
         {},
         None,
+        {0: (1920, 1080)},
     )
     data = json.loads(out.read_text())
     assert data["schema"] == "mosaic-gaze-fusion-v2"
+    # Each camera says which way it looks and how wide, as skeleton3d.json's
+    # do: from the recorded size given, else the principal point.
+    cam0, cam1 = data["cameras"][0], data["cameras"][1]
+    assert cam0["rotation_room"] == [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]
+    np.testing.assert_allclose(
+        cam1["rotation_room"], rig.cameras[1].extrinsic_rt[:3, :3], atol=1e-6
+    )
+    fx, fy = K[0, 0], K[1, 1]
+    assert cam0["fov_deg"] == pytest.approx(
+        [np.degrees(2 * np.arctan(960 / fx)), np.degrees(2 * np.arctan(540 / fy))], abs=0.01
+    )
+    assert cam1["fov_deg"] == pytest.approx(
+        [np.degrees(2 * np.arctan(K[0, 2] / fx)), np.degrees(2 * np.arctan(K[1, 2] / fy))], abs=0.01
+    )
     assert [s["name"] for s in data["subjects"]] == ["Child", "S2"]
     first = data["frames"][0]["subjects"]
     s2 = next(s for s in first if s["id"] == "S2")
@@ -305,6 +320,31 @@ def test_outputs_are_written_and_consistent(scene, tmp_path):
     summary = summarise(entries, subjects, {"S1": "Child"}, 1 / 25.0, 12, 1)
     assert summary["subjects"]["Child"]["looked_at_s"]["S2"] == pytest.approx(12 / 25.0)
     assert summary["mutual_gaze"]["Child & S2"]["pct_of_recording"] == pytest.approx(100.0)
+
+
+def test_recorded_sizes_prefer_the_recording_then_the_calibration():
+    import run_gaze_fusion
+
+    meta = {
+        "cameras": [
+            # An interview crop: the recording's own size.
+            {"index": 0, "width": 960, "height": 720, "calibration": {"image_width": 1920}},
+            # Unknown on the recording (-1, as the app writes it): the calibration's.
+            {
+                "index": 1,
+                "width": -1,
+                "height": None,
+                "calibration": {"image_width": 1920, "image_height": 1080},
+            },
+            # Neither: unknown, so the field of view falls back to the principal point.
+            {"index": 2, "calibration": {"image_width": -1}},
+        ]
+    }
+    assert run_gaze_fusion.recorded_sizes(meta) == {
+        0: (960, 720),
+        1: (1920, 1080),
+        2: (None, None),
+    }
 
 
 def test_neighbours_at_camera_height_stay_two_people(scene):

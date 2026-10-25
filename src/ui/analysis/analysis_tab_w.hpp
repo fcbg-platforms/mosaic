@@ -29,8 +29,8 @@ namespace mosaic {
 // score-over-time plot; Multi-Camera Gaze Fusion —
 // per-camera 3D gaze rays (analysis/gaze) triangulated across whichever
 // cameras have both intrinsic and extrinsic (room) calibration, shown as a
-// per-camera bbox+direction-arrow video overlay plus a top-down 3D room
-// view (GazeRoomViewW); and 3D Pose Reconstruction — the already-computed
+// per-camera bbox+direction-arrow video overlay plus a 3D room view
+// (Gaze3DViewW); and 3D Pose Reconstruction — the already-computed
 // Pose plugin output (per camera) triangulated across cameras with real
 // cross-camera person association (multi-person capable, unlike Gaze
 // Fusion's single-subject design), shown as a per-camera reprojected

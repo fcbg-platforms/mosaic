@@ -435,7 +435,10 @@ smoothed without lag and cast against the targets. See
      - Schema ``mosaic-gaze-fusion-v2``, read by the Analysis tab. Top level:
        ``source`` (``synced`` or ``raw``), ``fps``, ``analysed_every``,
        ``subjects`` (``id``, ``name``, ``face_scale``), ``regions``,
-       ``plane``, ``cameras``, ``annotated_videos``. Per analysed tick in
+       ``plane``, ``cameras`` (``index``, ``position_room``,
+       ``room_from_camera``, and, since the 3D Gaze view, ``rotation_room``
+       and ``fov_deg`` as in ``skeleton3d.json``, for the recorded image),
+       ``annotated_videos``. Per analysed tick in
        ``frames``: ``tick``, ``timestamp_ns``, ``video_frame_index`` and per
        subject ``origin``, ``direction``, ``point`` (mm, room frame),
        ``target`` (``type``, ``label``, ``subject``, ``distance_mm``),
