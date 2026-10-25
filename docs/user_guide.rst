@@ -1004,9 +1004,17 @@ sitting alongside **Live**. The workflow is always the same shape:
       sees as a coloured pyramid. The buttons at its top right choose the view: **3D** (drag to
       turn, right-drag to pan, scroll to zoom), or **Top** (a flat map of the
       floor), **Front** and **Side**, flat views where dragging pans.
-      Double-click returns to the view's starting framing. **Trails** shows
-      where each person's hips were over the last 2 seconds, and their path
-      on the floor. Hover over a joint to read its name and position, x, y
+      Double-click returns to the view's starting framing. Click a camera's
+      label to see the room from that camera: from where it is, looking
+      where it looks, with its vertical field of view, to compare with its
+      video (without its lens distortion; the view's shape, not the camera's,
+      sets how much shows at the sides). Any view button, or a double-click,
+      leaves it. **Trails** shows where each person's hips were over the last
+      2 seconds, and their trace on the floor. **Paths** draws each shown
+      person's whole path on the floor over the recording, where they went
+      and stood, broken where they were not in 3D. **Save image** saves the
+      view as drawn as a PNG, named after the tick on show, in the session's
+      folder by default. Hover over a joint to read its name and position, x, y
       and z in metres, in the room frame: the reference camera's own (x
       right, y down, z forward), as in every export; the axes at the bottom
       right turn with the view. Results from before this version have no

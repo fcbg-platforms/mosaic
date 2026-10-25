@@ -18,7 +18,8 @@ const QColor kCameraColors[] = {
     QColor("#ff4488"), QColor("#44cccc"), QColor("#cc44cc"),
 };
 constexpr double kTrailSeconds = 2.0;
-constexpr double kTrailGapS    = 0.25; // a trail never spans a longer gap
+constexpr double kTrailGapS    = 0.25;  // a trail or a path never spans a longer gap
+constexpr float kPathStepMm    = 20.0f; // a path's points at least this far apart
 constexpr float kGridStepMm    = 500.0f;
 
 QVector3D qv(const Skeleton3DVec3& p) {
@@ -108,6 +109,7 @@ void Room3DScene::set_result(const Skeleton3DResult& result) {
     }
     emit resultChanged();
     emit peopleChanged();
+    rebuild_paths();
     rebuild_frame();
 }
 
@@ -118,6 +120,7 @@ void Room3DScene::set_position_ms(int64_t positionMs) {
 
 void Room3DScene::set_show_smoothed(bool smoothed) {
     smoothed_ = smoothed;
+    rebuild_paths();
     rebuild_frame();
 }
 
@@ -134,6 +137,7 @@ void Room3DScene::set_shown(int person, bool shown) {
         hidden_.insert(person);
     }
     emit peopleChanged();
+    rebuild_paths();
     rebuild_frame();
 }
 
@@ -146,6 +150,63 @@ void Room3DScene::set_follow(int person) {
 void Room3DScene::set_trails(bool on) {
     trails_ = on;
     rebuild_frame();
+}
+
+void Room3DScene::set_paths(bool on) {
+    paths_ = on;
+    rebuild_paths();
+}
+
+std::optional<QVector3D> Room3DScene::point(const Skeleton3DPerson& p, int i) const {
+    if (i < 0 || i >= p.keypoints.size() || !p.keypoints[i].valid) {
+        return std::nullopt;
+    }
+    const auto& kp = p.keypoints[i];
+    return to_scene(smoothed_ ? kp.positionRoomSmoothed : kp.positionRoom);
+}
+
+std::optional<QVector3D> Room3DScene::hips(const Skeleton3DPerson& p) const {
+    const auto a = point(p, lHip_), b = point(p, rHip_);
+    return a && b ? std::optional<QVector3D>((*a + *b) / 2.0f) : std::nullopt;
+}
+
+// Each person's whole path: the hips, on the floor, over the recording;
+// never across a gap. Rebuilt only when it can change (a new result, someone
+// shown or hidden, smoothing), not each tick: it holds the whole recording.
+void Room3DScene::rebuild_paths() {
+    Mesh paths;
+    if (paths_ && result_.is_valid()) {
+        struct Last {
+            QVector3D drawn;    // the path's last point
+            int64_t seenNs = 0; // when the person was last seen
+        };
+        QMap<int, Last> last;
+        for (const auto& f : result_.frames()) {
+            for (const auto& p : f.people) {
+                const auto h = hips(p);
+                if (hidden_.contains(p.trackId) || !h) {
+                    continue;
+                }
+                const QVector3D here(h->x(), 3.0f, h->z());
+                auto it = last.find(p.trackId);
+                if (it == last.end() || (f.timestampNs - it->seenNs) / 1e9 > kTrailGapS) {
+                    last[p.trackId] = {here, f.timestampNs}; // a new piece
+                    continue;
+                }
+                it->seenNs = f.timestampNs;
+                // Points closer than a few centimetres add nothing visible
+                // and would make a long recording's mesh large.
+                if ((here - it->drawn).length() >= kPathStepMm) {
+                    const QColor col = alpha(person_color(p.trackId), 0.85);
+                    put(paths.vertices, it->drawn, col);
+                    put(paths.vertices, here, col);
+                    it->drawn = here;
+                }
+            }
+        }
+    }
+    meshes_["paths"] = paths;
+    emit pathsChanged();
 }
 
 // What does not change during playback: the room's orientation, the
@@ -250,7 +311,8 @@ void Room3DScene::rebuild_static() {
         QVariantMap cam{{"pos", o},
                         {"color", camera_color(c.index)},
                         {"label", camera_label(c.index)},
-                        {"hasRotation", c.hasRotation}};
+                        {"hasRotation", c.hasRotation},
+                        {"fovY", c.fovDeg[1]}};
         if (c.hasRotation) {
             const QVector3D x = dir_to_scene(column(c.rotationRoom, 0));
             const QVector3D y = dir_to_scene(column(c.rotationRoom, 1));
@@ -292,6 +354,7 @@ void Room3DScene::rebuild_frame() {
     torsos.triangles = true;
     info_.clear();
     followFound_ = false;
+    tick_        = -1;
 
     const auto& frames           = result_.frames();
     const Skeleton3DFrame* frame = nullptr;
@@ -304,18 +367,9 @@ void Room3DScene::rebuild_frame() {
         emit frameChanged();
         return;
     }
+    tick_             = frame->tick;
     const auto& names = result_.keypoint_names();
-    auto pos          = [&](const Skeleton3DPerson& p, int i) -> std::optional<QVector3D> {
-        if (i < 0 || i >= p.keypoints.size() || !p.keypoints[i].valid) {
-            return std::nullopt;
-        }
-        const auto& kp = p.keypoints[i];
-        return to_scene(smoothed_ ? kp.positionRoomSmoothed : kp.positionRoom);
-    };
-    auto hips = [&](const Skeleton3DPerson& p) -> std::optional<QVector3D> {
-        const auto a = pos(p, lHip_), b = pos(p, rHip_);
-        return a && b ? std::optional<QVector3D>((*a + *b) / 2.0f) : std::nullopt;
-    };
+    const auto pos    = [this](const Skeleton3DPerson& p, int i) { return point(p, i); };
     const QVector3D yAxis(0, 1, 0);
 
     int shownCount = 0;

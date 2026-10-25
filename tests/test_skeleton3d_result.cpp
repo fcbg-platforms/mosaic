@@ -460,3 +460,62 @@ TEST(Skeleton3DResult, PeopleSeenUnderASecondAreBrief) {
     EXPECT_FALSE(people[1].toMap()["shown"].toBool());
     EXPECT_TRUE(people[1].toMap()["brief"].toBool());
 }
+
+TEST(Room3DScene, PathsCoverTheWholeRecordingButNoGap) {
+    // Person 1's hips walk along room x, 100 mm a tick at 25 per second,
+    // for 10 ticks; 1 s later, 10 more; then 10 ticks drifting 3 mm a tick:
+    // a point only once 20 mm from the last one drawn (after 7 ticks), not
+    // from the tick before. 30 ticks: 1.2 s in 3D, so Person 1 is shown. One
+    // camera, its fields of view 60 by 40 degrees.
+    QStringList frames;
+    int tick       = 0;
+    const auto add = [&](int64_t ns, double x) {
+        frames << QString(R"({"tick": %1, "timestamp_ns": %2, "people": [{"track_id": 0, )"
+                          R"("person_id": 1, "keypoints_room": [[%3,-900,3000],[%4,-900,3000]], )"
+                          R"("keypoints_valid": [true, true]}]})")
+                      .arg(tick++)
+                      .arg(ns)
+                      .arg(x - 150)
+                      .arg(x + 150);
+    };
+    for (int k = 0; k < 10; ++k) {
+        add(40000000LL * k, 100.0 * k);
+    }
+    for (int k = 0; k < 10; ++k) {
+        add(1400000000LL + 40000000LL * k, 2000.0 + 100.0 * k);
+    }
+    for (int k = 1; k <= 10; ++k) {
+        add(1760000000LL + 40000000LL * k, 2900.0 + 3.0 * k);
+    }
+    QTemporaryDir dir;
+    QFile f(dir.filePath("w.json"));
+    ASSERT_TRUE(f.open(QIODevice::WriteOnly));
+    f.write(QString(R"({"schema": "mosaic-skeleton3d-v1", "cameras": [{"index": 0, )"
+                    R"("position_room": [0, 0, 0], "rotation_room": [[1,0,0],[0,1,0],[0,0,1]], )"
+                    R"("fov_deg": [60, 40]}], "keypoint_names": ["left_hip", "right_hip"], )"
+                    R"("skeleton_edges": [], "frames": [%1]})")
+                .arg(frames.join(","))
+                .toUtf8());
+    f.close();
+    const auto r = Skeleton3DResult::load(dir.filePath("w.json"));
+    ASSERT_TRUE(r.is_valid());
+
+    mosaic::Room3DScene scene;
+    scene.set_result(r);
+    ASSERT_TRUE(scene.people()[0].toMap()["shown"].toBool());
+    EXPECT_TRUE(scene.mesh("paths").vertices.empty()); // off until asked for
+    scene.set_paths(true);
+    // 9 steps in each walk, none across the 1 s gap, one in the drift: 19
+    // lines of 2 points, 7 numbers each (x y z r g b a), on the floor.
+    const auto& v = scene.mesh("paths").vertices;
+    ASSERT_EQ(v.size(), 19u * 2 * 7);
+    EXPECT_NEAR(v[1], 3.0f, 1e-6f);
+    EXPECT_NEAR(v[7] - v[0], 100.0f, 1e-3f); // the first step, along the room's right
+    // A hidden person has no path.
+    scene.set_shown(1, false);
+    EXPECT_TRUE(scene.mesh("paths").vertices.empty());
+
+    // The view from the camera needs its vertical field of view.
+    ASSERT_EQ(scene.cameras().size(), 1);
+    EXPECT_NEAR(scene.cameras()[0].toMap()["fovY"].toDouble(), 40.0, 1e-9);
+}

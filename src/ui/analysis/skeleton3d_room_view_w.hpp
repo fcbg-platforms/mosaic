@@ -10,8 +10,9 @@ namespace mosaic {
 // The 3D Pose Reconstruction plugin's room view: every person upright on a
 // lit floor with a metre grid, their shadows, the cameras as small 3D
 // cameras with what each one sees, which way each face points, trails, and
-// a joint's room coordinates on hover; 3D, Top, Front and Side views, and a
-// People panel to hide or follow a person.
+// a joint's room coordinates on hover; 3D, Top, Front and Side views, the
+// view from any camera, each person's whole path, Save image, and a People
+// panel to hide or follow a person.
 //
 // Drawn with Qt Quick 3D (src/qml/Room3D.qml): real shadows, ambient
 // occlusion and smooth edges come from it. The scene's contents (where each
@@ -49,6 +50,10 @@ class Skeleton3DRoomViewW : public QWidget {
     // charts. -1 for either clears it. The distance printed is from raw
     // positions, as the Dyad Analysis numbers are.
     void set_dyad_tracks(int personA, int personB);
+
+    // Where Save image suggests saving (the session's folder); empty for the
+    // user's Pictures folder.
+    void set_image_folder(const QString& folder);
 
    private:
     struct Impl;

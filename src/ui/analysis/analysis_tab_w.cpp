@@ -4024,6 +4024,7 @@ void AnalysisTabW::load_camera_result_view() {
             d->player->set_video(QString());
             d->player->set_pose_result(d->currentResult);
             d->skeleton3dRoomView->set_result(d->currentSkeleton3D);
+            d->skeleton3dRoomView->set_image_folder(QString());
             update_pose3d_view();
             return;
         }
@@ -4032,6 +4033,7 @@ void AnalysisTabW::load_camera_result_view() {
         d->currentSkeleton3D = QFileInfo::exists(skeletonAbs) ? Skeleton3DResult::load(skeletonAbs)
                                                               : Skeleton3DResult();
         d->skeleton3dRoomView->set_result(d->currentSkeleton3D);
+        d->skeleton3dRoomView->set_image_folder(info->path);
 
         if (d->cameraCombo->currentIndex() >= 0) {
             const QString videoRel = d->cameraCombo->currentData().toString();

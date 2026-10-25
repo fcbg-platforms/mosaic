@@ -17,7 +17,12 @@ Rectangle {
 
     // ── Views ──────────────────────────────────────────────────────────────
     // 3D: an orbit around `target`. Top, Front, Side: flat (orthographic).
+    // From a camera: where that camera is, looking where it looks, with its
+    // vertical field of view (click its label; any view button leaves it).
     property int preset: 0 // 0 3D, 1 Top, 2 Front, 3 Side
+    property int fromCamera: -1 // the index in room3d.cameras, -1 for none
+    property real cameraSince: 0 // when it was chosen, so a double-click does not leave it
+    readonly property var viewCam: fromCamera >= 0 ? room3d.cameras[fromCamera] : null
     property real yaw: -35
     property real pitch: 28
     property real distance: 6000
@@ -26,6 +31,7 @@ Rectangle {
     readonly property bool flat: preset !== 0
 
     function reset() {
+        fromCamera = -1
         target = room3d.home
         distance = Math.max(room3d.extent * 2.4, 1500)
         orthoHalf = Math.max(room3d.extent * 1.15, 800)
@@ -57,7 +63,7 @@ Rectangle {
     View3D {
         id: view
         anchors.fill: parent
-        camera: root.flat ? ortho : persp
+        camera: root.viewCam ? camView : (root.flat ? ortho : persp)
         environment: SceneEnvironment {
             backgroundMode: SceneEnvironment.Transparent
             antialiasingMode: SceneEnvironment.MSAA
@@ -77,6 +83,17 @@ Rectangle {
             position: root.target.plus(root.eyeDir.times(root.distance))
             Component.onCompleted: lookAt(root.target)
             onPositionChanged: lookAt(root.target)
+        }
+        // The view from a camera: the cameras' nodes already look down -z
+        // with image-up +y, as a scene camera does. No lens distortion, and
+        // the view's shape, not the camera's, sets how much shows sideways.
+        PerspectiveCamera {
+            id: camView
+            fieldOfView: root.viewCam ? root.viewCam.fovY : 45
+            clipNear: 20
+            clipFar: 200000
+            position: root.viewCam ? root.viewCam.pos : Qt.vector3d(0, 0, 0)
+            rotation: root.viewCam ? root.viewCam.rot : Qt.quaternion(1, 0, 0, 0)
         }
         OrthographicCamera {
             id: ortho
@@ -137,6 +154,8 @@ Rectangle {
             model: room3d.cameras
             delegate: Node {
                 required property var modelData
+                required property int index
+                visible: index !== root.fromCamera // not in the way of its own view
                 position: modelData.pos
                 rotation: modelData.hasRotation ? modelData.rot : Qt.quaternion(1, 0, 0, 0)
                 // No shadows: hung near the ceiling, theirs fall far away on
@@ -159,11 +178,13 @@ Rectangle {
             }
         }
         Model {
+            visible: !root.viewCam // the camera's own pyramid would tint its view
             geometry: SceneMesh { scene: room3d; part: "frusta" }
             castsShadows: false
             materials: DefaultMaterial { vertexColorsEnabled: true; lighting: DefaultMaterial.NoLighting }
         }
         Model {
+            visible: !root.viewCam
             geometry: SceneMesh { scene: room3d; part: "frustumFaces" }
             castsShadows: false
             materials: DefaultMaterial {
@@ -241,6 +262,12 @@ Rectangle {
             }
         }
         Model {
+            visible: room3d.paths
+            geometry: SceneMesh { scene: room3d; part: "paths" }
+            castsShadows: false
+            materials: DefaultMaterial { vertexColorsEnabled: true; lighting: DefaultMaterial.NoLighting; opacity: 0.99 }
+        }
+        Model {
             geometry: SceneMesh { scene: room3d; part: "trails" }
             castsShadows: false
             materials: DefaultMaterial { vertexColorsEnabled: true; lighting: DefaultMaterial.NoLighting; opacity: 0.99 }
@@ -260,7 +287,8 @@ Rectangle {
     // `view.camera` and the eye are read so they move with the view.
     function screen(p) {
         void(root.yaw); void(root.pitch); void(root.distance); void(root.orthoHalf)
-        void(root.target); void(root.preset); void(view.width); void(view.height)
+        void(root.target); void(root.preset); void(root.fromCamera); void(view.width); void(view.height)
+        void(view.camera); void(camView.position); void(camView.rotation); void(camView.fieldOfView)
         return view.mapFrom3DScene(p)
     }
     component Tag: Rectangle {
@@ -286,12 +314,21 @@ Rectangle {
         model: room3d.cameras
         delegate: Tag {
             required property var modelData
+            required property int index
             readonly property vector3d s: root.screen(modelData.pos.plus(Qt.vector3d(0, 140, 0)))
             text: modelData.label
             tint: modelData.color
             x: s.x - width / 2
             y: s.y - height
-            visible: s.z > 0
+            visible: s.z > 0 && index !== root.fromCamera
+            z: 2 // above the view's mouse area, which is declared later
+            // Click a camera's label for the view from it.
+            MouseArea {
+                anchors.fill: parent
+                enabled: modelData.hasRotation && modelData.fovY > 0
+                cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
+                onClicked: { root.fromCamera = index; root.cameraSince = Date.now() }
+            }
         }
     }
     Repeater {
@@ -330,7 +367,8 @@ Rectangle {
         property int dragButton: 0
         onPressed: (m) => { last = Qt.point(m.x, m.y); dragButton = m.button; hover.info = "" }
         onReleased: dragButton = 0
-        onDoubleClicked: root.reset()
+        // A double-click on a camera's label is its first click, then this.
+        onDoubleClicked: if (Date.now() - root.cameraSince > 600) root.reset()
         onPositionChanged: (m) => {
             if (dragButton === 0) {
                 const hit = view.pick(m.x, m.y)
@@ -338,6 +376,7 @@ Rectangle {
                 hover.x = m.x + 14; hover.y = m.y + 12
                 return
             }
+            if (root.viewCam) return // the camera's own view stays put
             const dx = m.x - last.x, dy = m.y - last.y
             last = Qt.point(m.x, m.y)
             if (dragButton === Qt.LeftButton && !root.flat) {
@@ -352,6 +391,7 @@ Rectangle {
             root.target = root.target.plus(cam.right.times(-dx * perPx)).plus(cam.up.times(dy * perPx))
         }
         onWheel: (w) => {
+            if (root.viewCam) return
             const f = Math.pow(0.999, w.angleDelta.y)
             if (root.flat) root.orthoHalf = Math.max(150, Math.min(50000, root.orthoHalf * f))
             else root.distance = Math.max(300, Math.min(100000, root.distance * f))
@@ -360,6 +400,7 @@ Rectangle {
     }
     Rectangle {
         id: hover
+        z: 3 // the buttons, the panel and the readout above the camera labels (z 2)
         property string info: ""
         visible: info !== ""
         width: hoverText.implicitWidth + 14
@@ -385,6 +426,7 @@ Rectangle {
     }
     Row {
         id: views
+        z: 3
         anchors.top: parent.top
         anchors.right: parent.right
         anchors.margins: 8
@@ -395,17 +437,27 @@ Rectangle {
                 required property int index
                 required property string modelData
                 text: modelData
-                on: root.preset === index
+                on: root.preset === index && !root.viewCam
                 onClicked: { root.preset = index; root.reset() }
             }
         }
+        Pill {
+            visible: !!root.viewCam
+            text: root.viewCam ? root.viewCam.label + "'s view" : ""
+            on: true
+            onClicked: root.reset()
+        }
         Item { width: 8; height: 1 }
         Pill { text: "Trails"; on: room3d.trails; onClicked: room3d.trails = !room3d.trails }
+        Pill { text: "Paths"; on: room3d.paths; onClicked: room3d.paths = !room3d.paths }
+        Item { width: 8; height: 1 }
+        Pill { text: "Save image"; onClicked: room3d.request_save_image() }
     }
 
     // ── People, top left: show or hide each, follow one ──
     Rectangle {
         id: panel
+        z: 3
         anchors.left: parent.left
         anchors.top: parent.top
         anchors.margins: 8
@@ -515,6 +567,7 @@ Rectangle {
         font.pixelSize: 12
         text: room3d.hasResult
               ? room3d.info + "  ·  grid 0.5 m  ·  x y z: " + room3d.frameCamera + "'s frame, metres"
+                + (root.viewCam ? "" : "  ·  click a camera's label to look from it")
               : "No 3D pose result loaded. Run 3D Pose Reconstruction for this session."
     }
 }

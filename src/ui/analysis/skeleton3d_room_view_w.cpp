@@ -1,8 +1,11 @@
 #include "ui/analysis/skeleton3d_room_view_w.hpp"
 
+#include <QFileDialog>
 #include <QLabel>
+#include <QMessageBox>
 #include <QQmlContext>
 #include <QQuickWidget>
+#include <QStandardPaths>
 #include <QVBoxLayout>
 #include <QtQml>
 
@@ -15,6 +18,7 @@ namespace mosaic {
 struct Skeleton3DRoomViewW::Impl {
     Room3DScene scene;
     QQuickWidget* quick = nullptr;
+    QString imageFolder;
 };
 
 Skeleton3DRoomViewW::Skeleton3DRoomViewW(QWidget* parent)
@@ -50,6 +54,30 @@ Skeleton3DRoomViewW::Skeleton3DRoomViewW(QWidget* parent)
         return;
     }
     lay->addWidget(d->quick);
+
+    // Save image: the view as drawn, at its size on screen, named after the
+    // tick on show. Queued: the dialog runs its own event loop, better not
+    // inside the page's mouse handling.
+    connect(
+        &d->scene, &Room3DScene::saveImageRequested, this,
+        [this] {
+            const QString folder =
+                d->imageFolder.isEmpty()
+                    ? QStandardPaths::writableLocation(QStandardPaths::PicturesLocation)
+                    : d->imageFolder;
+            const QString name = d->scene.tick() >= 0
+                                     ? QString("/room3d_tick%1.png").arg(d->scene.tick())
+                                     : QString("/room3d.png");
+            const QString path = QFileDialog::getSaveFileName(this, "Save the 3D view",
+                                                              folder + name, "PNG image (*.png)");
+            if (path.isEmpty() || !d->quick) {
+                return;
+            }
+            if (!d->quick->grabFramebuffer().save(path, "PNG")) {
+                QMessageBox::warning(this, "Save the 3D view", "Could not save " + path + ".");
+            }
+        },
+        Qt::QueuedConnection);
 }
 
 Skeleton3DRoomViewW::~Skeleton3DRoomViewW() {
@@ -72,5 +100,7 @@ void Skeleton3DRoomViewW::set_show_smoothed(bool showSmoothed) {
 void Skeleton3DRoomViewW::set_dyad_tracks(int personA, int personB) {
     d->scene.set_dyad(personA, personB);
 }
+
+void Skeleton3DRoomViewW::set_image_folder(const QString& folder) { d->imageFolder = folder; }
 
 } // namespace mosaic

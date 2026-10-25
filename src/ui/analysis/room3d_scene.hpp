@@ -8,6 +8,7 @@
 #include <QVector3D>
 #include <cmath>
 #include <cstdint>
+#include <optional>
 #include <vector>
 
 #include "analysis/skeleton3d_result.hpp"
@@ -18,7 +19,8 @@ namespace mosaic {
 //
 // Turns the result into what the page draws: for the frame on show, each
 // bone (centre, rotation, length), joint and head of every person shown, the
-// cameras, the trails, the two-person line, and the labels' anchor points.
+// cameras, the trails, each person's whole path, the two-person line, and the
+// labels' anchor points.
 // The page only lays these out; the maths stays here, testable.
 //
 // The scene is Y-up, in millimetres, with the floor at y = 0: the room
@@ -51,6 +53,7 @@ class Room3DScene : public QObject {
     Q_PROPERTY(bool followFound READ follow_found NOTIFY frameChanged)
     Q_PROPERTY(int follow READ follow WRITE set_follow NOTIFY peopleChanged)
     Q_PROPERTY(bool trails READ trails WRITE set_trails NOTIFY frameChanged)
+    Q_PROPERTY(bool paths READ paths WRITE set_paths NOTIFY pathsChanged)
 
    public:
     explicit Room3DScene(QObject* parent = nullptr);
@@ -65,6 +68,9 @@ class Room3DScene : public QObject {
     Q_INVOKABLE void set_shown(int person, bool shown);
     void set_follow(int person);
     void set_trails(bool on);
+    void set_paths(bool on);
+    // The page's Save image: the widget around the page saves it.
+    Q_INVOKABLE void request_save_image() { emit saveImageRequested(); }
 
     [[nodiscard]] QVariantList cameras() const { return cameras_; }
     [[nodiscard]] QVariantList people() const;
@@ -88,6 +94,9 @@ class Room3DScene : public QObject {
     [[nodiscard]] bool follow_found() const { return followFound_; }
     [[nodiscard]] int follow() const { return follow_; }
     [[nodiscard]] bool trails() const { return trails_; }
+    [[nodiscard]] bool paths() const { return paths_; }
+    // The tick on show, -1 for none (Save image names the file after it).
+    [[nodiscard]] int64_t tick() const { return tick_; }
 
     // Room frame (mm) to scene (mm, Y-up, floor at 0), and the room frame
     // direction to the scene's.
@@ -96,7 +105,7 @@ class Room3DScene : public QObject {
 
     // Line and triangle meshes, as x y z r g b a per vertex: the floor grid,
     // the camera pyramids (lines and their translucent far faces), the
-    // trails, and the torsos.
+    // trails, the paths, and the torsos.
     struct Mesh {
         std::vector<float> vertices;
         bool triangles = false;
@@ -107,15 +116,23 @@ class Room3DScene : public QObject {
     void resultChanged();
     void frameChanged();
     void peopleChanged();
+    void pathsChanged();
+    void saveImageRequested();
 
    private:
     void rebuild_frame();
     void rebuild_static();
+    void rebuild_paths();
+    // A keypoint and the hips' midpoint in the scene, as drawn (smoothed
+    // when Show smoothed is on); none when not valid.
+    [[nodiscard]] std::optional<QVector3D> point(const Skeleton3DPerson& p, int i) const;
+    [[nodiscard]] std::optional<QVector3D> hips(const Skeleton3DPerson& p) const;
 
     Skeleton3DResult result_;
     int64_t positionMs_ = 0;
     bool smoothed_      = false;
     bool trails_        = true;
+    bool paths_         = false;
     int dyadA_ = -1, dyadB_ = -1;
     QSet<int> hidden_;
     int follow_ = -1;
@@ -136,6 +153,7 @@ class Room3DScene : public QObject {
     QString info_;
     QVector3D followTarget_;
     bool followFound_ = false;
+    int64_t tick_     = -1;
     QMap<QString, Mesh> meshes_;
 };
 
