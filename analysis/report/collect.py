@@ -353,6 +353,20 @@ def _pose3d(session: Path) -> dict | None:
     return {"quality": d.get("quality") if isinstance(d, dict) else None}
 
 
+def _pose3d_people(session: Path) -> dict | None:
+    """Each person's summary over the 3D Pose result (posture, joint angles,
+    movement), written by MOSAIC with its Charts tab's code when it opens the
+    result or a run finishes there (``pose3d_people.json``). Marked stale
+    when older than ``skeleton3d.json``."""
+    path = session / "pose3d_people.json"
+    d = read_json(path)
+    if d is None or d.get("schema") != "mosaic-pose3d-people-v1":
+        return None
+    skeleton = session / "skeleton3d.json"
+    stale = skeleton.is_file() and skeleton.stat().st_mtime > path.stat().st_mtime
+    return {"people": d.get("people") or [], "stale": stale}
+
+
 def _social(session: Path) -> dict | None:
     d = read_json(session / "social" / "social.json")
     if d is None or d.get("schema") != "mosaic-social-v1":
@@ -384,6 +398,7 @@ SESSION_READERS = {
     "voice": _voice,
     "gaze_fusion": _gaze_fusion,
     "pose3d": _pose3d,
+    "pose3d_people": _pose3d_people,
     "social": _social,
     "sync_repair": _sync_repair,
 }

@@ -996,7 +996,17 @@ sitting alongside **Live**. The workflow is always the same shape:
       posture chart the seconds in each posture and, on
       an angle chart, the usual (median) angle, on a movement chart the usual
       and a high value (95th percentile);
-      **Export CSV** saves the chart's numbers. A **Person** dropdown filters
+      **Export CSV** saves the chart's numbers. **Export everyone (CSV)**
+      saves one row per tick and person with every one-person measure
+      (``people.csv``), and, when the session has a 3D Gaze result, what that
+      person looks at and whether it is mutual gaze: the table to load for
+      statistics. A 3D Gaze person is matched to a 3D Pose person by where
+      their heads are (see :doc:`math/pose3d_reconstruction`); with no sure
+      match the gaze columns stay empty. MOSAIC also writes each person's
+      summary (``pose3d_people.json``: time in each posture, usual joint
+      angles and movement) when it opens a 3D Pose result or a run finishes
+      here, and the session report shows it under **3D Pose, per person**.
+      A **Person** dropdown filters
       the 3D Pose CSV export to one person or "All people". The selected camera's
       video also shows the reprojected 2D skeleton overlay, letting you
       visually confirm the 3D reconstruction actually lines up with what

@@ -95,6 +95,8 @@ add_executable(mosaic_tests
     "${CMAKE_SOURCE_DIR}/src/calibration/room_frame_solver.cpp"
     "${CMAKE_SOURCE_DIR}/src/analysis/gaze_fusion_result.cpp"
     "${CMAKE_SOURCE_DIR}/src/analysis/gaze_summary.cpp"
+    "${CMAKE_SOURCE_DIR}/src/analysis/gaze_pose_match.cpp"
+    "${CMAKE_SOURCE_DIR}/src/analysis/pose3d_people.cpp"
     "${CMAKE_SOURCE_DIR}/src/analysis/skeleton3d_result.cpp"
     "${CMAKE_SOURCE_DIR}/src/ui/analysis/room3d_scene.cpp" # the 3D room view's maths
     "${CMAKE_SOURCE_DIR}/src/ui/analysis/room3d_stage.cpp"

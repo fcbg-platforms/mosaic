@@ -476,6 +476,54 @@ def test_pose_voice_and_sync_readers(tmp_path):
     assert data.session_results["pose3d"]["quality"]["identity"]["jumps"] == 1
 
 
+def test_pose3d_people_rows_and_columns(tmp_path):
+    import os
+    import time
+
+    from report import summary
+
+    s = make_session(tmp_path / "a")
+    _write(s / "skeleton3d.json", {"quality": {}, "frames": []})
+    # Not written yet by MOSAIC: the report says how to get it.
+    page = render.render(collect.collect(s))
+    assert "3D Pose, per person" in page and "open this session's 3D Pose result" in page
+
+    person = {
+        "person": 1,
+        "label": "Person 1",
+        "brief": False,
+        "seconds_in_3d": 28.0,
+        "seconds_by_posture": {"sitting": 10.0, "standing": 3.0, "walking": 13.0, "unknown": 2.0},
+        "median_angles_deg": {"knee_flexion": [15, 20]},
+        "movement": {"motion_m_s": {"median": 0.4, "p95": 0.85}},
+    }
+    brief = {"person": 2, "label": "Person 2", "brief": True, "seconds_in_3d": 0.2}
+    _write(
+        s / "pose3d_people.json",
+        {"schema": "mosaic-pose3d-people-v1", "people": [person, brief]},
+    )
+    later = time.time() + 5
+    os.utime(s / "pose3d_people.json", (later, later))
+    data = collect.collect(s)
+    page = render.render(data)
+    assert "sitting 10 s, standing 3 s, walking 13 s" in page
+    assert "moving 0.40 m/s (high 0.85)" in page and "knees usually 15° / 20°" in page
+    assert "Person 2" not in page  # under a second in 3D
+    assert "older than the 3D Pose result" not in page
+    row = summary.session_row(collect.collect(s, for_summary_only=True))
+    assert row["pose3d_p1_walking_s"] == 13.0 and row["pose3d_p1_motion_median_m_s"] == 0.4
+    assert "pose3d_p2_seconds" not in row and row["pose3d_people_stale"] is False
+
+    # skeleton3d.json newer than the summary: said so.
+    os.utime(s / "skeleton3d.json", (later + 5, later + 5))
+    assert "older than the 3D Pose result" in render.render(collect.collect(s))
+    assert summary.session_row(collect.collect(s))["pose3d_people_stale"] is True
+
+    # skeleton3d.json unreadable (its quality header): the people still show.
+    (s / "skeleton3d.json").write_text("not json")
+    assert "sitting 10 s, standing 3 s, walking 13 s" in render.render(collect.collect(s))
+
+
 def test_still_frames_only_when_asked(tmp_path):
     cv2 = pytest.importorskip("cv2")
     import numpy as np

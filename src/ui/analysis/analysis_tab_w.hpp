@@ -128,6 +128,8 @@ class AnalysisTabW : public QWidget {
     // The Charts tab for one person: speed, head and hip height, cameras.
     void update_person_chart();
     void export_dyad_csv();
+    // Everyone's one-person measures, tick by tick, with their 3D Gaze.
+    void export_everyone_csv();
     void update_trigger_sync_view();
     void export_trigger_sync_csv();
     void update_rppg_view();

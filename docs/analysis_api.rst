@@ -973,6 +973,19 @@ dark themes, printable), and the session's numbers as one flat row
 (:mod:`report.summary`). ``--sessions-root`` does this for every session
 below a folder and combines the rows into ``sessions_summary.csv``.
 
+For 3D Pose it also reads ``pose3d_people.json``, which MOSAIC (not a
+script) writes when it opens a 3D Pose result or a run finishes there, with
+the Charts tab's own code: schema ``mosaic-pose3d-people-v1``, per person
+(``person``, ``label``, ``brief``) ``seconds_in_3d``, ``seconds_by_posture``
+(``sitting``, ``standing``, ``walking``, ``unknown``), ``top_speed_m_s``,
+``median_head_height_m``, ``median_angles_deg`` (``[left, right]`` per
+joint) and ``movement`` (``median`` and ``p95`` of whole-body motion, each
+wrist and head turning); a brief person (under a second in 3D) has only
+``person``, ``label``, ``brief`` and ``seconds_in_3d``. The summary row gets
+``pose3d_p<n>_seconds``, ``pose3d_p<n>_<posture>_s`` (``unknown`` too) and
+``pose3d_p<n>_motion_median_m_s`` per lasting person, and
+``pose3d_people_stale`` when the file is older than ``skeleton3d.json``.
+
 .. code-block:: python
 
    from report.collect import collect

@@ -70,8 +70,10 @@
 #include "analysis/face_dynamics_result.hpp"
 #include "analysis/gaze2d_result.hpp"
 #include "analysis/gaze_fusion_result.hpp"
+#include "analysis/gaze_pose_match.hpp"
 #include "analysis/gaze_summary.hpp"
 #include "analysis/objects_result.hpp"
+#include "analysis/pose3d_people.hpp"
 #include "analysis/pose_analysis_result.hpp"
 #include "analysis/pose_kinematics.hpp"
 #include "analysis/pose_models.hpp"
@@ -1659,6 +1661,14 @@ AnalysisTabW::AnalysisTabW(AppSettings& settings, AnalysisManager* analysisMgr,
                 const bool videoReleased = d->jobWritesVideo;
                 d->jobWritesVideo        = false;
                 d->cameraProgressBar->setVisible(false);
+                // A 3D Pose run: its per-person summary for the session report,
+                // unless the tab is about to load the result (and write it).
+                if (success && d->jobPlugin == "pose3d" &&
+                    !(path == d->currentSessionPath && is_pose3d_plugin()) &&
+                    pose3d_people_stale(path)) {
+                    write_pose3d_people_if_stale(path,
+                                                 Skeleton3DResult::load(path + "/skeleton3d.json"));
+                }
                 if (!d->jobIsMine) {
                     return;
                 }
@@ -2927,6 +2937,14 @@ void AnalysisTabW::build_ui() {
         "selected pair's distance, approach rate, facingness and congruent motion.");
     connect(d->exportDyadBtn, &QPushButton::clicked, this, &AnalysisTabW::export_dyad_csv);
     dyadRow->addWidget(d->exportDyadBtn);
+    auto* exportEveryoneBtn = new QPushButton("Export everyone (CSV)");
+    exportEveryoneBtn->setToolTip(
+        "One row per tick and person: every one-person measure (speed, heights, posture, joint "
+        "angles, movement) and, when the session has a 3D Gaze result, what that person looks "
+        "at and whether it is mutual gaze. A gaze person is matched to a 3D Pose person by "
+        "where their heads are; left empty when no match is sure.");
+    connect(exportEveryoneBtn, &QPushButton::clicked, this, &AnalysisTabW::export_everyone_csv);
+    dyadRow->addWidget(exportEveryoneBtn);
 
     for (auto* combo : {d->dyadTrackACombo, d->dyadTrackBCombo, d->dyadMetricCombo}) {
         connect(combo, &QComboBox::currentIndexChanged, this, &AnalysisTabW::update_dyadic_view);
@@ -4117,6 +4135,9 @@ void AnalysisTabW::load_camera_result_view() {
         const QString skeletonAbs = info->path + "/skeleton3d.json";
         d->currentSkeleton3D = QFileInfo::exists(skeletonAbs) ? Skeleton3DResult::load(skeletonAbs)
                                                               : Skeleton3DResult();
+        // The per-person summary the session report reads, from the charts'
+        // own code, when missing or older than the result.
+        write_pose3d_people_if_stale(info->path, d->currentSkeleton3D);
         d->skeleton3dRoomView->set_result(d->currentSkeleton3D);
         d->skeleton3dRoomView->set_image_folder(info->path);
 
@@ -5812,20 +5833,6 @@ void AnalysisTabW::export_skeleton3d_csv() {
 
 namespace {
 
-// A posture as the CSV writes it; empty where unknown.
-QString posture_name(Posture p) {
-    switch (p) {
-        case Posture::Sitting:
-            return "sitting";
-        case Posture::Standing:
-            return "standing";
-        case Posture::Walking:
-            return "walking";
-        default:
-            return QString();
-    }
-}
-
 // The 3D Pose charts of one person, as opposed to those of two.
 bool is_person_metric(const QString& metric) {
     return !QStringList{"distance", "approach_rate", "facing", "congruent_motion"}.contains(metric);
@@ -6171,33 +6178,12 @@ void AnalysisTabW::export_dyad_csv() {
                              "are per second, flexion rates positive bending; posture is "
                              "sitting, standing or walking, empty where unknown (see "
                              "docs/math/pose3d_reconstruction.rst)\n";
-                       ts << "tick,timestamp_ns,speed_mm_s,head_height_mm,hip_height_mm,cameras,"
-                             "knee_flexion_left_deg,knee_flexion_right_deg,"
-                             "hip_flexion_left_deg,hip_flexion_right_deg,"
-                             "elbow_flexion_left_deg,elbow_flexion_right_deg,"
-                             "arm_raise_left_deg,arm_raise_right_deg,"
-                             "wrist_speed_left_mm_s,wrist_speed_right_mm_s,"
-                             "knee_flexion_rate_left_deg_s,knee_flexion_rate_right_deg_s,"
-                             "elbow_flexion_rate_left_deg_s,elbow_flexion_rate_right_deg_s,"
-                             "motion_mm_s,head_speed_mm_s,head_turn_deg_s,posture\n";
+                       ts << "tick,timestamp_ns," << person_csv_columns() << "\n";
                        const auto& frames = d->currentSkeleton3D.frames();
                        for (int i = 0; i < d->currentPerson.samples.size(); ++i) {
-                           const auto& s  = d->currentPerson.samples[i];
-                           const auto num = [](double v) {
-                               return std::isnan(v) ? QString() : QString::number(v, 'f', 1);
-                           };
-                           const auto both = [&](const LeftRight& a) {
-                               return num(a.left) + "," + num(a.right);
-                           };
+                           const auto& s = d->currentPerson.samples[i];
                            ts << (i < frames.size() ? frames[i].tick : i) << "," << s.timestampNs
-                              << "," << num(s.speedMmPerS) << "," << num(s.headHeightMm) << ","
-                              << num(s.hipHeightMm) << "," << s.cameras << ","
-                              << both(s.kneeFlexionDeg) << "," << both(s.hipFlexionDeg) << ","
-                              << both(s.elbowFlexionDeg) << "," << both(s.armRaiseDeg) << ","
-                              << both(s.wristSpeedMmPerS) << "," << both(s.kneeFlexionRateDegPerS)
-                              << "," << both(s.elbowFlexionRateDegPerS) << ","
-                              << num(s.motionMmPerS) << "," << num(s.headSpeedMmPerS) << ","
-                              << num(s.headTurnDegPerS) << "," << posture_name(s.posture) << "\n";
+                              << "," << person_csv_values(s) << "\n";
                        }
                    });
         return;
@@ -6229,6 +6215,23 @@ void AnalysisTabW::export_dyad_csv() {
                << num_or_blank(s.approachRateMmPerS) << "," << num_or_blank(s.facingCosine) << ","
                << num_or_blank(s.congruentMotionCorr) << "\n";
         }
+    });
+}
+
+// Everyone in the 3D Pose result, tick by tick, with their 3D Gaze when the
+// session has it: the table to load for statistics (write_people_csv()).
+// Read and computed only once a file is chosen.
+void AnalysisTabW::export_everyone_csv() {
+    const auto* info = d->current_session();
+    if (!info || !d->currentSkeleton3D.is_valid() || d->currentSkeleton3D.frames().isEmpty()) {
+        return;
+    }
+    const QString session = info->path;
+    export_csv(this, "Export everyone", session + "/people.csv", [&](QTextStream& ts) {
+        const QString gazeAbs = session + "/gaze_fusion.json";
+        write_people_csv(
+            ts, d->currentSkeleton3D,
+            QFileInfo::exists(gazeAbs) ? GazeFusionResult::load(gazeAbs) : GazeFusionResult());
     });
 }
 
