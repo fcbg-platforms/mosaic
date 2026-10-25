@@ -1,6 +1,7 @@
 #pragma once
 #include <QVector>
 #include <cstdint>
+#include <functional>
 #include <limits>
 
 #include "analysis/skeleton3d_result.hpp"
@@ -44,8 +45,8 @@ struct DyadicKinematicsSeries {
     DyadicStats stats;
 };
 
-/// @brief One joint angle on each side of the body, in degrees; NaN where
-/// a point it needs is missing.
+/// @brief One measure on each side of the body (an angle in degrees, a
+/// speed); NaN where a point it needs is missing.
 struct LeftRight {
     double left  = std::numeric_limits<double>::quiet_NaN();
     double right = std::numeric_limits<double>::quiet_NaN();
@@ -56,17 +57,24 @@ struct LeftRight {
 /// is not in 3D at that tick.
 ///
 /// The angles are flexion, 0 in the upright standing pose with the arms
-/// hanging (see compute_person_kinematics()).
+/// hanging; the rates are per second, over the neighbouring ticks (see
+/// compute_person_kinematics()).
 struct PersonSample {
     int64_t timestampNs = 0;
     double speedMmPerS  = std::numeric_limits<double>::quiet_NaN(); ///< of the hip midpoint
     double headHeightMm = std::numeric_limits<double>::quiet_NaN(); ///< above the floor
     double hipHeightMm  = std::numeric_limits<double>::quiet_NaN(); ///< above the floor
-    int cameras         = 0;   ///< cameras the person was triangulated from
-    LeftRight kneeFlexionDeg;  ///< thigh to shank
-    LeftRight hipFlexionDeg;   ///< trunk to thigh: about 90 when sitting
-    LeftRight elbowFlexionDeg; ///< upper arm to forearm
-    LeftRight armRaiseDeg;     ///< trunk to upper arm: 90 with the arm out, 180 overhead
+    int cameras         = 0;           ///< cameras the person was triangulated from
+    LeftRight kneeFlexionDeg;          ///< thigh to shank
+    LeftRight hipFlexionDeg;           ///< trunk to thigh: about 90 when sitting
+    LeftRight elbowFlexionDeg;         ///< upper arm to forearm
+    LeftRight armRaiseDeg;             ///< trunk to upper arm: 90 with the arm out, 180 overhead
+    LeftRight wristSpeedMmPerS;        ///< how fast each hand moves
+    LeftRight kneeFlexionRateDegPerS;  ///< positive bending, negative straightening
+    LeftRight elbowFlexionRateDegPerS; ///< positive bending, negative straightening
+    double motionMmPerS    = std::numeric_limits<double>::quiet_NaN(); ///< mean joint speed
+    double headSpeedMmPerS = std::numeric_limits<double>::quiet_NaN(); ///< of the ears' midpoint
+    double headTurnDegPerS = std::numeric_limits<double>::quiet_NaN(); ///< of the ear-to-ear line
 };
 
 /// @brief Summary of one compute_person_kinematics() call.
@@ -104,8 +112,29 @@ struct PersonKinematicsSeries {
 /// elbow). They use the smoothed keypoints, the raw ones when the run did
 /// not smooth. There is no trunk lean: it needs the true vertical, which
 /// the calibration does not give (see docs/math/pose3d_reconstruction.rst).
+///
+/// Rates are by central difference over the neighbouring ticks within
+/// 0.25 s like the hip speed, but from the smoothed keypoints: each wrist's
+/// speed, the knee and elbow flexion's rate of change, the head's speed
+/// (the ears' midpoint) and turning (the angle the ear-to-ear line turns
+/// through, in any direction), and the whole body's motion, the mean speed
+/// of the keypoints seen at the tick and both its neighbours (a mean, not a
+/// sum, so it does not grow with how many keypoints were seen).
 [[nodiscard]] PersonKinematicsSeries compute_person_kinematics(const Skeleton3DResult& result,
                                                                int personId);
+
+/// @brief The typical and the high values of a series: its median and 95th
+/// percentile, over the samples where it is known. The 95th percentile, not
+/// the maximum, since a rate's few largest values are mostly the keypoints'
+/// noise.
+struct Spread {
+    double median = std::numeric_limits<double>::quiet_NaN();
+    double p95    = std::numeric_limits<double>::quiet_NaN();
+};
+
+/// @brief The Spread of `value` over the samples (NaN values skipped).
+[[nodiscard]] Spread spread_of(const QVector<PersonSample>& samples,
+                               const std::function<double(const PersonSample&)>& value);
 
 /// @brief Derives interpersonal distance/approach-rate/facingness/congruent-motion
 /// between two already-reconstructed people (by trackId) from an

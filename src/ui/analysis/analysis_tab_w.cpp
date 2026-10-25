@@ -2821,6 +2821,13 @@ void AnalysisTabW::build_ui() {
     d->dyadMetricCombo->addItem("Elbow flexion (°)", "elbow");
     d->dyadMetricCombo->addItem("Arm raise at the shoulder (°)", "arm");
     d->dyadMetricCombo->insertSeparator(d->dyadMetricCombo->count());
+    d->dyadMetricCombo->addItem("Hand speed (m/s)", "wrist");
+    d->dyadMetricCombo->addItem("Knee bending speed (°/s)", "knee_rate");
+    d->dyadMetricCombo->addItem("Elbow bending speed (°/s)", "elbow_rate");
+    d->dyadMetricCombo->addItem("Whole-body motion (m/s)", "motion");
+    d->dyadMetricCombo->addItem("Head speed (m/s)", "head_speed");
+    d->dyadMetricCombo->addItem("Head turning (°/s)", "head_turn");
+    d->dyadMetricCombo->insertSeparator(d->dyadMetricCombo->count());
     d->dyadMetricCombo->addItem("Two people: distance (mm)", "distance");
     d->dyadMetricCombo->addItem("Two people: approach rate (mm/s)", "approach_rate");
     d->dyadMetricCombo->addItem("Two people: facingness (cosine)", "facing");
@@ -2843,6 +2850,9 @@ void AnalysisTabW::build_ui() {
         "hanging. Knee and elbow: 0 straight. Hip: the thigh against the trunk, about 90 "
         "sitting. Arm raise: the upper arm against the trunk, 90 out to the side, 180 "
         "overhead.\n\n"
+        "Movement, per second: hand speed (the wrists), knee and elbow bending speed "
+        "(positive bending, negative straightening), whole-body motion (the mean speed of "
+        "the joints seen), and the head's speed and turning.\n\n"
         "Facingness: torso-heading cosine similarity. -1 = oriented oppositely (commonly "
         "face-to-face in a two-person interaction, but also consistent with standing "
         "back-to-back facing directly away from each other — position-independent by "
@@ -5518,31 +5528,46 @@ bool is_person_metric(const QString& metric) {
     return !QStringList{"distance", "approach_rate", "facing", "congruent_motion"}.contains(metric);
 }
 
-// The joint a one-person chart shows, by its Show key; nullptr for the others.
-const LeftRight PersonSample::*joint_of(const QString& metric) {
-    if (metric == "knee") {
-        return &PersonSample::kneeFlexionDeg;
-    }
-    if (metric == "hip") {
-        return &PersonSample::hipFlexionDeg;
-    }
-    if (metric == "elbow") {
-        return &PersonSample::elbowFlexionDeg;
-    }
-    if (metric == "arm") {
-        return &PersonSample::armRaiseDeg;
-    }
-    return nullptr;
+// A one-person chart drawn from one PersonSample measure: a left and a right
+// line, or one line, shown in `unit` after multiplying by `scale`.
+struct PersonMeasure {
+    const LeftRight PersonSample::*sides = nullptr;
+    double PersonSample::*single         = nullptr;
+    double scale                         = 1.0;
+    QString unit;
+    int decimals    = 0;
+    bool angle      = false; ///< summarised by the stats' median angle
+    bool signedRate = false; ///< summarised by its size, bending or straightening
+};
+
+// The measure a one-person chart shows, by its Show key; none for the
+// charts drawn their own way (speed, height, cameras) and the two-person ones.
+std::optional<PersonMeasure> measure_of(const QString& metric) {
+    using S = PersonSample;
+    static const QMap<QString, PersonMeasure> measures{
+        {"knee", {&S::kneeFlexionDeg, nullptr, 1.0, "°", 0, true}},
+        {"hip", {&S::hipFlexionDeg, nullptr, 1.0, "°", 0, true}},
+        {"elbow", {&S::elbowFlexionDeg, nullptr, 1.0, "°", 0, true}},
+        {"arm", {&S::armRaiseDeg, nullptr, 1.0, "°", 0, true}},
+        {"wrist", {&S::wristSpeedMmPerS, nullptr, 1e-3, " m/s", 2}},
+        {"knee_rate", {&S::kneeFlexionRateDegPerS, nullptr, 1.0, "°/s", 0, false, true}},
+        {"elbow_rate", {&S::elbowFlexionRateDegPerS, nullptr, 1.0, "°/s", 0, false, true}},
+        {"motion", {nullptr, &S::motionMmPerS, 1e-3, " m/s", 2}},
+        {"head_speed", {nullptr, &S::headSpeedMmPerS, 1e-3, " m/s", 2}},
+        {"head_turn", {nullptr, &S::headTurnDegPerS, 1.0, "°/s", 0}},
+    };
+    const auto it = measures.find(metric);
+    return it == measures.end() ? std::nullopt : std::optional(*it);
 }
 
-// A joint's left or right angle over the recording, as chart pieces that
-// break where the angle is missing for over a second rather than draw
+// A measure (a joint's left or right angle, a speed) over the recording, as
+// chart pieces that break where it is missing for over a second rather than draw
 // across the gap. Shorter gaps are bridged: a keypoint that comes and goes
 // (legs under a table) would otherwise make a piece, a chart series, per
 // tick.
-void append_angle_series(QVector<NamedSeries>& out, const QString& name, const QColor& color,
-                         const QVector<PersonSample>& samples, int64_t t0,
-                         const std::function<double(const PersonSample&)>& value) {
+void append_gapped_series(QVector<NamedSeries>& out, const QString& name, const QColor& color,
+                          const QVector<PersonSample>& samples, int64_t t0,
+                          const std::function<double(const PersonSample&)>& value) {
     constexpr double kMaxGapMs = 1000.0;
     QVector<QPointF> run;
     bool listed      = false;
@@ -5583,7 +5608,8 @@ void AnalysisTabW::update_dyadic_view() {
         d->currentDyad = DyadicKinematicsSeries();
         d->dyadStatsLbl->setText(
             "Only one person in this result: the two-person charts need two. Choose one of "
-            "the one-person charts above them (speed, height, cameras, joint angles).");
+            "the one-person charts above them (speed, height, cameras, joint angles, "
+            "movement).");
         d->skeleton3dRoomView->set_dyad_tracks(-1, -1);
         d->chart->set_single_series({}, QString());
         d->chart->set_title("Two people — only one in this result");
@@ -5702,12 +5728,23 @@ void AnalysisTabW::update_person_chart() {
         d->chart->set_named_series(
             {{"Head", QColor("#e6a03c"), headPts}, {"Hips", QColor("#3ca0e6"), hipPts}},
             "Height above the floor (m)", spanMs);
-    } else if (const LeftRight PersonSample::*joint = joint_of(metric)) {
+    } else if (const auto m = measure_of(metric)) {
         QVector<NamedSeries> series;
-        append_angle_series(series, "Left", QColor("#3ca0e6"), d->currentPerson.samples, t0,
-                            [joint](const PersonSample& s) { return (s.*joint).left; });
-        append_angle_series(series, "Right", QColor("#e6a03c"), d->currentPerson.samples, t0,
-                            [joint](const PersonSample& s) { return (s.*joint).right; });
+        const auto& samples = d->currentPerson.samples;
+        if (m->sides) {
+            const auto side = m->sides;
+            const double k  = m->scale;
+            append_gapped_series(series, "Left", QColor("#3ca0e6"), samples, t0,
+                                 [side, k](const PersonSample& s) { return (s.*side).left * k; });
+            append_gapped_series(series, "Right", QColor("#e6a03c"), samples, t0,
+                                 [side, k](const PersonSample& s) { return (s.*side).right * k; });
+        } else {
+            const auto one = m->single;
+            const double k = m->scale;
+            append_gapped_series(series, d->dyadMetricCombo->currentText(), QColor("#9ccc44"),
+                                 samples, t0,
+                                 [one, k](const PersonSample& s) { return s.*one * k; });
+        }
         d->chart->set_named_series(series, d->dyadMetricCombo->currentText(), spanMs);
     } else {
         QVector<QPointF> pts;
@@ -5732,18 +5769,37 @@ void AnalysisTabW::update_person_chart() {
         line += QString("  ·  head usually %1 m above the floor")
                     .arg(st.medianHeadHeightMm / 1000.0, 0, 'f', 2);
     }
-    // On an angle chart, the usual (median) angle.
-    const auto deg = [](double v) {
-        return std::isnan(v) ? QString("n/a") : QString("%1°").arg(v, 0, 'f', 0);
-    };
-    if (const LeftRight PersonSample::*joint = joint_of(metric)) {
-        const LeftRight PersonStats::*usual =
-            joint == &PersonSample::kneeFlexionDeg    ? &PersonStats::medianKneeFlexionDeg
-            : joint == &PersonSample::hipFlexionDeg   ? &PersonStats::medianHipFlexionDeg
-            : joint == &PersonSample::elbowFlexionDeg ? &PersonStats::medianElbowFlexionDeg
-                                                      : &PersonStats::medianArmRaiseDeg;
-        line += QString("  ·  usually left %1, right %2")
-                    .arg(deg((st.*usual).left), deg((st.*usual).right));
+    // On an angle chart, the usual (median) angle; on a movement chart the
+    // usual value and a high one (95th percentile), of the size for a
+    // signed rate.
+    if (const auto m = measure_of(metric)) {
+        const auto show = [&](double v) {
+            return std::isnan(v) ? QString("n/a")
+                                 : QString::number(v * m->scale, 'f', m->decimals) + m->unit;
+        };
+        const auto spread = [&](const std::function<double(const PersonSample&)>& value) {
+            const auto sp = spread_of(d->currentPerson.samples, [&](const PersonSample& s) {
+                return m->signedRate ? std::abs(value(s)) : value(s);
+            });
+            return QString("usually %1, high %2").arg(show(sp.median), show(sp.p95));
+        };
+        if (m->angle) {
+            const LeftRight PersonStats::*usual =
+                m->sides == &PersonSample::kneeFlexionDeg    ? &PersonStats::medianKneeFlexionDeg
+                : m->sides == &PersonSample::hipFlexionDeg   ? &PersonStats::medianHipFlexionDeg
+                : m->sides == &PersonSample::elbowFlexionDeg ? &PersonStats::medianElbowFlexionDeg
+                                                             : &PersonStats::medianArmRaiseDeg;
+            line += QString("  ·  usually left %1, right %2")
+                        .arg(show((st.*usual).left), show((st.*usual).right));
+        } else if (m->sides) {
+            const auto side = m->sides;
+            line +=
+                "  ·  left " + spread([side](const PersonSample& s) { return (s.*side).left; }) +
+                "  ·  right " + spread([side](const PersonSample& s) { return (s.*side).right; });
+        } else {
+            const auto one = m->single;
+            line += "  ·  " + spread([one](const PersonSample& s) { return s.*one; });
+        }
     }
     d->dyadStatsLbl->setText(line);
     d->chart->set_playhead_ms(d->player->position_ms());
@@ -5760,13 +5816,18 @@ void AnalysisTabW::export_dyad_csv() {
         export_csv(this, "Export person chart",
                    info->path + QString("/person_%1.csv").arg(personId), [&](QTextStream& ts) {
                        ts << "# heights are above the floor found from the result; angles are "
-                             "flexion in degrees, 0 standing upright with the arms hanging (see "
+                             "flexion in degrees, 0 standing upright with the arms hanging; rates "
+                             "are per second, flexion rates positive bending (see "
                              "docs/math/pose3d_reconstruction.rst)\n";
                        ts << "tick,timestamp_ns,speed_mm_s,head_height_mm,hip_height_mm,cameras,"
                              "knee_flexion_left_deg,knee_flexion_right_deg,"
                              "hip_flexion_left_deg,hip_flexion_right_deg,"
                              "elbow_flexion_left_deg,elbow_flexion_right_deg,"
-                             "arm_raise_left_deg,arm_raise_right_deg\n";
+                             "arm_raise_left_deg,arm_raise_right_deg,"
+                             "wrist_speed_left_mm_s,wrist_speed_right_mm_s,"
+                             "knee_flexion_rate_left_deg_s,knee_flexion_rate_right_deg_s,"
+                             "elbow_flexion_rate_left_deg_s,elbow_flexion_rate_right_deg_s,"
+                             "motion_mm_s,head_speed_mm_s,head_turn_deg_s\n";
                        const auto& frames = d->currentSkeleton3D.frames();
                        for (int i = 0; i < d->currentPerson.samples.size(); ++i) {
                            const auto& s  = d->currentPerson.samples[i];
@@ -5780,7 +5841,11 @@ void AnalysisTabW::export_dyad_csv() {
                               << "," << num(s.speedMmPerS) << "," << num(s.headHeightMm) << ","
                               << num(s.hipHeightMm) << "," << s.cameras << ","
                               << both(s.kneeFlexionDeg) << "," << both(s.hipFlexionDeg) << ","
-                              << both(s.elbowFlexionDeg) << "," << both(s.armRaiseDeg) << "\n";
+                              << both(s.elbowFlexionDeg) << "," << both(s.armRaiseDeg) << ","
+                              << both(s.wristSpeedMmPerS) << "," << both(s.kneeFlexionRateDegPerS)
+                              << "," << both(s.elbowFlexionRateDegPerS) << ","
+                              << num(s.motionMmPerS) << "," << num(s.headSpeedMmPerS) << ","
+                              << num(s.headTurnDegPerS) << "\n";
                        }
                    });
         return;

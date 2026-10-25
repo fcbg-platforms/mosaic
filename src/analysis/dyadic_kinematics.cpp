@@ -127,6 +127,17 @@ double median(std::vector<double> v) {
     return v[v.size() / 2];
 }
 
+// The value at `share` (0 to 1) of the sorted values, by nearest rank.
+double rank_value(std::vector<double> v, double share) {
+    if (v.empty()) {
+        return std::numeric_limits<double>::quiet_NaN();
+    }
+    const double rank = std::ceil(share * static_cast<double>(v.size())); // 1-based
+    const auto i = static_cast<size_t>(std::clamp(rank, 1.0, static_cast<double>(v.size()))) - 1;
+    std::nth_element(v.begin(), v.begin() + i, v.end());
+    return v[i];
+}
+
 // The angle between two directions in degrees, NaN when either has no
 // length (two points on top of each other).
 double angle_deg(const room_view::Vec3& a, const room_view::Vec3& b) {
@@ -140,6 +151,17 @@ double angle_deg(const room_view::Vec3& a, const room_view::Vec3& b) {
 }
 
 } // namespace
+
+Spread spread_of(const QVector<PersonSample>& samples,
+                 const std::function<double(const PersonSample&)>& value) {
+    std::vector<double> v;
+    for (const auto& s : samples) {
+        if (const double x = value(s); !std::isnan(x)) {
+            v.push_back(x);
+        }
+    }
+    return {median(v), rank_value(v, 0.95)};
+}
 
 PersonKinematicsSeries compute_person_kinematics(const Skeleton3DResult& result, int personId) {
     PersonKinematicsSeries out;
@@ -162,13 +184,17 @@ PersonKinematicsSeries compute_person_kinematics(const Skeleton3DResult& result,
     const int lw = at_name("left_wrist"), rw = at_name("right_wrist");
     const int lk = at_name("left_knee"), rk = at_name("right_knee");
     const int la = at_name("left_ankle"), ra = at_name("right_ankle");
+    const int lear = at_name("left_ear"), rear = at_name("right_ear");
     const room_view::Vec3 up  = room_view::estimate_up(result);
     const double floor        = room_view::floor_height(result, up);
     constexpr int64_t kNearNs = 250000000; // 0.25 s: neighbours closer than this
 
-    // The hip midpoint per tick, when the person is there with both hips.
+    // The hip midpoint per tick, when the person is there with both hips,
+    // and every keypoint's smoothed position (empty where the person is not
+    // in 3D), for the rates below.
     const int n = static_cast<int>(frames.size());
     std::vector<std::optional<room_view::Vec3>> hips(n);
+    std::vector<std::vector<std::optional<room_view::Vec3>>> joints(n);
     std::vector<double> heads;
     out.samples.resize(n);
     int present = 0;
@@ -238,18 +264,83 @@ PersonKinematicsSeries compute_person_kinematics(const Skeleton3DResult& result,
         s.elbowFlexionDeg = {bend(ls, le, lw), bend(rs, re, rw)};
         s.hipFlexionDeg   = {from_trunk(lh, lk), from_trunk(rh, rk)};
         s.armRaiseDeg     = {from_trunk(ls, le), from_trunk(rs, re)};
+        joints[k].resize(kp.size());
+        for (int i = 0; i < kp.size(); ++i) {
+            joints[k][i] = pos(i);
+        }
     }
+
+    // Rates by central difference: at tick k, from tick k-1 to tick k+1,
+    // when both are within 0.25 s of k and the person is in 3D at all three
+    // (never across a gap).
+    constexpr double kNaN = std::numeric_limits<double>::quiet_NaN();
+    const auto span_s     = [&](int k) {
+        if (k < 1 || k + 1 >= n || joints[k - 1].empty() || joints[k].empty() ||
+            joints[k + 1].empty()) {
+            return kNaN;
+        }
+        const int64_t d = frames[k + 1].timestampNs - frames[k - 1].timestampNs;
+        return d > 0 && d <= 2 * kNearNs ? static_cast<double>(d) / 1e9 : kNaN;
+    };
+    const auto joint = [&](int k, int i) -> std::optional<room_view::Vec3> {
+        return i >= 0 && i < static_cast<int>(joints[k].size()) ? joints[k][i] : std::nullopt;
+    };
+    const auto ears = [&](int k) -> std::optional<std::pair<room_view::Vec3, room_view::Vec3>> {
+        const auto l = joint(k, lear);
+        const auto r = joint(k, rear);
+        if (!l || !r) {
+            return std::nullopt;
+        }
+        return std::pair{*l, *r};
+    };
+    // How fast a point moved, when it is known at k and at both neighbours.
+    const auto moved = [](const auto& before, const auto& now, const auto& after, double dt) {
+        return before && now && after && !std::isnan(dt)
+                   ? room_view::norm(room_view::sub(*after, *before)) / dt
+                   : kNaN;
+    };
+    const auto changed = [](double before, double now, double after, double dt) {
+        return std::isnan(now) ? kNaN : (after - before) / dt; // NaN in, NaN out
+    };
     for (int k = 0; k < n; ++k) {
-        if (k > 0 && k + 1 < n && hips[k - 1] && hips[k] && hips[k + 1] &&
-            frames[k + 1].timestampNs - frames[k - 1].timestampNs <= 2 * kNearNs) {
-            const double dt =
-                static_cast<double>(frames[k + 1].timestampNs - frames[k - 1].timestampNs) / 1e9;
-            if (dt > 0) {
-                out.samples[k].speedMmPerS =
-                    room_view::norm(room_view::sub(*hips[k + 1], *hips[k - 1])) / dt;
+        PersonSample& s = out.samples[k];
+        const double dt = span_s(k);
+        if (!std::isnan(dt)) {
+            s.speedMmPerS       = moved(hips[k - 1], hips[k], hips[k + 1], dt);
+            const auto speed_of = [&](int i) {
+                return moved(joint(k - 1, i), joint(k, i), joint(k + 1, i), dt);
+            };
+            s.wristSpeedMmPerS       = {speed_of(lw), speed_of(rw)};
+            const auto& b            = out.samples[k - 1];
+            const auto& a            = out.samples[k + 1];
+            s.kneeFlexionRateDegPerS = {
+                changed(b.kneeFlexionDeg.left, s.kneeFlexionDeg.left, a.kneeFlexionDeg.left, dt),
+                changed(b.kneeFlexionDeg.right, s.kneeFlexionDeg.right, a.kneeFlexionDeg.right,
+                        dt)};
+            s.elbowFlexionRateDegPerS = {
+                changed(b.elbowFlexionDeg.left, s.elbowFlexionDeg.left, a.elbowFlexionDeg.left, dt),
+                changed(b.elbowFlexionDeg.right, s.elbowFlexionDeg.right, a.elbowFlexionDeg.right,
+                        dt)};
+            double sum = 0.0;
+            int seen   = 0;
+            for (int i = 0; i < static_cast<int>(joints[k].size()); ++i) {
+                if (const double v = speed_of(i); !std::isnan(v)) {
+                    sum += v;
+                    ++seen;
+                }
+            }
+            s.motionMmPerS = seen > 0 ? sum / seen : kNaN;
+            if (const auto e0 = ears(k - 1), e = ears(k), e1 = ears(k + 1); e0 && e && e1) {
+                const auto mid = [](const auto& p) {
+                    return room_view::scale(room_view::add(p.first, p.second), 0.5);
+                };
+                s.headSpeedMmPerS = room_view::norm(room_view::sub(mid(*e1), mid(*e0))) / dt;
+                s.headTurnDegPerS = angle_deg(room_view::sub(e0->second, e0->first),
+                                              room_view::sub(e1->second, e1->first)) /
+                                    dt;
             }
         }
-        const double v = out.samples[k].speedMmPerS;
+        const double v = s.speedMmPerS;
         if (!std::isnan(v) &&
             (std::isnan(out.stats.topSpeedMmPerS) || v > out.stats.topSpeedMmPerS)) {
             out.stats.topSpeedMmPerS = v;

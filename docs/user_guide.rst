@@ -974,11 +974,14 @@ sitting alongside **Live**. The workflow is always the same shape:
       sitting and bending show), the **cameras** seeing them, or a joint angle
       (**knee**, **hip** and **elbow flexion** and **arm raise** at the
       shoulder, left and right; all 0 standing upright with the arms hanging,
-      see :doc:`math/pose3d_reconstruction`), and with two
+      see :doc:`math/pose3d_reconstruction`), or how they move: **hand
+      speed**, **knee** and **elbow bending speed**, **whole-body motion** and
+      the **head**'s speed and turning, and with two
       people their distance, approach, facingness and congruent motion
       (**Two people: …** in **Show**). The line under the chart gives how long
       the person was in 3D, their top speed, their usual head height and, on
-      an angle chart, the usual (median) angle;
+      an angle chart, the usual (median) angle, on a movement chart the usual
+      and a high value (95th percentile);
       **Export CSV** saves the chart's numbers. A **Person** dropdown filters
       the 3D Pose CSV export to one person or "All people". The selected camera's
       video also shows the reprojected 2D skeleton overlay, letting you

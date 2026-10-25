@@ -638,3 +638,105 @@ TEST(PersonKinematics, JointAnglesAreFlexionFromStandingStraight) {
     EXPECT_NEAR(s.stats.medianElbowFlexionDeg.right, 90.0, 1e-6);
     EXPECT_NEAR(s.stats.medianArmRaiseDeg.left, 0.0, 1e-6);
 }
+
+TEST(PersonKinematics, MovementRatesOverNeighbouringTicks) {
+    // Ticks 0.1 s apart, then one after a gap (at 1 s). Still, except: the
+    // left wrist moves down at 2 m/s, along the forearm, so the elbow stays
+    // straight; the left shank swings forward at 100 deg/s about the knee;
+    // the ears turn about the vertical at 200 deg/s around a still head.
+    using P            = std::array<double, 3>;
+    const double rad   = std::numbers::pi / 180.0;
+    const auto pose_at = [&](int k) {
+        const double th = 10.0 * k * rad; // knee flexion
+        const double ph = 20.0 * k * rad; // head turn
+        const QVector<P> kp{
+            {-200, -1300, 3000},                                          // left_shoulder
+            {200, -1300, 3000},                                           // right_shoulder
+            {-200, -1000, 3000},                                          // left_elbow
+            {200, -1000, 3000},                                           // right_elbow
+            {-200, -700.0 + 200.0 * k, 3000},                             // left_wrist
+            {200, -700, 3000},                                            // right_wrist
+            {-150, -800, 3000},                                           // left_hip
+            {150, -800, 3000},                                            // right_hip
+            {-150, -440, 3000},                                           // left_knee
+            {150, -440, 3000},                                            // right_knee
+            {-150, -440 + 360 * std::cos(th), 3000 - 360 * std::sin(th)}, // left_ankle
+            {150, -80, 3000},                                             // right_ankle
+            {-75 * std::cos(ph), -1450, 3000 - 75 * std::sin(ph)},        // left_ear
+            {75 * std::cos(ph), -1450, 3000 + 75 * std::sin(ph)},         // right_ear
+        };
+        QStringList pts, valid;
+        for (const auto& p : kp) {
+            pts << QString("[%1,%2,%3]")
+                       .arg(p[0], 0, 'f', 6)
+                       .arg(p[1], 0, 'f', 6)
+                       .arg(p[2], 0, 'f', 6);
+            valid << "true";
+        }
+        return QString(R"({"track_id": 0, "num_contributing_cameras": 2, )"
+                       R"("keypoints_room": [%1], "keypoints_valid": [%2]})")
+            .arg(pts.join(","), valid.join(","));
+    };
+    QStringList frames;
+    for (int k = 0; k < 6; ++k) {
+        const int64_t t = k < 5 ? 100000000LL * k : 1000000000LL;
+        frames << QString(R"({"tick": %1, "timestamp_ns": %2, "people": [%3]})")
+                      .arg(k)
+                      .arg(t)
+                      .arg(pose_at(k));
+    }
+    const QString json =
+        QString(R"({"schema": "mosaic-skeleton3d-v1", "cameras": [], "keypoint_names": [)"
+                R"("left_shoulder","right_shoulder","left_elbow","right_elbow","left_wrist",)"
+                R"("right_wrist","left_hip","right_hip","left_knee","right_knee","left_ankle",)"
+                R"("right_ankle","left_ear","right_ear"], "skeleton_edges": [], "frames": [%1]})")
+            .arg(frames.join(","));
+    QTemporaryDir dir;
+    QFile f(dir.filePath("s.json"));
+    ASSERT_TRUE(f.open(QIODevice::WriteOnly));
+    f.write(json.toUtf8());
+    f.close();
+    const auto result = Skeleton3DResult::load(dir.filePath("s.json"));
+    ASSERT_TRUE(result.is_valid());
+
+    const auto s = compute_person_kinematics(result, 1);
+    ASSERT_EQ(s.samples.size(), 6);
+    for (int k : {1, 2, 3}) {
+        const auto& m = s.samples[k];
+        EXPECT_NEAR(m.wristSpeedMmPerS.left, 2000.0, 1e-6) << k;
+        EXPECT_NEAR(m.wristSpeedMmPerS.right, 0.0, 1e-6) << k;
+        EXPECT_NEAR(m.kneeFlexionRateDegPerS.left, 100.0, 1e-6) << k;
+        EXPECT_NEAR(m.kneeFlexionRateDegPerS.right, 0.0, 1e-6) << k;
+        EXPECT_NEAR(m.elbowFlexionRateDegPerS.left, 0.0, 1e-6) << k;
+        EXPECT_NEAR(m.headSpeedMmPerS, 0.0, 1e-6) << k;
+        EXPECT_NEAR(m.headTurnDegPerS, 200.0, 1e-4) << k; // 6-decimal positions
+        EXPECT_NEAR(m.speedMmPerS, 0.0, 1e-6) << k;
+        // The mean over the 14 keypoints: the wrist, the ankle's chord over
+        // 20 deg on 360 mm and each ear's over 40 deg on 75 mm, in 0.2 s.
+        const double moved =
+            400.0 + 2 * 360 * std::sin(10 * rad) + 2 * (2 * 75 * std::sin(20 * rad));
+        EXPECT_NEAR(m.motionMmPerS, moved / 0.2 / 14, 1e-6) << k;
+    }
+    // Not across the gap (tick 4's next neighbour is 0.7 s away), nor at the
+    // ends.
+    for (int k : {0, 4, 5}) {
+        EXPECT_TRUE(std::isnan(s.samples[k].wristSpeedMmPerS.left)) << k;
+        EXPECT_TRUE(std::isnan(s.samples[k].kneeFlexionRateDegPerS.left)) << k;
+        EXPECT_TRUE(std::isnan(s.samples[k].motionMmPerS)) << k;
+        EXPECT_TRUE(std::isnan(s.samples[k].headTurnDegPerS)) << k;
+    }
+}
+
+TEST(PersonKinematics, SpreadIsTheMedianAndNearestRank95thPercentile) {
+    QVector<mosaic::PersonSample> samples(25);
+    for (int i = 0; i < 20; ++i) {
+        samples[i].motionMmPerS = 20 - i; // 20 down to 1; the last 5 unknown
+    }
+    const auto sp =
+        mosaic::spread_of(samples, [](const mosaic::PersonSample& s) { return s.motionMmPerS; });
+    EXPECT_DOUBLE_EQ(sp.median, 11.0); // the upper middle of 20
+    EXPECT_DOUBLE_EQ(sp.p95, 19.0);    // the 19th of 20
+    const auto none =
+        mosaic::spread_of({}, [](const mosaic::PersonSample& s) { return s.motionMmPerS; });
+    EXPECT_TRUE(std::isnan(none.median) && std::isnan(none.p95));
+}
