@@ -533,6 +533,8 @@ TEST(PersonKinematics, SpeedAndHeightsOfOnePerson) {
     EXPECT_TRUE(std::isnan(s.samples[6].speedMmPerS));
     EXPECT_NEAR(s.stats.secondsSeen, 0.9, 1e-9);
     EXPECT_NEAR(s.stats.medianHeadHeightMm, 1600.0, 1e-6);
+    // Hips 0.9 m up, walking at 1 m/s: walking all 0.9 s in 3D.
+    EXPECT_NEAR(s.stats.secondsByPosture[static_cast<int>(mosaic::Posture::Walking)], 0.9, 1e-9);
     // Nobody with another number.
     EXPECT_EQ(compute_person_kinematics(result, 2).samples[0].cameras, 0);
 }
@@ -739,4 +741,99 @@ TEST(PersonKinematics, SpreadIsTheMedianAndNearestRank95thPercentile) {
     const auto none =
         mosaic::spread_of({}, [](const mosaic::PersonSample& s) { return s.motionMmPerS; });
     EXPECT_TRUE(std::isnan(none.median) && std::isnan(none.p95));
+}
+
+TEST(PersonKinematics, PostureFromTheHipsHeightAndSpeed) {
+    using mosaic::PersonSample;
+    using mosaic::Posture;
+    // 25 ticks a second. 3 s sitting (hips 0.65 m), 3 s standing (0.95 m,
+    // a speed spike every 5th tick), 3 s walking at 0.8 m/s with 0.2 s of
+    // standing in it, then 2 s not in 3D and 0.5 s standing alone. While
+    // sitting, the hips are not seen for 3 ticks.
+    QVector<PersonSample> s;
+    const auto add = [&](double hipMm, double speedMmPerS, int cameras = 2) {
+        PersonSample p;
+        p.timestampNs = 40000000LL * s.size();
+        p.hipHeightMm = hipMm;
+        p.speedMmPerS = speedMmPerS;
+        p.cameras     = cameras;
+        s << p;
+    };
+    const double nan = std::numeric_limits<double>::quiet_NaN();
+    for (int k = 0; k < 75; ++k) {
+        add(k >= 30 && k < 33 ? nan : 650.0, 50.0);
+    }
+    for (int k = 0; k < 75; ++k) {
+        add(950.0, k % 5 == 0 ? 2000.0 : 100.0);
+    }
+    for (int k = 0; k < 75; ++k) {
+        add(950.0, k >= 30 && k < 35 ? 100.0 : 800.0);
+    }
+    for (int k = 0; k < 50; ++k) {
+        add(nan, nan, 0);
+    }
+    for (int k = 0; k < 12; ++k) {
+        add(950.0, 100.0);
+    }
+    const auto p = mosaic::classify_posture(s);
+    ASSERT_EQ(p.size(), s.size());
+    // Sitting, but not the 3 ticks without hips: never filled in.
+    for (int k = 0; k < 75; ++k) {
+        EXPECT_EQ(p[k], k >= 30 && k < 33 ? Posture::Unknown : Posture::Sitting) << k;
+    }
+    // Standing: a spike every 5th tick does not move the median. Within
+    // half a second of walking, the window holds more walking than standing,
+    // so the change can come up to that much early.
+    for (int k = 75; k < 144; ++k) {
+        EXPECT_EQ(p[k], Posture::Standing) << k;
+    }
+    // Walking, the 0.2 s pause included; near the standing run its window
+    // mixes both, and the median decides within half a second.
+    for (int k = 150; k < 225; ++k) {
+        EXPECT_EQ(p[k], Posture::Walking) << k;
+    }
+    // Not in 3D: unknown; the short standing run after the gap has nothing
+    // else in its window, so it stays.
+    for (int k = 225; k < 275; ++k) {
+        EXPECT_EQ(p[k], Posture::Unknown) << k;
+    }
+    for (int k = 275; k < 287; ++k) {
+        EXPECT_EQ(p[k], Posture::Standing) << k;
+    }
+
+    // Standing broken up by ticks without hips stays standing: no gap in
+    // the hips turns it into the posture before (sub-39's last seconds).
+    QVector<PersonSample> broken;
+    for (int k = 0; k < 100; ++k) {
+        PersonSample q;
+        q.timestampNs = 40000000LL * k;
+        q.cameras     = 2;
+        q.hipHeightMm = k < 40 ? 650.0 : (k % 7 < 3 ? nan : 950.0);
+        q.speedMmPerS = 100.0;
+        broken << q;
+    }
+    const auto b = mosaic::classify_posture(broken);
+    for (int k = 55; k < 100; ++k) {
+        EXPECT_EQ(b[k], broken[k].hipHeightMm > 0 ? Posture::Standing : Posture::Unknown) << k;
+    }
+    // Right after sitting, the window still holds more sitting than the few
+    // standing ticks: the mode filter makes the first two sitting.
+    EXPECT_EQ(b[40], Posture::Sitting);
+    EXPECT_EQ(b[41], Posture::Sitting);
+
+    // The mode filter: standing, with the hips read low one tick in six.
+    // Each low tick alone is sitting; among standing ticks it is standing.
+    QVector<PersonSample> dips;
+    for (int k = 0; k < 60; ++k) {
+        PersonSample q;
+        q.timestampNs = 40000000LL * k;
+        q.cameras     = 2;
+        q.hipHeightMm = k % 6 == 3 ? 750.0 : 950.0;
+        q.speedMmPerS = 100.0;
+        dips << q;
+    }
+    const auto d = mosaic::classify_posture(dips);
+    for (int k = 0; k < 60; ++k) {
+        EXPECT_EQ(d[k], Posture::Standing) << k;
+    }
 }

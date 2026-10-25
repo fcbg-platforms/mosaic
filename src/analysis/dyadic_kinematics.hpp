@@ -1,5 +1,6 @@
 #pragma once
 #include <QVector>
+#include <array>
 #include <cstdint>
 #include <functional>
 #include <limits>
@@ -45,6 +46,10 @@ struct DyadicKinematicsSeries {
     DyadicStats stats;
 };
 
+/// @brief What a person is doing at a tick, from their hips (see
+/// classify_posture()). Unknown: not in 3D, or in 3D without what it needs.
+enum class Posture { Unknown, Sitting, Standing, Walking };
+
 /// @brief One measure on each side of the body (an angle in degrees, a
 /// speed); NaN where a point it needs is missing.
 struct LeftRight {
@@ -75,6 +80,7 @@ struct PersonSample {
     double motionMmPerS    = std::numeric_limits<double>::quiet_NaN(); ///< mean joint speed
     double headSpeedMmPerS = std::numeric_limits<double>::quiet_NaN(); ///< of the ears' midpoint
     double headTurnDegPerS = std::numeric_limits<double>::quiet_NaN(); ///< of the ear-to-ear line
+    Posture posture        = Posture::Unknown;
 };
 
 /// @brief Summary of one compute_person_kinematics() call.
@@ -86,6 +92,9 @@ struct PersonStats {
     LeftRight medianHipFlexionDeg;
     LeftRight medianElbowFlexionDeg;
     LeftRight medianArmRaiseDeg;
+    /// Seconds in 3D in each posture, by Posture's value (Unknown: in 3D
+    /// without hips or speed).
+    std::array<double, 4> secondsByPosture{};
 };
 
 /// @brief Output of compute_person_kinematics(): one sample per tick of the
@@ -122,6 +131,23 @@ struct PersonKinematicsSeries {
 /// sum, so it does not grow with how many keypoints were seen).
 [[nodiscard]] PersonKinematicsSeries compute_person_kinematics(const Skeleton3DResult& result,
                                                                int personId);
+
+/// @brief Each sample's posture, from the hips' height above the floor and
+/// speed: Sitting with the hips under 0.8 m (on a chair they are about 0.55
+/// to 0.75 m up, standing 0.85 m or more for most adults); otherwise Walking
+/// when the hips' speed, the median over the ticks within 0.5 s either side,
+/// is at least 0.35 m/s, and Standing when not. The median, since a single
+/// tick's speed is noisy (about 0.1 to 0.35 m/s sitting still on a room-11
+/// recording). Then each tick takes the most common posture among the
+/// ticks within 0.5 s either side that have one, so the timeline does not
+/// flicker (a tie keeps its own; between two others, Sitting, Standing,
+/// Walking in that order); ticks without the hips stay Unknown, never
+/// filled in.
+///
+/// Squatting and kneeling read as Sitting, and the 0.8 m line suits adults
+/// of ordinary height on ordinary chairs; see
+/// docs/math/pose3d_reconstruction.rst.
+[[nodiscard]] QVector<Posture> classify_posture(const QVector<PersonSample>& samples);
 
 /// @brief The typical and the high values of a series: its median and 95th
 /// percentile, over the samples where it is known. The 95th percentile, not

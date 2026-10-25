@@ -152,6 +152,76 @@ double angle_deg(const room_view::Vec3& a, const room_view::Vec3& b) {
 
 } // namespace
 
+QVector<Posture> classify_posture(const QVector<PersonSample>& samples) {
+    constexpr double kSittingBelowMm = 800.0;
+    constexpr double kWalkingMmPerS  = 350.0;
+    constexpr int64_t kSpeedWindowNs = 500000000; // 0.5 s either side
+    constexpr int64_t kModeWindowNs  = 500000000;
+    const int n                      = static_cast<int>(samples.size());
+    QVector<Posture> out(n, Posture::Unknown);
+
+    // Each tick on its own, the speed as its neighbourhood's median.
+    int lo = 0, hi = 0;
+    for (int k = 0; k < n; ++k) {
+        const PersonSample& s = samples[k];
+        if (s.cameras == 0 || std::isnan(s.hipHeightMm)) {
+            continue;
+        }
+        if (s.hipHeightMm < kSittingBelowMm) {
+            out[k] = Posture::Sitting;
+            continue;
+        }
+        while (samples[lo].timestampNs < s.timestampNs - kSpeedWindowNs) {
+            ++lo;
+        }
+        while (hi + 1 < n && samples[hi + 1].timestampNs <= s.timestampNs + kSpeedWindowNs) {
+            ++hi;
+        }
+        std::vector<double> speeds;
+        for (int j = lo; j <= hi; ++j) {
+            if (!std::isnan(samples[j].speedMmPerS)) {
+                speeds.push_back(samples[j].speedMmPerS);
+            }
+        }
+        const double v = median(speeds);
+        if (!std::isnan(v)) {
+            out[k] = v >= kWalkingMmPerS ? Posture::Walking : Posture::Standing;
+        }
+    }
+
+    // Then each tick takes the most common posture among the ticks within
+    // 0.5 s either side that have one (a tie keeps its own): a mode filter,
+    // so a posture held under about half a second does not show. Ticks
+    // without one (no hips) stay Unknown: never filled in.
+    QVector<Posture> smoothed = out;
+    lo = 0, hi = 0;
+    for (int k = 0; k < n; ++k) {
+        if (out[k] == Posture::Unknown) {
+            continue;
+        }
+        const int64_t t = samples[k].timestampNs;
+        while (samples[lo].timestampNs < t - kModeWindowNs) {
+            ++lo;
+        }
+        while (hi + 1 < n && samples[hi + 1].timestampNs <= t + kModeWindowNs) {
+            ++hi;
+        }
+        std::array<int, 4> votes{};
+        for (int j = std::min(lo, k); j <= std::max(hi, k); ++j) {
+            ++votes[static_cast<int>(out[j])];
+        }
+        votes[static_cast<int>(Posture::Unknown)] = 0;
+        int best                                  = static_cast<int>(out[k]);
+        for (int v = 1; v < 4; ++v) {
+            if (votes[v] > votes[best]) {
+                best = v;
+            }
+        }
+        smoothed[k] = static_cast<Posture>(best);
+    }
+    return smoothed;
+}
+
 Spread spread_of(const QVector<PersonSample>& samples,
                  const std::function<double(const PersonSample&)>& value) {
     std::vector<double> v;
@@ -346,11 +416,20 @@ PersonKinematicsSeries compute_person_kinematics(const Skeleton3DResult& result,
             out.stats.topSpeedMmPerS = v;
         }
     }
+    const QVector<Posture> postures = classify_posture(out.samples);
+    for (int k = 0; k < n; ++k) {
+        out.samples[k].posture = postures[k];
+    }
     if (n > 1) {
         const double stepS =
             static_cast<double>(frames.last().timestampNs - frames.first().timestampNs) / 1e9 /
             (n - 1);
         out.stats.secondsSeen = present * stepS;
+        for (const auto& s : out.samples) {
+            if (s.cameras > 0) {
+                out.stats.secondsByPosture[static_cast<int>(s.posture)] += stepS;
+            }
+        }
     }
     out.stats.medianHeadHeightMm = median(heads);
     const auto median_of         = [&](const LeftRight PersonSample::*joint) {

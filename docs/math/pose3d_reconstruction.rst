@@ -312,6 +312,37 @@ median whole-body motion was 0.13 to 0.16 m/s and the median head turning
 rates within a session, or against such a still period, rather than read
 them as absolute.
 
+Its **posture** (``classify_posture``) is, at each tick, from the hips
+alone, since the legs are often hidden (under a desk, on sub-39 the knees
+were never seen while sitting):
+
+- **Sitting**: the hips' midpoint under 0.8 m above the floor. On a chair
+  the hips are about 0.55 to 0.75 m up, standing 0.85 m or more for most
+  adults (the hip joint is at about 53% of a person's height).
+- **Walking**: otherwise, when the hips' speed is 0.35 m/s or more, as the
+  median over the ticks within 0.5 s either side: one tick's speed is noisy
+  (0.1 to 0.35 m/s sitting still on sub-39), slow walking about 0.3 to
+  0.7 m/s.
+- **Standing**: otherwise.
+- **Unknown**: in 3D without the hips, or without a speed nearby.
+
+Then each tick takes the most common posture among the ticks within 0.5 s
+either side that have one (a tie keeps its own): a mode filter, so the
+timeline does not flicker and a posture held for under about half a second
+does not show. A clean change shows where it happens; noisy ticks near it
+(a speed spike, a hip read low) can move it by up to half a second.
+Unknown ticks stay unknown, never filled in. The chart has one row per
+posture; the line under it gives the seconds in each.
+
+The limits: the 0.8 m line suits adults of ordinary height on ordinary
+chairs (a short person standing, or a tall person on a bar stool, can be
+misread), and squatting or kneeling read as sitting. It depends on the
+floor found from the ankles (:ref:`pose3d-drawing-the-room`). Shifting
+weight while standing is standing, and slow steps under 0.35 m/s are too.
+On sub-39 (a 31 s recording: a walk, then sitting at a desk) it gave
+walking with short stops for the first 15 s, sitting from 17 to 26 s, then
+getting up.
+
 There is no trunk lean. It needs the true vertical, and the calibration does
 not give one: the up of :ref:`pose3d-drawing-the-room` is the people's mean
 torso, so someone slouching all session would lean 0 against it, and the
