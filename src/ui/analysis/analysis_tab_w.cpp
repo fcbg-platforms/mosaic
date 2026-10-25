@@ -2815,6 +2815,7 @@ void AnalysisTabW::build_ui() {
     d->dyadMetricCombo->addItem("Speed (m/s)", "speed");
     d->dyadMetricCombo->addItem("Head and hip height (m)", "height");
     d->dyadMetricCombo->addItem("Cameras seeing the person", "cameras");
+    d->dyadMetricCombo->addItem("Posture: sitting, standing, walking", "posture");
     d->dyadMetricCombo->insertSeparator(d->dyadMetricCombo->count());
     d->dyadMetricCombo->addItem("Knee flexion (°)", "knee");
     d->dyadMetricCombo->addItem("Hip flexion (°)", "hip");
@@ -2845,7 +2846,8 @@ void AnalysisTabW::build_ui() {
     d->dyadMetricCombo->setToolTip(
         "Speed: of the hips. Height: of the head and the hips above the floor, so standing, "
         "sitting and bending show. Cameras: how many cameras the person was put in 3D from "
-        "(more agree better).\n\n"
+        "(more agree better). Posture: sitting (hips under 0.8 m), walking (hips moving at "
+        "0.35 m/s or more) or standing, from the hips.\n\n"
         "Joint angles, left and right: flexion in degrees, 0 standing upright with the arms "
         "hanging. Knee and elbow: 0 straight. Hip: the thigh against the trunk, about 90 "
         "sitting. Arm raise: the upper arm against the trunk, 90 out to the side, 180 "
@@ -5523,6 +5525,20 @@ void AnalysisTabW::export_skeleton3d_csv() {
 
 namespace {
 
+// A posture as the CSV writes it; empty where unknown.
+QString posture_name(Posture p) {
+    switch (p) {
+        case Posture::Sitting:
+            return "sitting";
+        case Posture::Standing:
+            return "standing";
+        case Posture::Walking:
+            return "walking";
+        default:
+            return QString();
+    }
+}
+
 // The 3D Pose charts of one person, as opposed to those of two.
 bool is_person_metric(const QString& metric) {
     return !QStringList{"distance", "approach_rate", "facing", "congruent_motion"}.contains(metric);
@@ -5541,7 +5557,7 @@ struct PersonMeasure {
 };
 
 // The measure a one-person chart shows, by its Show key; none for the
-// charts drawn their own way (speed, height, cameras) and the two-person ones.
+// charts drawn their own way (speed, height, cameras, posture) and the two-person ones.
 std::optional<PersonMeasure> measure_of(const QString& metric) {
     using S = PersonSample;
     static const QMap<QString, PersonMeasure> measures{
@@ -5608,8 +5624,8 @@ void AnalysisTabW::update_dyadic_view() {
         d->currentDyad = DyadicKinematicsSeries();
         d->dyadStatsLbl->setText(
             "Only one person in this result: the two-person charts need two. Choose one of "
-            "the one-person charts above them (speed, height, cameras, joint angles, "
-            "movement).");
+            "the one-person charts above them (speed, height, cameras, posture, joint "
+            "angles, movement).");
         d->skeleton3dRoomView->set_dyad_tracks(-1, -1);
         d->chart->set_single_series({}, QString());
         d->chart->set_title("Two people — only one in this result");
@@ -5714,7 +5730,47 @@ void AnalysisTabW::update_person_chart() {
     const double spanMs  = (r.frames().last().timestampNs - t0) / 1e6;
     const QString metric = d->dyadMetricCombo->currentData().toString();
     const QString who    = QString("Person %1").arg(personId);
-    if (metric == "height") {
+    if (metric == "posture") {
+        // One row per posture, high while it lasts; nothing where it is
+        // unknown (no hips) or the person is not in 3D for over 0.25 s, so
+        // a hip missed for a tick or two does not break a bar.
+        const std::tuple<Posture, const char*, QColor> rows[] = {
+            {Posture::Sitting, "Sitting", QColor("#3ca0e6")},
+            {Posture::Standing, "Standing", QColor("#9ccc44")},
+            {Posture::Walking, "Walking", QColor("#e6a03c")}};
+        constexpr int64_t kSameSpanNs = 250000000; // ticks further apart start a new span
+        QVector<NamedSeries> series;
+        int row = 0;
+        for (const auto& [posture, name, colour] : rows) {
+            ++row;
+            QVector<QPointF> pts;
+            const auto& samples = d->currentPerson.samples;
+            for (int k = 0; k < samples.size();) {
+                if (samples[k].posture != posture) {
+                    ++k;
+                    continue;
+                }
+                int last = k;
+                for (int j = k + 1; j < samples.size(); ++j) {
+                    if (samples[j].timestampNs - samples[last].timestampNs > kSameSpanNs) {
+                        break;
+                    }
+                    if (samples[j].posture == posture) {
+                        last = j;
+                    } else if (samples[j].posture != Posture::Unknown) {
+                        break; // another posture ends the bar
+                    }
+                }
+                const double a = (samples[k].timestampNs - t0) / 1e6;
+                const double b = std::max(a + 40.0, (samples[last].timestampNs - t0) / 1e6);
+                pts << QPointF(a, row - 0.4) << QPointF(a, row) << QPointF(b, row)
+                    << QPointF(b, row - 0.4);
+                k = last + 1;
+            }
+            series.append({name, colour, pts});
+        }
+        d->chart->set_named_series(series, "Posture (one row each)", spanMs);
+    } else if (metric == "height") {
         QVector<QPointF> headPts, hipPts;
         for (const auto& s : d->currentPerson.samples) {
             const double t = (s.timestampNs - t0) / 1e6;
@@ -5769,6 +5825,14 @@ void AnalysisTabW::update_person_chart() {
         line += QString("  ·  head usually %1 m above the floor")
                     .arg(st.medianHeadHeightMm / 1000.0, 0, 'f', 2);
     }
+    if (metric == "posture") {
+        const auto secs = [&](Posture p) {
+            return QString::number(st.secondsByPosture[static_cast<int>(p)], 'f', 1);
+        };
+        line += QString("  ·  sitting %1 s, standing %2 s, walking %3 s, unknown %4 s")
+                    .arg(secs(Posture::Sitting), secs(Posture::Standing), secs(Posture::Walking),
+                         secs(Posture::Unknown));
+    }
     // On an angle chart, the usual (median) angle; on a movement chart the
     // usual value and a high one (95th percentile), of the size for a
     // signed rate.
@@ -5817,7 +5881,8 @@ void AnalysisTabW::export_dyad_csv() {
                    info->path + QString("/person_%1.csv").arg(personId), [&](QTextStream& ts) {
                        ts << "# heights are above the floor found from the result; angles are "
                              "flexion in degrees, 0 standing upright with the arms hanging; rates "
-                             "are per second, flexion rates positive bending (see "
+                             "are per second, flexion rates positive bending; posture is "
+                             "sitting, standing or walking, empty where unknown (see "
                              "docs/math/pose3d_reconstruction.rst)\n";
                        ts << "tick,timestamp_ns,speed_mm_s,head_height_mm,hip_height_mm,cameras,"
                              "knee_flexion_left_deg,knee_flexion_right_deg,"
@@ -5827,7 +5892,7 @@ void AnalysisTabW::export_dyad_csv() {
                              "wrist_speed_left_mm_s,wrist_speed_right_mm_s,"
                              "knee_flexion_rate_left_deg_s,knee_flexion_rate_right_deg_s,"
                              "elbow_flexion_rate_left_deg_s,elbow_flexion_rate_right_deg_s,"
-                             "motion_mm_s,head_speed_mm_s,head_turn_deg_s\n";
+                             "motion_mm_s,head_speed_mm_s,head_turn_deg_s,posture\n";
                        const auto& frames = d->currentSkeleton3D.frames();
                        for (int i = 0; i < d->currentPerson.samples.size(); ++i) {
                            const auto& s  = d->currentPerson.samples[i];
@@ -5845,7 +5910,7 @@ void AnalysisTabW::export_dyad_csv() {
                               << both(s.wristSpeedMmPerS) << "," << both(s.kneeFlexionRateDegPerS)
                               << "," << both(s.elbowFlexionRateDegPerS) << ","
                               << num(s.motionMmPerS) << "," << num(s.headSpeedMmPerS) << ","
-                              << num(s.headTurnDegPerS) << "\n";
+                              << num(s.headTurnDegPerS) << "," << posture_name(s.posture) << "\n";
                        }
                    });
         return;
