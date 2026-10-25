@@ -390,7 +390,11 @@ are read from the result (``room_view_math.hpp``):
 Each camera in ``skeleton3d.json`` carries ``rotation_room`` (room-from-
 camera, rows; its third column is the viewing direction) and ``fov_deg``
 (horizontal and vertical field of view, from the focal lengths and the
-calibrated image size), so the view can draw what each camera sees.
+calibrated image size), so the view can draw what each camera sees. The
+view from a camera puts the viewer there, turned by ``rotation_room`` (the
+camera looks along its z with image-up its -y), with the vertical field of
+view: a pinhole, so it leaves out the lens's distortion, which is largest at
+the image's edges.
 
 .. _pose3d-recommendations:
 

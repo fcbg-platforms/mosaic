@@ -16,9 +16,17 @@ void SceneMesh::set_scene(QObject* scene) {
     }
     scene_ = qobject_cast<Room3DScene*>(scene);
     if (scene_) {
-        // The grid and the camera pyramids only change with the result.
+        // The grid and the camera pyramids only change with the result, the
+        // paths when they are rebuilt (they hold the whole recording: not
+        // copied each tick).
         connect(scene_, &Room3DScene::frameChanged, this, [this] {
-            if (part_ != "grid" && part_ != "frusta" && part_ != "frustumFaces") {
+            if (part_ != "grid" && part_ != "frusta" && part_ != "frustumFaces" &&
+                part_ != "paths") {
+                rebuild();
+            }
+        });
+        connect(scene_, &Room3DScene::pathsChanged, this, [this] {
+            if (part_ == "paths") {
                 rebuild();
             }
         });
