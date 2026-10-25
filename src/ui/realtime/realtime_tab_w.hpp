@@ -37,7 +37,7 @@ namespace mosaic {
 //
 // Deliberately has no live 3D/floorplan room view: there is no live
 // cross-camera time-sync or calibration-aware fusion pipeline (that only
-// exists post-hoc, see GazeRoomViewW/Skeleton3DRoomViewW), so a live room
+// exists post-hoc, see Gaze3DViewW/Skeleton3DRoomViewW), so a live room
 // map would have to fabricate camera positions. The KPI strip plus each
 // tile's own small 2D gaze compass is the honest room-level summary.
 class RealtimeTabW : public QWidget {

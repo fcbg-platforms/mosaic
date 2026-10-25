@@ -6,6 +6,8 @@
 #include <array>
 #include <cstdint>
 
+#include "analysis/skeleton3d_result.hpp"
+
 namespace mosaic {
 
 /// Plain 3-vector (room-space mm) — std::array rather than QVector3D
@@ -43,12 +45,10 @@ struct GazeSubjectSample {
     QVector<GazeFusionCamera> perCamera;
 };
 
-/// Static per-camera room position (extrinsic_rt's translation column),
-/// written once per file — used by the room-view widget's camera icons.
-struct GazeFusionRoomCamera {
-    int index         = -1;
-    Vec3 positionRoom = {0, 0, 0};
-};
+/// A camera in the room, written once per file: where it is and, in files
+/// written since the 3D Gaze view, which way it looks and how wide (else
+/// hasRotation is false), as skeleton3d.json's cameras.
+using GazeFusionRoomCamera = Skeleton3DRoomCamera;
 
 /// A named rectangle in the room that gaze can land on.
 struct GazeFusionRegion {

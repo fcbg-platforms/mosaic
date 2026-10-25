@@ -160,8 +160,15 @@ def write_results(
     skip: int,
     videos: dict,
     room_video: str | None,
+    image_sizes: dict | None = None,
 ) -> Path:
-    """Write ``gaze_fusion.json``; returns its path."""
+    """Write ``gaze_fusion.json``; returns its path.
+
+    ``image_sizes`` gives each camera's recorded image size, ``(width,
+    height)`` by index, for its field of view.
+    """
+    from pose3d.triangulation import field_of_view_deg
+
     by_tick: dict = {}
     for e in entries:
         by_tick.setdefault(e.tick, []).append(e)
@@ -189,6 +196,14 @@ def write_results(
                 "index": i,
                 "position_room": _vec(c.extrinsic_rt[:3, 3]),
                 "room_from_camera": [round(float(x), 6) for x in c.extrinsic_rt.ravel()],
+                # As skeleton3d.json's cameras, so the 3D Gaze view can show
+                # what each camera sees and look from it.
+                "rotation_room": [
+                    [round(float(v), 6) for v in row] for row in c.extrinsic_rt[:3, :3]
+                ],
+                "fov_deg": field_of_view_deg(
+                    c.camera_matrix, *(image_sizes or {}).get(i, (None, None))
+                ),
             }
             for i, c in sorted(cameras.items())
         ],

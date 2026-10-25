@@ -6,6 +6,7 @@
 #include <QVector3D>
 #include <algorithm>
 #include <cmath>
+#include <optional>
 #include <vector>
 
 #include "analysis/skeleton3d_result.hpp"
@@ -82,6 +83,11 @@ class Room3DStage : public Room3DMeshSource {
     // From a 3D Pose result: up from the people (else the cameras), the
     // floor from the ankles (room_view_math.hpp).
     [[nodiscard]] static Basis basis_of(const Skeleton3DResult& result);
+    // From the cameras alone, for a result without people's bodies (3D
+    // Gaze): up as given (room frame, unit), else from the cameras'
+    // image-up; the floor 2 m below the lowest camera.
+    [[nodiscard]] static Basis basis_of_cameras(const QVector<Skeleton3DRoomCamera>& cameras,
+                                                std::optional<QVector3D> up = std::nullopt);
 
     // A new room: its basis, its cameras, and the room-frame points (mm)
     // the framing is to hold (where the people were); the cameras' when

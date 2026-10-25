@@ -258,21 +258,15 @@ def camera_entry(idx: int, info: dict) -> dict:
     looks (``rotation_room``, room-from-camera, rows; its third column is the
     viewing direction) and its field of view in degrees, so the 3D room view
     can draw what each camera sees."""
+    from pose3d.triangulation import field_of_view_deg
+
     rt = info["extrinsic_rt"]
-    k = info["camera_matrix"]
     w, h = info.get("image_size") or (None, None)
-    # Without the image size (absent, or -1 as the app writes an unknown one)
-    # the principal point, about the image centre, stands in for half of it.
-    w = w if w and w > 0 else 2.0 * k[0, 2]
-    h = h if h and h > 0 else 2.0 * k[1, 2]
     return {
         "index": idx,
         "position_room": [float(rt[0, 3]), float(rt[1, 3]), float(rt[2, 3])],
         "rotation_room": [[float(v) for v in row] for row in rt[:3, :3]],
-        "fov_deg": [
-            round(float(np.degrees(2.0 * np.arctan(w / (2.0 * k[0, 0])))), 2),
-            round(float(np.degrees(2.0 * np.arctan(h / (2.0 * k[1, 1])))), 2),
-        ],
+        "fov_deg": field_of_view_deg(info["camera_matrix"], w, h),
     }
 
 
