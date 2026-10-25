@@ -292,7 +292,11 @@ ankles); without it, up is the calibrated plane's normal turned towards
 the cameras when that is within 45 degrees of the cameras' mean image-up (a
 table, not a wall), else the cameras' mean image-up, and the floor is 2 m below
 the lowest camera, a guess: heads seen at camera height are drawn about
-2 m up.
+2 m up. With the 3D Pose result the view draws everyone's body too, the 3D
+Pose frame nearest each gaze tick on the shared clock (within 100 ms, else
+none), and a gaze subject matched to a 3D Pose person by their heads
+(:doc:`pose3d_reconstruction`, which gaze person is which) is drawn as one
+person: the body in the gaze colour, the head and label the gaze view's.
 
 The Analysis tab's **Charts** (``summarize_gaze`` in
 ``src/analysis/gaze_summary.cpp``) sum these labels up over the recording.

@@ -295,6 +295,7 @@ qt_add_resources(mosaic "qml_resources"
         qml/RoomStage.qml
         qml/RoomPill.qml
         qml/RoomTag.qml
+        qml/RoomBodies.qml
 )
 
 set_target_properties(mosaic PROPERTIES

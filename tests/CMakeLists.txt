@@ -189,6 +189,9 @@ add_executable(mosaic_qml_tests
     "${CMAKE_SOURCE_DIR}/src/analysis/skeleton3d_result.cpp"
     "${CMAKE_SOURCE_DIR}/src/analysis/gaze_fusion_result.cpp"
     "${CMAKE_SOURCE_DIR}/src/analysis/gaze_summary.cpp"
+    "${CMAKE_SOURCE_DIR}/src/analysis/gaze_pose_match.cpp"
+    "${CMAKE_SOURCE_DIR}/src/analysis/pose3d_people.cpp"
+    "${CMAKE_SOURCE_DIR}/src/analysis/dyadic_kinematics.cpp"
     "${CMAKE_SOURCE_DIR}/src/ui/analysis/gaze3d_scene.cpp"
     "${CMAKE_SOURCE_DIR}/src/ui/analysis/room3d_scene.cpp"
     "${CMAKE_SOURCE_DIR}/src/ui/analysis/room3d_stage.cpp"
@@ -203,6 +206,7 @@ qt_add_resources(mosaic_qml_tests "qml_pages"
         "${CMAKE_SOURCE_DIR}/src/qml/RoomStage.qml"
         "${CMAKE_SOURCE_DIR}/src/qml/RoomPill.qml"
         "${CMAKE_SOURCE_DIR}/src/qml/RoomTag.qml"
+        "${CMAKE_SOURCE_DIR}/src/qml/RoomBodies.qml"
 )
 target_link_libraries(mosaic_qml_tests PRIVATE
     GTest::gtest

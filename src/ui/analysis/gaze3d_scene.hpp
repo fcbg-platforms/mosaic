@@ -7,6 +7,7 @@
 #include <optional>
 
 #include "analysis/gaze_fusion_result.hpp"
+#include "ui/analysis/room3d_scene.hpp"
 #include "ui/analysis/room3d_stage.hpp"
 
 namespace mosaic {
@@ -17,7 +18,9 @@ namespace mosaic {
 // For the tick on show: each person's head, their gaze as a ray from the
 // eyes to where it lands, the gaze point; the named regions and the
 // calibrated plane, lit while someone looks at them; a label per person
-// saying what they look at; and each person's recent gaze points (trails).
+// saying what they look at; each person's recent gaze points (trails); and,
+// when the session has a 3D Pose result, everyone's body from it (`bodies`,
+// a Room3DScene on this room), a gaze person's in their colour and name.
 // The page only lays these out; the maths stays here, testable.
 class Gaze3DScene : public Room3DMeshSource {
     Q_OBJECT
@@ -35,23 +38,28 @@ class Gaze3DScene : public Room3DMeshSource {
     Q_PROPERTY(bool followFound READ follow_found NOTIFY frameChanged)
     Q_PROPERTY(QString follow READ follow WRITE set_follow NOTIFY peopleChanged)
     Q_PROPERTY(bool trails READ trails WRITE set_trails NOTIFY frameChanged)
+    // The 3D Pose bodies: there when the session has a 3D Pose result.
+    Q_PROPERTY(QObject* bodies READ bodies_object CONSTANT)
+    Q_PROPERTY(bool hasBodies READ has_bodies NOTIFY resultChanged)
+    Q_PROPERTY(bool showBodies READ show_bodies WRITE set_show_bodies NOTIFY frameChanged)
 
    public:
     explicit Gaze3DScene(QObject* parent = nullptr);
 
-    // A new result. `room`, the session's 3D Pose room (Room3DStage::
-    // basis_of() of its result) when there is one, sets which way is up and
-    // where the floor is, so both views share the room; without it, up is
-    // the calibrated plane's normal (turned towards the cameras) or the
+    // A new result. `pose`, the session's 3D Pose result when there is one,
+    // sets which way is up and where the floor is, so both views share the
+    // room, and gives the bodies; a gaze person is matched to a body by where
+    // their heads are (match_gaze_to_pose()). Without it, up is the
+    // calibrated plane's normal (turned towards the cameras) or the
     // cameras', and the floor 2 m below them.
-    void set_result(const GazeFusionResult& result,
-                    std::optional<Room3DStage::Basis> room = std::nullopt);
+    void set_result(const GazeFusionResult& result, const Skeleton3DResult* pose = nullptr);
     void set_position_ms(int64_t positionMs);
 
     // The People panel: hidden people are left out of everything drawn.
     Q_INVOKABLE void set_shown(const QString& id, bool shown);
     void set_follow(const QString& id);
     void set_trails(bool on);
+    void set_show_bodies(bool on);
 
     [[nodiscard]] Room3DStage& stage() { return stage_; }
     [[nodiscard]] const Room3DStage& stage() const { return stage_; }
@@ -69,6 +77,12 @@ class Gaze3DScene : public Room3DMeshSource {
     [[nodiscard]] bool follow_found() const { return followFound_; }
     [[nodiscard]] QString follow() const { return follow_; }
     [[nodiscard]] bool trails() const { return trails_; }
+    [[nodiscard]] Room3DScene& bodies() { return bodies_; }
+    [[nodiscard]] QObject* bodies_object() { return &bodies_; }
+    [[nodiscard]] bool has_bodies() const { return bodies_.has_result(); }
+    [[nodiscard]] bool show_bodies() const { return showBodies_; }
+    // The 3D Pose person a gaze person is, -1 when none.
+    [[nodiscard]] int person_of(const QString& id) const { return personOf_.value(id, -1); }
     // The tick on show, -1 for none (Save image names the file after it).
     [[nodiscard]] int64_t tick() const { return tick_; }
 
@@ -84,6 +98,9 @@ class Gaze3DScene : public Room3DMeshSource {
     [[nodiscard]] QColor color_of(const QString& id) const;
 
     Room3DStage stage_;
+    Room3DScene bodies_; // on stage_
+    bool showBodies_ = true;
+    QMap<QString, int> personOf_; // gaze id -> 3D Pose person
     GazeFusionResult result_;
     int64_t positionMs_ = 0;
     QSet<QString> hidden_;
