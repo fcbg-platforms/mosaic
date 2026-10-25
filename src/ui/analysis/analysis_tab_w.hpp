@@ -119,6 +119,9 @@ class AnalysisTabW : public QWidget {
     void export_expression_csv();
     void update_gaze_view();
     void export_gaze_csv();
+    // The Charts tab of 3D Gaze, and its summary's export.
+    void update_gaze_charts();
+    void export_gaze_summary_csv();
     void update_pose3d_view();
     void export_skeleton3d_csv();
     void update_dyadic_view();

@@ -938,6 +938,17 @@ sitting alongside **Live**. The workflow is always the same shape:
         found and what they looked at most, plus the share of time with
         mutual gaze.
       - **Export CSV** writes one row per frame and person.
+      - The **Charts** tab, next to **Room**, shows over the whole
+        recording, in **Show**: **Where a person looks** (choose the person:
+        one row per target, high while they look at it, the most looked at
+        lowest; with *nothing* for a gaze landing on no target and *no gaze*
+        when the eyes were not usable), **Mutual gaze** (one row per pair,
+        high while both look at each other's face, with the total, the
+        number of episodes and the longest), or **Who looks at whom**, a
+        table of each person's time on each target and its share of the
+        time they were seen. **Export summary CSV** saves those totals,
+        every stretch of looking at a target and every mutual gaze episode.
+        See :doc:`math/gaze_fusion` for how the time is counted.
 
       To name people (``S1`` becomes ``Child``) or add regions after
       recording, put a ``gaze_targets.json`` in the session folder (see

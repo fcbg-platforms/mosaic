@@ -70,6 +70,7 @@
 #include "analysis/face_dynamics_result.hpp"
 #include "analysis/gaze2d_result.hpp"
 #include "analysis/gaze_fusion_result.hpp"
+#include "analysis/gaze_summary.hpp"
 #include "analysis/objects_result.hpp"
 #include "analysis/pose_analysis_result.hpp"
 #include "analysis/pose_kinematics.hpp"
@@ -259,9 +260,9 @@ WavEnvelopeResult load_wav_envelope(const QString& wavPath, int numColumns) {
 // list from unbounding the row.
 constexpr int kMaxSubjectChips = 12;
 
-// The 3D Pose page's tabs (AnalysisTabW::Impl::pose3dTabs).
-constexpr int kPose3dTabRoom   = 0;
-constexpr int kPose3dTabCharts = 1;
+// The 3D Pose and 3D Gaze pages' tabs (AnalysisTabW::Impl::roomTabs).
+constexpr int kRoomTab   = 0;
+constexpr int kChartsTab = 1;
 
 QString subject_chip_tooltip(SubjectChoice choice, bool fileHasTrackedIdentity) {
     if (!fileHasTrackedIdentity) {
@@ -1276,9 +1277,17 @@ struct AnalysisTabW::Impl {
     QSpinBox* dyadWindowSpin   = nullptr; // pose3d only — congruent-motion rolling window
     QLabel* dyadStatsLbl       = nullptr; // pose3d only
     QPushButton* exportDyadBtn = nullptr; // pose3d only
-    // pose3d only: the room view or the charts, one at a time beside the video
-    // (kPose3dTabRoom / kPose3dTabCharts), so either gets the width.
-    QTabBar* pose3dTabs = nullptr;
+    // pose3d and gaze_fusion: the room view or the charts, one at a time
+    // beside the video (kRoomTab / kChartsTab), so either gets the width.
+    QTabBar* roomTabs = nullptr;
+    // gaze_fusion's Charts tab: what to show, whose, its numbers, and the
+    // who-looks-at-whom table.
+    QWidget* gazeChartRowW     = nullptr;
+    QComboBox* gazeShowCombo   = nullptr;
+    QComboBox* gazePersonCombo = nullptr;
+    QLabel* gazeChartStatsLbl  = nullptr;
+    QTableWidget* gazeTable    = nullptr;
+    GazeSummary currentGazeSummary;
 
     // EEG/Trigger sync view controls — mirrors pose3dRowW's own-container
     // pattern. No model/backend/skip controls page exists for this plugin
@@ -2755,6 +2764,43 @@ void AnalysisTabW::build_ui() {
     d->gazeFusionRowW->setVisible(false); // shown only for the gaze_fusion plugin
     rightLay->addWidget(d->gazeFusionRowW);
 
+    // gaze_fusion's Charts tab: where a person looks over time, mutual gaze,
+    // or who looks at whom (a table).
+    d->gazeChartRowW   = new QWidget;
+    auto* gazeChartRow = new QHBoxLayout(d->gazeChartRowW);
+    gazeChartRow->setContentsMargins(0, 0, 0, 0);
+    gazeChartRow->addWidget(new QLabel("Show:"));
+    d->gazeShowCombo = new QComboBox;
+    d->gazeShowCombo->addItem("Where a person looks", "looks");
+    d->gazeShowCombo->addItem("Mutual gaze", "mutual");
+    d->gazeShowCombo->addItem("Who looks at whom (table)", "table");
+    d->gazeShowCombo->setToolTip(
+        "Where a person looks: one row per target (another person, a region, the plane, "
+        "nothing, or no gaze found), high while they look at it. Mutual gaze: one row per "
+        "pair, high while both look at each other's face. Who looks at whom: the time each "
+        "person spent on each target, and its share of the time they were seen.");
+    gazeChartRow->addWidget(d->gazeShowCombo);
+    d->gazePersonCombo = new QComboBox;
+    d->gazePersonCombo->setToolTip("The person whose gaze to chart.");
+    gazeChartRow->addWidget(d->gazePersonCombo);
+    d->gazeChartStatsLbl = new QLabel;
+    d->gazeChartStatsLbl->setStyleSheet("color:#7070a0; font-size:11px;");
+    d->gazeChartStatsLbl->setWordWrap(true);
+    gazeChartRow->addWidget(d->gazeChartStatsLbl, 1);
+    auto* exportGazeSummaryBtn = new QPushButton("Export summary CSV");
+    exportGazeSummaryBtn->setToolTip(
+        "Saves the time on each target per person, each stretch of looking at one, and "
+        "each mutual gaze episode, as CSV.");
+    connect(exportGazeSummaryBtn, &QPushButton::clicked, this,
+            &AnalysisTabW::export_gaze_summary_csv);
+    gazeChartRow->addWidget(exportGazeSummaryBtn);
+    connect(d->gazeShowCombo, &QComboBox::currentIndexChanged, this,
+            [this] { select_plugin(d->currentPlugin); });
+    connect(d->gazePersonCombo, &QComboBox::currentIndexChanged, this,
+            &AnalysisTabW::update_gaze_charts);
+    d->gazeChartRowW->setVisible(false); // shown only on gaze_fusion's Charts tab
+    rightLay->addWidget(d->gazeChartRowW);
+
     // ── 3D Pose Reconstruction view controls: reconstruction-quality stats
     //    + CSV export. Pose3D only — own container so select_plugin() can
     //    hide the whole row with one call, mirroring gazeFusionRowW.
@@ -3276,31 +3322,44 @@ void AnalysisTabW::build_ui() {
     resultsSplitter->setStretchFactor(4, 1);
     resultsSplitter->setStretchFactor(5, 1);
     resultsSplitter->setStretchFactor(6, 1);
+
+    // gaze_fusion's Charts tab, Who looks at whom: a person per row, a
+    // target per column, the time and its share of the time seen. Last, so
+    // the widgets above keep their places in the splitter.
+    d->gazeTable = new QTableWidget;
+    d->gazeTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    d->gazeTable->setVisible(false);
+    resultsSplitter->addWidget(d->gazeTable);
+    resultsSplitter->setStretchFactor(resultsSplitter->indexOf(d->gazeTable), 1);
     // Above the results: which of the 3D Pose views takes the space beside
     // the video. The tabs keep the video in view, since it drives the time.
-    d->pose3dTabs = new QTabBar;
-    d->pose3dTabs->insertTab(kPose3dTabRoom, "3D Room");
-    d->pose3dTabs->insertTab(kPose3dTabCharts, "Charts");
-    d->pose3dTabs->setTabToolTip(kPose3dTabRoom,
-                                 "Every person's 3D skeleton in the room, with the cameras. "
-                                 "Drag to orbit, scroll to zoom, double-click to reset.");
-    d->pose3dTabs->setTabToolTip(kPose3dTabCharts,
-                                 "Charts over the whole recording: one person's speed, "
-                                 "height and cameras, or two people's distance, approach, "
-                                 "facingness and congruent motion.");
-    d->pose3dTabs->setDrawBase(false);
-    d->pose3dTabs->setVisible(false); // shown only for the pose3d plugin
-    connect(d->pose3dTabs, &QTabBar::currentChanged, this, [this](int tab) {
+    d->roomTabs = new QTabBar;
+    d->roomTabs->insertTab(kRoomTab, "3D Room");
+    d->roomTabs->insertTab(kChartsTab, "Charts");
+    d->roomTabs->setTabToolTip(kRoomTab,
+                               "Every person's 3D skeleton in the room, with the cameras. "
+                               "Drag to orbit, scroll to zoom, double-click to reset.");
+    d->roomTabs->setTabToolTip(kChartsTab,
+                               "Charts over the whole recording: one person's speed, "
+                               "height and cameras, or two people's distance, approach, "
+                               "facingness and congruent motion.");
+    d->roomTabs->setDrawBase(false);
+    d->roomTabs->setVisible(false); // shown only for the pose3d and gaze_fusion plugins
+    connect(d->roomTabs, &QTabBar::currentChanged, this, [this](int tab) {
+        if (is_gaze_fusion_plugin()) {
+            select_plugin(d->currentPlugin); // its charts' widgets follow the tab
+            return;
+        }
         if (!is_pose3d_plugin()) {
             return;
         }
-        const bool charts = tab == kPose3dTabCharts;
+        const bool charts = tab == kChartsTab;
         d->chart->setVisible(charts);
         d->dyadRowW->setVisible(charts);
         d->skeleton3dRoomView->setVisible(!charts);
         anim::fade_in_widget(charts ? static_cast<QWidget*>(d->chart) : d->skeleton3dRoomView, 130);
     });
-    rightLay->addWidget(d->pose3dTabs);
+    rightLay->addWidget(d->roomTabs);
     rightLay->addWidget(resultsSplitter, 1);
 
     d->chart->set_seek_callback([this](int64_t ms) { d->player->seek(ms); });
@@ -3572,10 +3631,13 @@ void AnalysisTabW::select_plugin(const QString& pluginId) {
     set_visible_animated(d->trackFieldW, isPose3D);
     // pose3d shows the shared chart (its Dyad Analysis series) on its Charts
     // tab only; the room view has the 3D Room tab.
-    const bool pose3dCharts = isPose3D && d->pose3dTabs->currentIndex() == kPose3dTabCharts;
+    const bool pose3dCharts = isPose3D && d->roomTabs->currentIndex() == kChartsTab;
+    // gaze_fusion likewise: its charts, or its table, on the Charts tab.
+    const bool gazeCharts = isGazeFusion && d->roomTabs->currentIndex() == kChartsTab;
+    const bool gazeTable  = gazeCharts && d->gazeShowCombo->currentData().toString() == "table";
     set_visible_animated(d->chart, isPoseKeypoints || isExpression || isRppg || isGaze2d ||
-                                       pose3dCharts || isFaceDyn || isConv || isEye || isSocial ||
-                                       isObjects);
+                                       pose3dCharts || (gazeCharts && !gazeTable) || isFaceDyn ||
+                                       isConv || isEye || isSocial || isObjects);
     set_visible_animated(d->kinematicsRowW, isPoseKeypoints);
     // subjectPickerRowW's own further narrowing (hidden when the session has
     // <=1 detected subject) happens inside rebuild_subject_chips(), called
@@ -3586,9 +3648,30 @@ void AnalysisTabW::select_plugin(const QString& pluginId) {
     }
     set_visible_animated(d->expressionRowW, isExpression);
     set_visible_animated(d->gazeFusionRowW, isGazeFusion);
-    set_visible_animated(d->roomView, isGazeFusion);
+    set_visible_animated(d->roomView, isGazeFusion && !gazeCharts);
+    set_visible_animated(d->gazeChartRowW, gazeCharts);
+    set_visible_animated(d->gazeTable, gazeTable);
+    d->gazePersonCombo->setVisible(gazeCharts &&
+                                   d->gazeShowCombo->currentData().toString() == "looks");
     set_visible_animated(d->pose3dRowW, isPose3D);
-    set_visible_animated(d->pose3dTabs, isPose3D);
+    set_visible_animated(d->roomTabs, isPose3D || isGazeFusion);
+    // The tabs say what each page's room and charts hold.
+    d->roomTabs->setTabText(kRoomTab, isGazeFusion ? "Room" : "3D Room");
+    d->roomTabs->setTabToolTip(
+        kRoomTab, isGazeFusion
+                      ? "The room from above: every person, their gaze and what it lands on."
+                      : "Every person's 3D skeleton in the room, with the cameras. "
+                        "Drag to orbit, scroll to zoom, double-click to reset.");
+    d->roomTabs->setTabToolTip(
+        kChartsTab, isGazeFusion
+                        ? "Over the whole recording: where each person looks, mutual gaze, "
+                          "and who looks at whom."
+                        : "Charts over the whole recording: one person's speed, height, "
+                          "posture, joint angles and movement, or two people's distance, "
+                          "approach, facingness and congruent motion.");
+    if (gazeCharts) {
+        update_gaze_charts();
+    }
     set_visible_animated(d->dyadRowW, pose3dCharts);
     set_visible_animated(d->skeleton3dRoomView, isPose3D && !pose3dCharts);
     set_visible_animated(d->triggerSyncRowW, isTriggerSync);
@@ -5313,6 +5396,20 @@ void AnalysisTabW::export_expression_csv() {
 // ── Gaze fusion view ─────────────────────────────────────────────────────
 
 void AnalysisTabW::update_gaze_view() {
+    // The charts' summary and their person list follow the result.
+    d->currentGazeSummary = summarize_gaze(d->currentGazeFusion);
+    {
+        const QSignalBlocker block(d->gazePersonCombo);
+        const QString chosen = d->gazePersonCombo->currentData().toString();
+        d->gazePersonCombo->clear();
+        for (const auto& s : d->currentGazeSummary.subjects) {
+            d->gazePersonCombo->addItem(s.name, s.id);
+        }
+        d->gazePersonCombo->setCurrentIndex(std::max(0, d->gazePersonCombo->findData(chosen)));
+    }
+    if (is_gaze_fusion_plugin() && d->roomTabs->currentIndex() == kChartsTab) {
+        update_gaze_charts();
+    }
     if (!d->currentGazeFusion.is_valid() || d->currentGazeFusion.frames().isEmpty()) {
         d->gazeStatsLbl->clear();
         return;
@@ -5412,6 +5509,194 @@ void AnalysisTabW::export_gaze_csv() {
                    << num(true, s.confidence, 3) << ","
                    << num(s.uncertaintyDeg >= 0.0, s.uncertaintyDeg, 2) << "," << s.numCameras
                    << "\n";
+            }
+        }
+    });
+}
+
+// The Charts tab of 3D Gaze: where a person looks, mutual gaze, or the
+// who-looks-at-whom table, from currentGazeSummary.
+void AnalysisTabW::update_gaze_charts() {
+    const GazeSummary& g = d->currentGazeSummary;
+    const QString show   = d->gazeShowCombo->currentData().toString();
+    const auto& frames   = d->currentGazeFusion.frames();
+    const int64_t t0     = frames.isEmpty() ? 0 : frames.first().timestampNs;
+    const double spanMs =
+        frames.isEmpty() ? 0.0 : (frames.last().timestampNs - t0) / 1e6 + g.stepS * 1000.0;
+    const QString sep = QStringLiteral("  ") + QChar(0x00b7) + QStringLiteral("  ");
+    const auto secs   = [](double s) { return QString::number(s, 'f', 1) + " s"; };
+    // One colour per target, in the order listed; nothing and no gaze grey.
+    const QColor palette[] = {QColor("#e6a03c"), QColor("#3ca0e6"), QColor("#9ccc44"),
+                              QColor("#cc44cc"), QColor("#44cccc"), QColor("#ff6666")};
+    const auto colour      = [&](const GazeTarget& target, int i) {
+        if (target.key == kGazeNothing) {
+            return QColor("#8a8aa0");
+        }
+        if (target.key == kGazeNoGaze) {
+            return QColor("#55556a");
+        }
+        return palette[i % 6];
+    };
+    // "At <name>" for a target; "Nothing" and "No gaze" as they are.
+    const auto named = [](const GazeTarget& t) {
+        return t.is_target() ? "At " + t.label : t.label.left(1).toUpper() + t.label.mid(1);
+    };
+    // A stretch as a bar on row `row`: up while it lasts.
+    const auto bar = [&](QVector<QPointF>& pts, const GazeSpan& s, int row) {
+        const double a = (s.startNs - t0) / 1e6;
+        const double b = (s.endNs - t0) / 1e6;
+        pts << QPointF(a, row - 0.4) << QPointF(a, row) << QPointF(b, row) << QPointF(b, row - 0.4);
+    };
+
+    if (show == "table") {
+        // Targets in order of the time spent on them, over everyone.
+        QMap<QString, double> total;
+        QMap<QString, GazeTarget> byKey;
+        for (const auto& s : g.subjects) {
+            for (const auto& t : s.secondsByTarget) {
+                total[t.target.key] += t.seconds;
+                byKey[t.target.key] = t.target;
+            }
+        }
+        QStringList targets = total.keys();
+        std::stable_sort(targets.begin(), targets.end(),
+                         [&](const QString& a, const QString& b) { return total[a] > total[b]; });
+        d->gazeTable->clear();
+        d->gazeTable->setRowCount(static_cast<int>(g.subjects.size()));
+        d->gazeTable->setColumnCount(static_cast<int>(targets.size()) + 1);
+        QStringList headers{"Seen"};
+        for (const auto& t : targets) {
+            headers << named(byKey[t]);
+        }
+        d->gazeTable->setHorizontalHeaderLabels(headers);
+        QStringList rows;
+        for (int r = 0; r < g.subjects.size(); ++r) {
+            const auto& s = g.subjects[r];
+            rows << s.name;
+            d->gazeTable->setItem(r, 0, new QTableWidgetItem(secs(s.secondsSeen)));
+            for (int c = 0; c < targets.size(); ++c) {
+                double sec = 0.0;
+                for (const auto& t : s.secondsByTarget) {
+                    sec = t.target.key == targets[c] ? t.seconds : sec;
+                }
+                const QString cell =
+                    sec > 0.0
+                        ? QString("%1 (%2%)")
+                              .arg(secs(sec))
+                              .arg(s.secondsSeen > 0 ? 100.0 * sec / s.secondsSeen : 0.0, 0, 'f', 0)
+                        : QString();
+                d->gazeTable->setItem(r, c + 1, new QTableWidgetItem(cell));
+            }
+        }
+        d->gazeTable->setVerticalHeaderLabels(rows);
+        d->gazeTable->resizeColumnsToContents();
+        d->gazeChartStatsLbl->setText(
+            g.subjects.isEmpty() ? QString("Nobody's gaze in this result.")
+                                 : QString("Time on each target, and its share of the time the "
+                                           "person was seen (each analysed tick counts %1 s).")
+                                       .arg(g.stepS, 0, 'f', 2));
+        return;
+    }
+
+    QVector<NamedSeries> series;
+    if (show == "mutual") {
+        QStringList lines;
+        int row = 0;
+        for (const auto& p : g.pairs) {
+            ++row;
+            QVector<QPointF> pts;
+            for (const auto& span : p.spans) {
+                bar(pts, span, row);
+            }
+            series.append({p.nameA + " & " + p.nameB, palette[(row - 1) % 6], pts});
+            lines << QString("%1 & %2: %3 mutual, %4 episode(s), longest %5")
+                         .arg(p.nameA, p.nameB, secs(p.seconds))
+                         .arg(p.spans.size())
+                         .arg(secs(p.longestS));
+        }
+        d->chart->set_named_series(series, "Mutual gaze (one row per pair)", spanMs);
+        d->chart->set_title("Mutual gaze: both looking at each other's face");
+        d->gazeChartStatsLbl->setText(
+            g.pairs.isEmpty() ? QString("Mutual gaze needs two people; this result has %1.")
+                                    .arg(g.subjects.size())
+                              : lines.join(sep));
+    } else {
+        const QString id              = d->gazePersonCombo->currentData().toString();
+        const GazeSubjectSummary* who = nullptr;
+        for (const auto& s : g.subjects) {
+            who = s.id == id ? &s : who;
+        }
+        if (!who) {
+            d->chart->set_single_series({}, QString());
+            d->chart->set_title("Nobody's gaze in this result");
+            d->gazeChartStatsLbl->clear();
+            return;
+        }
+        // A row per target, the most looked at first (lowest).
+        QStringList parts{QString("%1: seen %2").arg(who->name, secs(who->secondsSeen))};
+        int row = 0;
+        for (const auto& t : who->secondsByTarget) {
+            QVector<QPointF> pts;
+            for (const auto& span : who->spans) {
+                if (span.target.key == t.target.key) {
+                    bar(pts, span, row + 1);
+                }
+            }
+            const QString name = named(t.target);
+            series.append({name, colour(t.target, row), pts});
+            parts << QString("%1 %2 (%3%)")
+                         .arg(name, secs(t.seconds))
+                         .arg(who->secondsSeen > 0 ? 100.0 * t.seconds / who->secondsSeen : 0.0, 0,
+                              'f', 0);
+            ++row;
+        }
+        d->chart->set_named_series(series, "Target (one row each)", spanMs);
+        d->chart->set_title(who->name + ": where they look, rows from the bottom by time");
+        d->gazeChartStatsLbl->setText(parts.join(sep));
+    }
+    d->chart->set_playhead_ms(d->player->position_ms());
+}
+
+void AnalysisTabW::export_gaze_summary_csv() {
+    const auto* info     = d->current_session();
+    const GazeSummary& g = d->currentGazeSummary;
+    if (!info || g.subjects.isEmpty()) {
+        return;
+    }
+    const auto& frames = d->currentGazeFusion.frames();
+    const int64_t t0   = frames.isEmpty() ? 0 : frames.first().timestampNs;
+    export_csv(this, "Export gaze summary", info->path + "/gaze_summary.csv", [&](QTextStream& ts) {
+        ts << "# kind: total (time on a target), stretch (one look at it), mutual (one "
+              "mutual gaze episode of a pair: subject and target are the two people); times "
+              "in s from the first analysed tick; share: of the time the person was seen\n";
+        ts << "kind,subject,target,start_s,end_s,seconds,share\n";
+        // Names come from users (gaze_targets.json, region names): quoted
+        // when they hold a comma or a quote.
+        const auto text = [](const QString& v) {
+            if (!v.contains(',') && !v.contains('"') && !v.contains('\n')) {
+                return v;
+            }
+            return QString("\"%1\"").arg(QString(v).replace("\"", "\"\""));
+        };
+        const auto at = [&](int64_t ns) { return QString::number((ns - t0) / 1e9, 'f', 3); };
+        for (const auto& s : g.subjects) {
+            for (const auto& t : s.secondsByTarget) {
+                ts << "total," << text(s.name) << "," << text(t.target.label) << ",,,"
+                   << QString::number(t.seconds, 'f', 3) << ","
+                   << QString::number(s.secondsSeen > 0 ? t.seconds / s.secondsSeen : 0.0, 'f', 4)
+                   << "\n";
+            }
+            for (const auto& span : s.spans) {
+                ts << "stretch," << text(s.name) << "," << text(span.target.label) << ","
+                   << at(span.startNs) << "," << at(span.endNs) << ","
+                   << QString::number((span.endNs - span.startNs) / 1e9, 'f', 3) << ",\n";
+            }
+        }
+        for (const auto& p : g.pairs) {
+            for (const auto& span : p.spans) {
+                ts << "mutual," << text(p.nameA) << "," << text(p.nameB) << "," << at(span.startNs)
+                   << "," << at(span.endNs) << ","
+                   << QString::number((span.endNs - span.startNs) / 1e9, 'f', 3) << ",\n";
             }
         }
     });

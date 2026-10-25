@@ -4,6 +4,7 @@
 #include <QTemporaryDir>
 
 #include "analysis/gaze_fusion_result.hpp"
+#include "analysis/gaze_summary.hpp"
 
 using mosaic::GazeFusionResult;
 
@@ -242,4 +243,109 @@ TEST(GazeFusionResult, V2PlaybackHoldsTheLastAnalysedFrame) {
     EXPECT_EQ(result.frame_for_video_frame(40, 2), nullptr); // long after the last
     // Position 120 ms at 25 fps is video frame 3, so analysed frame 2.
     EXPECT_EQ(result.frame_at_position_ms(120)->tick, 2);
+}
+
+// ── The 3D Gaze charts' summary (summarize_gaze) ───────────────────────────
+
+TEST(GazeSummary, TimeOnTargetsStretchesAndMutualGaze) {
+    // Two subjects, 20 analysed ticks 80 ms apart. Ticks 0-4: mutual gaze.
+    // 5-9: S1 at a region named "S2" (as S2 is: still another target), S2's
+    // gaze on nothing. 10-11: S1 not seen, S2 without eyes. 12-14: S1 at S2,
+    // not mutual (S2 at the screen). 15-19: mutual again.
+    const auto sample = [](const char* id, const char* name, const QString& type,
+                           const QString& label, const QString& subject, bool mutual,
+                           bool eyes = true) {
+        const QString target =
+            type.isEmpty()
+                ? QString("null")
+                : QString(R"({"type": "%1", "label": "%2", "subject": %3})")
+                      .arg(type, label,
+                           subject.isEmpty() ? QString("null") : QString("\"%1\"").arg(subject));
+        return QString(R"({"id": "%1", "name": "%2", "origin": [0, 0, 2500], )"
+                       R"("direction": %3, "point": null, "target": %4, "mutual": %5, )"
+                       R"("confidence": 0.8, "n_cameras": 2, "per_camera": []})")
+            .arg(id, name, eyes ? "[1, 0, 0]" : "null", target, mutual ? "true" : "false");
+    };
+    QStringList frames;
+    for (int k = 0; k < 20; ++k) {
+        QStringList subjects;
+        const bool mutual = k < 5 || k >= 15;
+        if (k < 10 || k >= 12) {
+            subjects << (k >= 5 && k < 10 ? sample("S1", "Child", "region", "S2", "", false)
+                                          : sample("S1", "Child", "subject", "S2", "S2", mutual));
+        }
+        if (mutual) {
+            subjects << sample("S2", "S2", "subject", "Child", "S1", true);
+        } else if (k < 10) {
+            subjects << sample("S2", "S2", "none", "none", "", false);
+        } else if (k < 12) {
+            subjects << sample("S2", "S2", "", "", "", false, false);
+        } else {
+            subjects << sample("S2", "S2", "region", "screen", "", false);
+        }
+        frames << QString(R"({"tick": %1, "timestamp_ns": %2, "video_frame_index": %1, )"
+                          R"("subjects": [%3]})")
+                      .arg(2 * k)
+                      .arg(80000000LL * k)
+                      .arg(subjects.join(","));
+    }
+    QTemporaryDir dir;
+    QFile f(dir.filePath("g.json"));
+    ASSERT_TRUE(f.open(QIODevice::WriteOnly));
+    f.write(QString(R"({"schema": "mosaic-gaze-fusion-v2", "fps": 25.0, "analysed_every": 2, )"
+                    R"("cameras": [], "plane": {"defined": false}, "regions": [], "subjects": [)"
+                    R"({"id": "S1", "name": "Child"}, {"id": "S2", "name": "S2"}], )"
+                    R"("frames": [%1]})")
+                .arg(frames.join(","))
+                .toUtf8());
+    f.close();
+    const auto r = GazeFusionResult::load(dir.filePath("g.json"));
+    ASSERT_TRUE(r.is_valid());
+
+    const auto g = mosaic::summarize_gaze(r);
+    EXPECT_NEAR(g.stepS, 0.08, 1e-12);
+    ASSERT_EQ(g.subjects.size(), 2);
+    const auto seconds = [](const mosaic::GazeSubjectSummary& s, const QString& key) {
+        for (const auto& t : s.secondsByTarget) {
+            if (t.target.key == key) {
+                return t.seconds;
+            }
+        }
+        return 0.0;
+    };
+
+    // S1: 18 ticks seen; the person S2 13 of them, the region "S2" 5, kept
+    // apart; longest first, shown by name.
+    const auto& s1 = g.subjects[0];
+    EXPECT_EQ(s1.name, "Child");
+    EXPECT_NEAR(s1.secondsSeen, 1.44, 1e-9);
+    EXPECT_NEAR(seconds(s1, "subject/S2"), 1.04, 1e-9);
+    EXPECT_NEAR(seconds(s1, "region/S2"), 0.40, 1e-9);
+    EXPECT_EQ(s1.secondsByTarget[0].target.key, "subject/S2");
+    EXPECT_EQ(s1.secondsByTarget[0].target.label, "S2");
+    // Stretches: S2, the region, then S2 again from tick 12 to 19 (the gap
+    // before it ends the region's stretch; 12-19 is one).
+    ASSERT_EQ(s1.spans.size(), 3);
+    EXPECT_EQ(s1.spans[0].target.key, "subject/S2");
+    EXPECT_EQ(s1.spans[0].startNs, 0);
+    EXPECT_EQ(s1.spans[0].endNs, 400000000);
+    EXPECT_EQ(s1.spans[1].target.key, "region/S2");
+    EXPECT_EQ(s1.spans[2].startNs, 960000000);
+    EXPECT_EQ(s1.spans[2].endNs, 1600000000);
+
+    // S2: all 20 ticks: Child (S1) 10, nothing 5, the screen 3, no gaze 2.
+    const auto& s2 = g.subjects[1];
+    EXPECT_NEAR(s2.secondsSeen, 1.60, 1e-9);
+    EXPECT_NEAR(seconds(s2, "subject/S1"), 0.80, 1e-9);
+    EXPECT_NEAR(seconds(s2, mosaic::kGazeNothing), 0.40, 1e-9);
+    EXPECT_NEAR(seconds(s2, "region/screen"), 0.24, 1e-9);
+    EXPECT_NEAR(seconds(s2, mosaic::kGazeNoGaze), 0.16, 1e-9);
+
+    // Mutual gaze: two episodes of 5 ticks; looking without being looked
+    // back at (ticks 12-14) does not count.
+    ASSERT_EQ(g.pairs.size(), 1);
+    EXPECT_EQ(g.pairs[0].nameA, "Child");
+    EXPECT_NEAR(g.pairs[0].seconds, 0.80, 1e-9);
+    EXPECT_EQ(g.pairs[0].spans.size(), 2);
+    EXPECT_NEAR(g.pairs[0].longestS, 0.40, 1e-9);
 }
