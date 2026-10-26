@@ -13,7 +13,7 @@ RoomStage {
     id: page
     stage: gaze3d.stage
     info: gaze3d.info
-    emptyText: "No 3D gaze result loaded. Run Multi-Camera Gaze Fusion for this session."
+    emptyText: "No 3D gaze result loaded. Run 3D Gaze for this session."
 
     Connections {
         target: gaze3d

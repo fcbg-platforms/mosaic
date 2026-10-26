@@ -21,17 +21,16 @@ namespace mosaic {
 /// anything living in ui/ cannot be unit-tested. Keeping the registry here
 /// is what lets tests/test_analysis_plugins.cpp guard it.
 
-/// Groups the plugins by what they are *for*. The picker shows these as
-/// headings, because a flat list of ten put data-prep utilities (frame-sync
-/// repair, EEG/trigger alignment) beside real analyses with no visual
-/// distinction between them.
+/// Groups the plugins in the order they are run: data preparation first,
+/// then what each person does (body, then face and gaze), the audio, and
+/// last what combines the others. The picker shows these as numbered
+/// headings, so the order to work in can be read off the list.
 enum class AnalysisPluginCategory {
-    Summary,
+    Prepare,
     BodyMotion,
     FaceGaze,
     Audio,
-    Privacy,
-    DataPrep,
+    Together,
 };
 
 struct AnalysisPluginDesc {
@@ -42,67 +41,62 @@ struct AnalysisPluginDesc {
     QString id;
     /// Short enough to fit the picker without eliding at its default width.
     QString label;
-    /// One line, shown under the label and as the row's tooltip.
+    /// One line, shown under the label and as the row's tooltip; says what
+    /// must run first ("Needs") or helps when it has ("Best after").
     QString blurb;
     AnalysisPluginCategory category;
 };
 
-/// Every plugin, in the order the controls stack pages are built.
-///
-/// Order is preserved from the original combo purely so the stack's page
-/// registration stays a straight one-line-per-plugin edit; nothing depends on
-/// it any more. Display grouping is applied at render time from `category`.
+/// Every plugin. Within a category the picker lists them in this order,
+/// which is the order to run them in (an analysis after the ones it uses).
 ///
 /// The first entry is load-bearing: AnalysisTabW seeds its current plugin
 /// from it at construction, and the tab's startup visibility pass only lands
 /// correctly for a plugin whose visible widgets are the ones already visible
-/// at construction time. That is Pose today. See AnalysisTabW's constructor.
+/// at construction time. That is Pose. See AnalysisTabW's constructor.
 [[nodiscard]] inline const QVector<AnalysisPluginDesc>& analysis_plugins() {
     static const QVector<AnalysisPluginDesc> kPlugins = {
         {"pose", "Pose", "Per-person 2D skeletons and keypoint kinematics.",
          AnalysisPluginCategory::BodyMotion},
-        {"face_mask", "Face Masking", "Writes an anonymized copy; never touches the original.",
-         AnalysisPluginCategory::Privacy},
-        {"diarize", "Speaker Diarization", "Transcribes each mic and labels who is speaking.",
-         AnalysisPluginCategory::Audio},
-        {"expression", "Facial Expression", "Per-face emotion labels from facial landmarks.",
-         AnalysisPluginCategory::FaceGaze},
-        {"gaze_fusion", "Gaze Fusion", "Combines cameras into one 3D gaze ray. Needs calibration.",
-         AnalysisPluginCategory::FaceGaze},
-        {"pose3d", "3D Pose Reconstruction",
-         "Triangulates 2D poses into 3D. Needs Pose and calibration.",
+        {"pose3d", "3D Pose", "Skeletons in 3D. Needs Pose and the room calibration.",
          AnalysisPluginCategory::BodyMotion},
+        {"objects", "Object Tracking",
+         "Toys, cups, tablets found by name (SAM 3), and who touches them.",
+         AnalysisPluginCategory::BodyMotion},
+        {"sync_repair", "Frame Sync", "Lines the cameras up frame by frame; exports synced videos.",
+         AnalysisPluginCategory::Prepare},
         {"trigger_sync", "EEG / Trigger Sync", "Maps trigger events onto each camera's frames.",
-         AnalysisPluginCategory::DataPrep},
-        // "experimental" stays in the label, not only the blurb: this
-        // plugin's whole safety framing depends on that caveat being
-        // impossible to miss (see Impl::rppgDisclaimerLbl).
-        {"rppg", "Heart Rate (experimental)", "Estimates pulse from facial colour change (rPPG).",
-         AnalysisPluginCategory::FaceGaze},
+         AnalysisPluginCategory::Prepare},
+        {"face_mask", "Face Masking", "Writes an anonymized copy; never touches the original.",
+         AnalysisPluginCategory::Prepare},
         {"gaze2d", "2D Gaze", "Per-face gaze direction in image space. No calibration needed.",
          AnalysisPluginCategory::FaceGaze},
         {"face_dynamics", "Face Dynamics",
          "Blinks, smiles, brow raises, nods. Best in interview mode.",
          AnalysisPluginCategory::FaceGaze},
-        {"eye_contact", "Eye Contact",
-         "Looking at the partner or away, while speaking or listening.",
+        {"expression", "Facial Expression", "Per-face emotion labels from facial landmarks.",
          AnalysisPluginCategory::FaceGaze},
-        {"conversation", "Conversation Timing", "Turns, response times, pauses and overlaps.",
+        {"eye_contact", "Eye Contact",
+         "Looking at the partner or away. Best after Conversation Timing.",
+         AnalysisPluginCategory::FaceGaze},
+        {"gaze_fusion", "3D Gaze", "Who looks at whom, in 3D. Needs the room calibration.",
+         AnalysisPluginCategory::FaceGaze},
+        // "experimental" stays in the label, not only the blurb: this
+        // plugin's whole safety framing depends on that caveat being
+        // impossible to miss (see Impl::rppgDisclaimerLbl).
+        {"rppg", "Heart Rate (experimental)", "Estimates pulse from facial colour change (rPPG).",
+         AnalysisPluginCategory::FaceGaze},
+        {"diarize", "Speaker Diarization", "Transcribes each mic and labels who is speaking.",
          AnalysisPluginCategory::Audio},
-        {"sync_repair", "Frame Sync Repair",
-         "Lines the cameras up frame by frame; exports synced videos.",
-         AnalysisPluginCategory::DataPrep},
-        {"objects", "Object Tracking",
-         "Toys, cups, tablets found by name (SAM 3), and who touches them.",
-         AnalysisPluginCategory::BodyMotion},
+        {"conversation", "Conversation Timing",
+         "Turns, response times, overlaps. Best after Speaker Diarization.",
+         AnalysisPluginCategory::Audio},
         {"social", "Social Interaction",
-         "Synchrony and mimicry between two people facing two cameras.",
-         AnalysisPluginCategory::Summary},
-        // Last in the list (the tab starts on the first entry, Pose, whose
-        // controls the startup view assumes); its category is shown first.
+         "Synchrony and mimicry. Needs Face Dynamics, Pose, Heart Rate.",
+         AnalysisPluginCategory::Together},
         {"overview", "Session Overview",
          "Speaking, eye contact, smile, head and heart rate on one timeline.",
-         AnalysisPluginCategory::Summary},
+         AnalysisPluginCategory::Together},
     };
     return kPlugins;
 }
@@ -113,26 +107,24 @@ struct AnalysisPluginDesc {
 /// actually in use are the same set.
 [[nodiscard]] inline QVector<AnalysisPluginCategory> analysis_plugin_categories() {
     return {
-        AnalysisPluginCategory::Summary,  AnalysisPluginCategory::BodyMotion,
+        AnalysisPluginCategory::Prepare,  AnalysisPluginCategory::BodyMotion,
         AnalysisPluginCategory::FaceGaze, AnalysisPluginCategory::Audio,
-        AnalysisPluginCategory::Privacy,  AnalysisPluginCategory::DataPrep,
+        AnalysisPluginCategory::Together,
     };
 }
 
 [[nodiscard]] inline QString analysis_plugin_category_label(AnalysisPluginCategory category) {
     switch (category) {
-        case AnalysisPluginCategory::Summary:
-            return "Summary";
+        case AnalysisPluginCategory::Prepare:
+            return "1 · Prepare (run first)";
         case AnalysisPluginCategory::BodyMotion:
-            return "Body & motion";
+            return "2 · Body & motion";
         case AnalysisPluginCategory::FaceGaze:
-            return "Face & gaze";
+            return "3 · Face & gaze";
         case AnalysisPluginCategory::Audio:
-            return "Audio";
-        case AnalysisPluginCategory::Privacy:
-            return "Privacy";
-        case AnalysisPluginCategory::DataPrep:
-            return "Data prep & utilities";
+            return "4 · Audio";
+        case AnalysisPluginCategory::Together:
+            return "5 · Together (run last)";
     }
     return {};
 }

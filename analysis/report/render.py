@@ -431,7 +431,7 @@ def quality_rows(data: SessionData) -> list:
     for cam in data.cameras:
         c = by_cam.get(cam.index)
         if c is None:
-            rows.append(("info", f"{cam.name} frames", "Frame Sync Repair not run"))
+            rows.append(("info", f"{cam.name} frames", "Frame Sync not run"))
         elif c.get("skipped"):
             rows.append(("bad", f"{cam.name} frames", f"skipped: {c.get('skip_reason') or ''}"))
         else:

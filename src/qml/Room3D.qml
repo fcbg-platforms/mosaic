@@ -11,7 +11,7 @@ RoomStage {
     id: page
     stage: room3d.stage
     info: room3d.info
-    emptyText: "No 3D pose result loaded. Run 3D Pose Reconstruction for this session."
+    emptyText: "No 3D pose result loaded. Run 3D Pose for this session."
 
     Connections {
         target: room3d

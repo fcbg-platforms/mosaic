@@ -320,7 +320,7 @@ Each camera produces a ``timestamps_camN.csv`` alongside its ``video_N.mp4``, bo
   the camera reports it with the frame (its ``ExposureTime`` chunk). With auto
   exposure this is what the camera actually used, which changes from frame to
   frame, not the setting. Empty if the camera does not report it, and absent
-  in recordings made before it was added. Frame Sync Repair subtracts it from
+  in recordings made before it was added. Frame Sync subtracts it from
   the arrival time: a camera exposing longer delivers each frame later, and
   without the correction a 30 ms difference reads as a different trigger.
 
@@ -336,13 +336,13 @@ Equal frame counts: ``synced/``
 The raw videos in ``video/`` are kept exactly as recorded, and they rarely
 have the same length. A camera can join a few triggers late, lose frames to
 packet loss, or stop slightly before the others. After each recording, MOSAIC
-therefore runs **Frame Sync Repair** in the background. In about a second it
+therefore runs **Frame Sync** in the background. In about a second it
 works out, for every trigger tick, which frame of each camera belongs to it
 and which ticks a camera missed, and writes that per camera (the repair map
 below). Analyses line cameras up through it, or through ``sync_manifest.json``.
 
 The aligned videos, ``synced/video_N.mp4``, are made on request: the
-Frame Sync Repair page's **Export synced videos** runs ``mosaic_export_synced``,
+Frame Sync page's **Export synced videos** runs ``mosaic_export_synced``,
 a program next to MOSAIC. It decodes each original video, follows the map, and
 encodes with the recording's own encoder (NVENC at the original's bitrate;
 libx264 without a GPU), so a copy is about the original's size and takes about
@@ -412,7 +412,7 @@ What it writes, in ``synced/``:
 - ``video_N.mp4``, the aligned video, once exported. Running Frame Sync again
   removes it, since it followed the earlier alignment.
 
-The Analysis tab's *Frame Sync Repair* page shows the same per camera, with
+The Analysis tab's *Frame Sync* page shows the same per camera, with
 the gap ranges on hover.
 
 It never starts while a recording is running. Analysis runs started during a
