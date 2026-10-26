@@ -11,7 +11,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import run_hands
-from hands import kinematics, movements
+from hands import hands3d, kinematics, movements
 from hands.models import RTMW_HANDS, RTMPose, RtmwHands
 from hands.people import (
     assign_by_wrist,
@@ -550,3 +550,242 @@ def test_runner_writes_movements_and_people(tmp_path):
     (person,) = res["people"]
     assert person["subject_id"] == 7 and person["laterality_index"] is None  # no movement
     assert person["both_moving_s"] == 0.0
+
+
+def _room_camera(index, position):
+    """A 1920 x 1080 camera, focal length 1400 px, at ``position`` (mm)
+    looking at the room origin."""
+    from pose3d.triangulation import CameraGeom
+    from test_pose3d_triangulation import _look_at_camera
+
+    k = np.array([[1400.0, 0, 960.0], [0, 1400.0, 540.0], [0, 0, 1]])
+    return CameraGeom(
+        index=index,
+        camera_matrix=k,
+        dist_coeffs=np.zeros(5),
+        extrinsic_rt=_look_at_camera(position),
+    )
+
+
+def _hand_3d(offset=(0.0, 0.0, 0.0)):
+    """A flat open hand in the room, palm 100 mm, around ``offset``."""
+    p = np.zeros((21, 3))
+    p[:, :2] = _flat_hand()  # pixels of the flat hand used as millimetres
+    return p + np.asarray(offset)
+
+
+def _seen(points, cam, side, subject, shift=(0.0, 0.0)):
+    from pose3d.triangulation import project_point_px
+
+    kp = [list(project_point_px(p, cam) + shift) for p in points]
+    return {"side": side, "subject_id": subject, "keypoints": kp, "scores": [0.9] * 21}
+
+
+def test_hands3d_triangulates_two_cameras_and_reports_their_agreement():
+    cams = {0: _room_camera(0, (-800, -600, -1300)), 4: _room_camera(4, (900, -500, -1200))}
+    left, right = _hand_3d((-150, 0, 0)), _hand_3d((150, 0, 0))
+    per = {
+        0: [_seen(left, cams[0], "left", 3), _seen(right, cams[0], "right", 3)],
+        4: [
+            _seen(right, cams[4], "right", 7),
+            _seen(left, cams[4], "left", 7, shift=(0, 12)),
+        ],
+    }
+    found, compared, matched = hands3d.match_tick(per, cams)
+    assert compared == 2 and matched == 2
+    by_side = {h["side"]: h for h in found}
+    # The right hand, seen alike by both: back to the millimetre, and the
+    # two cameras' lines of sight through its points meet.
+    assert np.abs(by_side["right"]["points"] - right).max() < 0.5
+    assert np.linalg.norm(by_side["right"]["gaps"][(0, 4)]) < 0.1
+    # The left one, Camera 5 shifted 12 px across the line between the
+    # cameras (a calibration that is off): the lines of sight miss by about
+    # 12 px at that camera's distance (1.4 m at 1400 px: about 12 mm), all
+    # of it steady.
+    assert np.abs(by_side["left"]["points"] - left).max() < 15.0
+    for h in found:
+        h["frame_gap_ms"] = {(0, 4): 5.0}
+    report = hands3d.pair_report([(0.0, [by_side["left"]])], compared, matched)
+    (pair,) = report["camera_pairs"]
+    assert pair["cameras"] == [0, 4] and pair["hands"] == 1
+    assert pair["gap_median_mm"] == pytest.approx(12.0, abs=3.0)
+    assert pair["offset_mm"] == pytest.approx(pair["gap_median_mm"], abs=0.5)
+    assert pair["scatter_median_mm"] < 0.5 and pair["frame_gap_median_ms"] == 5.0
+    assert pair["offset_same_moment_mm"] is None  # under 20 hands at once
+    many = hands3d.pair_report([(0.0, [by_side["left"]] * 20)], compared, matched)
+    assert many["camera_pairs"][0]["offset_same_moment_mm"] == pytest.approx(
+        pair["offset_mm"], abs=0.1
+    )
+    assert report["views_compared"] == 2 and report["views_matched"] == 2
+
+
+def test_hands3d_does_not_join_views_that_disagree():
+    cams = {0: _room_camera(0, (-800, -600, -1300)), 4: _room_camera(4, (900, -500, -1200))}
+    hand = _hand_3d()
+    per = {
+        0: [_seen(hand, cams[0], "left", 3)],
+        4: [_seen(_hand_3d((0, 300, 0)), cams[4], "left", 7)],  # another hand
+    }
+    found, compared, matched = hands3d.match_tick(per, cams)
+    assert found == [] and compared == 1 and matched == 0
+    # Another side is never the same hand.
+    per[4] = [_seen(hand, cams[4], "right", 7)]
+    assert hands3d.match_tick(per, cams)[0] == []
+
+
+def test_hands3d_tracks_a_hand_over_time():
+    def h(side, x):
+        return {"side": side, "points": _hand_3d((x, 0, 0))}
+
+    ticks = [
+        (0.0, [h("left", 0), h("right", 400)]),
+        (40.0, [h("right", 410), h("left", 10)]),
+        (1000.0, [h("left", 900)]),  # 0.96 s later, 0.9 m away: under 2 m/s
+        (4000.0, [h("left", 900)]),  # over 2 s later: a new hand
+    ]
+    hands3d.track(ticks)
+    ids = [[x["hand"] for x in found] for _t, found in ticks]
+    assert ids[0] == [1, 2] and ids[1] == [2, 1] and ids[2] == [1] and ids[3] == [3]
+    # No point found: a number of its own, nothing to follow.
+    empty = [(0.0, [{"side": "left", "points": np.full((21, 3), np.nan)}])]
+    assert hands3d.track(empty)[0][1][0]["hand"] == 1
+
+
+def test_hands3d_a_third_camera_joins_with_its_best_view():
+    cams = {
+        0: _room_camera(0, (-800, -600, -1300)),
+        2: _room_camera(2, (0, -900, -1500)),
+        4: _room_camera(4, (900, -500, -1200)),
+    }
+    hand = _hand_3d()
+    per = {
+        0: [_seen(hand, cams[0], "left", 3)],
+        2: [
+            # Both a little off, so Cameras 1 and 5 are the pair it joins;
+            # the second agrees better.
+            _seen(hand, cams[2], "left", 1, shift=(0, 6)),
+            _seen(hand, cams[2], "left", 2, shift=(0, 2)),
+        ],
+        4: [_seen(hand, cams[4], "left", 7)],
+    }
+    (h,), _compared, matched = hands3d.match_tick(per, cams)
+    assert matched == 1 and sorted(h["views"]) == [0, 2, 4]
+    assert h["views"][2]["subject_id"] == 2  # the better of camera 3's two views
+    # Within a millimetre or two (camera 3 is 2 px off on purpose).
+    assert np.median(np.linalg.norm(h["points"] - hand, axis=1)) < 2.0
+    assert sorted(h["gaps"]) == [(0, 2), (0, 4), (2, 4)]
+
+
+def test_camera_hands_finds_the_frame_a_tick_names(tmp_path):
+    ts = tmp_path / "timestamps_cam0.csv"
+    ts.write_text("frame_id,elapsed_ns\n" + "".join(f"{i + 10},{i}\n" for i in range(10)))
+    hand = {"side": "left", "subject_id": 1, "keypoints": [], "scores": []}
+    nobody = {"side": "right", "subject_id": None, "keypoints": [], "scores": []}
+    unknown = {"side": "unknown", "subject_id": None, "keypoints": [], "scores": []}
+    frames = [{"frame_index": i, "hands": [hand, nobody, unknown]} for i in range(0, 10, 2)]
+    ch = hands3d.CameraHands(frames, ts)
+    # Decoded frame 4, analysed: its hands of a known side, a person or not.
+    assert ch.at_frame_id(14) == [hand, nobody]
+    assert ch.at_frame_id(15) is None  # decoded 5: not analysed (every 2nd frame)
+    assert ch.at_frame_id(99) is None  # not in the timestamps: no guess
+    guessed = hands3d.CameraHands(frames, tmp_path / "missing.csv")
+    assert guessed.at_frame_id(5) == [hand, nobody]  # no timestamps: id N is frame N - 1
+
+
+def test_kinematics_in_millimetres():
+    rate = 25.0
+    smp = [(1000.0 * i / rate, _hand_3d((300.0 * i / rate, 0, 0)), [1.0] * 21) for i in range(50)]
+    s = kinematics.hand_series(smp, rate, unit="mm")
+    mid = slice(5, -5)
+    assert s["wrist_speed_mm_s"][mid] == pytest.approx(300.0, rel=0.02)
+    assert s["wrist_speed_hl_s"][mid] == pytest.approx(3.0, rel=0.02)  # palm 100 mm
+    assert s["grip_aperture_mm"][mid] == pytest.approx(60.0, rel=0.01)
+    assert "wrist_z_mm" in s and "wrist_x_px" not in s
+    summ = kinematics.summary(s, rate)
+    assert summ["palm_median_mm"] == pytest.approx(100.0, abs=0.5)
+    assert summ["wrist_speed_median_mm_s"] == pytest.approx(300.0, rel=0.02)
+
+
+def test_runner_puts_the_hands_two_cameras_see_in_the_room(tmp_path):
+    from pose3d.triangulation import project_point_px
+
+    cams = {0: _room_camera(0, (-800, -600, -1300)), 4: _room_camera(4, (900, -500, -1200))}
+    s = tmp_path / "sess"
+    (s / "hands").mkdir(parents=True)
+    (s / "video").mkdir()
+    meta = {"cameras": []}
+    for c, g in cams.items():
+        meta["cameras"].append(
+            {
+                "index": c,
+                "calibration": {
+                    "calibrated": True,
+                    "extrinsic_calibrated": True,
+                    "camera_matrix": g.camera_matrix.ravel().tolist(),
+                    "dist_coeffs": g.dist_coeffs.tolist(),
+                    "extrinsic_rt": g.extrinsic_rt.ravel().tolist(),
+                },
+            }
+        )
+    (s / "session_meta.json").write_text(json.dumps(meta))
+    n, rate = 40, 25.0
+    manifest = {
+        "master_fps": rate,
+        "step_ns": "40000000",
+        "t_origin_ns": "5000000000",
+        "total_ticks": n,
+        "ticks": {
+            **{f"cam{c}_frame_ids": list(range(1, n + 1)) for c in cams},
+            "cam0_delta_ms": [1.0] * n,
+            "cam4_delta_ms": [-2.0] * n,
+        },
+    }
+    (s / "sync_manifest.json").write_text(json.dumps(manifest))
+    for c, g in cams.items():
+        lines = "".join(f"{i + 1},{i}\n" for i in range(n))
+        (s / "video" / f"timestamps_cam{c}.csv").write_text("frame_id,elapsed_ns\n" + lines)
+        frames = []
+        for i in range(n):  # the left hand moving right at 250 mm/s
+            pts = _hand_3d((250.0 * i / rate, 0, 0))
+            kp = [list(project_point_px(p, g)) for p in pts]
+            frames.append(
+                {
+                    "frame_index": i,
+                    "hands": [
+                        {"subject_id": 2, "side": "left", "keypoints": kp, "scores": [0.9] * 21}
+                    ],
+                }
+            )
+        (s / "hands" / f"video_{c}.hands.json").write_text(json.dumps({"stride": 1}))
+        (s / "hands" / f"video_{c}.hands.frames.json").write_text(json.dumps({"frames": frames}))
+    path = run_hands.add_hands3d(s)
+    res = json.loads(path.read_text())
+    assert res["schema"] == "mosaic-hands3d-v1"
+    (hand,) = res["hands"]
+    assert (hand["subject_id"], hand["side"], hand["cameras"], hand["ticks"]) == (
+        2,
+        "left",
+        [0, 4],
+        n,
+    )
+    assert hand["kinematics"]["wrist_speed_median_mm_s"] == pytest.approx(250.0, rel=0.03)
+    assert hand["kinematics"]["palm_median_mm"] == pytest.approx(100.0, abs=1.0)
+    (pair,) = res["agreement"]["camera_pairs"]
+    assert pair["cameras"] == [0, 4] and pair["gap_median_mm"] < 0.5
+    assert pair["frame_gap_median_ms"] == 3.0
+    assert res["master_fps"] == 25.0 and res["rate"] == 25.0
+    head = (s / res["kinematics_file"]).read_text().splitlines()[0]
+    assert head.startswith("time_ms,hand,subject_id,side,wrist_x_mm,wrist_y_mm,wrist_z_mm")
+    frames3d = json.loads((s / res["frames_file"]).read_text())["frames"]
+    assert len(frames3d) == n and frames3d[0]["timestamp_ms"] == 5000.0
+    # A camera naming its last frame again (free-running slower than the
+    # ticks): that tick is left out, not paired with the other's new frame.
+    manifest["ticks"]["cam4_frame_ids"][5] = 5
+    (s / "sync_manifest.json").write_text(json.dumps(manifest))
+    res = json.loads(run_hands.add_hands3d(s).read_text())
+    assert res["hands"][0]["ticks"] == n - 1
+    # One calibrated camera only: nothing in 3D, and the old result is gone.
+    meta["cameras"] = meta["cameras"][:1]
+    (s / "session_meta.json").write_text(json.dumps(meta))
+    assert run_hands.add_hands3d(s) is None
+    assert not (s / "hands" / "hands3d.json").exists()

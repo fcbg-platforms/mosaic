@@ -711,6 +711,51 @@ def test_hands_card(tmp_path):
     assert "hands" not in collect.collect(s, for_summary_only=True).cameras[0].results
 
 
+def test_hands_in_3d_card(tmp_path):
+    s = make_session(tmp_path / "a")
+    _write(
+        s / "hands" / "hands3d.json",
+        {
+            "schema": "mosaic-hands3d-v1",
+            "agreement": {
+                "camera_pairs": [
+                    {
+                        "cameras": [0, 4],
+                        "gap_median_mm": 21.8,
+                        "offset_mm": 19.5,
+                        "scatter_median_mm": 6.1,
+                        "frame_gap_median_ms": 23.4,
+                        "offset_same_moment_mm": None,
+                    }
+                ]
+            },
+            "hands": [
+                {
+                    "hand": 3,
+                    "subject_id": 5,
+                    "side": "left",
+                    "kinematics": {
+                        "measured_s": 8.6,
+                        "palm_median_mm": 85.7,
+                        "wrist_speed_median_mm_s": 120.0,
+                        "wrist_speed_p95_mm_s": 554.1,
+                        "grip_aperture_median_mm": 50.0,
+                    },
+                    "movements": {"movements": 1, "cut_off": 7},
+                },
+                {"hand": 4, "subject_id": 5, "side": "right"},  # nothing measured
+            ],
+        },
+    )
+    page = render.render(collect.collect(s))
+    assert "Hands in 3D" in page and "Cameras 1 and 5, agreement" in page
+    assert "lines of sight miss by 22 mm: a steady 20 mm (their room calibration" in page
+    assert "6 mm scatter (the hand model); frames 23 ms apart" in page and " at once)" not in page
+    assert "person 5 left hand (3)" in page and "palm 86 mm" in page
+    assert "95th percentile 554 mm/s; grip aperture median 50 mm; 1 movements (7 cut off)" in page
+    assert "right hand (4)" not in page
+
+
 def test_objects_card_names_an_unplaced_hand_someone(tmp_path):
     s = make_session(tmp_path / "a")
     _write(

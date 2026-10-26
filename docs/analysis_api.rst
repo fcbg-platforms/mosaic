@@ -976,6 +976,14 @@ Pose result (:mod:`hands.people`). See :doc:`math/hands`.
 
 .. autofunction:: hands.movements.person_summary
 
+.. autofunction:: hands.hands3d.match_tick
+
+.. autofunction:: hands.hands3d.track
+
+.. autofunction:: hands.hands3d.sight_gap
+
+.. autofunction:: hands.hands3d.pair_report
+
 .. _analysis-api-social:
 
 Social Interaction

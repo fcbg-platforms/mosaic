@@ -24,8 +24,21 @@ Writes, per camera, in ``<session>/hands/``:
 * ``video_N.hands.mp4``: the video with the hands drawn on it, the
   person's left hand in green and right in orange.
 
-``--kinematics-only`` works the kinematics out again from the points
-already found, without the models.
+When two or more cameras with a room calibration have a Hands result, the
+hands they both see are also put in the room, in millimetres, in
+``<session>/hands/``:
+
+* ``hands3d.json``: per hand (one side of one person, kept over time) its
+  cameras, when it was seen, its kinematics and movements in millimetres;
+  and per pair of cameras how well they agreed (how far their lines of
+  sight through the same points miss, the steady part of that, which is
+  their room calibration together, and the scatter, in millimetres);
+* ``hands3d.frames.json``: every tick's hands, 21 points in millimetres;
+* ``hands3d.kinematics.csv`` and ``hands3d.movements.csv``: as per camera,
+  in millimetres as well.
+
+``--kinematics-only`` works the kinematics and the 3D hands out again from
+the points already found, without the models.
 See docs/math/hands.rst.
 """
 
@@ -42,8 +55,8 @@ from pathlib import Path
 
 import numpy as np
 from camera_pick import add_camera_arg, pick_cameras
-from hands import kinematics, movements
-from hands.people import EDGES, KEYPOINT_NAMES, summarise
+from hands import hands3d, kinematics, movements
+from hands.people import EDGES, KEYPOINT_NAMES, seen_spans, summarise
 from run_face_dynamics import frame_times_ms, read_timestamps_ms
 from run_objects import load_pose, nearest_people, video_info
 from video_publish import open_writer, publish_video
@@ -228,6 +241,174 @@ def try_kinematics(res: dict, frames: list, csv_path: Path) -> None:
         log(f"{csv_path.name}: kinematics failed (see the error above); the points are kept")
 
 
+def add_hands3d(session: Path) -> Path | None:
+    """The hands two or more calibrated cameras see, in the room (see the
+    module docstring); None, logged, when there are not two such cameras.
+    An earlier 3D result is removed first: it would no longer be current."""
+    for name in ("hands3d.json", "hands3d.frames.json", "hands3d.kinematics.csv",
+                 "hands3d.movements.csv"):  # fmt: skip
+        (session / "hands" / name).unlink(missing_ok=True)
+    meta_path, manifest_path = session / "session_meta.json", session / "sync_manifest.json"
+    if not meta_path.exists() or not manifest_path.exists():
+        return None
+    meta = json.loads(meta_path.read_text(encoding="utf-8-sig"))
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    geoms = hands3d.camera_geoms(meta)
+    cams, strides = {}, []
+    for c in sorted(geoms):
+        res_path = session / "hands" / f"video_{c}.hands.json"
+        frames_path = session / "hands" / f"video_{c}.hands.frames.json"
+        if res_path.exists() and frames_path.exists():
+            strides.append(json.loads(res_path.read_text(encoding="utf-8")).get("stride", 1))
+            frames = json.loads(frames_path.read_text(encoding="utf-8"))["frames"]
+            cams[c] = hands3d.CameraHands(frames, session / "video" / f"timestamps_cam{c}.csv")
+    if len(cams) < 2:
+        if len(geoms) >= 2:
+            log("3D hands: Hands has been run on fewer than two calibrated cameras")
+        return None
+    master = float(manifest.get("master_fps", 25.0))
+    step_ns = int(manifest.get("step_ns", int(1e9 / master)))
+    origin_ns = int(manifest.get("t_origin_ns", 0))
+    # The 3D samples come at the ticks, every Nth frame of the cameras: the
+    # kinematics' rate (and its minimum) follows the slowest.
+    rate = master / max(1, max(strides))
+    ids = manifest.get("ticks", {}) or {}
+    ticks, compared, matched, last_id = [], 0, 0, {}
+    for tick in range(int(manifest.get("total_ticks", 0))):
+        per_camera, frame_of = {}, {}
+        for c, ch in cams.items():
+            frame_ids = ids.get(f"cam{c}_frame_ids", [])
+            if tick >= len(frame_ids) or frame_ids[tick] < 0:
+                continue
+            hands_seen = ch.at_frame_id(frame_ids[tick])
+            if hands_seen is not None:
+                per_camera[c] = hands_seen
+                frame_of[c] = frame_ids[tick]
+        # A camera free-running slower than the ticks names one frame for
+        # two ticks: a tick that repeats a camera's last frame would put an
+        # old view with a new one, so it is skipped.
+        if len(per_camera) < 2 or any(last_id.get(c) == f for c, f in frame_of.items()):
+            continue
+        last_id.update(frame_of)
+        found, n_compared, n_matched = hands3d.match_tick(per_camera, geoms)
+        compared, matched = compared + n_compared, matched + n_matched
+        deltas = {c: (ids.get(f"cam{c}_delta_ms") or [None] * (tick + 1))[tick] for c in per_camera}
+        for h in found:
+            h["frame_gap_ms"] = {
+                (a, b): abs(deltas[a] - deltas[b])
+                for a, b in h["gaps"]
+                if deltas.get(a) is not None and deltas.get(b) is not None
+            }
+        if found:
+            ticks.append(((origin_ns + tick * step_ns) / 1e6, found))
+    hands3d.track(ticks)
+    # Whose hand: the Pose id on one reference camera (the lowest-numbered
+    # with a result), so that ids of different cameras are never mixed; a
+    # hand that camera never saw is someone's.
+    ref = min(cams)
+    by_hand: dict = {}
+    for t, found in ticks:
+        for h in found:
+            e = by_hand.setdefault(h["hand"], {"side": h["side"], "samples": [], "ids": {}})
+            e["samples"].append(
+                (t, h["points"], np.where(np.isfinite(h["points"][:, 0]), 1.0, 0.0))
+            )
+            for c, v in h["views"].items():
+                e["ids"].setdefault(c, []).append(v["subject_id"])
+    summary_hands, rows, moves, by_person = [], [], [], {}
+    for n, e in sorted(by_hand.items()):
+        on_ref = [i for i in e["ids"].get(ref, []) if i is not None]
+        subject = max(set(on_ref), key=on_ref.count) if on_ref else None
+        entry = {
+            "hand": n,
+            "subject_id": subject,
+            "subject_camera": ref,
+            "side": e["side"],
+            "cameras": sorted(e["ids"]),
+            "ticks": len(e["samples"]),
+            "seen_spans": [
+                [round(a, 1), round(b + 1000.0 / rate, 1)]
+                for a, b in seen_spans([s[0] for s in e["samples"]], 500.0)
+            ],
+        }
+        series = kinematics.hand_series(e["samples"], rate, unit="mm")
+        if series is not None:
+            entry["kinematics"] = kinematics.summary(series, rate)
+            found, cut_off = movements.find_movements(series, rate)
+            entry["movements"] = movements.hand_summary(found, len(cut_off))
+            tag = {"hand": n, "subject_id": subject, "side": e["side"]}
+            moves += [{**tag, **m} for m in found]
+            by_person.setdefault(subject, {}).setdefault(e["side"], []).extend(found + cut_off)
+            for i in range(len(series["time_ms"])):
+                row = dict(tag)
+                for col in kinematics.COLUMNS_MM:
+                    if col in series:
+                        v = float(series[col][i])
+                        row[col] = "" if math.isnan(v) else round(v, 1 if col == "time_ms" else 4)
+                rows.append(row)
+        summary_hands.append(entry)
+    out = session / "hands"
+    _write_csv(out / "hands3d.kinematics.csv", kinematics.COLUMNS_MM, rows)
+    moves.sort(key=lambda m: (m["start_ms"], m["hand"]))
+    _write_csv(out / "hands3d.movements.csv", movements.MOVEMENT_COLUMNS_MM, moves)
+    frames = [
+        {
+            "timestamp_ms": round(t, 1),
+            "hands": [
+                {
+                    "hand": h["hand"],
+                    "side": h["side"],
+                    "cameras": sorted(h["views"]),
+                    "points_mm": [
+                        None if not np.isfinite(p).all() else [round(float(x), 1) for x in p]
+                        for p in h["points"]
+                    ],
+                }
+                for h in found
+            ],
+        }
+        for t, found in ticks
+    ]
+    (out / "hands3d.frames.json").write_text(
+        json.dumps({"schema": "mosaic-hands3d-v1-frames", "frames": frames}), encoding="utf-8"
+    )
+    result = {
+        "schema": "mosaic-hands3d-v1",
+        "master_fps": master,
+        "keypoint_names": KEYPOINT_NAMES,
+        "rate": rate,
+        "agreement": hands3d.pair_report(ticks, compared, matched),
+        "hands": summary_hands,
+        "people": [
+            {"subject_id": pid, **movements.person_summary(s["left"], s["right"])}
+            for pid, s in sorted(by_person.items(), key=lambda kv: (kv[0] is None, kv[0] or 0))
+            if pid is not None and "left" in s and "right" in s
+        ],
+        "frames_file": "hands/hands3d.frames.json",
+        "kinematics_file": "hands/hands3d.kinematics.csv",
+        "movements_file": "hands/hands3d.movements.csv",
+    }
+    path = out / "hands3d.json"
+    path.write_text(json.dumps(result, indent=1), encoding="utf-8")
+    report = ", ".join(
+        f"Cameras {p['cameras'][0] + 1} and {p['cameras'][1] + 1}: sight lines miss by "
+        f"{p['gap_median_mm']:.0f} mm (steady {p['offset_mm']:.0f}, scatter "
+        f"{p['scatter_median_mm']:.0f})"
+        for p in result["agreement"]["camera_pairs"]
+    )
+    log(f"3D hands: {len(summary_hands)} hand(s), {len(ticks)} ticks; agreement {report} -> {path}")
+    return path
+
+
+def try_hands3d(session: Path) -> None:
+    """:func:`add_hands3d`, a failure logged: the cameras' results stay."""
+    try:
+        add_hands3d(session)
+    except Exception:
+        traceback.print_exc()
+        log("3D hands failed (see the error above); each camera's result is kept")
+
+
 def write_video(video: Path, result: dict, out_path: Path) -> bool:
     """The video with each hand's points and lines, and whose it is; between
     analysed frames the last result holds."""
@@ -295,6 +476,7 @@ def main(argv=None, estimator=None) -> int:
                 failed += 1
             else:
                 log(f"{video.name}: kinematics -> {path}")
+        try_hands3d(session)
         print(f"  100.0%  ({len(videos)}/{len(videos)})", flush=True)
         return 1 if failed == len(videos) else 0
     if estimator is None:
@@ -337,6 +519,7 @@ def main(argv=None, estimator=None) -> int:
             for h in res["hands"]
         )
         log(f"{video.name}: {seen or 'no hand found'} -> {path}")
+    try_hands3d(session)
     print(f"  100.0%  ({len(videos)}/{len(videos)})", flush=True)
     return 1 if failed == len(videos) else 0
 

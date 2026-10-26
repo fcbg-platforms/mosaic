@@ -157,3 +157,82 @@ TEST(HandsResult, AnotherSchemaOrNoFileIsInvalid) {
     EXPECT_FALSE(load_fixture(dir, R"({"schema": "mosaic-objects-v1"})").is_valid());
     EXPECT_FALSE(HandsResult::load(dir.filePath("missing.json")).is_valid());
 }
+
+TEST(HandsResult, ReadsTheHandsInTheRoom) {
+    QTemporaryDir dir;
+    const HandsResult r = load_fixture(dir, R"JSON(
+{
+ "schema": "mosaic-hands3d-v1",
+ "master_fps": 25.0,
+ "rate": 12.5,
+ "agreement": {"views_compared": 616, "views_matched": 390, "camera_pairs": [
+  {"cameras": [0, 4], "hands": 390, "gap_median_mm": 21.8, "offset_mm": 19.5,
+   "scatter_median_mm": 6.1, "frame_gap_median_ms": 23.4, "offset_same_moment_mm": null}]},
+ "hands": [
+  {"hand": 3, "subject_id": 5, "subject_camera": 0, "side": "left", "cameras": [0, 4],
+   "ticks": 256, "seen_spans": [[31000.0, 32000.0]],
+   "kinematics": {"measured_s": 8.6, "palm_median_mm": 85.7, "wrist_speed_median_mm_s": 120.0,
+                  "wrist_speed_p95_mm_s": 554.1, "grip_aperture_median_mm": 50.0}}
+ ],
+ "kinematics_file": "hands/hands3d.kinematics.csv",
+ "movements_file": "hands/hands3d.movements.csv"
+}
+)JSON");
+    ASSERT_TRUE(r.is_valid());
+    EXPECT_TRUE(r.is_3d());
+    EXPECT_DOUBLE_EQ(r.fps(), 12.5); // the kinematics' rate, not the ticks'
+    ASSERT_EQ(r.agreement().size(), 1);
+    const auto& a = r.agreement()[0];
+    EXPECT_EQ(a.cameraA, 0);
+    EXPECT_EQ(a.cameraB, 4);
+    EXPECT_EQ(a.hands, 390);
+    EXPECT_DOUBLE_EQ(a.gapMm, 21.8);
+    EXPECT_DOUBLE_EQ(a.offsetMm, 19.5);
+    EXPECT_DOUBLE_EQ(a.scatterMm, 6.1);
+    EXPECT_DOUBLE_EQ(a.frameGapMs, 23.4);
+    EXPECT_TRUE(std::isnan(a.offsetSameMomentMm)); // too few frames taken at once
+    ASSERT_EQ(r.hands().size(), 1);
+    const auto& h = r.hands()[0];
+    EXPECT_EQ(h.number, 3);
+    EXPECT_EQ(h.display_name(), "S5 left hand 3");
+    EXPECT_DOUBLE_EQ(h.kinematics.palmMm, 85.7);
+    EXPECT_DOUBLE_EQ(h.kinematics.wristSpeedP95Mm, 554.1);
+    EXPECT_DOUBLE_EQ(h.kinematics.gripApertureMedianMm, 50.0);
+    // A camera's own result is not in the room, and has no hand numbers.
+    EXPECT_FALSE(load_fixture(dir, kFixtureJson).is_3d());
+    EXPECT_EQ(load_fixture(dir, kFixtureJson).hands()[0].number, -1);
+}
+
+TEST(HandsResult, ReadsTheRoomsKinematicsAndMovementsByHand) {
+    QTemporaryDir dir;
+    const QString kin = dir.filePath("hands3d.kinematics.csv");
+    QFile f(kin);
+    ASSERT_TRUE(f.open(QIODevice::WriteOnly | QIODevice::Text));
+    // Two hands of one person's one side: kept apart by their numbers.
+    f.write(
+        "time_ms,hand,subject_id,side,wrist_speed_mm_s\n"
+        "100.0,1,5,left,300.0\n"
+        "100.0,2,5,left,120.0\n"
+        "140.0,1,5,left,310.0\n");
+    f.close();
+    const auto series = HandsResult::load_kinematics(kin);
+    ASSERT_EQ(series.size(), 2);
+    EXPECT_EQ(series[0].hand, 1);
+    EXPECT_EQ(series[0].timeMs.size(), 2);
+    EXPECT_EQ(series[1].hand, 2);
+    EXPECT_DOUBLE_EQ(series[1].columns["wrist_speed_mm_s"][0], 120.0);
+    EXPECT_FALSE(series[0].columns.contains("hand"));
+
+    const QString mov = dir.filePath("hands3d.movements.csv");
+    QFile m(mov);
+    ASSERT_TRUE(m.open(QIODevice::WriteOnly | QIODevice::Text));
+    m.write(
+        "hand,subject_id,side,start_ms,end_ms,duration_s,peak_speed_hl_s\n"
+        "2,5,left,1000.0,1800.0,0.8,6.1\n");
+    m.close();
+    const auto moves = HandsResult::load_movements(mov);
+    ASSERT_EQ(moves.size(), 1);
+    EXPECT_EQ(moves[0].hand, 2);
+    EXPECT_EQ(moves[0].subjectId, 5);
+    EXPECT_DOUBLE_EQ(moves[0].peakSpeed, 6.1);
+}

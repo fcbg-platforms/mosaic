@@ -1228,6 +1228,9 @@ def session_sections(data: SessionData) -> str:
     # Also when skeleton3d.json's quality header could not be read.
     if p3 or data.session_results.get("pose3d_people"):
         out.append(_pose3d_people_rows(data.session_results.get("pose3d_people")))
+    h3 = data.session_results.get("hands3d")
+    if h3:
+        out.append(_hands3d(h3))
     so = data.session_results.get("social")
     if so:
         out.append(social_html(so))
@@ -1283,6 +1286,42 @@ def _pose3d_people_rows(pp: dict | None) -> str:
     if pp.get("stale"):
         rows.append(("Note", "older than the 3D Pose result: open it in MOSAIC to update"))
     return _small("3D Pose, per person", rows) if rows else ""
+
+
+def _hands3d(h3: dict) -> str:
+    """The hands in the room: how well each pair of cameras agreed (a steady
+    gap is their room calibration, the two together), then each hand."""
+    rows = []
+    for p in (h3.get("agreement") or {}).get("camera_pairs", []):
+        a, b = p["cameras"]
+        same = p.get("offset_same_moment_mm")
+        rows.append(
+            (
+                f"Cameras {a + 1} and {b + 1}, agreement",
+                f"lines of sight miss by {num(p.get('gap_median_mm'), 0, ' mm')}: a steady "
+                f"{num(p.get('offset_mm'), 0, ' mm')} (their room calibration, together) and "
+                f"{num(p.get('scatter_median_mm'), 0, ' mm')} scatter (the hand model); frames "
+                f"{num(p.get('frame_gap_median_ms'), 0, ' ms')} apart"
+                + (f" (steady {num(same, 0, ' mm')} at once)" if same is not None else ""),
+            )
+        )
+    for h in h3.get("hands", []):
+        k, mv = h.get("kinematics") or {}, h.get("movements") or {}
+        if not k:
+            continue
+        rows.append(
+            (
+                f"person {esc(h.get('subject_id'))} {esc(h.get('side'))} hand ({h.get('hand')})",
+                f"measured {num(k.get('measured_s'), 1, ' s')}; palm "
+                f"{num(k.get('palm_median_mm'), 0, ' mm')}; wrist speed median "
+                f"{num(k.get('wrist_speed_median_mm_s'), 0, ' mm/s')}, 95th percentile "
+                f"{num(k.get('wrist_speed_p95_mm_s'), 0, ' mm/s')}; grip aperture median "
+                f"{num(k.get('grip_aperture_median_mm'), 0, ' mm')}; "
+                f"{num(mv.get('movements'))} movements"
+                + (f" ({mv['cut_off']} cut off)" if mv.get("cut_off") else ""),
+            )
+        )
+    return _small("Hands in 3D", rows)
 
 
 def not_run(data: SessionData) -> str:

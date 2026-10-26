@@ -42,6 +42,14 @@ MOVEMENT_COLUMNS = (
     "max_grip_aperture_palm",
     "time_to_max_aperture_pct",
 )
+#: In 3D, also in millimetres.
+MOVEMENT_COLUMNS_MM = (
+    "hand",
+    *MOVEMENT_COLUMNS,
+    "peak_speed_mm_s",
+    "path_mm",
+    "max_grip_aperture_mm",
+)
 
 
 def stretches(time_ms: np.ndarray, values: np.ndarray, rate: float) -> list:
@@ -124,7 +132,9 @@ def find_movements(series: dict, rate: float) -> tuple:
     and ending near the threshold) is not cut off on a slope."""
     t = series["time_ms"]
     speed = series["wrist_speed_hl_s"]
-    x, y = series["wrist_x_px"], series["wrist_y_px"]
+    mm = "wrist_speed_mm_s" in series
+    unit = "mm" if mm else "px"
+    pos = np.stack([series[f"wrist_{a}_{unit}"] for a in "xyz" if f"wrist_{a}_{unit}" in series], 1)
     aperture = series.get("grip_aperture_palm")
     out, cut_off = [], []
     for a, b in stretches(t, speed, rate):
@@ -143,9 +153,9 @@ def find_movements(series: dict, rate: float) -> tuple:
             peak = int(np.argmax(v))
             path = float(np.sum(v) / rate)
             # Straightness: the wrist's straight-line distance over its path,
-            # both in pixels (the palm unit cancels).
-            px_path = float(np.sum(np.hypot(np.diff(x[s0:s1]), np.diff(y[s0:s1]))))
-            px_line = float(np.hypot(x[s1 - 1] - x[s0], y[s1 - 1] - y[s0]))
+            # both in pixels or millimetres (the unit cancels).
+            px_path = float(np.sum(np.linalg.norm(np.diff(pos[s0:s1], axis=0), axis=1)))
+            px_line = float(np.linalg.norm(pos[s1 - 1] - pos[s0]))
             m = {
                 "start_ms": round(float(t[s0]), 1),
                 "end_ms": round(float(t[s1 - 1]), 1),
@@ -165,6 +175,14 @@ def find_movements(series: dict, rate: float) -> tuple:
                 k = int(np.nanargmax(ap))
                 m["max_grip_aperture_palm"] = round(float(ap[k]), 3)
                 m["time_to_max_aperture_pct"] = round(100.0 * k / max(1, len(ap) - 1), 1)
+            if mm:
+                v_mm = series["wrist_speed_mm_s"][s0:s1]
+                ap_mm = series["grip_aperture_mm"][s0:s1]
+                m["peak_speed_mm_s"] = round(float(v_mm.max()), 1)
+                m["path_mm"] = round(float(np.sum(v_mm) / rate), 1)
+                m["max_grip_aperture_mm"] = (
+                    round(float(np.nanmax(ap_mm)), 1) if np.isfinite(ap_mm).any() else None
+                )
             out.append(m)
     return out, cut_off
 
@@ -187,6 +205,14 @@ def hand_summary(movements: list, cut_off: int = 0) -> dict:
         "sparc_median": median("sparc"),
         "straightness_median": median("straightness"),
         "max_grip_aperture_median_palm": median("max_grip_aperture_palm"),
+        **(
+            {
+                "peak_speed_median_mm_s": median("peak_speed_mm_s", 1),
+                "max_grip_aperture_median_mm": median("max_grip_aperture_mm", 1),
+            }
+            if any("peak_speed_mm_s" in m for m in movements)
+            else {}
+        ),
     }
 
 
