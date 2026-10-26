@@ -65,8 +65,8 @@ Building
          git clone https://github.com/your-org/mosaic.git
          cd mosaic
 
-         # Basic build (all hardware off, tests included)
-         .\scripts\configure.ps1
+         # Basic build (all hardware off, with the tests)
+         .\scripts\configure.ps1 -BuildTests
 
          # Full build (cameras + NVENC + calibration)
          .\scripts\configure.ps1 -EnableCameras -EnableNvenc -EnableOpenCV
@@ -98,7 +98,7 @@ Pass these to CMake to enable optional subsystems:
      - OFF
      - FFMPEG + CUDA + NVIDIA driver
    * - ``MOSAIC_ENABLE_OPENCV``
-     - OFF
+     - ON
      - OpenCV 4.x
    * - ``MOSAIC_ENABLE_PARALLEL_PORT``
      - OFF
@@ -111,6 +111,40 @@ Pass these to CMake to enable optional subsystems:
 
    All features compile with **stub fallbacks** when disabled.  You can develop
    and test the full UI on a MacBook without any lab hardware.
+
+.. _analysis-only-install:
+
+Analysis only (Windows)
+-----------------------
+
+To analyse recordings made in the room on another PC, with no cameras,
+install Visual Studio 2022, CMake, Qt 6.8+ (the modules above), git and
+`uv <https://docs.astral.sh/uv/>`_, then run from the repository:
+
+.. code-block:: powershell
+
+   powershell -ExecutionPolicy Bypass -File .\scripts\install_analysis.ps1
+
+It builds MOSAIC without the camera, FFmpeg, NVENC and OpenCV parts, so
+neither Pylon nor vcpkg is needed, copies the Qt libraries next to
+``mosaic.exe`` and makes the analysis Python environment
+(``analysis/.venv``, a few GB). It prints where ``mosaic.exe`` is.
+
+MOSAIC then opens on the **Analysis** tab. Copy whole session folders into
+``recordings\<profile>`` in the repository (an admin profile can choose
+another folder: Live tab, **Record**, **Output Directory**). Every analysis
+runs as on the recording PC: the cameras' calibration travels in each
+session's ``session_meta.json``. What does not travel:
+
+- Frame Sync's **Export synced videos** needs the lab build (FFmpeg). 3D
+  Gaze uses those videos when present, else the raw videos, so export them
+  before copying a session.
+- The Hugging Face token for Diarization is entered again on this PC.
+- The py-feat Expression backend needs ``ffmpeg`` on the PATH.
+
+Running the script again rebuilds and updates the environment. It leaves
+a ``build\Release`` made with cameras alone, and asks for a
+``build\Release`` made with vcpkg to be deleted first.
 
 First launch
 ------------
