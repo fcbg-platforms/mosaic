@@ -58,6 +58,8 @@ struct AnalysisPluginDesc {
     static const QVector<AnalysisPluginDesc> kPlugins = {
         {"pose", "Pose", "Per-person 2D skeletons and keypoint kinematics.",
          AnalysisPluginCategory::BodyMotion},
+        {"hands", "Hands", "21 points per hand, left and right, for close-up cameras. Needs Pose.",
+         AnalysisPluginCategory::BodyMotion},
         {"pose3d", "3D Pose", "Skeletons in 3D. Needs Pose and the room calibration.",
          AnalysisPluginCategory::BodyMotion},
         {"objects", "Object Tracking",

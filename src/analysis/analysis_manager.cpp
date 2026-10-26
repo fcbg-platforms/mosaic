@@ -292,6 +292,16 @@ void AnalysisManager::run_object_tracking(const QString& sessionPath, const QStr
     enqueue_or_launch(sessionPath, "analysis/run_objects.py", args, {});
 }
 
+void AnalysisManager::run_hands_analysis(const QString& sessionPath, const QString& model,
+                                         int stride, bool annotatedVideo) {
+    QStringList args = {"--session", sessionPath, "--model",
+                        model,       "--stride",  QString::number(qMax(1, stride))};
+    if (!annotatedVideo) {
+        args << "--no-video";
+    }
+    enqueue_or_launch(sessionPath, "analysis/run_hands.py", args, {});
+}
+
 void AnalysisManager::run_social_analysis(const QString& sessionPath, int cameraA, int cameraB) {
     const QStringList args = {"--session",  sessionPath,
                               "--camera-a", QString::number(cameraA),

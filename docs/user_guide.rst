@@ -539,7 +539,7 @@ sitting alongside **Live**. The workflow is always the same shape:
 3. Set that plugin's controls (model/backend/etc.; see the tab below for
    each one). For a plugin that analyses each camera on its own (Pose, Face
    Masking, Facial Expression, Heart Rate, 2D Gaze, Face Dynamics,
-   Conversation Timing, Eye Contact, Object Tracking), **Cameras** next to
+   Conversation Timing, Eye Contact, Object Tracking, Hands), **Cameras** next to
    **Run** picks which cameras to analyse, all by default: untick the others
    to save time, for example to track objects only on the camera that sees
    the table. The other cameras' results stay as they were. Every camera is
@@ -552,7 +552,7 @@ sitting alongside **Live**. The workflow is always the same shape:
 
 The list groups the plugins in the order to run them, in five numbered
 steps: **1 · Prepare** (Frame Sync, EEG / Trigger Sync, Face Masking),
-**2 · Body & motion** (Pose, then 3D Pose, Object Tracking), **3 · Face &
+**2 · Body & motion** (Pose, then Hands, 3D Pose, Object Tracking), **3 · Face &
 gaze** (2D Gaze, Face Dynamics, Facial Expression, Eye Contact, 3D Gaze,
 Heart Rate), **4 · Audio** (Speaker Diarization, then Conversation Timing)
 and **5 · Together** (Social Interaction, Session Overview), which combine
@@ -616,6 +616,29 @@ Reconstruction, and Frame Sync was Frame Sync Repair.
       Object Tracking again starts the names over, as its numbers can change. The chart always spans the whole video. When no touch
       was found, its title says so; a result from before hands were followed
       asks you to run Object Tracking again.
+
+   .. tab-item:: Hands
+
+      **What it does**: finds each hand on a close-up camera (room 11's
+      Cameras 1 and 5, on the table), 21 points per hand: the wrist, and
+      each finger's joints out to its tip. Each hand is labelled with whose
+      it is (the Pose person, "S3") and the person's own left or right. It
+      needs Pose on the same camera, which says where the people are. Writes
+      ``hands/video_N.hands.json``, every frame's points in
+      ``hands/video_N.hands.frames.json`` and, with **Annotated video**,
+      ``hands/video_N.hands.mp4`` with the hands drawn (left green, right
+      orange). See :doc:`math/hands`.
+
+      **Settings**: **Model**: **RTMW + hand model** (recommended: best when
+      hands hold things; about twice the recording's length per camera on
+      the CPU) or **MediaPipe** (quicker, weaker on hands holding objects).
+      Each downloads its model files on first use. **every N frames** (1 by
+      default: hands move fast, keep 1 for speeds and grasps).
+
+      **Reading it**: the video shows the hands as found; the chart has one
+      row per hand, high while it is seen, and the line under it gives how
+      long each was seen and its size in pixels. Speeds, grip aperture,
+      reaches and grasps come in later versions, from this result.
 
    .. tab-item:: Social Interaction
 

@@ -960,6 +960,22 @@ def _objects(ob: dict) -> str:
     return _small("Objects (SAM 3)", rows) + note
 
 
+def _hands(hd: dict) -> str:
+    rows = []
+    for h in hd.get("hands", []):
+        who = "someone" if h.get("subject_id") is None else f"person {esc(h['subject_id'])}"
+        side = "" if h.get("side") == "unknown" else f" {esc(h.get('side'))}"
+        rows.append(
+            (
+                f"{who}{side} hand",
+                f"seen {num(h.get('seen_ms', 0) / 1000.0, 1, ' s')}, "
+                f"about {num(h.get('median_size_px'), 0, ' px')}",
+            )
+        )
+    model = "MediaPipe" if hd.get("model") == "mediapipe" else "RTMW"
+    return _small(f"Hands ({model})", rows or [("Found", "no hand")])
+
+
 def found_nothing(cam: CameraResults) -> bool:
     """Whether every analysis of this camera ran but saw no face or speech."""
     r = cam.results
@@ -1043,6 +1059,8 @@ def camera_section(cam: CameraResults) -> str:
         )
     if "objects" in r:
         body.append(_objects(r["objects"]))
+    if "hands" in r:
+        body.append(_hands(r["hands"]))
     charts = [
         c
         for c in (
