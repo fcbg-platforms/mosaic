@@ -40,6 +40,34 @@ void extend(QVector<GazeSpan>& spans, const GazeTarget& target, int64_t ns, int6
 
 } // namespace
 
+QVector<GazeLanding> gaze_landings(const GazeFusionResult& result, const QString& id,
+                                   const GazeFloorFrame& floor) {
+    const auto dot = [](const Vec3& a, const Vec3& b) {
+        return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+    };
+    const Vec3& u = floor.up;
+    const Vec3& f = floor.forward;
+    const Vec3 right{f[1] * u[2] - f[2] * u[1], f[2] * u[0] - f[0] * u[2],
+                     f[0] * u[1] - f[1] * u[0]};
+    QVector<GazeLanding> out;
+    for (const auto& frame : result.frames()) {
+        const GazeSubjectSample* s = frame.subject(id);
+        if (!s || !s->hasPoint) {
+            continue;
+        }
+        GazeLanding g;
+        g.timestampNs = frame.timestampNs;
+        g.across      = dot(s->point, right) / 1000.0;
+        g.forward     = dot(s->point, f) / 1000.0;
+        g.height      = (dot(s->point, u) - floor.floorMm) / 1000.0;
+        g.headAcross  = dot(s->origin, right) / 1000.0;
+        g.headForward = dot(s->origin, f) / 1000.0;
+        g.onTarget    = target_of(*s).is_target();
+        out.push_back(g);
+    }
+    return out;
+}
+
 GazeSummary summarize_gaze(const GazeFusionResult& result) {
     GazeSummary out;
     const auto& frames = result.frames();

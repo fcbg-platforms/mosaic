@@ -963,9 +963,15 @@ sitting alongside **Live**. The workflow is always the same shape:
         lowest; with *nothing* for a gaze landing on no target and *no gaze*
         when the eyes were not usable), **Mutual gaze** (one row per pair,
         high while both look at each other's face, with the total, the
-        number of episodes and the longest), or **Who looks at whom**, a
+        number of episodes and the longest), **Who looks at whom**, a
         table of each person's time on each target and its share of the
-        time they were seen. **Export summary CSV** saves those totals,
+        time they were seen, **Where the gaze lands** (everyone's gaze
+        points on the floor plan, seen from above, in metres: solid on a
+        target, faint where the gaze hit nothing, then placed 1.5 m along
+        it; the heads in grey), or **Gaze point over time** (choose the
+        person: their gaze point across, forward and above the floor). The
+        floor plan is the Room tab's, so the two agree. **Export summary
+        CSV** saves those totals,
         every stretch of looking at a target and every mutual gaze episode.
         See :doc:`math/gaze_fusion` for how the time is counted.
 

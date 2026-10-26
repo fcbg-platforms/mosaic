@@ -88,7 +88,9 @@
 #include "analysis/voice_result.hpp"
 #include "audio/audio_envelope.hpp"
 #include "session/session_info.hpp"
+#include "ui/analysis/gaze3d_scene.hpp"
 #include "ui/analysis/gaze3d_view_w.hpp"
+#include "ui/analysis/gaze_colors.hpp"
 #include "ui/analysis/overview_timeline_w.hpp"
 #include "ui/analysis/plugin_rail_w.hpp"
 #include "ui/analysis/pose_overlay_player_w.hpp"
@@ -679,6 +681,27 @@ class MetricsChartW : public QChartView {
     void set_scatter(const QVector<QPointF>& points, const QString& name, const QColor& color,
                      const QString& xAxisLabel, const QString& yAxisLabel,
                      const QVector<QPointF>& outline = {}, const QString& outlineName = {}) {
+        set_scatters({{name, color, points}}, xAxisLabel, yAxisLabel, outline, outlineName);
+    }
+
+    /// One group of a scatter (set_scatters()): its points in one colour.
+    struct ScatterGroup {
+        QString name;
+        QColor color;
+        QVector<QPointF> points;
+        double markerSize = 7.0;
+    };
+
+    /// Several groups on one scatter, equal units on both axes (a map, a
+    /// direction plot). `minPad`: the least margin around the points, in the
+    /// axes' units; `decimals`: of the axis labels and the hover readout;
+    /// `ownCentres`: each axis centred on its own points (a map), rather than
+    /// both on one value (so an identity line stays the diagonal). Empty
+    /// groups are left out, legend included.
+    void set_scatters(const QVector<ScatterGroup>& groups, const QString& xAxisLabel,
+                      const QString& yAxisLabel, const QVector<QPointF>& outline = {},
+                      const QString& outlineName = {}, double minPad = 1.0, int decimals = 0,
+                      bool ownCentres = false) {
         clear_all_series();
         clear_subject_series();
         set_series_marker_visible(xSeries_, false);
@@ -686,32 +709,45 @@ class MetricsChartW : public QChartView {
         set_series_marker_visible(valueSeries_, false);
         axisX_->setVisible(false);
         axisY_->setVisible(false);
-        barMode_       = true;
-        scatterSeries_ = new QScatterSeries();
-        scatterSeries_->setName(name);
-        scatterSeries_->setColor(color);
-        scatterSeries_->setBorderColor(color);
-        scatterSeries_->setMarkerSize(7.0);
+        barMode_  = true;
         double lo = std::numeric_limits<double>::max();
         double hi = std::numeric_limits<double>::lowest();
-        // Thinned to an even spread of at most kMaxScatterPoints: QtCharts
-        // draws each marker, and a long recording has one point per frame.
-        const qsizetype stride = std::max<qsizetype>(1, points.size() / kMaxScatterPoints + 1);
-        for (qsizetype i = 0; i < points.size(); i += stride) {
-            const QPointF& p = points[i];
-            scatterSeries_->append(p);
-            lo = std::min({lo, p.x(), p.y()});
-            hi = std::max({hi, p.x(), p.y()});
+        QRectF box; // the points' own extent, for ownCentres
+        bool any        = false;
+        const auto grow = [&](const QPointF& p) {
+            lo  = std::min({lo, p.x(), p.y()});
+            hi  = std::max({hi, p.x(), p.y()});
+            box = any ? box.united(QRectF(p, QSizeF(0, 0))) : QRectF(p, QSizeF(0, 0));
+            any = true;
+        };
+        for (const auto& g : groups) {
+            if (g.points.isEmpty()) {
+                continue;
+            }
+            auto* series = new QScatterSeries();
+            series->setName(g.name);
+            series->setColor(g.color);
+            series->setBorderColor(g.color);
+            series->setMarkerSize(g.markerSize);
+            // Thinned to an even spread of at most kMaxScatterPoints: QtCharts
+            // draws each marker, and a long recording has one point per frame.
+            const qsizetype stride =
+                std::max<qsizetype>(1, g.points.size() / kMaxScatterPoints + 1);
+            for (qsizetype i = 0; i < g.points.size(); i += stride) {
+                const QPointF& p = g.points[i];
+                series->append(p);
+                grow(p);
+            }
+            chart()->addSeries(series);
+            scatterSeries_ << series;
         }
-        chart()->addSeries(scatterSeries_);
         if (!outline.isEmpty()) {
             scatterOutline_ = new QLineSeries();
             scatterOutline_->setName(outlineName);
             scatterOutline_->setPen(QPen(QColor("#a0a0c8"), 2, Qt::DashLine));
             for (const auto& p : outline) {
                 scatterOutline_->append(p);
-                lo = std::min({lo, p.x(), p.y()});
-                hi = std::max({hi, p.x(), p.y()});
+                grow(p);
             }
             chart()->addSeries(scatterOutline_);
         }
@@ -722,13 +758,20 @@ class MetricsChartW : public QChartView {
         // The same scale per unit on both axes, so a circle stays round and
         // the identity line is the diagonal: the longer side of the plot area
         // gets the wider range, kept up to date as the chart is resized.
-        const double pad = std::max(1.0, 0.05 * (hi - lo));
-        scatterMid_      = (lo + hi) / 2.0;
-        scatterHalf_     = (hi - lo) / 2.0 + pad;
-        scatterAxisX_    = new QValueAxis();
-        scatterAxisY_    = new QValueAxis();
+        const double pad = std::max(minPad, 0.05 * (hi - lo));
+        if (ownCentres && any) {
+            // Each axis on its own points, the same range both ways.
+            scatterMidX_ = box.center().x();
+            scatterMidY_ = box.center().y();
+            scatterHalf_ = std::max(box.width(), box.height()) / 2.0 + pad;
+        } else {
+            scatterMidX_ = scatterMidY_ = (lo + hi) / 2.0;
+            scatterHalf_                = (hi - lo) / 2.0 + pad;
+        }
+        scatterAxisX_ = new QValueAxis();
+        scatterAxisY_ = new QValueAxis();
         for (auto* ax : {scatterAxisX_, scatterAxisY_}) {
-            ax->setLabelFormat("%.0f");
+            ax->setLabelFormat(QString("%.%1f").arg(decimals));
             style_axis(ax);
         }
         fit_scatter_axes(chart()->plotArea());
@@ -736,24 +779,28 @@ class MetricsChartW : public QChartView {
         scatterAxisY_->setTitleText(yAxisLabel);
         chart()->addAxis(scatterAxisX_, Qt::AlignBottom);
         chart()->addAxis(scatterAxisY_, Qt::AlignLeft);
-        scatterSeries_->attachAxis(scatterAxisX_);
-        scatterSeries_->attachAxis(scatterAxisY_);
+        for (auto* series : scatterSeries_) {
+            series->attachAxis(scatterAxisX_);
+            series->attachAxis(scatterAxisY_);
+        }
         if (scatterOutline_ != nullptr) {
             scatterOutline_->attachAxis(scatterAxisX_);
             scatterOutline_->attachAxis(scatterAxisY_);
         }
-        connect(scatterSeries_, &QScatterSeries::hovered, this,
-                [xAxisLabel, yAxisLabel](const QPointF& p, bool on) {
-                    if (!on) {
-                        QToolTip::hideText();
-                        return;
-                    }
-                    QToolTip::showText(QCursor::pos(), QString("%1: %2\n%3: %4")
-                                                           .arg(xAxisLabel)
-                                                           .arg(p.x(), 0, 'f', 0)
-                                                           .arg(yAxisLabel)
-                                                           .arg(p.y(), 0, 'f', 0));
-                });
+        for (auto* series : scatterSeries_) {
+            connect(series, &QScatterSeries::hovered, this,
+                    [xAxisLabel, yAxisLabel, decimals](const QPointF& p, bool on) {
+                        if (!on) {
+                            QToolTip::hideText();
+                            return;
+                        }
+                        QToolTip::showText(QCursor::pos(), QString("%1: %2\n%3: %4")
+                                                               .arg(xAxisLabel)
+                                                               .arg(p.x(), 0, 'f', decimals)
+                                                               .arg(yAxisLabel)
+                                                               .arg(p.y(), 0, 'f', decimals));
+                    });
+        }
     }
 
     /// The scatter's axis ranges for a plot area: equal units per pixel.
@@ -765,8 +812,8 @@ class MetricsChartW : public QChartView {
         const double h  = std::max(1.0, area.height());
         const double hx = scatterHalf_ * std::max(1.0, w / h);
         const double hy = scatterHalf_ * std::max(1.0, h / w);
-        scatterAxisX_->setRange(scatterMid_ - hx, scatterMid_ + hx);
-        scatterAxisY_->setRange(scatterMid_ - hy, scatterMid_ + hy);
+        scatterAxisX_->setRange(scatterMidX_ - hx, scatterMidX_ + hx);
+        scatterAxisY_->setRange(scatterMidY_ - hy, scatterMidY_ + hy);
     }
 
     // Single-metric mode (Speed/Acceleration/expression score/…): points
@@ -898,11 +945,11 @@ class MetricsChartW : public QChartView {
         }
         barAxisX_ = nullptr;
         barAxisY_ = nullptr;
-        if (scatterSeries_ != nullptr) {
-            chart()->removeSeries(scatterSeries_);
-            delete scatterSeries_;
-            scatterSeries_ = nullptr;
+        for (auto* series : scatterSeries_) {
+            chart()->removeSeries(series);
+            delete series;
         }
+        scatterSeries_.clear();
         if (scatterOutline_ != nullptr) {
             chart()->removeSeries(scatterOutline_);
             delete scatterOutline_;
@@ -1004,12 +1051,13 @@ class MetricsChartW : public QChartView {
     // set_single_series() path is in use.
     QVector<QLineSeries*> subjectSeries_;
     // set_bar_chart(): its series and axes, removed by clear_subject_series().
-    bool barMode_                                = false;
-    QBarSeries* barSeries_                       = nullptr;
-    QBarCategoryAxis* barAxisX_                  = nullptr;
-    QScatterSeries* scatterSeries_               = nullptr; // set_scatter()'s points
+    bool barMode_               = false;
+    QBarSeries* barSeries_      = nullptr;
+    QBarCategoryAxis* barAxisX_ = nullptr;
+    QVector<QScatterSeries*> scatterSeries_;                // set_scatters()' groups
     QLineSeries* scatterOutline_                 = nullptr; // and its optional outline
-    double scatterMid_                           = 0.0;     // the scatter's centre and half range
+    double scatterMidX_                          = 0.0;     // the scatter's centre and half range
+    double scatterMidY_                          = 0.0;
     double scatterHalf_                          = 1.0;
     static constexpr qsizetype kMaxScatterPoints = 5000;
     QValueAxis* scatterAxisX_                    = nullptr;
@@ -1296,6 +1344,7 @@ struct AnalysisTabW::Impl {
     QLabel* gazeChartStatsLbl  = nullptr;
     QTableWidget* gazeTable    = nullptr;
     GazeSummary currentGazeSummary;
+    GazeFloorFrame currentGazeFloor; // the room the 3D Gaze view shows, for the charts
 
     // EEG/Trigger sync view controls — mirrors pose3dRowW's own-container
     // pattern. No model/backend/skip controls page exists for this plugin
@@ -2790,11 +2839,15 @@ void AnalysisTabW::build_ui() {
     d->gazeShowCombo->addItem("Where a person looks", "looks");
     d->gazeShowCombo->addItem("Mutual gaze", "mutual");
     d->gazeShowCombo->addItem("Who looks at whom (table)", "table");
+    d->gazeShowCombo->addItem("Where the gaze lands (top view)", "map");
+    d->gazeShowCombo->addItem("Gaze point over time (across, forward, height)", "position");
     d->gazeShowCombo->setToolTip(
         "Where a person looks: one row per target (another person, a region, the plane, "
         "nothing, or no gaze found), high while they look at it. Mutual gaze: one row per "
         "pair, high while both look at each other's face. Who looks at whom: the time each "
-        "person spent on each target, and its share of the time they were seen.");
+        "person spent on each target, and its share of the time they were seen. Where the "
+        "gaze lands: everyone's gaze points on the floor plan, in metres, as in the Room tab. "
+        "Gaze point over time: one person's gaze point across, forward and above the floor.");
     gazeChartRow->addWidget(d->gazeShowCombo);
     d->gazePersonCombo = new QComboBox;
     d->gazePersonCombo->setToolTip("The person whose gaze to chart.");
@@ -3675,8 +3728,8 @@ void AnalysisTabW::select_plugin(const QString& pluginId) {
     set_visible_animated(d->roomView, isGazeFusion && !gazeCharts);
     set_visible_animated(d->gazeChartRowW, gazeCharts);
     set_visible_animated(d->gazeTable, gazeTable);
-    d->gazePersonCombo->setVisible(gazeCharts &&
-                                   d->gazeShowCombo->currentData().toString() == "looks");
+    const QString gazeShow = d->gazeShowCombo->currentData().toString();
+    d->gazePersonCombo->setVisible(gazeCharts && (gazeShow == "looks" || gazeShow == "position"));
     set_visible_animated(d->pose3dRowW, isPose3D);
     set_visible_animated(d->roomTabs, isPose3D || isGazeFusion);
     // The tabs say what each page's room and charts hold.
@@ -3690,7 +3743,7 @@ void AnalysisTabW::select_plugin(const QString& pluginId) {
     d->roomTabs->setTabToolTip(
         kChartsTab, isGazeFusion
                         ? "Over the whole recording: where each person looks, mutual gaze, "
-                          "and who looks at whom."
+                          "who looks at whom, and where the gaze lands (map, and over time)."
                         : "Charts over the whole recording: one person's speed, height, "
                           "posture, joint angles and movement, or two people's distance, "
                           "approach, facingness and congruent motion.");
@@ -5433,8 +5486,15 @@ void AnalysisTabW::export_expression_csv() {
 // ── Gaze fusion view ─────────────────────────────────────────────────────
 
 void AnalysisTabW::update_gaze_view() {
-    // The charts' summary and their person list follow the result.
+    // The charts' summary and their person list follow the result; their
+    // floor is the Room tab's.
     d->currentGazeSummary = summarize_gaze(d->currentGazeFusion);
+    {
+        const auto b = Gaze3DScene::room_basis(
+            d->currentGazeFusion, d->gazeRoomPose.is_valid() ? &d->gazeRoomPose : nullptr);
+        d->currentGazeFloor = {
+            {b.up.x(), b.up.y(), b.up.z()}, {b.fwd.x(), b.fwd.y(), b.fwd.z()}, b.floorH};
+    }
     {
         const QSignalBlocker block(d->gazePersonCombo);
         const QString chosen = d->gazePersonCombo->currentData().toString();
@@ -5635,7 +5695,88 @@ void AnalysisTabW::update_gaze_charts() {
         return;
     }
 
+    if (show == "map") {
+        // Everyone's gaze points on the floor plan: solid on a target, faint
+        // where the gaze hit nothing (1.5 m along it); where the heads were,
+        // grey.
+        QVector<MetricsChartW::ScatterGroup> groups;
+        QVector<QPointF> heads;
+        QStringList parts;
+        for (const auto& s : g.subjects) {
+            const auto landings = gaze_landings(d->currentGazeFusion, s.id, d->currentGazeFloor);
+            QVector<QPointF> on, off;
+            for (const auto& l : landings) {
+                (l.onTarget ? on : off) << QPointF(l.across, l.forward);
+                heads << QPointF(l.headAcross, l.headForward);
+            }
+            const QColor c = gaze_subject_color(s.id);
+            QColor faint   = c;
+            faint.setAlpha(90);
+            groups.append({s.name + " on a target", c, on, 7.0});
+            groups.append({s.name + ", nothing (1.5 m along the gaze)", faint, off, 4.0});
+            parts << QString("%1: %2 on a target, %3 on nothing")
+                         .arg(s.name)
+                         .arg(on.size())
+                         .arg(off.size());
+        }
+        groups.prepend({"Heads", QColor("#8a8aa0"), heads, 4.0});
+        d->chart->set_scatters(groups, "Across the room (m)", "Forward (m)", {}, {}, 0.2, 1, true);
+        d->chart->set_title("Where the gaze lands, seen from above (as in the Room tab)");
+        d->gazeChartStatsLbl->setText(
+            parts.isEmpty() ? QString("Nobody's gaze in this result.")
+                            : parts.join(sep) + sep +
+                                  "Gaze points, one per analysed tick; the floor plan is the "
+                                  "Room tab's.");
+        return;
+    }
+
     QVector<NamedSeries> series;
+    if (show == "position") {
+        const QString id    = d->gazePersonCombo->currentData().toString();
+        const auto landings = gaze_landings(d->currentGazeFusion, id, d->currentGazeFloor);
+        // Lines break where the gaze point is missing for over a second.
+        const auto lines = [&](const QString& name, const QColor& colour,
+                               const std::function<double(const GazeLanding&)>& value) {
+            QVector<QPointF> run;
+            bool listed      = false;
+            int64_t lastNs   = 0;
+            const auto flush = [&] {
+                if (!run.isEmpty()) {
+                    series.append({name, colour, run, run.size() == 1, !listed, 2});
+                    listed = true;
+                    run.clear();
+                }
+            };
+            for (const auto& l : landings) {
+                if (!run.isEmpty() && l.timestampNs - lastNs > 1000000000LL) {
+                    flush();
+                }
+                run << QPointF((l.timestampNs - t0) / 1e6, value(l));
+                lastNs = l.timestampNs;
+            }
+            flush();
+        };
+        lines("Across", QColor("#3ca0e6"), [](const GazeLanding& l) { return l.across; });
+        lines("Forward", QColor("#e6a03c"), [](const GazeLanding& l) { return l.forward; });
+        lines("Height above the floor", QColor("#9ccc44"),
+              [](const GazeLanding& l) { return l.height; });
+        int onTarget = 0;
+        for (const auto& l : landings) {
+            onTarget += l.onTarget;
+        }
+        d->chart->set_named_series(series, "Gaze point (m)", spanMs);
+        d->chart->set_title(d->gazePersonCombo->currentText() +
+                            ": where the gaze lands, in metres (the Room tab's floor plan)");
+        d->gazeChartStatsLbl->setText(
+            landings.isEmpty()
+                ? QString("No gaze point for this person.")
+                : QString("%1 gaze point(s), %2 on a target; the others are where the gaze hit "
+                          "nothing, 1.5 m along it.")
+                      .arg(landings.size())
+                      .arg(onTarget));
+        d->chart->set_playhead_ms(d->player->position_ms());
+        return;
+    }
     if (show == "mutual") {
         QStringList lines;
         int row = 0;

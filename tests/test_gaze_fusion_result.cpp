@@ -584,3 +584,42 @@ TEST(Gaze3DScene, HeadsRaysAndTargetsInTheRoom) {
     ASSERT_TRUE(old.is_valid());
     EXPECT_FALSE(old.cameras()[0].hasRotation);
 }
+
+// ── Where the gaze lands (gaze_landings) ─────────────────────────────────
+
+TEST(GazeSummary, GazePointsInTheFloorFrame) {
+    QTemporaryDir dir;
+    ASSERT_TRUE(write_gaze3d_fixture(dir.filePath("g.json")));
+    const auto r = GazeFusionResult::load(dir.filePath("g.json"));
+    ASSERT_TRUE(r.is_valid());
+    // Up is room -y (y points down), forward +z, so right is +x; the floor
+    // 2 m below the cameras.
+    mosaic::GazeFloorFrame floor;
+    floor.up      = {0, -1, 0};
+    floor.forward = {0, 0, 1};
+    floor.floorMm = -2000.0;
+
+    // Child: frames 0-3 at S2's face, 4-6 at the screen; then not seen.
+    const auto child = mosaic::gaze_landings(r, "S1", floor);
+    ASSERT_EQ(child.size(), 7);
+    EXPECT_NEAR(child[0].across, 0.7, 1e-9);
+    EXPECT_NEAR(child[0].forward, 2.5, 1e-9);
+    EXPECT_NEAR(child[0].height, 2.0, 1e-9); // at the cameras' height
+    EXPECT_NEAR(child[0].headAcross, -0.7, 1e-9);
+    EXPECT_TRUE(child[0].onTarget);
+    EXPECT_NEAR(child[4].forward, 3.6, 1e-9); // the screen
+    EXPECT_TRUE(child[4].onTarget);
+
+    // S2: at the table (0.75 m below the cameras: 1.25 m up) on frames 4-6;
+    // without eyes on 7-9: no gaze point, not listed.
+    const auto s2 = mosaic::gaze_landings(r, "S2", floor);
+    ASSERT_EQ(s2.size(), 7);
+    EXPECT_NEAR(s2[4].height, 1.25, 1e-9);
+    EXPECT_EQ(s2[4].timestampNs, 320000000);
+
+    // Turned: forward along room +x, so right (forward x up) is room -z.
+    floor.forward     = {1, 0, 0};
+    const auto turned = mosaic::gaze_landings(r, "S1", floor);
+    EXPECT_NEAR(turned[0].across, -2.5, 1e-9);
+    EXPECT_NEAR(turned[0].forward, 0.7, 1e-9);
+}

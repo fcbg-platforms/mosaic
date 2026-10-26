@@ -51,6 +51,33 @@ QVariantList Gaze3DScene::people() const {
     return out;
 }
 
+Room3DStage::Basis Gaze3DScene::room_basis(const GazeFusionResult& result,
+                                           const Skeleton3DResult* pose) {
+    if (pose && pose->is_valid() && !pose->frames().isEmpty()) {
+        return Room3DStage::basis_of(*pose);
+    }
+    std::optional<QVector3D> up;
+    if (result.plane_defined()) {
+        QVector3D n = unit_or(qv(result.plane_normal()), QVector3D(0, -1, 0));
+        float above = 0.0f;
+        for (const auto& c : result.cameras()) {
+            above += QVector3D::dotProduct(qv(c.positionRoom) - qv(result.plane_point()), n);
+        }
+        up = above < 0.0f ? -n : n;
+        // A plane on a wall (a whiteboard) is not level: its normal is
+        // up only within 45 degrees of the cameras' own up, when they
+        // say which way they look.
+        const bool camerasKnowUp = std::any_of(result.cameras().cbegin(), result.cameras().cend(),
+                                               [](const auto& c) { return c.hasRotation; });
+        if (camerasKnowUp &&
+            QVector3D::dotProduct(*up, qv(room_view::up_from_cameras(result.cameras()))) <
+                std::cos(45.0 * M_PI / 180.0)) {
+            up.reset();
+        }
+    }
+    return Room3DStage::basis_of_cameras(result.cameras(), up);
+}
+
 void Gaze3DScene::set_result(const GazeFusionResult& result, const Skeleton3DResult* pose) {
     result_ = result;
     follow_.clear();
@@ -73,32 +100,7 @@ void Gaze3DScene::set_result(const GazeFusionResult& result, const Skeleton3DRes
     // Which way is up: the 3D Pose result's (the same room), else the
     // calibrated plane's normal, turned towards the cameras, else the
     // cameras'.
-    Room3DStage::Basis basis;
-    if (withPose) {
-        basis = Room3DStage::basis_of(*pose);
-    } else {
-        std::optional<QVector3D> up;
-        if (result_.plane_defined()) {
-            QVector3D n = unit_or(qv(result_.plane_normal()), QVector3D(0, -1, 0));
-            float above = 0.0f;
-            for (const auto& c : result_.cameras()) {
-                above += QVector3D::dotProduct(qv(c.positionRoom) - qv(result_.plane_point()), n);
-            }
-            up = above < 0.0f ? -n : n;
-            // A plane on a wall (a whiteboard) is not level: its normal is
-            // up only within 45 degrees of the cameras' own up, when they
-            // say which way they look.
-            const bool camerasKnowUp =
-                std::any_of(result_.cameras().cbegin(), result_.cameras().cend(),
-                            [](const auto& c) { return c.hasRotation; });
-            if (camerasKnowUp &&
-                QVector3D::dotProduct(*up, qv(room_view::up_from_cameras(result_.cameras()))) <
-                    std::cos(45.0 * M_PI / 180.0)) {
-                up.reset();
-            }
-        }
-        basis = Room3DStage::basis_of_cameras(result_.cameras(), up);
-    }
+    const Room3DStage::Basis basis = room_basis(result_, withPose ? pose : nullptr);
     // Framed on where the people's heads were, and the regions.
     std::vector<Skeleton3DVec3> points;
     for (const auto& f : result_.frames()) {
