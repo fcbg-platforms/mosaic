@@ -11,6 +11,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import run_hands
+from hands import kinematics
 from hands.models import RTMW_HANDS, RTMPose, RtmwHands
 from hands.people import (
     assign_by_wrist,
@@ -274,3 +275,152 @@ def test_runner_stride_and_no_video(tmp_path):
 def test_runner_fails_when_no_camera_has_pose(tmp_path):
     s = _session(tmp_path)
     assert run_hands.main(["--session", str(s), "--camera", "2"], fake_estimator) == 1
+
+
+def _flat_hand(offset=(0.0, 0.0)):
+    """A straight, open hand, palm 100 px: wrist at the origin, the middle
+    knuckle 100 px up, fingers straight up from their knuckles, the thumb
+    tip 60 px right of the index tip (grip aperture 0.6 palm)."""
+    p = np.zeros((21, 2))
+    for f, (_name, chain) in enumerate(kinematics.FINGERS.items()):
+        x = -40.0 + 20.0 * f  # the middle finger (f = 2) straight above the wrist
+        for j, k in enumerate(chain):
+            p[k] = (x, -100.0 - 20.0 * j)
+    p[4] = p[8] + (60.0, 0.0)  # the thumb tip, off its line: a bent thumb
+    return p + np.asarray(offset)
+
+
+def _moving(n, fps, speed_px_s, gap=None, spike=None):
+    """``n`` frames of the flat hand moving right at ``speed_px_s``; frames
+    in ``gap`` (a range) left out; at frame ``spike`` the index tip jumps
+    (the palm stays: only the point-by-point check can catch it)."""
+    out = []
+    for i in range(n):
+        if gap is not None and i in gap:
+            continue
+        pts = _flat_hand((speed_px_s * i / fps, 0.0))
+        if i == spike:
+            pts[8] += (300.0, 0.0)
+        out.append((1000.0 * i / fps, pts.tolist(), [0.9] * 21))
+    return out
+
+
+def test_kinematics_speed_in_hand_lengths_aperture_and_bend():
+    s = kinematics.hand_series(_moving(50, 25.0, 200.0), 25.0)
+    mid = slice(5, -5)  # away from the filter's ends
+    assert np.nanmedian(s["palm_px"]) == pytest.approx(100.0)
+    assert s["wrist_speed_px_s"][mid] == pytest.approx(200.0, rel=0.02)
+    assert s["wrist_speed_hl_s"][mid] == pytest.approx(2.0, rel=0.02)
+    assert s["wrist_acceleration_hl_s2"][mid] == pytest.approx(0.0, abs=0.2)
+    assert s["grip_aperture_palm"][mid] == pytest.approx(0.6, rel=0.01)
+    assert s["index_bend"][mid] == pytest.approx(0.0, abs=1e-6)  # straight
+    assert np.nanmean(s["thumb_bend"]) > 0.1
+    summ = kinematics.summary(s, 25.0)
+    assert summ["wrist_speed_median_hl_s"] == pytest.approx(2.0, rel=0.02)
+    assert summ["measured_s"] == pytest.approx(2.0, abs=0.05)
+    assert summ["wrist_path_hl"] == pytest.approx(4.0, rel=0.05)
+
+
+def test_kinematics_drops_a_jump_and_splits_at_long_gaps():
+    s = kinematics.hand_series(_moving(50, 25.0, 200.0, spike=25), 25.0)
+    # The one-frame jump is dropped and filled, not a burst of speed.
+    assert np.nanmax(s["index_tip_speed_hl_s"][5:-5]) < 2.6
+    short = kinematics.hand_series(_moving(50, 25.0, 200.0, gap=range(20, 24)), 25.0)
+    assert len(short["time_ms"]) == 50  # 4 frames (0.16 s): filled
+    long = kinematics.hand_series(_moving(60, 25.0, 200.0, gap=range(20, 30)), 25.0)
+    # 0.4 s: two runs, the gap not filled, nothing held over it.
+    assert not np.any((long["time_ms"] > 800.0) & (long["time_ms"] < 1200.0))
+    assert kinematics.hand_series(_moving(10, 25.0, 200.0), 25.0) is None  # 0.4 s: too short
+
+
+def test_kinematics_leaves_out_doubtful_points_and_unknown_hands():
+    smp = _moving(50, 25.0, 200.0)
+    smp[30] = (smp[30][0], smp[30][1], [0.9] * 8 + [0.1] + [0.9] * 12)  # index tip unsure
+    s = kinematics.hand_series(smp, 25.0)
+    assert np.all(np.isfinite(s["grip_aperture_palm"][5:-5]))  # filled from its neighbours
+    # Unsure for 0.4 s while the rest is seen: not filled, not held.
+    for i in range(20, 30):
+        smp[i] = (smp[i][0], smp[i][1], [0.9] * 8 + [0.1] + [0.9] * 12)
+    s = kinematics.hand_series(smp, 25.0)
+    assert np.all(np.isfinite(s["wrist_speed_hl_s"][20:30]))
+    assert np.all(np.isnan(s["grip_aperture_palm"][20:30]))
+    frames = [
+        {"timestamp_ms": 0.0, "hands": [
+            {"subject_id": 1, "side": "left", "keypoints": [], "scores": []},
+            {"subject_id": None, "side": "left", "keypoints": [], "scores": []},
+            {"subject_id": 2, "side": "unknown", "keypoints": [], "scores": []},
+        ]},
+    ]  # fmt: skip
+    assert list(kinematics.hand_samples(frames)) == [(1, "left")]
+
+
+def test_runner_kinematics_and_kinematics_only(tmp_path):
+    s = _session(tmp_path)
+    assert run_hands.main(["--session", str(s), "--camera", "1", "--no-video"], fake_estimator) == 0
+    res = json.loads((s / "hands" / "video_1.hands.json").read_text())
+    assert res["kinematics_file"] == "hands/video_1.hands.kinematics.csv"
+    (hand,) = res["hands"]
+    # The fake hand stands still at the wrist: no speed.
+    assert hand["kinematics"]["wrist_speed_median_hl_s"] == pytest.approx(0.0, abs=1e-6)
+    lines = (s / res["kinematics_file"]).read_text().splitlines()
+    assert lines[0].startswith("time_ms,subject_id,side,wrist_x_px") and len(lines) == 11
+    # Again from the saved points, without a model.
+    (s / res["kinematics_file"]).unlink()
+    assert run_hands.main(["--session", str(s), "--camera", "1", "--kinematics-only"]) == 0
+    assert (s / res["kinematics_file"]).exists()
+    assert run_hands.main(["--session", str(s), "--camera", "2", "--kinematics-only"]) == 1
+
+
+def test_kinematics_at_every_nth_frame_with_uneven_timestamps():
+    rng = np.random.default_rng(1)
+    smp = _moving(100, 21.0, 200.0)  # 21 fps, about 4.8 s
+    jittered = [(t + rng.uniform(-8, 8), p, sc) for t, p, sc in smp]
+    for stride in (1, 2):
+        rate = 21.0 / stride
+        s = kinematics.hand_series(jittered[::stride], rate)
+        summ = kinematics.summary(s, rate)
+        # Nearly all of it measured, at the right speed, whatever the stride.
+        assert summ["measured_s"] == pytest.approx(4.7, abs=0.3)
+        assert summ["wrist_speed_median_hl_s"] == pytest.approx(2.0, rel=0.05)
+    # Under 10 analysed frames a second: too few for speeds.
+    assert kinematics.hand_series(jittered[::3], 7.0) is None
+    # At 10 a second, one frame in three missed: gaps of about 0.2 s are
+    # still filled, as the step itself is 0.1 s.
+    ten = _moving(60, 10.0, 200.0)
+    sparse = [(t + rng.uniform(-10, 10), p, sc) for i, (t, p, sc) in enumerate(ten) if i % 3 != 2]
+    summ = kinematics.summary(kinematics.hand_series(sparse, 10.0), 10.0)
+    assert summ["measured_s"] == pytest.approx(5.9, abs=0.3)
+
+
+def test_kinematics_an_unsure_wrist_keeps_the_other_points():
+    unsure = [0.1] + [0.9] * 20
+    smp = [(t, p, unsure) for t, p, _sc in _moving(50, 25.0, 200.0)]
+    # The wrist never measured: nothing to give.
+    assert kinematics.hand_series(smp, 25.0) is None
+    # Unsure for 0.4 s: the fingers are still measured then.
+    smp = [(t, p, unsure if 20 <= i < 30 else [0.9] * 21) for i, (t, p, _s) in enumerate(smp)]
+    s = kinematics.hand_series(smp, 25.0)
+    assert np.isfinite(s["index_bend"][20:30]).all()
+    assert np.isnan(s["wrist_speed_px_s"][21:29]).all()
+
+
+def test_resample_keeps_a_sample_after_a_long_gap():
+    t = np.array([0.0, 0.04, 0.08, 0.5, 0.54])
+    xy = np.arange(5, dtype=float).reshape(5, 1, 1)
+    out = kinematics.resample(t, xy, t)
+    assert out[:, 0, 0].tolist() == [0.0, 1.0, 2.0, 3.0, 4.0]
+    mid = kinematics.resample(t, xy, np.array([0.3]))
+    assert np.isnan(mid[0, 0, 0])  # inside the long gap: not filled
+
+
+def test_runner_keeps_the_points_when_kinematics_fail(tmp_path, monkeypatch, capsys):
+    s = _session(tmp_path)
+
+    def broken(*_args):
+        raise ValueError("boom")
+
+    monkeypatch.setattr(run_hands.kinematics, "hand_series", broken)
+    assert run_hands.main(["--session", str(s), "--camera", "1", "--no-video"], fake_estimator) == 0
+    res = json.loads((s / "hands" / "video_1.hands.json").read_text())
+    assert "kinematics_file" not in res and "kinematics" not in res["hands"][0]
+    assert "kinematics failed" in capsys.readouterr().out

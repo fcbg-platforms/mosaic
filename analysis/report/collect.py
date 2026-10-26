@@ -242,7 +242,7 @@ def _hands(session: Path, stem: str) -> dict | None:
     d = read_json(session / "hands" / f"{stem}.hands.json")
     if d is None or d.get("schema") != "mosaic-hands-v1":
         return None
-    # The summary only; every frame's points stay in the frames file.
+    # The summary only; every frame's points and kinematics stay in their files.
     return {"model": d.get("model"), "hands": d.get("hands", [])}
 
 

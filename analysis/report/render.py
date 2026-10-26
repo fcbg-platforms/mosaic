@@ -965,13 +965,18 @@ def _hands(hd: dict) -> str:
     for h in hd.get("hands", []):
         who = "someone" if h.get("subject_id") is None else f"person {esc(h['subject_id'])}"
         side = "" if h.get("side") == "unknown" else f" {esc(h.get('side'))}"
-        rows.append(
-            (
-                f"{who}{side} hand",
-                f"seen {num(h.get('seen_ms', 0) / 1000.0, 1, ' s')}, "
-                f"about {num(h.get('median_size_px'), 0, ' px')}",
-            )
+        detail = (
+            f"seen {num(h.get('seen_ms', 0) / 1000.0, 1, ' s')}, "
+            f"about {num(h.get('median_size_px'), 0, ' px')}"
         )
+        k = h.get("kinematics")
+        if k:
+            detail += (
+                f"; wrist speed median {num(k.get('wrist_speed_median_hl_s'), 1)}, "
+                f"95th percentile {num(k.get('wrist_speed_p95_hl_s'), 1)} hand lengths/s; "
+                f"grip aperture median {num(k.get('grip_aperture_median_palm'), 2)} palm lengths"
+            )
+        rows.append((f"{who}{side} hand", detail))
     model = "MediaPipe" if hd.get("model") == "mediapipe" else "RTMW"
     return _small(f"Hands ({model})", rows or [("Found", "no hand")])
 

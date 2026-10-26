@@ -680,14 +680,25 @@ def test_hands_card(tmp_path):
             "schema": "mosaic-hands-v1",
             "model": "rtmw",
             "hands": [
-                {"subject_id": 3, "side": "left", "seen_ms": 1200.0, "median_size_px": 170.4},
+                {
+                    "subject_id": 3,
+                    "side": "left",
+                    "seen_ms": 1200.0,
+                    "median_size_px": 170.4,
+                    "kinematics": {
+                        "wrist_speed_median_hl_s": 1.62,
+                        "wrist_speed_p95_hl_s": 7.43,
+                        "grip_aperture_median_palm": 0.46,
+                    },
+                },
                 {"subject_id": None, "side": "unknown", "seen_ms": 80.0, "median_size_px": 90},
             ],
         },
     )
     page = render.render(collect.collect(s))
     assert "Hands (RTMW)" in page and "person 3 left hand" in page
-    assert "seen 1.2 s, about 170 px" in page and "someone hand" in page
+    assert "seen 1.2 s, about 170 px; wrist speed median 1.6, 95th percentile 7.4" in page
+    assert "grip aperture median 0.46 palm lengths" in page and "someone hand" in page
     assert "<li>Hands</li>" not in page
     assert "hands" not in collect.collect(s, for_summary_only=True).cameras[0].results
 
