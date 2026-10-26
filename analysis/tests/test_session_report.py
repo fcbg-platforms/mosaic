@@ -670,6 +670,28 @@ def test_objects_card(tmp_path):
     assert "objects" not in collect.collect(s, for_summary_only=True).cameras[0].results
 
 
+def test_hands_card(tmp_path):
+    s = make_session(tmp_path / "a")
+    page = render.render(collect.collect(s))
+    assert "<li>Hands</li>" in page  # listed as not run yet
+    _write(
+        s / "hands" / "video_2.hands.json",
+        {
+            "schema": "mosaic-hands-v1",
+            "model": "rtmw",
+            "hands": [
+                {"subject_id": 3, "side": "left", "seen_ms": 1200.0, "median_size_px": 170.4},
+                {"subject_id": None, "side": "unknown", "seen_ms": 80.0, "median_size_px": 90},
+            ],
+        },
+    )
+    page = render.render(collect.collect(s))
+    assert "Hands (RTMW)" in page and "person 3 left hand" in page
+    assert "seen 1.2 s, about 170 px" in page and "someone hand" in page
+    assert "<li>Hands</li>" not in page
+    assert "hands" not in collect.collect(s, for_summary_only=True).cameras[0].results
+
+
 def test_objects_card_names_an_unplaced_hand_someone(tmp_path):
     s = make_session(tmp_path / "a")
     _write(

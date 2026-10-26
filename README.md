@@ -61,7 +61,7 @@ The Analysis tab lists the plugins in the order to run them:
 | Step | Plugins |
 |---|---|
 | **1 · Prepare** (run first) | Frame Sync · EEG / Trigger Sync · Face Masking |
-| **2 · Body & motion** | Pose (YOLO) · 3D Pose · Object Tracking (SAM 3) |
+| **2 · Body & motion** | Pose (YOLO) · Hands (RTMW or MediaPipe, 21 points per hand) · 3D Pose · Object Tracking (SAM 3) |
 | **3 · Face & gaze** | 2D Gaze · Face Dynamics · Facial Expression · Eye Contact · 3D Gaze · Heart Rate (rPPG, experimental) |
 | **4 · Audio** | Speaker Diarization and transcription (pyannote, faster-whisper) · Conversation Timing |
 | **5 · Together** (run last) | Social Interaction (synchrony, mimicry) · Session Overview |

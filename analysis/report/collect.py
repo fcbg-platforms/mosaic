@@ -29,6 +29,7 @@ PER_CAMERA_ANALYSES = (
     ("expression", "Facial Expression"),
     ("pose", "Pose"),
     ("objects", "Object Tracking"),
+    ("hands", "Hands"),
 )
 #: A pose track counts as a person when present in this share of frames.
 MIN_TRACK_SHARE = 0.05
@@ -237,8 +238,16 @@ def _objects(session: Path, stem: str) -> dict | None:
     }
 
 
+def _hands(session: Path, stem: str) -> dict | None:
+    d = read_json(session / "hands" / f"{stem}.hands.json")
+    if d is None or d.get("schema") != "mosaic-hands-v1":
+        return None
+    # The summary only; every frame's points stay in the frames file.
+    return {"model": d.get("model"), "hands": d.get("hands", [])}
+
+
 #: Outputs the summary row does not use, skipped by summary-only runs.
-NOT_IN_SUMMARY = {"pose", "objects"}
+NOT_IN_SUMMARY = {"pose", "objects", "hands"}
 
 PER_CAMERA_READERS = {
     "face_dynamics": _face_dynamics,
@@ -249,6 +258,7 @@ PER_CAMERA_READERS = {
     "expression": _expression,
     "pose": _pose,
     "objects": _objects,
+    "hands": _hands,
 }
 
 

@@ -132,6 +132,13 @@ conventions, matching
       Objects found by name with SAM 3, kept as outlines, and hand contact
       from Pose wrists.
 
+   .. grid-item-card:: ✋ Hands
+      :link: hands
+      :link-type: doc
+
+      21 points per hand on close-up cameras, with RTMW and an RTMPose hand
+      model or MediaPipe, and the person's own left and right.
+
    .. grid-item-card:: 🤝 Social Interaction
       :link: social_interaction
       :link-type: doc
@@ -156,4 +163,5 @@ conventions, matching
    conversation_timing
    social_interaction
    object_tracking
+   hands
    eye_contact

@@ -314,6 +314,17 @@ class AnalysisManager : public QObject {
     void run_object_tracking(const QString& sessionPath, const QString& objects, int stride,
                              bool annotatedVideo);
 
+    /// @brief Hands: 21 points per hand on each camera, with the person's own
+    /// left and right, from the camera's Pose result (analysis/run_hands.py),
+    /// written to the session's hands/ folder.
+    ///
+    /// @param sessionPath     Absolute path to the recorded session directory.
+    /// @param model           "rtmw" (RTMW, then the RTMPose hand model) or "mediapipe".
+    /// @param stride          Analyse every Nth frame.
+    /// @param annotatedVideo  Also write a video with the hands drawn on it.
+    void run_hands_analysis(const QString& sessionPath, const QString& model, int stride,
+                            bool annotatedVideo);
+
     /// @brief Social Interaction: synchrony of two people's head movement, body
     /// movement and heart rate, and smile and nod mimicry, from the analyses
     /// already run on the cameras facing them (analysis/run_social.py), written

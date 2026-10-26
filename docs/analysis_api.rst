@@ -93,6 +93,12 @@ algorithm behind its output.
 
       Objects found by name with SAM 3, and who touches them.
 
+   .. grid-item-card:: ✋ Hands
+      :link: analysis-api-hands
+      :link-type: ref
+
+      21 points per hand, whose hand and which side.
+
    .. grid-item-card:: 🤝 Social Interaction
       :link: analysis-api-social
       :link-type: ref
@@ -933,6 +939,26 @@ person's wrist from the Pose plugin (:mod:`objects.contact`). See
 .. autofunction:: objects.contact.contact_events
 
 .. autofunction:: objects.contact.summarise
+
+.. _analysis-api-hands:
+
+Hands
+-----
+
+21 points per hand on each camera, from RTMW and the RTMPose hand model or
+from MediaPipe (:mod:`hands.models`), with the person and side from the
+Pose result (:mod:`hands.people`). See :doc:`math/hands`.
+
+.. automodule:: hands
+   :no-members:
+
+.. autofunction:: hands.models.make_estimator
+
+.. autofunction:: hands.people.assign_by_wrist
+
+.. autofunction:: hands.people.drop_repeats
+
+.. autofunction:: hands.people.summarise
 
 .. _analysis-api-social:
 

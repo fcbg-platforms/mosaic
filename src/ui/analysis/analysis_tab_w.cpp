@@ -72,6 +72,7 @@
 #include "analysis/gaze_fusion_result.hpp"
 #include "analysis/gaze_pose_match.hpp"
 #include "analysis/gaze_summary.hpp"
+#include "analysis/hands_result.hpp"
 #include "analysis/objects_result.hpp"
 #include "analysis/pose3d_people.hpp"
 #include "analysis/pose_analysis_result.hpp"
@@ -1402,6 +1403,11 @@ struct AnalysisTabW::Impl {
     QComboBox* objectsMetricCombo = nullptr; // objects only
     QLabel* objectsStatsLbl       = nullptr; // objects only
     QPushButton* objectsRenameBtn = nullptr; // objects only: name what was found
+    QComboBox* handsModelCombo    = nullptr; // hands only: RTMW or MediaPipe
+    QSpinBox* handsStrideSpin     = nullptr; // hands only
+    QCheckBox* handsVideoCheck    = nullptr; // hands only
+    QWidget* handsRowW            = nullptr; // hands only
+    QLabel* handsStatsLbl         = nullptr; // hands only
     QComboBox* socialMetricCombo  = nullptr; // social only
     QLabel* socialStatsLbl        = nullptr; // social only
     QComboBox* eyeMetricCombo     = nullptr; // eye_contact only
@@ -1462,6 +1468,7 @@ struct AnalysisTabW::Impl {
     EyeContactResult currentEyeContact;      // eye_contact only
     SocialResult currentSocial;              // social only
     ObjectsResult currentObjects;            // objects only
+    HandsResult currentHands;                // hands only
     SyncRepairResult currentSyncRepair;      // sync_repair only
 
     // AnalysisManager is a single shared instance (also used by
@@ -1500,9 +1507,9 @@ struct AnalysisTabW::Impl {
     // its own, so Run can be limited to some cameras without touching the
     // others' results.
     [[nodiscard]] bool plugin_is_per_camera() const {
-        static const QStringList kPerCamera = {"pose",         "face_mask",   "expression",
-                                               "rppg",         "gaze2d",      "face_dynamics",
-                                               "conversation", "eye_contact", "objects"};
+        static const QStringList kPerCamera = {
+            "pose",          "face_mask",    "expression",  "rppg",    "gaze2d",
+            "face_dynamics", "conversation", "eye_contact", "objects", "hands"};
         return kPerCamera.contains(currentPlugin);
     }
 
@@ -2406,6 +2413,39 @@ void AnalysisTabW::build_ui() {
     objectsCtlLay->addWidget(d->objectsVideoCheck);
     add_plugin_page("objects", objectsPage);
 
+    // Hands: which model, how often, and the annotated video.
+    auto* handsPage   = new QWidget;
+    auto* handsCtlLay = new QHBoxLayout(handsPage);
+    handsCtlLay->setContentsMargins(0, 0, 0, 0);
+    handsCtlLay->addWidget(new QLabel("Model:"));
+    d->handsModelCombo = new QComboBox;
+    d->handsModelCombo->addItem("RTMW + hand model (recommended)", "rtmw");
+    d->handsModelCombo->addItem("MediaPipe", "mediapipe");
+    d->handsModelCombo->setToolTip(
+        "RTMW: a whole-body model on each person Pose found gives the person's own left and "
+        "right hand, then a hand model refines each hand on a close crop. Best when hands "
+        "hold things. MediaPipe: its hand model on a crop around each wrist Pose found; "
+        "quicker, weaker on hands holding objects. Both download their model files on first "
+        "use, and need Pose on the same camera.");
+    handsCtlLay->addWidget(d->handsModelCombo);
+    d->handsStrideSpin = new QSpinBox;
+    d->handsStrideSpin->setRange(1, 10);
+    d->handsStrideSpin->setValue(1);
+    d->handsStrideSpin->setPrefix("every ");
+    d->handsStrideSpin->setSuffix(" frames");
+    d->handsStrideSpin->setToolTip(
+        "Analyse every Nth frame. Hands move fast: keep 1 for speeds and grasps, 2 halves "
+        "the time for a first look.");
+    handsCtlLay->addWidget(d->handsStrideSpin);
+    d->handsVideoCheck = new QCheckBox("Annotated video");
+    d->handsVideoCheck->setChecked(true);
+    d->handsVideoCheck->setToolTip(
+        "Also write a copy of each video with the hands drawn on it: the person's left hand "
+        "in green, right in orange.");
+    handsCtlLay->addWidget(d->handsVideoCheck);
+    handsCtlLay->addStretch(1);
+    add_plugin_page("hands", handsPage);
+
     // Social Interaction: which camera faces each of the two people.
     auto* socialPage   = new QWidget;
     auto* socialCtlLay = new QHBoxLayout(socialPage);
@@ -3220,6 +3260,17 @@ void AnalysisTabW::build_ui() {
     d->objectsRowW->setVisible(false); // shown only for the objects plugin
     rightLay->addWidget(d->objectsRowW);
 
+    // Hands row: each hand found, and how long it was seen.
+    d->handsRowW      = new QWidget;
+    auto* handsRowLay = new QHBoxLayout(d->handsRowW);
+    handsRowLay->setContentsMargins(0, 0, 0, 0);
+    d->handsStatsLbl = new QLabel;
+    d->handsStatsLbl->setStyleSheet("color:#7070a0; font-size:11px;");
+    d->handsStatsLbl->setWordWrap(true);
+    handsRowLay->addWidget(d->handsStatsLbl, 1);
+    d->handsRowW->setVisible(false); // shown only for the hands plugin
+    rightLay->addWidget(d->handsRowW);
+
     // Social Interaction row: which measure the chart shows, and the numbers.
     d->socialRowW      = new QWidget;
     auto* socialRowLay = new QHBoxLayout(d->socialRowW);
@@ -3687,6 +3738,7 @@ void AnalysisTabW::select_plugin(const QString& pluginId) {
     const bool isOverview    = is_overview_plugin();
     const bool isSocial      = is_social_plugin();
     const bool isObjects     = is_objects_plugin();
+    const bool isHands       = is_hands_plugin();
     // A depth model selected within the Pose plugin produces a colorized
     // video, not keypoints — the keypoint/chart controls below need to stay
     // hidden for it, same as they are for every non-pose plugin.
@@ -3719,7 +3771,7 @@ void AnalysisTabW::select_plugin(const QString& pluginId) {
     const bool gazeTable  = gazeCharts && d->gazeShowCombo->currentData().toString() == "table";
     set_visible_animated(d->chart, isPoseKeypoints || isExpression || isRppg || isGaze2d ||
                                        pose3dCharts || (gazeCharts && !gazeTable) || isFaceDyn ||
-                                       isConv || isEye || isSocial || isObjects);
+                                       isConv || isEye || isSocial || isObjects || isHands);
     set_visible_animated(d->kinematicsRowW, isPoseKeypoints);
     // subjectPickerRowW's own further narrowing (hidden when the session has
     // <=1 detected subject) happens inside rebuild_subject_chips(), called
@@ -3765,6 +3817,7 @@ void AnalysisTabW::select_plugin(const QString& pluginId) {
     set_visible_animated(d->convRowW, isConv);
     set_visible_animated(d->socialRowW, isSocial);
     set_visible_animated(d->objectsRowW, isObjects);
+    set_visible_animated(d->handsRowW, isHands);
     set_visible_animated(d->eyeRowW, isEye);
     set_visible_animated(d->syncRepairRowW, isSyncRepair);
     set_visible_animated(d->syncRepairTable, isSyncRepair);
@@ -3774,7 +3827,7 @@ void AnalysisTabW::select_plugin(const QString& pluginId) {
     set_visible_animated(d->camerasBtn, d->plugin_is_per_camera());
     set_visible_animated(d->openFolderBtn, isFaceMask || is_pose_depth_selected() || isSyncRepair ||
                                                isGazeFusion || isFaceDyn || isConv || isEye ||
-                                               isSocial || isObjects);
+                                               isSocial || isObjects || isHands);
     set_visible_animated(d->sourceRowW, !isDiarize);
     set_visible_animated(d->micRowW, isDiarize);
     set_visible_animated(d->transcriptTable, isDiarize);
@@ -3944,6 +3997,10 @@ PluginRunState AnalysisTabW::run_state_for(const QString& pluginId) const {
         return per_input(info->videoFiles,
                          [this](const QString& v) { return objects_json_path_for(v); });
     }
+    if (pluginId == "hands") {
+        return per_input(info->videoFiles,
+                         [this](const QString& v) { return hands_json_path_for(v); });
+    }
     if (pluginId == "trigger_sync") {
         // Written by TriggerFrameMap::save() — this plugin computes in-process
         // rather than via AnalysisManager, but it does persist a result.
@@ -4056,6 +4113,11 @@ QString AnalysisTabW::objects_json_path_for(const QString& videoRelPath) const {
     return "objects/" + QFileInfo(videoRelPath).completeBaseName() + ".objects.json";
 }
 
+QString AnalysisTabW::hands_json_path_for(const QString& videoRelPath) const {
+    // analysis/run_hands.py writes into the session's hands/.
+    return "hands/" + QFileInfo(videoRelPath).completeBaseName() + ".hands.json";
+}
+
 QString AnalysisTabW::face_dynamics_json_path_for(const QString& videoRelPath) const {
     // analysis/run_face_dynamics.py writes into the session's face_dynamics/.
     return "face_dynamics/" + QFileInfo(videoRelPath).completeBaseName() + ".face_dynamics.json";
@@ -4107,6 +4169,8 @@ bool AnalysisTabW::is_sync_repair_plugin() const { return d->currentPlugin == "s
 bool AnalysisTabW::is_overview_plugin() const { return d->currentPlugin == "overview"; }
 bool AnalysisTabW::is_social_plugin() const { return d->currentPlugin == "social"; }
 bool AnalysisTabW::is_objects_plugin() const { return d->currentPlugin == "objects"; }
+
+bool AnalysisTabW::is_hands_plugin() const { return d->currentPlugin == "hands"; }
 
 bool AnalysisTabW::is_pose_depth_selected() const {
     return is_pose_plugin() && is_depth_model(d->modelCombo->currentData().toString());
@@ -4652,6 +4716,31 @@ void AnalysisTabW::load_camera_result_view() {
                 QStringList(d->currentObjects.labels().begin(), d->currentObjects.labels().end())
                     .join(", ") +
                 ". Try other names (one thing each, e.g. \"toy\"), or another camera.");
+            d->statusLbl->setStyleSheet("color:#ddaa33; font-size:15px; font-weight:600;");
+        } else if (hasAnnotated) {
+            d->statusLbl->setText("Showing the annotated video.");
+            d->statusLbl->setStyleSheet("color:#44cc66; font-size:15px; font-weight:600;");
+        }
+        return;
+    }
+
+    if (is_hands_plugin()) {
+        const QString jsonAbs = info->path + "/" + hands_json_path_for(videoRel);
+        d->currentHands = QFileInfo::exists(jsonAbs) ? HandsResult::load(jsonAbs) : HandsResult();
+        const QString annotated = d->currentHands.annotated_video();
+        const bool hasAnnotated =
+            !annotated.isEmpty() && QFileInfo::exists(info->path + "/" + annotated);
+        d->player->set_video(hasAnnotated ? info->path + "/" + annotated : videoAbs);
+        d->player->set_pose_result(PoseAnalysisResult());
+        d->openFolderBtn->setEnabled(d->currentHands.is_valid());
+        update_hands_view();
+        if (!d->currentHands.is_valid()) {
+            d->statusLbl->setText("No analysis yet for this camera: run Pose on it, then Hands.");
+            d->statusLbl->setStyleSheet("color:#6060a0; font-size:15px; font-weight:600;");
+        } else if (d->currentHands.hands().isEmpty()) {
+            d->statusLbl->setText(
+                "Hands ran, but found no hand on this camera. It is made for close-up "
+                "cameras; try the other model, or another camera.");
             d->statusLbl->setStyleSheet("color:#ddaa33; font-size:15px; font-weight:600;");
         } else if (hasAnnotated) {
             d->statusLbl->setText("Showing the annotated video.");
@@ -7171,6 +7260,49 @@ void AnalysisTabW::update_objects_view() {
     d->chart->set_playhead_ms(d->player->position_ms());
 }
 
+void AnalysisTabW::update_hands_view() {
+    const auto& r = d->currentHands;
+    if (!r.is_valid() || r.hands().isEmpty()) {
+        d->chart->set_single_series({}, "Hands");
+        d->chart->set_title(r.is_valid() ? "No hand found" : "No analysis yet");
+        d->handsStatsLbl->clear();
+        d->chart->set_playhead_ms(d->player->position_ms());
+        return;
+    }
+    // One lane per hand, high while it is seen; the chart counts from the
+    // video's first frame, like the player. Left hands green, right orange,
+    // as in the annotated video.
+    const double t0 = r.video_start_ms();
+    QVector<NamedSeries> series;
+    QStringList lines;
+    double lastMs = 0.0;
+    for (int k = 0; k < r.hands().size(); ++k) {
+        const auto& h      = r.hands()[k];
+        const double level = k + 1.0;
+        QVector<QPointF> pts;
+        for (const auto& s : h.seenSpans) {
+            const double a = s.first - t0;
+            const double b = s.second - t0;
+            pts << QPointF(a, k + 0.5) << QPointF(a, level) << QPointF(b, level)
+                << QPointF(b, k + 0.5);
+            lastMs = std::max(lastMs, b);
+        }
+        const QColor colour = h.side == QLatin1String("left")    ? QColor("#5ac85a")
+                              : h.side == QLatin1String("right") ? QColor("#e6a03c")
+                                                                 : QColor("#9090a8");
+        series.append({h.display_name(), colour, pts});
+        lines << QString("%1: seen %2 s, about %3 px")
+                     .arg(h.display_name())
+                     .arg(h.seenMs / 1000.0, 0, 'f', 1)
+                     .arg(h.medianSizePx, 0, 'f', 0);
+    }
+    d->chart->set_named_series(series, "Seen (one row each)", lastMs);
+    d->chart->set_title(QString("Hands (%1): when each hand is seen")
+                            .arg(r.model() == QLatin1String("mediapipe") ? "MediaPipe" : "RTMW"));
+    d->handsStatsLbl->setText(lines.join("  ·  "));
+    d->chart->set_playhead_ms(d->player->position_ms());
+}
+
 void AnalysisTabW::update_social_view() {
     const auto& r = d->currentSocial;
     auto pct      = [](const std::optional<double>& v) {
@@ -7836,7 +7968,7 @@ void AnalysisTabW::run_analysis() {
     // jobWritesVideo). The view reloads when the run ends.
     static const QStringList kVideoWriters = {"conversation", "eye_contact", "face_dynamics",
                                               "face_mask",    "gaze_fusion", "sync_repair",
-                                              "objects"};
+                                              "objects",      "hands"};
     d->jobWritesVideo = kVideoWriters.contains(plugin) || is_pose_depth_selected();
     if (d->jobWritesVideo) {
         d->player->set_video(QString());
@@ -7896,6 +8028,10 @@ void AnalysisTabW::run_analysis() {
         d->analysisMgr->run_object_tracking(d->currentSessionPath, d->objectsNamesEdit->text(),
                                             d->objectsStrideSpin->value(),
                                             d->objectsVideoCheck->isChecked());
+    } else if (plugin == "hands") {
+        d->analysisMgr->run_hands_analysis(
+            d->currentSessionPath, d->handsModelCombo->currentData().toString(),
+            d->handsStrideSpin->value(), d->handsVideoCheck->isChecked());
     } else if (plugin == "social") {
         d->analysisMgr->run_social_analysis(d->currentSessionPath,
                                             d->socialCamACombo->currentData().toInt(),
@@ -7931,6 +8067,8 @@ void AnalysisTabW::open_output_folder() {
         folder = "social";
     } else if (is_objects_plugin()) {
         folder = "objects";
+    } else if (is_hands_plugin()) {
+        folder = "hands";
     }
     QDesktopServices::openUrl(QUrl::fromLocalFile(info->path + "/" + folder));
 }
