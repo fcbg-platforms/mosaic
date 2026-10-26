@@ -3283,9 +3283,14 @@ void AnalysisTabW::build_ui() {
         "Makes synced/video_N.mp4 for every camera: frame k is tick k in all of them, a missing "
         "frame repeats the last one with a red MISSING tag. Encoded like the recording (NVENC), "
         "about the originals' size, in about a quarter of the recording's length. To watch or "
-        "share the cameras side by side; the analyses do not need them.");
+        "share the cameras side by side; 3D Gaze uses them when present, the other analyses "
+        "do not need them.");
     connect(d->exportSyncedBtn, &QPushButton::clicked, this, &AnalysisTabW::export_synced_videos);
     syncRepairRowLay->addWidget(d->exportSyncedBtn);
+#if !defined(MOSAIC_HAVE_FFMPEG)
+    // The exporter (mosaic_export_synced) is built only with FFmpeg.
+    d->exportSyncedBtn->hide();
+#endif
 
     d->syncRepairRowW->setVisible(false); // shown only for the sync_repair plugin
     rightLay->addWidget(d->syncRepairRowW);

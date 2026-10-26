@@ -89,7 +89,7 @@ CalibrationW::CalibrationW(VideoSettings& videoSettings, RoomSettings& roomSetti
     if (!CalibrationManager::is_available()) {
         auto* note = new QLabel(
             "Camera calibration requires OpenCV.\n"
-            "Rebuild with -DMOSAIC_HAVE_OPENCV=ON.");
+            "Rebuild with -DMOSAIC_ENABLE_OPENCV=ON.");
         note->setProperty("role", "muted");
         note->setAlignment(Qt::AlignCenter);
         note->setWordWrap(true);

@@ -736,6 +736,11 @@ void MainWindow::build_central_widget() {
     d->analysisTab = new AnalysisTabW(d->settings, d->analysisMgr,
                                       d->isAdmin ? d->otherUserDirectories : QStringList{});
     d->topTabs->addTab(d->analysisTab, "Analysis");
+#if !defined(MOSAIC_HAVE_CAMERAS)
+    // Any build without cameras (scripts/install_analysis.ps1, CI, a laptop)
+    // can only analyse recordings made elsewhere, so it opens on them.
+    d->topTabs->setCurrentWidget(d->analysisTab);
+#endif
 }
 
 // ── Status bar ─────────────────────────────────────────────────────────────

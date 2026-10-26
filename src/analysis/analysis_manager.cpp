@@ -405,7 +405,7 @@ void AnalysisManager::launch(const QString& sessionPath, const QString& scriptRe
     if (!tool && python.isEmpty()) {
         const QString msg =
             "Python interpreter not found. "
-            "Run 'bash analysis/setup.sh' to create the virtual environment.";
+            "Run 'uv sync' in analysis/ to create the virtual environment.";
         log_error("[AnalysisManager] " + msg);
         emit setup_error(msg);
         return;
