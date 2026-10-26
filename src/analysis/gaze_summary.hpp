@@ -75,4 +75,30 @@ struct GazeSummary {
 /// never across a gap.
 [[nodiscard]] GazeSummary summarize_gaze(const GazeFusionResult& result);
 
+/// The room's floor frame, for where gaze lands: up and forward along the
+/// floor (room frame, unit vectors) and the floor's height along up (mm, as
+/// dot(point, up)); right is forward x up, as in the 3D views.
+struct GazeFloorFrame {
+    Vec3 up{0, -1, 0};
+    Vec3 forward{0, 0, 1};
+    double floorMm = 0.0;
+};
+
+/// Where one gaze point is, in metres in the floor frame.
+struct GazeLanding {
+    int64_t timestampNs = 0;
+    double across       = 0.0; ///< along the room's right
+    double forward      = 0.0; ///< along the floor, away from the reference camera's side
+    double height       = 0.0; ///< above the floor
+    double headAcross = 0.0, headForward = 0.0; ///< where the head was
+    /// On a face, a region or the plane; false for a gaze landing on nothing,
+    /// whose point is 1.5 m along the gaze.
+    bool onTarget = false;
+};
+
+/// Each gaze point of subject `id` over the recording (ticks with a gaze
+/// point only), in the floor frame: the 3D Gaze charts' map and positions.
+[[nodiscard]] QVector<GazeLanding> gaze_landings(const GazeFusionResult& result, const QString& id,
+                                                 const GazeFloorFrame& floor);
+
 } // namespace mosaic

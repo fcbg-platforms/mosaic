@@ -53,6 +53,10 @@ class Gaze3DScene : public Room3DMeshSource {
     // calibrated plane's normal (turned towards the cameras) or the
     // cameras', and the floor 2 m below them.
     void set_result(const GazeFusionResult& result, const Skeleton3DResult* pose = nullptr);
+    // Which way is up and where the floor is, as set_result() chooses: also
+    // for the 3D Gaze charts, so their heights and map match this view.
+    [[nodiscard]] static Room3DStage::Basis room_basis(const GazeFusionResult& result,
+                                                       const Skeleton3DResult* pose);
     void set_position_ms(int64_t positionMs);
 
     // The People panel: hidden people are left out of everything drawn.

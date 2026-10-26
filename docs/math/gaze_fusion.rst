@@ -311,6 +311,16 @@ spans a gap. A **mutual gaze episode** is such a run of mutual ticks for
 one pair. Shares are of the time the person was seen, not of the
 recording.
 
+**Where the gaze lands** (``gaze_landings``): each gaze point in the Room
+tab's floor frame, in metres: across (along the room's right), forward
+(along the floor) and above the floor, with up and the floor chosen as for
+the Room tab. A point on a target is where the gaze meets that face, region
+or the plane; a gaze landing on nothing has its point 1.5 m along the gaze,
+so those points show the direction, not a distance. Whether a point counts
+as on a target follows the debounced label, the point the measured gaze: in
+the 150 ms after a change of target the two can disagree, so a few points
+near a change are shaded as the other kind.
+
 Timeline
 --------
 
