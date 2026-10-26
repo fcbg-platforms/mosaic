@@ -1408,6 +1408,8 @@ struct AnalysisTabW::Impl {
     QCheckBox* handsVideoCheck    = nullptr; // hands only
     QWidget* handsRowW            = nullptr; // hands only
     QComboBox* handsShowCombo     = nullptr; // hands only: what the chart shows
+    QComboBox* handsViewCombo     = nullptr; // hands only: this camera, or in the room
+    double handsVideoStartMs      = 0.0;     // hands only: the shown camera's first frame
     QLabel* handsStatsLbl         = nullptr; // hands only
     QComboBox* socialMetricCombo  = nullptr; // social only
     QLabel* socialStatsLbl        = nullptr; // social only
@@ -3285,6 +3287,17 @@ void AnalysisTabW::build_ui() {
         "per movement are in hands/video_N.hands.movements.csv.");
     connect(d->handsShowCombo, &QComboBox::currentIndexChanged, this,
             &AnalysisTabW::update_hands_view);
+    d->handsViewCombo = new QComboBox;
+    d->handsViewCombo->addItem("This camera", "camera");
+    d->handsViewCombo->addItem("In the room (mm)", "room");
+    d->handsViewCombo->setToolTip(
+        "In the room: the hands two or more calibrated cameras saw, put together in "
+        "millimetres (when Hands was run on them). Speeds in mm/s, grip aperture and hand "
+        "opening in mm. The line under the chart says how well each camera agreed with the "
+        "others: a steady offset is the room calibration's part, the scatter the hand model's.");
+    connect(d->handsViewCombo, &QComboBox::currentIndexChanged, this,
+            [this] { load_hands_results(d->cameraCombo->currentData().toString()); });
+    handsRowLay->addWidget(d->handsViewCombo);
     handsRowLay->addWidget(new QLabel("Show:"));
     handsRowLay->addWidget(d->handsShowCombo);
     d->handsStatsLbl = new QLabel;
@@ -4748,35 +4761,9 @@ void AnalysisTabW::load_camera_result_view() {
     }
 
     if (is_hands_plugin()) {
-        const QString jsonAbs = info->path + "/" + hands_json_path_for(videoRel);
-        d->currentHands = QFileInfo::exists(jsonAbs) ? HandsResult::load(jsonAbs) : HandsResult();
-        const QString kinematics = d->currentHands.kinematics_file();
-        d->currentHandsKinematics =
-            kinematics.isEmpty() ? QVector<HandsResult::Series>()
-                                 : HandsResult::load_kinematics(info->path + "/" + kinematics);
-        const QString moves      = d->currentHands.movements_file();
-        d->currentHandsMovements = moves.isEmpty()
-                                       ? QVector<HandsResult::Movement>()
-                                       : HandsResult::load_movements(info->path + "/" + moves);
-        const QString annotated  = d->currentHands.annotated_video();
-        const bool hasAnnotated =
-            !annotated.isEmpty() && QFileInfo::exists(info->path + "/" + annotated);
-        d->player->set_video(hasAnnotated ? info->path + "/" + annotated : videoAbs);
+        const QString annotated = load_hands_results(videoRel);
+        d->player->set_video(annotated.isEmpty() ? videoAbs : annotated);
         d->player->set_pose_result(PoseAnalysisResult());
-        d->openFolderBtn->setEnabled(d->currentHands.is_valid());
-        update_hands_view();
-        if (!d->currentHands.is_valid()) {
-            d->statusLbl->setText("No analysis yet for this camera: run Pose on it, then Hands.");
-            d->statusLbl->setStyleSheet("color:#6060a0; font-size:15px; font-weight:600;");
-        } else if (d->currentHands.hands().isEmpty()) {
-            d->statusLbl->setText(
-                "Hands ran, but found no hand on this camera. It is made for close-up "
-                "cameras; try the other model, or another camera.");
-            d->statusLbl->setStyleSheet("color:#ddaa33; font-size:15px; font-weight:600;");
-        } else if (hasAnnotated) {
-            d->statusLbl->setText("Showing the annotated video.");
-            d->statusLbl->setStyleSheet("color:#44cc66; font-size:15px; font-weight:600;");
-        }
         return;
     }
 
@@ -7291,11 +7278,76 @@ void AnalysisTabW::update_objects_view() {
     d->chart->set_playhead_ms(d->player->position_ms());
 }
 
+QString AnalysisTabW::load_hands_results(const QString& videoRel) {
+    // The Hands results for this camera, or in the room; the video stays,
+    // so switching between the two does not restart it. Returns the
+    // camera's annotated video, empty when there is none.
+    const auto* info = d->current_session();
+    if (!info) {
+        return {};
+    }
+    const QString videoAbs = info->path + "/" + videoRel;
+    const QString jsonAbs  = info->path + "/" + hands_json_path_for(videoRel);
+    d->currentHands = QFileInfo::exists(jsonAbs) ? HandsResult::load(jsonAbs) : HandsResult();
+    // The chart counts from this camera's first frame, in 3D too: from
+    // its timestamps when Hands was not run on it.
+    d->handsVideoStartMs = d->currentHands.video_start_ms();
+    if (!d->currentHands.is_valid()) {
+        QFile ts(QFileInfo(videoAbs).absolutePath() + "/" +
+                 QFileInfo(videoRel).completeBaseName().replace("video_", "timestamps_cam") +
+                 ".csv");
+        if (ts.open(QIODevice::ReadOnly | QIODevice::Text)) {
+            ts.readLine(); // the header
+            const QList<QByteArray> first = ts.readLine().trimmed().split(',');
+            d->handsVideoStartMs          = first.size() > 1 ? first[1].toDouble() / 1e6 : 0.0;
+        }
+    }
+    const QString annotated = d->currentHands.annotated_video();
+    const QString room      = info->path + "/hands/hands3d.json";
+    const bool inRoom       = d->handsViewCombo->currentData().toString() == "room";
+    if (inRoom) {
+        d->currentHands = QFileInfo::exists(room) ? HandsResult::load(room) : HandsResult();
+    }
+    const QString kinematics  = d->currentHands.kinematics_file();
+    d->currentHandsKinematics = kinematics.isEmpty()
+                                    ? QVector<HandsResult::Series>()
+                                    : HandsResult::load_kinematics(info->path + "/" + kinematics);
+    const QString moves       = d->currentHands.movements_file();
+    d->currentHandsMovements  = moves.isEmpty()
+                                    ? QVector<HandsResult::Movement>()
+                                    : HandsResult::load_movements(info->path + "/" + moves);
+    const bool hasAnnotated =
+        !annotated.isEmpty() && QFileInfo::exists(info->path + "/" + annotated);
+    d->openFolderBtn->setEnabled(d->currentHands.is_valid());
+    update_hands_view();
+    if (!d->currentHands.is_valid()) {
+        d->statusLbl->setText(
+            inRoom ? QString("No hands in the room yet: run Hands on two or more cameras "
+                             "with a room calibration.")
+                   : QString("No analysis yet for this camera: run Pose on it, then Hands."));
+        d->statusLbl->setStyleSheet("color:#6060a0; font-size:15px; font-weight:600;");
+    } else if (d->currentHands.hands().isEmpty()) {
+        d->statusLbl->setText(
+            inRoom ? QString("No hand was seen by two cameras that agreed on it.")
+                   : QString("Hands ran, but found no hand on this camera. It is made for "
+                             "close-up cameras; try the other model, or another camera."));
+        d->statusLbl->setStyleSheet("color:#ddaa33; font-size:15px; font-weight:600;");
+    } else if (hasAnnotated) {
+        d->statusLbl->setText("Showing the annotated video.");
+        d->statusLbl->setStyleSheet("color:#44cc66; font-size:15px; font-weight:600;");
+    }
+    return hasAnnotated ? info->path + "/" + annotated : QString();
+}
+
 void AnalysisTabW::update_hands_view() {
-    const auto& r = d->currentHands;
+    const auto& r     = d->currentHands;
+    const bool inRoom = d->handsViewCombo->currentData().toString() == "room";
     if (!r.is_valid() || r.hands().isEmpty()) {
         d->chart->set_single_series({}, "Hands");
-        d->chart->set_title(r.is_valid() ? "No hand found" : "No analysis yet");
+        d->chart->set_title(inRoom ? "No hands in the room: run Hands on two or more cameras "
+                                     "with a room calibration"
+                            : r.is_valid() ? "No hand found"
+                                           : "No analysis yet");
         d->handsStatsLbl->clear();
         d->chart->set_playhead_ms(d->player->position_ms());
         return;
@@ -7303,7 +7355,10 @@ void AnalysisTabW::update_hands_view() {
     // Left hands green, right orange, as in the annotated video; a second
     // person's hands lighter. The chart counts from the video's first frame,
     // like the player, and always spans the whole of what was seen.
-    const double t0 = r.video_start_ms();
+    const double t0 = d->handsVideoStartMs;
+    const auto num  = [](double v, int digits) {
+        return std::isnan(v) ? QStringLiteral("n/a") : QString::number(v, 'f', digits);
+    };
     // People in id order; each takes one of three shades in turn, so a
     // fourth person does not fade to white.
     QVector<int> people;
@@ -7335,8 +7390,20 @@ void AnalysisTabW::update_hands_view() {
             lastMs = std::max(lastMs, s.second - t0);
         }
     }
-    const QString show  = d->handsShowCombo->currentData().toString();
-    const QString model = r.model() == QLatin1String("mediapipe") ? "MediaPipe" : "RTMW";
+    // In the room, the speeds and lengths are shown in millimetres.
+    static const QMap<QString, QString> kInMm = {{"wrist_speed_hl_s", "wrist_speed_mm_s"},
+                                                 {"index_tip_speed_hl_s", "index_tip_speed_mm_s"},
+                                                 {"grip_aperture_palm", "grip_aperture_mm"},
+                                                 {"hand_opening_palm", "hand_opening_mm"}};
+    const QString picked                      = d->handsShowCombo->currentData().toString();
+    const QString show                        = r.is_3d() ? kInMm.value(picked, picked) : picked;
+    QString showName                          = d->handsShowCombo->currentText();
+    if (r.is_3d() && show != picked) {
+        showName.replace("hand lengths/s", "mm/s").replace("palm lengths", "mm");
+    }
+    const QString model = r.is_3d()                                 ? "in the room"
+                          : r.model() == QLatin1String("mediapipe") ? "MediaPipe"
+                                                                    : "RTMW";
     QVector<NamedSeries> series;
     QStringList lines;
     if (show == "seen") {
@@ -7352,24 +7419,31 @@ void AnalysisTabW::update_hands_view() {
                     << QPointF(b, k + 0.5);
             }
             series.append({h.display_name(), colour_of(h.subjectId, h.side), pts});
-            lines << QString("%1: seen %2 s, about %3 px")
-                         .arg(h.display_name())
-                         .arg(h.seenMs / 1000.0, 0, 'f', 1)
-                         .arg(h.medianSizePx, 0, 'f', 0);
+            if (r.is_3d()) {
+                double seen = 0.0;
+                for (const auto& sp : h.seenSpans) {
+                    seen += sp.second - sp.first;
+                }
+                lines << QString("%1: seen %2 s by two or more cameras")
+                             .arg(h.display_name())
+                             .arg(seen / 1000.0, 0, 'f', 1);
+            } else {
+                lines << QString("%1: seen %2 s, about %3 px")
+                             .arg(h.display_name())
+                             .arg(h.seenMs / 1000.0, 0, 'f', 1)
+                             .arg(h.medianSizePx, 0, 'f', 0);
+            }
         }
         d->chart->set_named_series(series, "Seen (one row each)", lastMs);
         d->chart->set_title(QString("Hands (%1): when each hand is seen").arg(model));
     } else if (show == "movements") {
         // One lane per hand, a block for each of its movements.
-        const auto num = [](double v, int digits) {
-            return std::isnan(v) ? QStringLiteral("n/a") : QString::number(v, 'f', digits);
-        };
         for (int k = 0; k < r.hands().size(); ++k) {
             const auto& h      = r.hands()[k];
             const double level = k + 1.0;
             QVector<QPointF> pts;
             for (const auto& m : d->currentHandsMovements) {
-                if (m.subjectId == h.subjectId && m.side == h.side) {
+                if (m.hand == h.number && m.subjectId == h.subjectId && m.side == h.side) {
                     const double a = m.startMs - t0;
                     const double b = m.endMs - t0;
                     pts << QPointF(a, k + 0.5) << QPointF(a, level) << QPointF(b, level)
@@ -7404,7 +7478,10 @@ void AnalysisTabW::update_hands_view() {
         // One line per hand, broken where it was not measured.
         for (const auto& s : d->currentHandsKinematics) {
             const auto values = s.columns.value(show);
-            const HandsResult::Hand h{s.subjectId, s.side};
+            HandsResult::Hand h;
+            h.subjectId = s.subjectId;
+            h.number    = s.hand;
+            h.side      = s.side;
             QVector<QPointF> run;
             bool listed      = false;
             const auto flush = [&] {
@@ -7431,22 +7508,43 @@ void AnalysisTabW::update_hands_view() {
             if (!k.valid) {
                 continue;
             }
-            const auto num = [](double v, int digits) {
-                return std::isnan(v) ? QStringLiteral("n/a") : QString::number(v, 'f', digits);
-            };
+            if (r.is_3d()) {
+                lines << QString(
+                             "%1: wrist speed median %2, 95th percentile %3 mm/s; grip "
+                             "aperture median %4 mm; palm %5 mm; measured %6 s")
+                             .arg(h.display_name(), num(k.wristSpeedMedianMm, 0),
+                                  num(k.wristSpeedP95Mm, 0), num(k.gripApertureMedianMm, 0),
+                                  num(k.palmMm, 0), num(k.measuredS, 1));
+                continue;
+            }
             lines << QString(
                          "%1: wrist speed median %2, 95th percentile %3 hand lengths/s; "
                          "grip aperture median %4 palm lengths; measured %5 s")
                          .arg(h.display_name(), num(k.wristSpeedMedian, 1), num(k.wristSpeedP95, 1),
                               num(k.gripApertureMedian, 2), num(k.measuredS, 1));
         }
-        d->chart->set_named_series(series, d->handsShowCombo->currentText(), lastMs);
-        d->chart->set_title(
-            series.isEmpty()
-                ? (r.kinematics_file().isEmpty() ? "Run Hands again: this result has no "
-                                                   "kinematics yet"
-                                                 : "Not measured on this camera")
-                : QString("Hands (%1): %2").arg(model, d->handsShowCombo->currentText()));
+        d->chart->set_named_series(series, showName, lastMs);
+        d->chart->set_title(series.isEmpty() ? (r.kinematics_file().isEmpty()
+                                                    ? "Run Hands again: this result has no "
+                                                      "kinematics yet"
+                                                : r.is_3d() ? "Not measured in the room"
+                                                            : "Not measured on this camera")
+                                             : QString("Hands (%1): %2").arg(model, showName));
+    }
+    for (const auto& a : r.agreement()) {
+        QString line = QString(
+                           "Cameras %1 and %2: their lines of sight through the hand points "
+                           "miss by %3 mm (steady %4 mm: their room calibration, the two "
+                           "together; scatter %5 mm: the hand model); frames %6 ms apart")
+                           .arg(a.cameraA + 1)
+                           .arg(a.cameraB + 1)
+                           .arg(num(a.gapMm, 0), num(a.offsetMm, 0), num(a.scatterMm, 0),
+                                num(a.frameGapMs, 0));
+        if (!std::isnan(a.offsetSameMomentMm)) {
+            line += QString(" (steady %1 mm from frames taken at once)")
+                        .arg(num(a.offsetSameMomentMm, 0));
+        }
+        lines << line;
     }
     d->handsStatsLbl->setText(lines.join("  ·  "));
     d->chart->set_playhead_ms(d->player->position_ms());

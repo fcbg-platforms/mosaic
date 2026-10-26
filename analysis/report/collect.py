@@ -403,12 +403,22 @@ def _sync_repair(session: Path) -> dict | None:
     }
 
 
+def _hands3d(session: Path) -> dict | None:
+    """The hands in the room (``hands/hands3d.json``): how well the cameras
+    agreed, and each hand's summary; every tick's points stay in their file."""
+    d = read_json(session / "hands" / "hands3d.json")
+    if d is None or d.get("schema") != "mosaic-hands3d-v1":
+        return None
+    return {k: d.get(k) for k in ("agreement", "hands", "people")}
+
+
 SESSION_READERS = {
     "transcripts": _transcripts,
     "voice": _voice,
     "gaze_fusion": _gaze_fusion,
     "pose3d": _pose3d,
     "pose3d_people": _pose3d_people,
+    "hands3d": _hands3d,
     "social": _social,
     "sync_repair": _sync_repair,
 }

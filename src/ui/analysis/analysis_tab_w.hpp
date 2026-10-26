@@ -146,6 +146,9 @@ class AnalysisTabW : public QWidget {
     void update_social_view();
     void update_objects_view();
     void update_hands_view();
+    /// Loads this camera's Hands results, or those in the room, and shows
+    /// them; returns the camera's annotated video (empty when none).
+    QString load_hands_results(const QString& videoRel);
     // A dialog to name the objects found; saved into the camera's result.
     void rename_objects();
     void export_sync_repair_csv();

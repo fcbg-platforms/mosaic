@@ -1,12 +1,13 @@
 """Hand kinematics from the Hands points: positions, speeds, grip aperture,
 hand opening and finger bend, per hand over time. See docs/math/hands.rst.
 
-The points are in pixels on one camera. Speeds are also given in **hand
-lengths per second**: divided by the hand's own palm length (wrist to the
-middle finger's knuckle) over the second around, which cancels how far the
-hand is from the camera. Grip aperture and hand opening are in palm lengths
-too, the usual way to compare people with different hand sizes. Millimetres
-come with 3D hands.
+The points are in pixels on one camera, or in millimetres in the room
+(3D hands, :mod:`hands.hands3d`). Speeds are also given in **hand lengths
+per second**: divided by the hand's own palm length (wrist to the middle
+finger's knuckle) over the second around, which cancels how far the hand is
+from the camera. Grip aperture and hand opening are in palm lengths too, the
+usual way to compare people with different hand sizes; in 3D they are also
+given in millimetres.
 """
 
 from __future__ import annotations
@@ -56,6 +57,29 @@ COLUMNS = (
     "hand_opening_palm",
     *(f"{f}_bend" for f in FINGERS),
 )
+#: The same in 3D, in millimetres, with the measures in millimetres too.
+COLUMNS_MM = (
+    "time_ms",
+    "hand",
+    "subject_id",
+    "side",
+    "wrist_x_mm",
+    "wrist_y_mm",
+    "wrist_z_mm",
+    "palm_mm",
+    "wrist_speed_hl_s",
+    "wrist_speed_mm_s",
+    "index_tip_speed_hl_s",
+    "index_tip_speed_mm_s",
+    "thumb_tip_speed_hl_s",
+    "wrist_acceleration_hl_s2",
+    "wrist_acceleration_mm_s2",
+    "grip_aperture_palm",
+    "grip_aperture_mm",
+    "hand_opening_palm",
+    "hand_opening_mm",
+    *(f"{f}_bend" for f in FINGERS),
+)
 
 
 def _running(values: np.ndarray, half: int, fn) -> np.ndarray:
@@ -77,7 +101,7 @@ def max_gap_s(rate: float) -> float:
 
 
 def clean(points: np.ndarray, scores: np.ndarray, fps: float) -> np.ndarray:
-    """The points (N x 21 x 2, one run without long gaps) with the doubtful
+    """The points (N x 21 x 2 or 3, one run without long gaps) with the doubtful
     ones set to NaN: scored under :data:`MIN_POINT_SCORE`; every point of a
     frame whose palm length, where it can be measured, is off
     (:data:`PALM_RANGE`); and a point far from its own 7-frame median (a
@@ -92,7 +116,7 @@ def clean(points: np.ndarray, scores: np.ndarray, fps: float) -> np.ndarray:
     off = np.isfinite(palm) & ~((palm >= lo * around) & (palm <= hi * around))
     xy[off] = np.nan
     for k in range(xy.shape[1]):
-        for d in range(2):
+        for d in range(xy.shape[2]):
             v = xy[:, k, d]
             med = _running(v, 3, np.nanmedian)
             mad = 1.4826 * _running(np.abs(v - med), 3, np.nanmedian)
@@ -149,8 +173,9 @@ def lowpass(xy: np.ndarray, fps: float) -> np.ndarray:
     return out
 
 
-def measures(xy: np.ndarray, fps: float) -> dict:
-    """Per sample, from filtered points on a regular grid at ``fps``."""
+def measures(xy: np.ndarray, fps: float, unit: str = "px") -> dict:
+    """Per sample, from filtered points on a regular grid at ``fps``, in
+    ``unit``: "px" (2D, one camera) or "mm" (3D, the room)."""
     dt = 1.0 / fps
     palm = np.linalg.norm(xy[:, MIDDLE_MCP] - xy[:, WRIST], axis=1)
     palm = _running(palm, max(1, int(fps / 2)), np.nanmedian)
@@ -163,18 +188,25 @@ def measures(xy: np.ndarray, fps: float) -> dict:
     enough = seen.sum(axis=0) >= 3
     if enough.any():
         opening[enough] = np.nanmean(tips[:, enough], axis=0)
-    out = {
-        "wrist_x_px": xy[:, WRIST, 0],
-        "wrist_y_px": xy[:, WRIST, 1],
-        "palm_px": palm,
-        "wrist_speed_hl_s": speed[:, WRIST] / palm,
-        "wrist_speed_px_s": speed[:, WRIST],
-        "index_tip_speed_hl_s": speed[:, INDEX_TIP] / palm,
-        "thumb_tip_speed_hl_s": speed[:, THUMB_TIP] / palm,
-        "wrist_acceleration_hl_s2": acc[:, WRIST] / palm,
-        "grip_aperture_palm": np.linalg.norm(xy[:, THUMB_TIP] - xy[:, INDEX_TIP], axis=1) / palm,
-        "hand_opening_palm": opening / palm,
-    }
+    aperture = np.linalg.norm(xy[:, THUMB_TIP] - xy[:, INDEX_TIP], axis=1)
+    out = {f"wrist_{'xyz'[d]}_{unit}": xy[:, WRIST, d] for d in range(xy.shape[2])}
+    out.update(
+        {
+            f"palm_{unit}": palm,
+            "wrist_speed_hl_s": speed[:, WRIST] / palm,
+            f"wrist_speed_{unit}_s": speed[:, WRIST],
+            "index_tip_speed_hl_s": speed[:, INDEX_TIP] / palm,
+            "thumb_tip_speed_hl_s": speed[:, THUMB_TIP] / palm,
+            "wrist_acceleration_hl_s2": acc[:, WRIST] / palm,
+            "grip_aperture_palm": aperture / palm,
+            "hand_opening_palm": opening / palm,
+        }
+    )
+    if unit == "mm":  # real lengths: worth giving as they are
+        out["index_tip_speed_mm_s"] = speed[:, INDEX_TIP]
+        out["wrist_acceleration_mm_s2"] = acc[:, WRIST]
+        out["grip_aperture_mm"] = aperture
+        out["hand_opening_mm"] = opening
     # Bend: 0 for a straight finger, towards 1 curled. Straight stays
     # straight in any view (a projection keeps points on a line), so 0 is
     # reliable; how bent a bent finger looks depends on the view.
@@ -188,10 +220,11 @@ def measures(xy: np.ndarray, fps: float) -> dict:
     return out
 
 
-def hand_series(samples: list, fps: float) -> dict | None:
+def hand_series(samples: list, fps: float, unit: str = "px") -> dict | None:
     """One hand's measures on a regular grid at ``fps`` (the analysed
     frames' rate): ``samples`` is ``[(time_ms, points 21 x 2, scores 21)]``
-    in time order. Runs split at gaps over :func:`max_gap_s`, each cleaned
+    in time order (21 x 3 points in millimetres with ``unit`` "mm"). Runs
+    split at gaps over :func:`max_gap_s`, each cleaned
     on its own; runs under :data:`MIN_RUN_S` left out. None when nothing
     could be measured, or under :data:`MIN_RATE_HZ`."""
     if not samples or fps < MIN_RATE_HZ:
@@ -206,13 +239,13 @@ def hand_series(samples: list, fps: float) -> dict | None:
             continue
         xy = clean(points[a:b], scores[a:b], fps)
         grid = np.arange(t[a], t[b - 1] + 1e-9, 1.0 / fps)
-        m = measures(lowpass(resample(t[a:b], xy, grid, gap), fps), fps)
+        m = measures(lowpass(resample(t[a:b], xy, grid, gap), fps), fps, unit)
         m["time_ms"] = grid * 1000.0
         parts.append(m)
     if not parts:
         return None
     out = {k: np.concatenate([p[k] for p in parts]) for k in parts[0]}
-    return out if np.isfinite(out["wrist_speed_px_s"]).any() else None
+    return out if np.isfinite(out[f"wrist_speed_{unit}_s"]).any() else None
 
 
 def summary(series: dict, fps: float) -> dict:
@@ -233,6 +266,17 @@ def summary(series: dict, fps: float) -> dict:
         "grip_aperture_median_palm": stat("grip_aperture_palm", np.median),
         "grip_aperture_p95_palm": stat("grip_aperture_palm", lambda v: np.percentile(v, 95)),
         "hand_opening_median_palm": stat("hand_opening_palm", np.median),
+        **(
+            {
+                "palm_median_mm": stat("palm_mm", np.median, 1),
+                "wrist_speed_median_mm_s": stat("wrist_speed_mm_s", np.median, 1),
+                "wrist_speed_p95_mm_s": stat("wrist_speed_mm_s", lambda v: np.percentile(v, 95), 1),
+                "grip_aperture_median_mm": stat("grip_aperture_mm", np.median, 1),
+                "grip_aperture_p95_mm": stat("grip_aperture_mm", lambda v: np.percentile(v, 95), 1),
+            }
+            if "palm_mm" in series
+            else {}
+        ),
     }
 
 

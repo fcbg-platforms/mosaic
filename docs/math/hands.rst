@@ -6,15 +6,17 @@ Hands
    :depth: 1
 
 Implemented in ``analysis/run_hands.py`` and the ``hands`` package
-(``models.py``, ``people.py``, ``kinematics.py``, ``movements.py``);
-shown in the Analysis
-tab's **Hands** entry and in the session report. Made for close-up cameras
+(``models.py``, ``people.py``, ``kinematics.py``, ``movements.py``,
+``hands3d.py``); shown in the Analysis tab's **Hands** entry and in the
+session report. Made for close-up cameras
 on a table (room 11's Cameras 1 and 5), where a hand is large enough to see
 the fingers. It finds the points per frame, then works out the hand's
 kinematics from them: speeds, grip aperture, hand opening and finger bend.
 Last it finds each hand's movements (reaches, grasps, any move) with the
 measures the reaching and grasping literature uses, and how each person
-used their two hands.
+used their two hands. When two or more cameras with a room calibration see
+the hands, it also puts them in the room, in millimetres, and says how well
+the cameras agree.
 
 What is found
 -------------
@@ -266,6 +268,93 @@ hands, made 3 and 7 complete movements with the left and right hand (7 and
 SPARC -1.7 to -1.9; both hands moved together about half the time either
 did, and the two hands were used about equally (laterality -0.05).
 
+3D hands
+--------
+
+When Hands was run on two or more cameras with a room calibration (lens and
+room, :doc:`room_calibration`), the hands they both see are put in the
+room, in millimetres.
+
+**Lining the cameras up.** The cameras are lined up by the session's
+trigger ticks (``sync_manifest.json``), each tick's frame of each camera
+found through its ``timestamps_camN.csv`` (without that file, frame id N is
+decoded frame N - 1, as in 3D Pose). A tick is used only when two or more
+cameras really took a frame then that Hands analysed: with every N frames,
+the ticks between analysed frames are left out, not filled with the nearest
+frame; and a camera free-running slower than the ticks names one frame for
+two ticks, so a tick that repeats a camera's last frame is left out too,
+rather than pairing an old view with a new one. The 3D samples come at the
+ticks; the kinematics' rate is the tick rate divided by the largest every N
+frames, so the same minimum of 10 per second applies.
+
+**Matching.** Pose numbers people on each camera on its own, so a hand is
+matched across cameras by its side and by how well its points agree: for
+two cameras' views of a side, each point both scored at least 0.2 is
+triangulated from the two (linear triangulation) and reprojected into both;
+the views' agreement is the median of those reprojection errors. The pair
+that agrees best is one hand, then the next best of the views left, while
+they agree within a quarter of the smaller hand's size in pixels (over its
+points scored at least 0.2; at least 20 px: about 40 px for a 170 px hand)
+and share at least 8 points; a third camera's view of the same side, the
+one that agrees best, joins when within the limit too. Each point is then
+triangulated from the hand's views, a view that disagrees on a point
+(beyond the same limit) left out of it, as in 3D Pose. Hands of no known
+person are matched too; hands of no known side are not.
+
+**Following a hand.** A hand found again is the same hand when its wrist
+(or, without one, its points' centre) is within 15 cm plus 2 m/s times the
+time since it was last seen, at most 2 s ago (nearest pairs first, each
+once); otherwise it is a new hand, with a new number. Its person is the
+Pose id on one reference camera, the lowest-numbered with a Hands result,
+so that ids of different cameras (which Pose numbers on their own) are
+never mixed; a hand that camera never saw is "someone's".
+
+**Measures.** The same as on one camera (Kinematics and Movements above),
+from the 3D points, with speeds, path, grip aperture and hand opening also
+in millimetres: wrist speed (mm/s), index tip speed, acceleration, grip
+aperture (mm), hand opening (mm), palm length (mm), and per movement its
+peak speed (mm/s), path (mm) and maximum grip aperture (mm). Movements are
+found in hand lengths per second as on one camera, so the thresholds are
+the same.
+
+**How well the cameras agree.** Per pair of cameras, over the hands both
+were part of, in the room: for each hand point both saw, the two cameras'
+lines of sight through it should meet; the gap between them (the shortest
+segment joining them) is their disagreement in millimetres, whatever each
+camera's zoom. Reported:
+
+- the median gap (per hand, the median over its points; then the median
+  over hands);
+- its **steady part**, the length of the median gap vector: a room
+  calibration that is off shifts every point the same way. With two
+  cameras it is their calibration together: a pair cannot say which of the
+  two is off, as the error is shared between their views (a third camera
+  can);
+- the **scatter** around it (median distance from the steady part): the
+  hand model's own noise;
+- how far apart in time the two cameras' frames were (median, from the
+  manifest): a moving hand adds to the gap, about its speed times that
+  time; and the steady part from the hands whose frames were at most 10 ms
+  apart, when there are at least 20 of them.
+
+Two cameras cannot show the part of a calibration error that moves a point
+along the plane through both cameras and the point (nearer or further,
+along their baseline): only the part across it shows. And views that
+disagree beyond the limit are not matched at all, so a calibration that is
+far off shows as few hands in 3D more than as a large gap.
+
+On sub-31 (Cameras 1 and 5, free-running at about 21 fps against 25 Hz
+ticks), their lines of sight missed by a median 22 mm: a steady 20 mm and
+6 mm of scatter, with the frames a median 23 ms apart (a hand at 15 cm/s
+moves about 3.5 mm in that), so most of the steady part is the room
+calibration. The triangulated point lies between the two lines of sight,
+so each camera's share of it, the shift of where the hand is, is about
+1 cm; distances and speeds change far less. Too few frames were taken
+within 10 ms of each other to give the steady part on its own. The palm
+came out at 77 to 86 mm, an adult's. Of 616 pairs of views of one side
+compared (different people's hands included, so not a rate), 390 were
+matched.
+
 Limits
 ------
 
@@ -280,9 +369,18 @@ Limits
   results on children are reported, check the points against a few hundred
   frames marked by hand.
 - **Whose hand.** The person is Pose's subject id on that camera; when Pose
-  loses and finds a person again, the same person gets a new id. Linking
-  them is for the 3D step. A person Pose did not track has no id: their
-  hands are "someone's".
+  loses and finds a person again, the same person gets a new id. In 3D a
+  hand keeps its number across those changes while it is followed, but a
+  hand lost for over 2 s comes back as a new one. A person Pose did not
+  track has no id: their hands are "someone's".
+- **3D coverage.** A hand is in 3D only while two cameras both see it and
+  agree, at ticks where both took a new frame; a person half out of one
+  camera's view, as on sub-31, has short stretches in 3D and many
+  movements cut off.
+- **Free-running cameras.** When the cameras are not triggered together,
+  their frames of one tick can be tens of milliseconds apart, and a moving
+  hand is seen at two moments: it adds to the sight-line gap and blurs the
+  3D point. Triggered recordings (GigE Action Commands) do not have this.
 - **Model terms.** The models' code and weights are Apache-2.0; they were
   trained on public datasets whose own terms apply. Check them before any
   commercial use.
@@ -307,6 +405,22 @@ Per camera, in ``<session>/hands/``:
 - ``video_N.hands.mp4``: with **Annotated video**, the video with each hand
   drawn, the person's left in green and right in orange, labelled "S3
   left"; between analysed frames the last result holds.
+
+In the room (when two or more calibrated cameras have a Hands result), in
+``<session>/hands/``:
+
+- ``hands3d.json`` (schema ``mosaic-hands3d-v1``): the trigger rate
+  (``master_fps``) and the kinematics' (``rate``), the point names,
+  ``agreement`` (pairs of views compared and matched, and per pair of
+  cameras its hands, median sight-line gap, steady part, scatter, frame
+  time gap and the steady part from frames taken at once), and
+  per hand its number, person, side, cameras, ticks, when it was seen, and
+  its ``kinematics`` and ``movements`` in millimetres too; ``people`` as per
+  camera;
+- ``hands3d.frames.json``: every tick's hands, each with its number, side,
+  cameras and 21 points in millimetres (``null`` where not found);
+- ``hands3d.kinematics.csv`` and ``hands3d.movements.csv``: as per camera,
+  with the hand's number and the measures in millimetres as well.
 
 References
 ----------

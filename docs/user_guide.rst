@@ -662,6 +662,21 @@ Reconstruction, and Frame Sync was Frame Sync Repair.
       when it came, path, straightness, units, SPARC, maximum grip aperture
       and when it came) are in ``hands/video_N.hands.movements.csv``.
 
+      **In the room**: when Hands was run on two or more cameras with a
+      room calibration (Cameras 1 and 5 for the table), it also puts the
+      hands both see in the room, in millimetres. Pick **In the room (mm)**
+      instead of **This camera**: the same charts, with speeds in mm/s and
+      grip aperture and hand opening in mm, and each hand numbered ("S3 left
+      hand 2"). The line under the chart says, per pair of cameras, how far
+      their lines of sight through the same hand points miss each other, in
+      mm: the steady part is their room calibration (the two together: a
+      pair cannot say which camera is off; a few mm is good, centimetres
+      mean recalibrating, ideally with a third camera seeing the table), the
+      scatter the hand model's; and how far apart the two cameras' frames
+      were, as a moving hand adds to the gap. The session report has a
+      "Hands in 3D" card. Files: ``hands/hands3d.json``,
+      ``hands3d.kinematics.csv`` and ``hands3d.movements.csv``.
+
    .. tab-item:: Social Interaction
 
       **What it does**: measures how two people's behaviour is coupled, each
