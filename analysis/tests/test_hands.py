@@ -11,7 +11,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import run_hands
-from hands import kinematics
+from hands import kinematics, movements
 from hands.models import RTMW_HANDS, RTMPose, RtmwHands
 from hands.people import (
     assign_by_wrist,
@@ -424,3 +424,129 @@ def test_runner_keeps_the_points_when_kinematics_fail(tmp_path, monkeypatch, cap
     res = json.loads((s / "hands" / "video_1.hands.json").read_text())
     assert "kinematics_file" not in res and "kinematics" not in res["hands"][0]
     assert "kinematics failed" in capsys.readouterr().out
+
+
+def _reach_series(rate=25.0, reaches=((0.5, 1.0, 5.0),), total_s=4.0):
+    """Wrist speed and position for minimum-jerk reaches along x, each
+    ``(start s, duration s, distance in hand lengths)``, palm 100 px; the
+    grip aperture opens to 1.0 palm at 60% of each reach."""
+    t = np.arange(0.0, total_s, 1.0 / rate)
+    speed = np.zeros_like(t)
+    aperture = np.full_like(t, 0.3)
+    for start, dur, dist in reaches:
+        tau = (t - start) / dur
+        on = (tau >= 0) & (tau <= 1)
+        speed[on] += dist / dur * 30 * tau[on] ** 2 * (1 - tau[on]) ** 2
+        aperture[on] = 0.3 + 0.7 * np.exp(-(((tau[on] - 0.6) / 0.15) ** 2))
+    x = np.cumsum(speed) / rate * 100.0
+    return {
+        "time_ms": t * 1000.0,
+        "wrist_speed_hl_s": speed,
+        "wrist_x_px": x,
+        "wrist_y_px": np.zeros_like(t),
+        "grip_aperture_palm": aperture,
+    }
+
+
+def test_one_smooth_reach():
+    (m,), cut_off = movements.find_movements(_reach_series(), 25.0)
+    assert cut_off == []
+    # Above 0.5 hand lengths/s of a 9.4 peak: about 0.84 of the second.
+    assert m["start_ms"] == pytest.approx(560, abs=40)
+    assert m["duration_s"] == pytest.approx(m["end_ms"] / 1000 - m["start_ms"] / 1000)
+    assert m["duration_s"] == pytest.approx(0.84, abs=0.05)
+    assert m["peak_speed_hl_s"] == pytest.approx(9.375, rel=0.01)
+    assert m["time_to_peak_pct"] == pytest.approx(50, abs=5)
+    assert m["movement_units"] == 1 and m["straightness"] == pytest.approx(1.0)
+    assert m["path_hl"] == pytest.approx(5.0, rel=0.05)
+    assert m["max_grip_aperture_palm"] == pytest.approx(1.0, abs=0.02)
+    assert m["time_to_max_aperture_pct"] == pytest.approx(60, abs=6)
+    assert m["sparc"] == pytest.approx(-1.41, abs=0.05)
+
+
+def test_sparc_and_units_see_stops_and_starts():
+    rate = 100.0
+    t = np.arange(0, 1.0 + 1e-9, 1 / rate)
+    smooth = 30 * t**2 * (1 - t) ** 2
+    assert movements.sparc(smooth, rate) == pytest.approx(-1.406, abs=0.01)
+    assert movements.sparc(smooth, 25.0) == pytest.approx(-1.406, abs=0.01)  # any rate
+    jerky = np.r_[smooth, 0.6 * smooth]
+    assert movements.sparc(jerky, rate) < -1.8 and movements.movement_units(jerky) == 2
+    # A wobble under 0.2 hand lengths/s is not a unit of its own.
+    assert movements.movement_units(smooth + 0.05 * np.sin(40 * t)) == 1
+
+
+def test_movements_need_speed_duration_and_no_gap():
+    rate = 25.0
+    two = _reach_series(reaches=((0.5, 1.0, 5.0), (2.5, 1.0, 5.0)))
+    assert len(movements.find_movements(two, rate)[0]) == 2
+    slow = _reach_series(reaches=((0.5, 2.0, 1.5),))  # peaks at 1.1: too slow
+    assert movements.find_movements(slow, rate) == ([], [])
+    # The hand not measured mid-reach: two cut-off halves, left out.
+    gap = _reach_series()
+    gap["wrist_speed_hl_s"][25:28] = np.nan
+    found, cut_off = movements.find_movements(gap, rate)
+    assert found == [] and len(cut_off) == 2
+    jump = _reach_series()
+    jump["time_ms"][30:] += 2000.0  # two runs of the hand, not one movement
+    found, cut_off = movements.find_movements(jump, rate)
+    assert found == [] and len(cut_off) == 2
+    assert cut_off[0]["end_ms"] < cut_off[1]["start_ms"]
+    # Seen already moving: left out; the next reach, whole, is kept.
+    late = _reach_series(reaches=((0.5, 1.0, 5.0), (2.5, 1.0, 5.0)))
+    late = {k: v[20:] for k, v in late.items()}
+    found, cut_off = movements.find_movements(late, rate)
+    assert len(found) == 1 and len(cut_off) == 1 and found[0]["start_ms"] > 2000
+
+
+def test_a_slow_smooth_reach_is_as_smooth_as_a_fast_one():
+    rate = 25.0
+    (fast,), _ = movements.find_movements(_reach_series(), rate)
+    (slow,), _ = movements.find_movements(_reach_series(reaches=((0.5, 1.0, 0.85),)), rate)
+    assert slow["peak_speed_hl_s"] == pytest.approx(1.59, abs=0.05)
+    assert slow["sparc"] == pytest.approx(fast["sparc"], abs=0.02)
+    assert slow["movement_units"] == 1
+    assert movements.sparc(np.zeros(10), rate) == 0.0
+
+
+def test_hand_and_person_summaries():
+    rate = 25.0
+    found, _ = movements.find_movements(
+        _reach_series(reaches=((0.5, 1.0, 5.0), (2.5, 1.0, 2.0))), rate
+    )
+    summ = movements.hand_summary(found, 3)
+    assert summ["movements"] == 2 and summ["cut_off"] == 3
+    assert summ["movement_units_median"] == 1.0
+    assert summ["peak_speed_median_hl_s"] == pytest.approx((9.375 + 3.75) / 2, rel=0.02)
+    assert movements.hand_summary([])["movements"] == 0
+    left = [{"start_ms": 0.0, "end_ms": 1000.0}]
+    right = [{"start_ms": 500.0, "end_ms": 1500.0}, {"start_ms": 3000.0, "end_ms": 3500.0}]
+    p = movements.person_summary(left, right)
+    assert p["laterality_index"] == pytest.approx(1 / 3, abs=0.01)
+    assert p["both_moving_s"] == 0.5 and p["both_moving_share"] == pytest.approx(0.25)
+    assert movements.person_summary([], [])["laterality_index"] is None
+
+
+def test_runner_writes_movements_and_people(tmp_path):
+    s = _session(tmp_path)
+    assert run_hands.main(["--session", str(s), "--camera", "1", "--no-video"], fake_estimator) == 0
+    res = json.loads((s / "hands" / "video_1.hands.json").read_text())
+    assert res["movements_file"] == "hands/video_1.hands.movements.csv"
+    head = (s / res["movements_file"]).read_text().splitlines()[0]
+    assert head.startswith("subject_id,side,start_ms,end_ms,duration_s,peak_speed_hl_s")
+    # The fake hand is still: no movement, and one hand: no people entry.
+    assert res["hands"][0]["movements"]["movements"] == 0 and res["people"] == []
+
+    def two_hands(rgb, people):
+        hands = fake_estimator(rgb, people)
+        for h in list(hands):
+            right = _hand(tuple(np.add(h["keypoints"][0], (150, 0))), size=60)
+            right.update(subject_id=h["subject_id"], side="right")
+            hands.append(right)
+        return hands
+
+    assert run_hands.main(["--session", str(s), "--camera", "1", "--no-video"], two_hands) == 0
+    res = json.loads((s / "hands" / "video_1.hands.json").read_text())
+    (person,) = res["people"]
+    assert person["subject_id"] == 7 and person["laterality_index"] is None  # no movement
+    assert person["both_moving_s"] == 0.0

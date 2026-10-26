@@ -243,7 +243,7 @@ def _hands(session: Path, stem: str) -> dict | None:
     if d is None or d.get("schema") != "mosaic-hands-v1":
         return None
     # The summary only; every frame's points and kinematics stay in their files.
-    return {"model": d.get("model"), "hands": d.get("hands", [])}
+    return {"model": d.get("model"), "hands": d.get("hands", []), "people": d.get("people", [])}
 
 
 #: Outputs the summary row does not use, skipped by summary-only runs.

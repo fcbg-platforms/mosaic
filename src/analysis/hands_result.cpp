@@ -34,6 +34,13 @@ HandsResult HandsResult::load(const QString& path) {
     r.videoStartMs_   = root["video_start_ms"].toDouble();
     r.annotatedVideo_ = root["annotated_video"].toString();
     r.kinematicsFile_ = root["kinematics_file"].toString();
+    r.movementsFile_  = root["movements_file"].toString();
+    for (const auto& v : root["people"].toArray()) {
+        const QJsonObject o = v.toObject();
+        r.people_ << Person{o["subject_id"].toInt(-1), number_or_nan(o["laterality_index"]),
+                            number_or_nan(o["both_moving_s"]),
+                            number_or_nan(o["both_moving_share"])};
+    }
     for (const auto& v : root["hands"].toArray()) {
         const QJsonObject o = v.toObject();
         Hand h;
@@ -60,10 +67,50 @@ HandsResult HandsResult::load(const QString& path) {
             h.kinematics.gripApertureP95    = number_or_nan(k["grip_aperture_p95_palm"]);
             h.kinematics.handOpeningMedian  = number_or_nan(k["hand_opening_median_palm"]);
         }
+        if (o["movements"].isObject()) {
+            const QJsonObject m         = o["movements"].toObject();
+            h.movements.valid           = true;
+            h.movements.count           = m["movements"].toInt();
+            h.movements.cutOff          = m["cut_off"].toInt();
+            h.movements.durationS       = number_or_nan(m["duration_median_s"]);
+            h.movements.peakSpeed       = number_or_nan(m["peak_speed_median_hl_s"]);
+            h.movements.timeToPeakPct   = number_or_nan(m["time_to_peak_median_pct"]);
+            h.movements.movementUnits   = number_or_nan(m["movement_units_median"]);
+            h.movements.sparc           = number_or_nan(m["sparc_median"]);
+            h.movements.straightness    = number_or_nan(m["straightness_median"]);
+            h.movements.maxGripAperture = number_or_nan(m["max_grip_aperture_median_palm"]);
+        }
         r.hands_ << h;
     }
     r.valid_ = true;
     return r;
+}
+
+QVector<HandsResult::Movement> HandsResult::load_movements(const QString& path) {
+    QVector<Movement> out;
+    QFile f(path);
+    if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        return out;
+    }
+    QTextStream ts(&f);
+    const QStringList header = ts.readLine().split(',');
+    const int subject = header.indexOf("subject_id"), side = header.indexOf("side");
+    const int start = header.indexOf("start_ms"), end = header.indexOf("end_ms");
+    const int peak = header.indexOf("peak_speed_hl_s");
+    if (subject < 0 || side < 0 || start < 0 || end < 0 || peak < 0) {
+        return out;
+    }
+    while (!ts.atEnd()) {
+        const QStringList cells = ts.readLine().split(',');
+        if (cells.size() != header.size()) {
+            continue;
+        }
+        bool isId    = false;
+        const int id = cells[subject].toInt(&isId);
+        out << Movement{isId ? id : -1, cells[side], cells[start].toDouble(), cells[end].toDouble(),
+                        cells[peak].toDouble()};
+    }
+    return out;
 }
 
 QVector<HandsResult::Series> HandsResult::load_kinematics(const QString& path) {

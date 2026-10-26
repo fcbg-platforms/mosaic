@@ -1461,17 +1461,18 @@ struct AnalysisTabW::Impl {
     PersonKinematicsSeries currentPerson;     // pose3d only: the Charts tab's one person
     DyadicKinematicsSeries currentDyad;       // pose3d only — derived from currentSkeleton3D +
                                         // the selected Track A/B pair, see update_dyadic_view()
-    TriggerFrameMap currentTriggerFrameMap;              // trigger_sync only
-    RppgResult currentRppgResult;                        // rppg only
-    Gaze2dResult currentGaze2dResult;                    // gaze2d only
-    FaceDynamicsResult currentFaceDynResult;             // face_dynamics only
-    ConversationResult currentConversation;              // conversation, overview, rppg (by state)
-    EyeContactResult currentEyeContact;                  // eye_contact only
-    SocialResult currentSocial;                          // social only
-    ObjectsResult currentObjects;                        // objects only
-    HandsResult currentHands;                            // hands only
-    QVector<HandsResult::Series> currentHandsKinematics; // hands only, per frame
-    SyncRepairResult currentSyncRepair;                  // sync_repair only
+    TriggerFrameMap currentTriggerFrameMap;               // trigger_sync only
+    RppgResult currentRppgResult;                         // rppg only
+    Gaze2dResult currentGaze2dResult;                     // gaze2d only
+    FaceDynamicsResult currentFaceDynResult;              // face_dynamics only
+    ConversationResult currentConversation;               // conversation, overview, rppg (by state)
+    EyeContactResult currentEyeContact;                   // eye_contact only
+    SocialResult currentSocial;                           // social only
+    ObjectsResult currentObjects;                         // objects only
+    HandsResult currentHands;                             // hands only
+    QVector<HandsResult::Series> currentHandsKinematics;  // hands only, per frame
+    QVector<HandsResult::Movement> currentHandsMovements; // hands only
+    SyncRepairResult currentSyncRepair;                   // sync_repair only
 
     // AnalysisManager is a single shared instance (also used by
     // SessionBrowserW's "Run Pose" button and PerformanceMonitorW's
@@ -3268,6 +3269,7 @@ void AnalysisTabW::build_ui() {
     handsRowLay->setContentsMargins(0, 0, 0, 0);
     d->handsShowCombo = new QComboBox;
     d->handsShowCombo->addItem("When each hand is seen", "seen");
+    d->handsShowCombo->addItem("Movements: reaches, grasps, any move", "movements");
     d->handsShowCombo->addItem("Wrist speed (hand lengths/s)", "wrist_speed_hl_s");
     d->handsShowCombo->addItem("Index fingertip speed (hand lengths/s)", "index_tip_speed_hl_s");
     d->handsShowCombo->addItem("Grip aperture, thumb to index (palm lengths)",
@@ -3278,7 +3280,9 @@ void AnalysisTabW::build_ui() {
         "Speeds are in hand lengths per second: the hand's own palm length (wrist to the "
         "middle knuckle) per second, so a hand far from the camera and one close to it "
         "compare. Grip aperture and hand opening are in palm lengths too. A gap is where "
-        "the hand, or that point, was not measured.");
+        "the hand, or that point, was not measured. Movements: where the wrist moves faster "
+        "than 0.5 hand lengths/s, peaking at 1.5 or more for at least 0.2 s; the numbers "
+        "per movement are in hands/video_N.hands.movements.csv.");
     connect(d->handsShowCombo, &QComboBox::currentIndexChanged, this,
             &AnalysisTabW::update_hands_view);
     handsRowLay->addWidget(new QLabel("Show:"));
@@ -4750,7 +4754,11 @@ void AnalysisTabW::load_camera_result_view() {
         d->currentHandsKinematics =
             kinematics.isEmpty() ? QVector<HandsResult::Series>()
                                  : HandsResult::load_kinematics(info->path + "/" + kinematics);
-        const QString annotated = d->currentHands.annotated_video();
+        const QString moves      = d->currentHands.movements_file();
+        d->currentHandsMovements = moves.isEmpty()
+                                       ? QVector<HandsResult::Movement>()
+                                       : HandsResult::load_movements(info->path + "/" + moves);
+        const QString annotated  = d->currentHands.annotated_video();
         const bool hasAnnotated =
             !annotated.isEmpty() && QFileInfo::exists(info->path + "/" + annotated);
         d->player->set_video(hasAnnotated ? info->path + "/" + annotated : videoAbs);
@@ -7351,6 +7359,47 @@ void AnalysisTabW::update_hands_view() {
         }
         d->chart->set_named_series(series, "Seen (one row each)", lastMs);
         d->chart->set_title(QString("Hands (%1): when each hand is seen").arg(model));
+    } else if (show == "movements") {
+        // One lane per hand, a block for each of its movements.
+        const auto num = [](double v, int digits) {
+            return std::isnan(v) ? QStringLiteral("n/a") : QString::number(v, 'f', digits);
+        };
+        for (int k = 0; k < r.hands().size(); ++k) {
+            const auto& h      = r.hands()[k];
+            const double level = k + 1.0;
+            QVector<QPointF> pts;
+            for (const auto& m : d->currentHandsMovements) {
+                if (m.subjectId == h.subjectId && m.side == h.side) {
+                    const double a = m.startMs - t0;
+                    const double b = m.endMs - t0;
+                    pts << QPointF(a, k + 0.5) << QPointF(a, level) << QPointF(b, level)
+                        << QPointF(b, k + 0.5);
+                }
+            }
+            series.append({h.display_name(), colour_of(h.subjectId, h.side), pts});
+            const auto& m = h.movements;
+            if (m.valid) {
+                lines << QString(
+                             "%1: %2 movements (%3 cut off, left out); median peak %4 "
+                             "hand lengths/s, %5 units, SPARC %6")
+                             .arg(h.display_name())
+                             .arg(m.count)
+                             .arg(m.cutOff)
+                             .arg(num(m.peakSpeed, 1), num(m.movementUnits, 0), num(m.sparc, 2));
+            }
+        }
+        for (const auto& p : r.people()) {
+            lines << QString(
+                         "S%1: laterality %2 (-1 all left, 1 all right), both hands moving "
+                         "%3% of the time either did")
+                         .arg(p.subjectId)
+                         .arg(num(p.lateralityIndex, 2))
+                         .arg(num(100.0 * p.bothMovingShare, 0));
+        }
+        d->chart->set_named_series(series, "Moving (one row each)", lastMs);
+        d->chart->set_title(r.movements_file().isEmpty()
+                                ? QString("Run Hands again: this result has no movements yet")
+                                : QString("Hands (%1): movements").arg(model));
     } else {
         // One line per hand, broken where it was not measured.
         for (const auto& s : d->currentHandsKinematics) {
