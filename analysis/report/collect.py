@@ -37,9 +37,9 @@ SESSION_ANALYSES = (
     ("transcripts", "Speaker Diarization"),
     ("voice", "Voice analysis"),
     ("gaze_fusion", "3D Gaze"),
-    ("pose3d", "3D Pose Reconstruction"),
+    ("pose3d", "3D Pose"),
     ("social", "Social Interaction"),
-    ("sync_repair", "Frame Sync Repair"),
+    ("sync_repair", "Frame Sync"),
 )
 
 

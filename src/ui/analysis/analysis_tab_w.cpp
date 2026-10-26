@@ -5516,7 +5516,7 @@ void AnalysisTabW::export_gaze_csv() {
 
     const QString suggested = info->path + "/gaze_fusion.csv";
 
-    export_csv(this, "Export Gaze Fusion", suggested, [&](QTextStream& ts) {
+    export_csv(this, "Export 3D Gaze", suggested, [&](QTextStream& ts) {
         ts << "tick,timestamp_ns,video_frame_index,subject,"
               "origin_x_mm,origin_y_mm,origin_z_mm,dir_x,dir_y,dir_z,"
               "point_x_mm,point_y_mm,point_z_mm,target_type,target,mutual,"
@@ -7543,7 +7543,7 @@ void AnalysisTabW::export_sync_repair_csv() {
 
     const QString suggested = info->path + "/sync_repair_summary.csv";
 
-    export_csv(this, "Export Frame Sync Repair Summary", suggested, [&](QTextStream& ts) {
+    export_csv(this, "Export Frame Sync Summary", suggested, [&](QTextStream& ts) {
         ts << "camera,source_frames,output_frames,duplicated_frames,skipped,skip_reason,note,"
               "alignment,missing_frames,lead_in_trimmed,tail_trimmed,gaps\n";
         for (const auto& c : d->currentSyncRepair.cameras()) {

@@ -106,6 +106,38 @@ TEST(AnalysisPlugins, RegistryMatchesTheKnownPluginIdSet) {
     EXPECT_EQ(ids, expected);
 }
 
+// The picker's order is the order to run the analyses in: by category, then
+// by place in the registry. Pinned, so a reorder is a deliberate change.
+TEST(AnalysisPlugins, PickerListsTheAnalysesInTheOrderToRunThem) {
+    QStringList shown;
+    for (const auto category : analysis_plugin_categories()) {
+        for (const auto& plugin : analysis_plugins()) {
+            if (plugin.category == category) {
+                shown << plugin.label;
+            }
+        }
+    }
+    const QStringList expected{"Frame Sync",
+                               "EEG / Trigger Sync",
+                               "Face Masking",
+                               "Pose",
+                               "3D Pose",
+                               "Object Tracking",
+                               "2D Gaze",
+                               "Face Dynamics",
+                               "Facial Expression",
+                               "Eye Contact",
+                               "3D Gaze",
+                               "Heart Rate (experimental)",
+                               "Speaker Diarization",
+                               "Conversation Timing",
+                               "Social Interaction",
+                               "Session Overview"};
+    EXPECT_EQ(shown, expected);
+    // Pose first in the registry: the tab starts on it.
+    EXPECT_EQ(analysis_plugins().first().id, "pose");
+}
+
 // The picker allots a fixed row height for label + blurb, so an over-long
 // blurb would be silently elided away rather than wrapping.
 TEST(AnalysisPlugins, BlurbsAreShortEnoughForOneRow) {

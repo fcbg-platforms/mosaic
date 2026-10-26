@@ -157,7 +157,7 @@ their timing belongs to the experiment. The check can be turned off under
 
 Click **■ Stop** or press ``Ctrl+.``. The **Session Health** report opens:
 one row per camera with frames captured, dropped and incomplete, and the
-synchronisation quality. Shortly afterwards, **Frame Sync Repair** lines the
+synchronisation quality. Shortly afterwards, **Frame Sync** lines the
 cameras up in the background, in about a second, and writes the result into
 ``synced/`` (see :ref:`synced-videos`). It never starts while a new recording
 is running; it waits until that one stops. Closing MOSAIC before it is done
@@ -265,7 +265,7 @@ quarter of the recording's length. In those videos:
   together. A camera unplugged mid-session is shown as MISSING for the time
   it was absent, and the other cameras keep their full length.
 
-The Analysis tab's **Frame Sync Repair** page lists, per camera, the frames
+The Analysis tab's **Frame Sync** page lists, per camera, the frames
 missing (hover for the exact ranges), the frames trimmed, and how it was
 aligned, and says whether the synced videos have been exported. Running
 Frame Sync again removes exported videos, which followed the old alignment:
@@ -549,6 +549,17 @@ sitting alongside **Live**. The workflow is always the same shape:
    shared subprocess queue.
 5. Once finished (or immediately, if the session already has that plugin's
    output), the results panel loads automatically.
+
+The list groups the plugins in the order to run them, in five numbered
+steps: **1 · Prepare** (Frame Sync, EEG / Trigger Sync, Face Masking),
+**2 · Body & motion** (Pose, then 3D Pose, Object Tracking), **3 · Face &
+gaze** (2D Gaze, Face Dynamics, Facial Expression, Eye Contact, 3D Gaze,
+Heart Rate), **4 · Audio** (Speaker Diarization, then Conversation Timing)
+and **5 · Together** (Social Interaction, Session Overview), which combine
+the others. Within a step an entry comes after the ones it uses, and its
+line under the name says what must run first (*Needs*) or what helps when it
+has (*Best after*). 3D Gaze was called Gaze Fusion, 3D Pose was 3D Pose
+Reconstruction, and Frame Sync was Frame Sync Repair.
 
 .. tab-set::
 
@@ -889,7 +900,7 @@ sitting alongside **Live**. The workflow is always the same shape:
       formulas. Like Pose kinematics, subject identity isn't tracked
       frame-to-frame.
 
-   .. tab-item:: Multi-Camera Gaze Fusion
+   .. tab-item:: 3D Gaze
 
       **What it does**: finds where every person in the room looks, in 3D,
       using every calibrated camera that sees them: at whom (and whether
@@ -898,7 +909,7 @@ sitting alongside **Live**. The workflow is always the same shape:
       intrinsic calibration, and
       :ref:`room (extrinsic) calibration <room-extrinsic-calibration>` to
       combine cameras. It works best on a session whose synced videos have
-      been exported (Frame Sync Repair's **Export synced videos**), and uses
+      been exported (Frame Sync's **Export synced videos**), and uses
       the raw videos otherwise.
 
       **Controls**:
@@ -978,7 +989,7 @@ sitting alongside **Live**. The workflow is always the same shape:
       limits, and :doc:`math/room_calibration` for how camera positions are
       solved.
 
-   .. tab-item:: 3D Pose Reconstruction
+   .. tab-item:: 3D Pose
 
       **What it does**: triangulates every camera's already-computed 2D
       keypoints (the **Pose** plugin's own output; run Pose on at least
@@ -986,7 +997,7 @@ sitting alongside **Live**. The workflow is always the same shape:
       into full 3D skeletons, one per detected person, per frame, with a
       stable identity across frames. Also needs
       :ref:`room (extrinsic) calibration <room-extrinsic-calibration>`
-      completed first, exactly like Gaze Fusion.
+      completed first, exactly like 3D Gaze.
 
       **Controls**: minimum-cameras-to-triangulate (2–6, default 2),
       maximum reprojection error in pixels (default 15; a keypoint whose
@@ -1402,7 +1413,7 @@ Tips and troubleshooting
       whisper model (... device=...)`` says which.
 
       The other analyses run on the CPU: MediaPipe face and gaze models
-      (Gaze 2D, Gaze Fusion, Face Dynamics, Eye Contact, rPPG), FER+, and
+      (Gaze 2D, 3D Gaze, Face Dynamics, Eye Contact, rPPG), FER+, and
       py-feat, which is set to the CPU. ``scripts/doctor.ps1`` reports
       whether PyTorch can use the GPU.
 

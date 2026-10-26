@@ -46,14 +46,14 @@ algorithm behind its output.
       3 backends: a transparent blendshape heuristic, FER+, and real FACS
       Action Units via py-feat.
 
-   .. grid-item-card:: 🎯 Multi-Camera Gaze Fusion
+   .. grid-item-card:: 🎯 3D Gaze
       :link: analysis-api-gaze
       :link-type: ref
 
       Per-camera 3D gaze rays, triangulated into one fused ray + target
       point.
 
-   .. grid-item-card:: 🧍 3D Pose Reconstruction
+   .. grid-item-card:: 🧍 3D Pose
       :link: analysis-api-pose3d
       :link-type: ref
 
@@ -129,7 +129,7 @@ Pose Estimation
 YOLOv8-pose detection over a session's videos, producing per-frame,
 per-subject 2D keypoints in COCO format. This is the foundational 2D
 signal every derived plugin consumes: :doc:`math/pose_kinematics`'s
-speed/acceleration, and the 3D Pose Reconstruction plugin below.
+speed/acceleration, and the 3D Pose plugin below.
 
 .. code-block:: python
 
@@ -401,7 +401,7 @@ See :doc:`math/facial_expression`.
 
 .. _analysis-api-gaze:
 
-Multi-Camera Gaze Fusion
+3D Gaze
 ------------------------------
 
 Where every subject looks, in 3D, across all calibrated cameras: whose face,
@@ -527,7 +527,7 @@ See :doc:`math/room_calibration` for the room calibration this plugin uses.
 
 .. _analysis-api-pose3d:
 
-3D Pose Reconstruction
+3D Pose
 ----------------------------
 
 Triangulates each camera's already-computed 2D COCO keypoints (from the

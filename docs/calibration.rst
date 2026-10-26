@@ -242,6 +242,6 @@ Using calibration data in Python
 reference plane from step 5 (``plane_point``/``plane_normal``, 3-vectors in
 room coordinates, and ``plane_defined``) and the named gaze target
 ``regions`` from step 6 (``name``, ``centre``, ``normal``, ``u_axis``,
-``width``, ``height``). The Analysis tab's **Multi-Camera Gaze Fusion**
+``width``, ``height``). The Analysis tab's **3D Gaze**
 plugin reads these and the per-camera calibration to find what each person
 looks at; see :ref:`analysis-api-gaze`.

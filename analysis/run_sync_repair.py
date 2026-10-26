@@ -78,7 +78,7 @@ _MAX_CAMERAS = 16  # matches SyncManifest::generate()'s own kMaxCams constant
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="MOSAIC Frame Sync Repair — equalize per-camera frame counts"
+        description="MOSAIC Frame Sync — equalize per-camera frame counts"
     )
     parser.add_argument(
         "--session", metavar="DIR", required=True, help="Recorded session directory"

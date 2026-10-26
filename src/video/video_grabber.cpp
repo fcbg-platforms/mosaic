@@ -1384,7 +1384,7 @@ bool VideoGrabber::reconnect_after_loss(double retryS) {
 
     log_warning(QString("[Camera %1] Lost; trying to reopen it every %2 s. Once it is back its "
                         "frames continue in the same video, and the gap is marked MISSING by "
-                        "Frame Sync Repair.")
+                        "Frame Sync.")
                     .arg(d->cameraIndex)
                     .arg(retryS, 0, 'f', 0));
     const auto lostAt  = SteadyClock::now();

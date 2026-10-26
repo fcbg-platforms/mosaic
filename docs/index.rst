@@ -108,8 +108,8 @@ MOSAIC Documentation
       :class-card: sd-border-0
 
       The ``analysis/`` project's importable library surface (Pose, Face
-      Masking, Diarization, Expression (incl. py-feat), Gaze Fusion, Motion,
-      3D Pose Reconstruction, and Remote Heart Rate), with full
+      Masking, Diarization, Expression (incl. py-feat), 3D Gaze, Motion,
+      3D Pose, and Remote Heart Rate), with full
       numpydoc-rendered signatures.
 
    .. grid-item-card:: ∑  Mathematical background
@@ -166,7 +166,7 @@ Key capabilities
    * - **Eight offline analysis plugins**
      - Pose, Face Masking, Speaker Diarization, Facial Expression (3
        backends incl. real FACS Action Units via py-feat), Multi-Camera
-       Gaze Fusion, Motion Tracking, 3D Pose Reconstruction, and an
+       3D Gaze, Motion Tracking, 3D Pose, and an
        experimental Remote Heart Rate (rPPG) estimator; see
        :doc:`user_guide`.
 

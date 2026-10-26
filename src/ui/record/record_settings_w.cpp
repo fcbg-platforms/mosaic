@@ -221,7 +221,7 @@ void RecordSettingsW::build_start_section(QVBoxLayout* parent) {
     lay->addWidget(d->hidePreviewsChk);
 
     auto* syncChk =
-        new QCheckBox("After each recording, line up every camera's video (Frame Sync Repair)");
+        new QCheckBox("After each recording, line up every camera's video (Frame Sync)");
     syncChk->setChecked(m_settings.autoSyncRepair);
     syncChk->setToolTip(
         "Writes synced/video_N.mp4 for every camera: the same number of frames each, one per "

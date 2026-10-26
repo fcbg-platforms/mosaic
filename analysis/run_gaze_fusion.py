@@ -439,8 +439,8 @@ def main(argv=None) -> None:
     timeline = load_timeline(session, prefer_synced=not args.raw)
     if timeline is None:
         fail(
-            "No synced/ videos (Frame Sync Repair) and no sync_manifest.json: nothing tells "
-            "which frames belong together. Run Frame Sync Repair first."
+            "No synced/ videos (Frame Sync) and no sync_manifest.json: nothing tells "
+            "which frames belong together. Run Frame Sync first."
         )
     log(
         f"Timeline: {timeline.source}, {timeline.n_ticks} ticks at {timeline.fps:.2f} fps, "
