@@ -2,6 +2,7 @@
 
 #include <QFile>
 #include <QTemporaryDir>
+#include <cmath>
 
 #include "analysis/hands_result.hpp"
 
@@ -16,16 +17,21 @@ const char* kFixtureJson = R"JSON(
  "camera_index": 4,
  "model": "rtmw",
  "stride": 2,
+ "fps": 21.0,
  "video_start_ms": 5000.0,
  "keypoint_names": ["wrist"],
  "hands": [
   {"subject_id": 3, "side": "left", "frames": 30, "seen_ms": 1200.0,
    "seen_spans": [[5000.0, 5800.0], [7000.0, 7400.0]], "median_size_px": 170.5,
-   "mean_score": 0.41},
+   "mean_score": 0.41,
+   "kinematics": {"measured_s": 12.1, "wrist_path_hl": 31.2, "wrist_speed_median_hl_s": 1.62,
+                  "wrist_speed_p95_hl_s": 7.43, "grip_aperture_median_palm": 0.46,
+                  "grip_aperture_p95_palm": 0.9, "hand_opening_median_palm": null}},
   {"subject_id": null, "side": "unknown", "frames": 2, "seen_ms": 80.0,
    "seen_spans": [[9000.0, 9080.0]], "median_size_px": 90.0, "mean_score": 0.6}
  ],
  "annotated_video": "hands/video_4.hands.mp4",
+ "kinematics_file": "hands/video_4.hands.kinematics.csv",
  "frames_file": "hands/video_4.hands.frames.json"
 }
 )JSON";
@@ -47,6 +53,7 @@ TEST(HandsResult, ReadsTheModelAndEachHand) {
     ASSERT_TRUE(r.is_valid());
     EXPECT_EQ(r.model(), "rtmw");
     EXPECT_EQ(r.stride(), 2);
+    EXPECT_DOUBLE_EQ(r.fps(), 21.0);
     EXPECT_DOUBLE_EQ(r.video_start_ms(), 5000.0);
     EXPECT_EQ(r.annotated_video(), "hands/video_4.hands.mp4");
     ASSERT_EQ(r.hands().size(), 2);
@@ -60,9 +67,49 @@ TEST(HandsResult, ReadsTheModelAndEachHand) {
     ASSERT_EQ(left.seenSpans.size(), 2);
     EXPECT_DOUBLE_EQ(left.seenSpans[1].first, 7000.0);
     EXPECT_DOUBLE_EQ(left.seenSpans[1].second, 7400.0);
-    // A hand no wrist was near: no person, no side.
+    EXPECT_EQ(r.kinematics_file(), "hands/video_4.hands.kinematics.csv");
+    const auto& k = left.kinematics;
+    ASSERT_TRUE(k.valid);
+    EXPECT_DOUBLE_EQ(k.measuredS, 12.1);
+    EXPECT_DOUBLE_EQ(k.wristSpeedP95, 7.43);
+    EXPECT_DOUBLE_EQ(k.gripApertureMedian, 0.46);
+    EXPECT_TRUE(std::isnan(k.handOpeningMedian)); // null: not measured
+    // A hand no wrist was near: no person, no side, no kinematics.
+    EXPECT_FALSE(r.hands()[1].kinematics.valid);
     EXPECT_EQ(r.hands()[1].subjectId, -1);
     EXPECT_EQ(r.hands()[1].display_name(), "? hand");
+}
+
+TEST(HandsResult, ReadsTheKinematicsPerHand) {
+    QTemporaryDir dir;
+    const QString path = dir.filePath("video_4.hands.kinematics.csv");
+    QFile f(path);
+    ASSERT_TRUE(f.open(QIODevice::WriteOnly | QIODevice::Text));
+    f.write(
+        "time_ms,subject_id,side,wrist_speed_hl_s,grip_aperture_palm\n"
+        "100.0,3,left,1.5,0.4\n"
+        "140.0,3,left,,0.5\n"
+        "100.0,5,right,2.0,\n"
+        "bad line\n");
+    f.close();
+    const auto series = HandsResult::load_kinematics(path);
+    ASSERT_EQ(series.size(), 2);
+    EXPECT_EQ(series[0].subjectId, 3);
+    EXPECT_EQ(series[0].side, "left");
+    EXPECT_EQ(series[0].timeMs, (QVector<double>{100.0, 140.0}));
+    const auto& speed = series[0].columns["wrist_speed_hl_s"];
+    ASSERT_EQ(speed.size(), 2);
+    EXPECT_DOUBLE_EQ(speed[0], 1.5);
+    EXPECT_TRUE(std::isnan(speed[1])); // empty: not measured
+    EXPECT_EQ(series[1].side, "right");
+    EXPECT_TRUE(std::isnan(series[1].columns["grip_aperture_palm"][0]));
+    EXPECT_TRUE(HandsResult::load_kinematics(dir.filePath("missing.csv")).isEmpty());
+    // The header only: a camera where no hand could be measured.
+    QFile empty(dir.filePath("empty.csv"));
+    ASSERT_TRUE(empty.open(QIODevice::WriteOnly | QIODevice::Text));
+    empty.write("time_ms,subject_id,side,wrist_speed_hl_s\n");
+    empty.close();
+    EXPECT_TRUE(HandsResult::load_kinematics(dir.filePath("empty.csv")).isEmpty());
 }
 
 TEST(HandsResult, AnotherSchemaOrNoFileIsInvalid) {

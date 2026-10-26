@@ -1407,6 +1407,7 @@ struct AnalysisTabW::Impl {
     QSpinBox* handsStrideSpin     = nullptr; // hands only
     QCheckBox* handsVideoCheck    = nullptr; // hands only
     QWidget* handsRowW            = nullptr; // hands only
+    QComboBox* handsShowCombo     = nullptr; // hands only: what the chart shows
     QLabel* handsStatsLbl         = nullptr; // hands only
     QComboBox* socialMetricCombo  = nullptr; // social only
     QLabel* socialStatsLbl        = nullptr; // social only
@@ -1460,16 +1461,17 @@ struct AnalysisTabW::Impl {
     PersonKinematicsSeries currentPerson;     // pose3d only: the Charts tab's one person
     DyadicKinematicsSeries currentDyad;       // pose3d only — derived from currentSkeleton3D +
                                         // the selected Track A/B pair, see update_dyadic_view()
-    TriggerFrameMap currentTriggerFrameMap;  // trigger_sync only
-    RppgResult currentRppgResult;            // rppg only
-    Gaze2dResult currentGaze2dResult;        // gaze2d only
-    FaceDynamicsResult currentFaceDynResult; // face_dynamics only
-    ConversationResult currentConversation;  // conversation, overview, rppg (by state)
-    EyeContactResult currentEyeContact;      // eye_contact only
-    SocialResult currentSocial;              // social only
-    ObjectsResult currentObjects;            // objects only
-    HandsResult currentHands;                // hands only
-    SyncRepairResult currentSyncRepair;      // sync_repair only
+    TriggerFrameMap currentTriggerFrameMap;              // trigger_sync only
+    RppgResult currentRppgResult;                        // rppg only
+    Gaze2dResult currentGaze2dResult;                    // gaze2d only
+    FaceDynamicsResult currentFaceDynResult;             // face_dynamics only
+    ConversationResult currentConversation;              // conversation, overview, rppg (by state)
+    EyeContactResult currentEyeContact;                  // eye_contact only
+    SocialResult currentSocial;                          // social only
+    ObjectsResult currentObjects;                        // objects only
+    HandsResult currentHands;                            // hands only
+    QVector<HandsResult::Series> currentHandsKinematics; // hands only, per frame
+    SyncRepairResult currentSyncRepair;                  // sync_repair only
 
     // AnalysisManager is a single shared instance (also used by
     // SessionBrowserW's "Run Pose" button and PerformanceMonitorW's
@@ -3264,6 +3266,23 @@ void AnalysisTabW::build_ui() {
     d->handsRowW      = new QWidget;
     auto* handsRowLay = new QHBoxLayout(d->handsRowW);
     handsRowLay->setContentsMargins(0, 0, 0, 0);
+    d->handsShowCombo = new QComboBox;
+    d->handsShowCombo->addItem("When each hand is seen", "seen");
+    d->handsShowCombo->addItem("Wrist speed (hand lengths/s)", "wrist_speed_hl_s");
+    d->handsShowCombo->addItem("Index fingertip speed (hand lengths/s)", "index_tip_speed_hl_s");
+    d->handsShowCombo->addItem("Grip aperture, thumb to index (palm lengths)",
+                               "grip_aperture_palm");
+    d->handsShowCombo->addItem("Hand opening (palm lengths)", "hand_opening_palm");
+    d->handsShowCombo->addItem("Index finger bend (0 straight)", "index_bend");
+    d->handsShowCombo->setToolTip(
+        "Speeds are in hand lengths per second: the hand's own palm length (wrist to the "
+        "middle knuckle) per second, so a hand far from the camera and one close to it "
+        "compare. Grip aperture and hand opening are in palm lengths too. A gap is where "
+        "the hand, or that point, was not measured.");
+    connect(d->handsShowCombo, &QComboBox::currentIndexChanged, this,
+            &AnalysisTabW::update_hands_view);
+    handsRowLay->addWidget(new QLabel("Show:"));
+    handsRowLay->addWidget(d->handsShowCombo);
     d->handsStatsLbl = new QLabel;
     d->handsStatsLbl->setStyleSheet("color:#7070a0; font-size:11px;");
     d->handsStatsLbl->setWordWrap(true);
@@ -4727,6 +4746,10 @@ void AnalysisTabW::load_camera_result_view() {
     if (is_hands_plugin()) {
         const QString jsonAbs = info->path + "/" + hands_json_path_for(videoRel);
         d->currentHands = QFileInfo::exists(jsonAbs) ? HandsResult::load(jsonAbs) : HandsResult();
+        const QString kinematics = d->currentHands.kinematics_file();
+        d->currentHandsKinematics =
+            kinematics.isEmpty() ? QVector<HandsResult::Series>()
+                                 : HandsResult::load_kinematics(info->path + "/" + kinematics);
         const QString annotated = d->currentHands.annotated_video();
         const bool hasAnnotated =
             !annotated.isEmpty() && QFileInfo::exists(info->path + "/" + annotated);
@@ -7269,36 +7292,113 @@ void AnalysisTabW::update_hands_view() {
         d->chart->set_playhead_ms(d->player->position_ms());
         return;
     }
-    // One lane per hand, high while it is seen; the chart counts from the
-    // video's first frame, like the player. Left hands green, right orange,
-    // as in the annotated video.
+    // Left hands green, right orange, as in the annotated video; a second
+    // person's hands lighter. The chart counts from the video's first frame,
+    // like the player, and always spans the whole of what was seen.
     const double t0 = r.video_start_ms();
+    // People in id order; each takes one of three shades in turn, so a
+    // fourth person does not fade to white.
+    QVector<int> people;
+    for (const auto& h : r.hands()) {
+        if (!people.contains(h.subjectId)) {
+            people << h.subjectId;
+        }
+    }
+    std::sort(people.begin(), people.end());
+    const auto colour_of = [&](int subjectId, const QString& side) {
+        const QColor c = side == QLatin1String("left")    ? QColor("#5ac85a")
+                         : side == QLatin1String("right") ? QColor("#e6a03c")
+                                                          : QColor("#9090a8");
+        switch (people.indexOf(subjectId) % 3) {
+            case 1:
+                return c.lighter(150);
+            case 2:
+                return c.darker(150);
+            default:
+                return c;
+        }
+    };
+    // A line breaks where the kinematics do: over one and a half analysed
+    // frames between two of its points.
+    const double stepMs = r.fps() > 0.0 ? 1000.0 * std::max(1, r.stride()) / r.fps() : 40.0;
+    double lastMs       = 0.0;
+    for (const auto& h : r.hands()) {
+        for (const auto& s : h.seenSpans) {
+            lastMs = std::max(lastMs, s.second - t0);
+        }
+    }
+    const QString show  = d->handsShowCombo->currentData().toString();
+    const QString model = r.model() == QLatin1String("mediapipe") ? "MediaPipe" : "RTMW";
     QVector<NamedSeries> series;
     QStringList lines;
-    double lastMs = 0.0;
-    for (int k = 0; k < r.hands().size(); ++k) {
-        const auto& h      = r.hands()[k];
-        const double level = k + 1.0;
-        QVector<QPointF> pts;
-        for (const auto& s : h.seenSpans) {
-            const double a = s.first - t0;
-            const double b = s.second - t0;
-            pts << QPointF(a, k + 0.5) << QPointF(a, level) << QPointF(b, level)
-                << QPointF(b, k + 0.5);
-            lastMs = std::max(lastMs, b);
+    if (show == "seen") {
+        // One lane per hand, high while it is seen.
+        for (int k = 0; k < r.hands().size(); ++k) {
+            const auto& h      = r.hands()[k];
+            const double level = k + 1.0;
+            QVector<QPointF> pts;
+            for (const auto& s : h.seenSpans) {
+                const double a = s.first - t0;
+                const double b = s.second - t0;
+                pts << QPointF(a, k + 0.5) << QPointF(a, level) << QPointF(b, level)
+                    << QPointF(b, k + 0.5);
+            }
+            series.append({h.display_name(), colour_of(h.subjectId, h.side), pts});
+            lines << QString("%1: seen %2 s, about %3 px")
+                         .arg(h.display_name())
+                         .arg(h.seenMs / 1000.0, 0, 'f', 1)
+                         .arg(h.medianSizePx, 0, 'f', 0);
         }
-        const QColor colour = h.side == QLatin1String("left")    ? QColor("#5ac85a")
-                              : h.side == QLatin1String("right") ? QColor("#e6a03c")
-                                                                 : QColor("#9090a8");
-        series.append({h.display_name(), colour, pts});
-        lines << QString("%1: seen %2 s, about %3 px")
-                     .arg(h.display_name())
-                     .arg(h.seenMs / 1000.0, 0, 'f', 1)
-                     .arg(h.medianSizePx, 0, 'f', 0);
+        d->chart->set_named_series(series, "Seen (one row each)", lastMs);
+        d->chart->set_title(QString("Hands (%1): when each hand is seen").arg(model));
+    } else {
+        // One line per hand, broken where it was not measured.
+        for (const auto& s : d->currentHandsKinematics) {
+            const auto values = s.columns.value(show);
+            const HandsResult::Hand h{s.subjectId, s.side};
+            QVector<QPointF> run;
+            bool listed      = false;
+            const auto flush = [&] {
+                if (!run.isEmpty()) {
+                    series.append({h.display_name(), colour_of(s.subjectId, s.side), run,
+                                   run.size() == 1, !listed, 2});
+                    listed = true;
+                    run.clear();
+                }
+            };
+            for (int i = 0; i < s.timeMs.size() && i < values.size(); ++i) {
+                if (std::isnan(values[i]) ||
+                    (!run.isEmpty() && s.timeMs[i] - t0 - run.last().x() > 1.5 * stepMs)) {
+                    flush();
+                }
+                if (!std::isnan(values[i])) {
+                    run << QPointF(s.timeMs[i] - t0, values[i]);
+                }
+            }
+            flush();
+        }
+        for (const auto& h : r.hands()) {
+            const auto& k = h.kinematics;
+            if (!k.valid) {
+                continue;
+            }
+            const auto num = [](double v, int digits) {
+                return std::isnan(v) ? QStringLiteral("n/a") : QString::number(v, 'f', digits);
+            };
+            lines << QString(
+                         "%1: wrist speed median %2, 95th percentile %3 hand lengths/s; "
+                         "grip aperture median %4 palm lengths; measured %5 s")
+                         .arg(h.display_name(), num(k.wristSpeedMedian, 1), num(k.wristSpeedP95, 1),
+                              num(k.gripApertureMedian, 2), num(k.measuredS, 1));
+        }
+        d->chart->set_named_series(series, d->handsShowCombo->currentText(), lastMs);
+        d->chart->set_title(
+            series.isEmpty()
+                ? (r.kinematics_file().isEmpty() ? "Run Hands again: this result has no "
+                                                   "kinematics yet"
+                                                 : "Not measured on this camera")
+                : QString("Hands (%1): %2").arg(model, d->handsShowCombo->currentText()));
     }
-    d->chart->set_named_series(series, "Seen (one row each)", lastMs);
-    d->chart->set_title(QString("Hands (%1): when each hand is seen")
-                            .arg(r.model() == QLatin1String("mediapipe") ? "MediaPipe" : "RTMW"));
     d->handsStatsLbl->setText(lines.join("  ·  "));
     d->chart->set_playhead_ms(d->player->position_ms());
 }

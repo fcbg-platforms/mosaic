@@ -10,18 +10,27 @@ to see the fingers.
 Writes, per camera, in ``<session>/hands/``:
 
 * ``video_N.hands.json``: the model, and a summary per hand (person, side,
-  how long it was seen and when, its size in pixels, its mean score);
+  how long it was seen and when, its size in pixels, its mean score, and
+  its kinematics: wrist path and speeds, grip aperture, hand opening);
 * ``video_N.hands.frames.json``: every analysed frame's hands: person,
   side, score, the 21 points (pixels) and their scores;
+* ``video_N.hands.kinematics.csv``: per hand and analysed frame, the
+  wrist's position, speeds (pixels and hand lengths per second), grip
+  aperture, hand opening and each finger's bend;
 * ``video_N.hands.mp4``: the video with the hands drawn on it, the
   person's left hand in green and right in orange.
+
+``--kinematics-only`` works the kinematics out again from the points
+already found, without the models.
 See docs/math/hands.rst.
 """
 
 from __future__ import annotations
 
 import argparse
+import csv
 import json
+import math
 import sys
 import time
 import traceback
@@ -29,6 +38,7 @@ from pathlib import Path
 
 import numpy as np
 from camera_pick import add_camera_arg, pick_cameras
+from hands import kinematics
 from hands.people import EDGES, KEYPOINT_NAMES, summarise
 from run_face_dynamics import frame_times_ms, read_timestamps_ms
 from run_objects import load_pose, nearest_people, video_info
@@ -49,6 +59,11 @@ def parse_args(argv=None) -> argparse.Namespace:
     p.add_argument("--model", choices=MODELS, default="rtmw", help="Hand model (default: rtmw)")
     p.add_argument("--stride", type=int, default=1, help="Analyse every Nth frame (default: 1)")
     p.add_argument("--no-video", action="store_true", help="Do not write the annotated video")
+    p.add_argument(
+        "--kinematics-only",
+        action="store_true",
+        help="Work the kinematics out again from the points already found (no models)",
+    )
     return p.parse_args(argv)
 
 
@@ -126,6 +141,66 @@ def analyse_camera(session: Path, video: Path, cam: int, model: str, stride: int
     }
 
 
+def add_kinematics(res: dict, frames: list, csv_path: Path) -> None:
+    """Each hand's kinematics: every analysed frame's into ``csv_path``,
+    the summary into the hand's entry in ``res["hands"]``."""
+    rate = float(res["fps"]) / max(1, int(res.get("stride", 1)))
+    if rate < kinematics.MIN_RATE_HZ:
+        log(
+            f"No kinematics: {rate:.1f} analysed frames per second, under "
+            f"{kinematics.MIN_RATE_HZ:g}; analyse every frame (or every 2nd) for them"
+        )
+    by_hand = kinematics.hand_samples(frames)
+    rows = []
+    for h in res["hands"]:
+        h.pop("kinematics", None)
+        series = kinematics.hand_series(by_hand.get((h["subject_id"], h["side"]), []), rate)
+        if series is None:
+            continue
+        h["kinematics"] = kinematics.summary(series, rate)
+        for i in range(len(series["time_ms"])):
+            row = {"subject_id": h["subject_id"], "side": h["side"]}
+            for col in kinematics.COLUMNS:
+                if col in series:
+                    v = float(series[col][i])
+                    row[col] = "" if math.isnan(v) else round(v, 1 if col == "time_ms" else 4)
+            rows.append(row)
+    partial = csv_path.with_name(csv_path.name + ".partial")
+    with partial.open("w", newline="", encoding="utf-8") as f:
+        w = csv.DictWriter(f, fieldnames=kinematics.COLUMNS)
+        w.writeheader()
+        w.writerows(rows)
+    partial.replace(csv_path)
+    res["kinematics_file"] = f"hands/{csv_path.name}"
+
+
+def kinematics_only(session: Path, video: Path) -> Path | None:
+    """The kinematics worked out again from a camera's saved points; None
+    when that camera has no Hands result."""
+    path = session / "hands" / f"{video.stem}.hands.json"
+    frames_path = session / "hands" / f"{video.stem}.hands.frames.json"
+    if not path.exists() or not frames_path.exists():
+        return None
+    res = json.loads(path.read_text(encoding="utf-8"))
+    frames = json.loads(frames_path.read_text(encoding="utf-8"))["frames"]
+    add_kinematics(res, frames, session / "hands" / f"{video.stem}.hands.kinematics.csv")
+    path.write_text(json.dumps(res, indent=1), encoding="utf-8")
+    return path
+
+
+def try_kinematics(res: dict, frames: list, csv_path: Path) -> None:
+    """:func:`add_kinematics`, a failure logged and left out: the points
+    found are kept either way."""
+    try:
+        add_kinematics(res, frames, csv_path)
+    except Exception:
+        traceback.print_exc()
+        res.pop("kinematics_file", None)
+        for h in res["hands"]:
+            h.pop("kinematics", None)
+        log(f"{csv_path.name}: kinematics failed (see the error above); the points are kept")
+
+
 def write_video(video: Path, result: dict, out_path: Path) -> bool:
     """The video with each hand's points and lines, and whose it is; between
     analysed frames the last result holds."""
@@ -178,6 +253,23 @@ def main(argv=None, estimator=None) -> int:
     if not videos:
         print(f"{TAG} No videos to analyse in {session / 'video'}", file=sys.stderr)
         return 1
+    if args.kinematics_only:
+        failed = 0
+        for video in videos:
+            try:
+                path = kinematics_only(session, video)
+            except Exception:  # one camera's failure must not stop the others
+                traceback.print_exc()
+                log(f"{video.name}: kinematics failed (see the error above)")
+                failed += 1
+                continue
+            if path is None:
+                log(f"{video.name}: no Hands result to work from: run Hands first")
+                failed += 1
+            else:
+                log(f"{video.name}: kinematics -> {path}")
+        print(f"  100.0%  ({len(videos)}/{len(videos)})", flush=True)
+        return 1 if failed == len(videos) else 0
     if estimator is None:
         from hands.models import make_estimator
 
@@ -204,6 +296,7 @@ def main(argv=None, estimator=None) -> int:
                 json.dumps({"schema": SCHEMA + "-frames", "frames": frames}), encoding="utf-8"
             )
             res["frames_file"] = f"hands/{video.stem}.hands.frames.json"
+            try_kinematics(res, frames, out_dir / f"{video.stem}.hands.kinematics.csv")
             path = out_dir / f"{video.stem}.hands.json"
             path.write_text(json.dumps(res, indent=1), encoding="utf-8")
         except Exception:  # one camera's failure must not stop the others

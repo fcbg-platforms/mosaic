@@ -960,6 +960,14 @@ Pose result (:mod:`hands.people`). See :doc:`math/hands`.
 
 .. autofunction:: hands.people.summarise
 
+.. autofunction:: hands.kinematics.clean
+
+.. autofunction:: hands.kinematics.hand_series
+
+.. autofunction:: hands.kinematics.measures
+
+.. autofunction:: hands.kinematics.summary
+
 .. _analysis-api-social:
 
 Social Interaction

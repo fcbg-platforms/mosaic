@@ -1,4 +1,5 @@
 #pragma once
+#include <QMap>
 #include <QPair>
 #include <QString>
 #include <QVector>
@@ -8,10 +9,34 @@ namespace mosaic {
 /// @brief What analysis/run_hands.py found in one camera's video
 /// (``<session>/hands/video_N.hands.json``, schema mosaic-hands-v1): the
 /// model used, and each hand found, by person (Pose subject id) and side,
-/// with when it was seen. Every frame's 21 points are in a separate file,
-/// not read here: the annotated video shows them. See docs/math/hands.rst.
+/// with when it was seen and its kinematics. Every frame's 21 points are in
+/// a separate file, not read here: the annotated video shows them. The
+/// kinematics per frame are in a CSV, read by load_kinematics(). See
+/// docs/math/hands.rst.
 class HandsResult {
    public:
+    /// A hand's kinematics over the recording; speeds in hand lengths per
+    /// second, aperture and opening in palm lengths. NaN where not measured.
+    struct Kinematics {
+        bool valid = false;
+        double measuredS{};
+        double wristPathHl{};
+        double wristSpeedMedian{};
+        double wristSpeedP95{};
+        double gripApertureMedian{};
+        double gripApertureP95{};
+        double handOpeningMedian{};
+    };
+
+    /// One hand's kinematics per analysed frame (the CSV's rows for it):
+    /// each column by name, NaN where the CSV has no value.
+    struct Series {
+        int subjectId = -1;
+        QString side;
+        QVector<double> timeMs;
+        QMap<QString, QVector<double>> columns;
+    };
+
     struct Hand {
         /// The Pose subject id, or -1: a hand no person's wrist was near, or
         /// on a person Pose did not track.
@@ -22,6 +47,7 @@ class HandsResult {
         double medianSizePx{};
         double meanScore{};
         QVector<QPair<double, double>> seenSpans; ///< session elapsed ms
+        Kinematics kinematics;
 
         /// "S3 left hand", or "? hand".
         [[nodiscard]] QString display_name() const {
@@ -33,20 +59,31 @@ class HandsResult {
 
     [[nodiscard]] static HandsResult load(const QString& path);
 
+    /// The kinematics CSV (``video_N.hands.kinematics.csv``), one Series per
+    /// hand in the order they first appear; empty when it cannot be read.
+    [[nodiscard]] static QVector<Series> load_kinematics(const QString& path);
+
     [[nodiscard]] bool is_valid() const { return valid_; }
     /// "rtmw" or "mediapipe".
     [[nodiscard]] QString model() const { return model_; }
     [[nodiscard]] int stride() const { return stride_; }
+    /// The video's frame rate.
+    [[nodiscard]] double fps() const { return fps_; }
     [[nodiscard]] double video_start_ms() const { return videoStartMs_; }
     [[nodiscard]] QString annotated_video() const { return annotatedVideo_; }
+    /// Session-relative path of the kinematics CSV; empty for a result from
+    /// before kinematics.
+    [[nodiscard]] QString kinematics_file() const { return kinematicsFile_; }
     [[nodiscard]] const QVector<Hand>& hands() const { return hands_; }
 
    private:
     bool valid_ = false;
     QString model_;
     int stride_ = 1;
+    double fps_{};
     double videoStartMs_{};
     QString annotatedVideo_;
+    QString kinematicsFile_;
     QVector<Hand> hands_;
 };
 

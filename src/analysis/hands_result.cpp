@@ -4,8 +4,19 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QTextStream>
+#include <algorithm>
+#include <limits>
 
 namespace mosaic {
+
+namespace {
+
+double number_or_nan(const QJsonValue& v) {
+    return v.isDouble() ? v.toDouble() : std::numeric_limits<double>::quiet_NaN();
+}
+
+} // namespace
 
 HandsResult HandsResult::load(const QString& path) {
     HandsResult r;
@@ -19,8 +30,10 @@ HandsResult HandsResult::load(const QString& path) {
     }
     r.model_          = root["model"].toString();
     r.stride_         = root["stride"].toInt(1);
+    r.fps_            = root["fps"].toDouble();
     r.videoStartMs_   = root["video_start_ms"].toDouble();
     r.annotatedVideo_ = root["annotated_video"].toString();
+    r.kinematicsFile_ = root["kinematics_file"].toString();
     for (const auto& v : root["hands"].toArray()) {
         const QJsonObject o = v.toObject();
         Hand h;
@@ -36,10 +49,66 @@ HandsResult HandsResult::load(const QString& path) {
                 h.seenSpans.append({a[0].toDouble(), a[1].toDouble()});
             }
         }
+        if (o["kinematics"].isObject()) {
+            const QJsonObject k             = o["kinematics"].toObject();
+            h.kinematics.valid              = true;
+            h.kinematics.measuredS          = number_or_nan(k["measured_s"]);
+            h.kinematics.wristPathHl        = number_or_nan(k["wrist_path_hl"]);
+            h.kinematics.wristSpeedMedian   = number_or_nan(k["wrist_speed_median_hl_s"]);
+            h.kinematics.wristSpeedP95      = number_or_nan(k["wrist_speed_p95_hl_s"]);
+            h.kinematics.gripApertureMedian = number_or_nan(k["grip_aperture_median_palm"]);
+            h.kinematics.gripApertureP95    = number_or_nan(k["grip_aperture_p95_palm"]);
+            h.kinematics.handOpeningMedian  = number_or_nan(k["hand_opening_median_palm"]);
+        }
         r.hands_ << h;
     }
     r.valid_ = true;
     return r;
+}
+
+QVector<HandsResult::Series> HandsResult::load_kinematics(const QString& path) {
+    QVector<Series> out;
+    QFile f(path);
+    if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        return out;
+    }
+    QTextStream ts(&f);
+    const QStringList header = ts.readLine().split(',');
+    const auto col           = [&](const char* name) { return header.indexOf(name); };
+    const int time = col("time_ms"), subject = col("subject_id"), side = col("side");
+    if (time < 0 || subject < 0 || side < 0) {
+        return out;
+    }
+    const double nan = std::numeric_limits<double>::quiet_NaN();
+    while (!ts.atEnd()) {
+        const QStringList cells = ts.readLine().split(',');
+        if (cells.size() != header.size()) {
+            continue;
+        }
+        bool isId           = false;
+        const int id        = cells[subject].toInt(&isId);
+        const int subjectId = isId ? id : -1;
+        const auto same     = [&](const Series& s) {
+            return s.subjectId == subjectId && s.side == cells[side];
+        };
+        // Rows come grouped by hand: the last series is nearly always it.
+        auto it = !out.isEmpty() && same(out.last()) ? out.end() - 1
+                                                     : std::find_if(out.begin(), out.end(), same);
+        if (it == out.end()) {
+            out.append(Series{subjectId, cells[side], {}, {}});
+            it = out.end() - 1;
+        }
+        it->timeMs << cells[time].toDouble();
+        for (int c = 0; c < header.size(); ++c) {
+            if (c == time || c == subject || c == side) {
+                continue;
+            }
+            bool ok        = false;
+            const double v = cells[c].toDouble(&ok);
+            it->columns[header[c]] << (ok ? v : nan);
+        }
+    }
+    return out;
 }
 
 } // namespace mosaic

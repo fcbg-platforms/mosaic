@@ -622,10 +622,14 @@ Reconstruction, and Frame Sync was Frame Sync Repair.
       **What it does**: finds each hand on a close-up camera (room 11's
       Cameras 1 and 5, on the table), 21 points per hand: the wrist, and
       each finger's joints out to its tip. Each hand is labelled with whose
-      it is (the Pose person, "S3") and the person's own left or right. It
-      needs Pose on the same camera, which says where the people are. Writes
+      it is (the Pose person, "S3") and the person's own left or right, then
+      its kinematics: wrist and fingertip speeds, grip aperture (thumb to
+      index), hand opening and each finger's bend. It needs Pose on the same
+      camera, which says where the people are. Writes
       ``hands/video_N.hands.json``, every frame's points in
-      ``hands/video_N.hands.frames.json`` and, with **Annotated video**,
+      ``hands/video_N.hands.frames.json``, every frame's kinematics in
+      ``hands/video_N.hands.kinematics.csv`` (for your own statistics) and,
+      with **Annotated video**,
       ``hands/video_N.hands.mp4`` with the hands drawn (left green, right
       orange). See :doc:`math/hands`.
 
@@ -633,12 +637,21 @@ Reconstruction, and Frame Sync was Frame Sync Repair.
       hands hold things; about twice the recording's length per camera on
       the CPU) or **MediaPipe** (quicker, weaker on hands holding objects).
       Each downloads its model files on first use. **every N frames** (1 by
-      default: hands move fast, keep 1 for speeds and grasps).
+      default: hands move fast, keep 1 for speeds and grasps; the
+      kinematics need at least 10 analysed frames a second, so every 2nd
+      frame at most).
 
-      **Reading it**: the video shows the hands as found; the chart has one
-      row per hand, high while it is seen, and the line under it gives how
-      long each was seen and its size in pixels. Speeds, grip aperture,
-      reaches and grasps come in later versions, from this result.
+      **Reading it**: the video shows the hands as found. **Show** picks
+      the chart: when each hand is seen (one row each), or one line per hand
+      of its wrist speed, index fingertip speed, grip aperture, hand opening
+      or index finger bend; left hands green and right orange, other
+      people's in lighter or darker shades. Speeds are in hand lengths per second and aperture
+      and opening in palm lengths, so near and far hands, and small and large
+      ones, compare (a 10 cm palm: 1 hand length per second is about
+      0.1 m/s). A gap is where the hand, or that point, was not measured.
+      The line under the chart gives each hand's median and 95th percentile
+      wrist speed and median grip aperture; the session report has them
+      too. Reaches and grasps come in a later version.
 
    .. tab-item:: Social Interaction
 
