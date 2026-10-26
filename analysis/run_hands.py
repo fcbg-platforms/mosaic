@@ -17,6 +17,10 @@ Writes, per camera, in ``<session>/hands/``:
 * ``video_N.hands.kinematics.csv``: per hand and analysed frame, the
   wrist's position, speeds (pixels and hand lengths per second), grip
   aperture, hand opening and each finger's bend;
+* ``video_N.hands.movements.csv``: one row per movement of a hand (a
+  reach, a grasp, any move): when, how long, peak speed and when it came,
+  path and straightness, movement units, SPARC smoothness, the maximum grip
+  aperture and when it came;
 * ``video_N.hands.mp4``: the video with the hands drawn on it, the
   person's left hand in green and right in orange.
 
@@ -38,7 +42,7 @@ from pathlib import Path
 
 import numpy as np
 from camera_pick import add_camera_arg, pick_cameras
-from hands import kinematics
+from hands import kinematics, movements
 from hands.people import EDGES, KEYPOINT_NAMES, summarise
 from run_face_dynamics import frame_times_ms, read_timestamps_ms
 from run_objects import load_pose, nearest_people, video_info
@@ -141,9 +145,20 @@ def analyse_camera(session: Path, video: Path, cam: int, model: str, stride: int
     }
 
 
+def _write_csv(path: Path, columns, rows: list) -> None:
+    partial = path.with_name(path.name + ".partial")
+    with partial.open("w", newline="", encoding="utf-8") as f:
+        w = csv.DictWriter(f, fieldnames=columns)
+        w.writeheader()
+        w.writerows(rows)
+    partial.replace(path)
+
+
 def add_kinematics(res: dict, frames: list, csv_path: Path) -> None:
-    """Each hand's kinematics: every analysed frame's into ``csv_path``,
-    the summary into the hand's entry in ``res["hands"]``."""
+    """Each hand's kinematics and movements: every analysed frame's into
+    ``csv_path``, every movement's into the ``.movements.csv`` beside it,
+    the summaries into the hand's entry in ``res["hands"]``, and how each
+    person used their two hands into ``res["people"]``."""
     rate = float(res["fps"]) / max(1, int(res.get("stride", 1)))
     if rate < kinematics.MIN_RATE_HZ:
         log(
@@ -151,13 +166,18 @@ def add_kinematics(res: dict, frames: list, csv_path: Path) -> None:
             f"{kinematics.MIN_RATE_HZ:g}; analyse every frame (or every 2nd) for them"
         )
     by_hand = kinematics.hand_samples(frames)
-    rows = []
+    rows, moves, by_person = [], [], {}
     for h in res["hands"]:
         h.pop("kinematics", None)
+        h.pop("movements", None)
         series = kinematics.hand_series(by_hand.get((h["subject_id"], h["side"]), []), rate)
         if series is None:
             continue
         h["kinematics"] = kinematics.summary(series, rate)
+        found, cut_off = movements.find_movements(series, rate)
+        h["movements"] = movements.hand_summary(found, len(cut_off))
+        moves += [{"subject_id": h["subject_id"], "side": h["side"], **m} for m in found]
+        by_person.setdefault(h["subject_id"], {})[h["side"]] = found + cut_off
         for i in range(len(series["time_ms"])):
             row = {"subject_id": h["subject_id"], "side": h["side"]}
             for col in kinematics.COLUMNS:
@@ -165,13 +185,18 @@ def add_kinematics(res: dict, frames: list, csv_path: Path) -> None:
                     v = float(series[col][i])
                     row[col] = "" if math.isnan(v) else round(v, 1 if col == "time_ms" else 4)
             rows.append(row)
-    partial = csv_path.with_name(csv_path.name + ".partial")
-    with partial.open("w", newline="", encoding="utf-8") as f:
-        w = csv.DictWriter(f, fieldnames=kinematics.COLUMNS)
-        w.writeheader()
-        w.writerows(rows)
-    partial.replace(csv_path)
+    _write_csv(csv_path, kinematics.COLUMNS, rows)
     res["kinematics_file"] = f"hands/{csv_path.name}"
+    moves_path = csv_path.with_name(csv_path.name.replace(".kinematics.", ".movements."))
+    moves.sort(key=lambda m: (m["start_ms"], m["subject_id"], m["side"]))
+    _write_csv(moves_path, movements.MOVEMENT_COLUMNS, moves)
+    res["movements_file"] = f"hands/{moves_path.name}"
+    # Two hands' use, for the people with both hands measured.
+    res["people"] = [
+        {"subject_id": pid, **movements.person_summary(sides["left"], sides["right"])}
+        for pid, sides in sorted(by_person.items(), key=lambda kv: kv[0])
+        if "left" in sides and "right" in sides
+    ]
 
 
 def kinematics_only(session: Path, video: Path) -> Path | None:
@@ -195,9 +220,11 @@ def try_kinematics(res: dict, frames: list, csv_path: Path) -> None:
         add_kinematics(res, frames, csv_path)
     except Exception:
         traceback.print_exc()
-        res.pop("kinematics_file", None)
+        for key in ("kinematics_file", "movements_file", "people"):
+            res.pop(key, None)
         for h in res["hands"]:
             h.pop("kinematics", None)
+            h.pop("movements", None)
         log(f"{csv_path.name}: kinematics failed (see the error above); the points are kept")
 
 

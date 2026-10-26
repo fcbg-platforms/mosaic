@@ -28,6 +28,40 @@ class HandsResult {
         double handOpeningMedian{};
     };
 
+    /// A hand's movements (reaches, grasps, any move) in a few numbers:
+    /// medians over its movements; NaN where none had the value.
+    struct Movements {
+        bool valid = false;
+        int count  = 0;
+        int cutOff = 0; ///< left out: the measurement starts or ends during them
+        double durationS{};
+        double peakSpeed{};       ///< hand lengths per second
+        double timeToPeakPct{};   ///< of the movement
+        double movementUnits{};   ///< speed peaks per movement
+        double sparc{};           ///< smoothness: closer to 0 is smoother
+        double straightness{};    ///< straight-line distance over path
+        double maxGripAperture{}; ///< palm lengths
+    };
+
+    /// One movement (a row of ``video_N.hands.movements.csv``).
+    struct Movement {
+        int subjectId = -1;
+        QString side;
+        double startMs{};
+        double endMs{};
+        double peakSpeed{};
+    };
+
+    /// How a person used their two hands (both measured).
+    struct Person {
+        int subjectId = -1;
+        /// (right - left) / (right + left) movements: -1 all left, 1 all right.
+        double lateralityIndex{};
+        double bothMovingS{};
+        /// The share of the time either hand moved that both did.
+        double bothMovingShare{};
+    };
+
     /// One hand's kinematics per analysed frame (the CSV's rows for it):
     /// each column by name, NaN where the CSV has no value.
     struct Series {
@@ -48,6 +82,7 @@ class HandsResult {
         double meanScore{};
         QVector<QPair<double, double>> seenSpans; ///< session elapsed ms
         Kinematics kinematics;
+        Movements movements;
 
         /// "S3 left hand", or "? hand".
         [[nodiscard]] QString display_name() const {
@@ -63,6 +98,10 @@ class HandsResult {
     /// hand in the order they first appear; empty when it cannot be read.
     [[nodiscard]] static QVector<Series> load_kinematics(const QString& path);
 
+    /// The movements CSV (``video_N.hands.movements.csv``), in its order;
+    /// empty when it cannot be read.
+    [[nodiscard]] static QVector<Movement> load_movements(const QString& path);
+
     [[nodiscard]] bool is_valid() const { return valid_; }
     /// "rtmw" or "mediapipe".
     [[nodiscard]] QString model() const { return model_; }
@@ -74,6 +113,9 @@ class HandsResult {
     /// Session-relative path of the kinematics CSV; empty for a result from
     /// before kinematics.
     [[nodiscard]] QString kinematics_file() const { return kinematicsFile_; }
+    /// Session-relative path of the movements CSV; empty before movements.
+    [[nodiscard]] QString movements_file() const { return movementsFile_; }
+    [[nodiscard]] const QVector<Person>& people() const { return people_; }
     [[nodiscard]] const QVector<Hand>& hands() const { return hands_; }
 
    private:
@@ -84,6 +126,8 @@ class HandsResult {
     double videoStartMs_{};
     QString annotatedVideo_;
     QString kinematicsFile_;
+    QString movementsFile_;
+    QVector<Person> people_;
     QVector<Hand> hands_;
 };
 

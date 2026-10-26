@@ -6,12 +6,15 @@ Hands
    :depth: 1
 
 Implemented in ``analysis/run_hands.py`` and the ``hands`` package
-(``models.py``, ``people.py``, ``kinematics.py``); shown in the Analysis
+(``models.py``, ``people.py``, ``kinematics.py``, ``movements.py``);
+shown in the Analysis
 tab's **Hands** entry and in the session report. Made for close-up cameras
 on a table (room 11's Cameras 1 and 5), where a hand is large enough to see
 the fingers. It finds the points per frame, then works out the hand's
 kinematics from them: speeds, grip aperture, hand opening and finger bend.
-Reaches and grasps come next and read these.
+Last it finds each hand's movements (reaches, grasps, any move) with the
+measures the reaching and grasping literature uses, and how each person
+used their two hands.
 
 What is found
 -------------
@@ -186,6 +189,83 @@ aperture of 0.5 to 0.7 palm lengths. The same camera's other, partly seen
 hands (the person walking in, under other Pose ids) read 1 to 3 m/s: a
 small or partly seen hand gives inflated speeds.
 
+Movements
+---------
+
+A **movement** is a stretch where the hand's wrist moves faster than 0.5
+hand lengths per second (about 5 cm/s for a 10 cm palm), peaks at 1.5 or
+more, and lasts at least 0.2 s (from its first to its last sample
+above). A threshold in the hand's own units works the same for near and far
+hands; it finds reaches and grasps, and also any other move of the hand, so
+which movements are reaches depends on the task. The thresholds are the
+module's constants (``hands/movements.py``).
+
+A movement the measurement starts or ends during (the hand appears already
+moving, or is lost mid-movement, at a gap or between two of the hand's
+runs) is **cut off**: its duration, peak and shape would be wrong, so it is
+left out of the measures, and counted. It still counts as that hand moving
+for the laterality index and for both hands moving (below). How many are
+cut off depends on how continuously the hand is measured: on sub-31 about
+half were, for a person often half out of view; a hand in full view at the
+table is cut off far less.
+
+Per movement (``video_N.hands.movements.csv``):
+
+- **start and end**, session time, and **duration** (end minus start), over
+  the part above 0.5 hand lengths per second;
+- **peak speed**, and **time to peak** as a share of the movement: a reach
+  aimed at a target speeds up quickly and slows down for longer (peak
+  before 50%), a guided or uncertain one has a long slow ending;
+- **mean speed** and **path**, in hand lengths, and **straightness**: the
+  wrist's straight-line distance from start to end over its path, both in
+  pixels (1 is a straight line);
+- **movement units**, after von Hofsten's (1991) units for infants'
+  reaches (one speeding up and one slowing down): speed peaks at least 0.2
+  hand lengths per second (about 20 mm/s) above the lowest speed on each
+  side of them before a higher peak (their prominence). 1 for one smooth
+  movement, more for a reach made of several corrections;
+- **SPARC**, the spectral arc length (Balasubramanian et al., 2015): minus
+  the length of the speed profile's normalised magnitude spectrum, from 0 up
+  to 10 Hz (or the Nyquist frequency, which the authors' reference code
+  does not cap at; it changes nothing at 21 to 25 fps), cut where it falls
+  under 5% of its peak; the same as that code otherwise. Closer to 0 is
+  smoother: -1.41 for one minimum-jerk reach, at any frame rate and speed;
+  a movement with stops and starts is lower (two minimum-jerk reaches in a
+  row: under -1.8);
+- **maximum grip aperture** (palm lengths) and when it comes, as a share
+  of the movement: in a reach to grasp the hand opens on the way, wider
+  than the object, and closes on it near the end (at 60 to 80% of the
+  movement in adults; Jeannerod, 1984).
+
+Movement units and SPARC are over the movement's whole speed profile,
+widened from the 0.5 threshold to the speed's nearest low point on each
+side. Cut at the threshold, a slow movement would start and end on a slope,
+and its SPARC would read it as less smooth than a fast one of the same
+shape (-1.74 against -1.41 for a minimum-jerk reach peaking at 1.5 and at
+9.4 hand lengths per second): children's slower reaches would look jerkier
+than they are.
+
+Per hand (``video_N.hands.json``, ``movements``): how many movements, and
+the medians of the above. Per person, when both hands were measured
+(``people``):
+
+- the **laterality index**, (right - left) / (right + left) movements: -1
+  all with the left hand, 1 all with the right;
+- how long **both hands moved** at once, in seconds and as a share of the
+  time either did.
+
+At 21 to 25 fps, a movement's speed profile has about 20 points per
+second: peak speed and time to peak are within one frame (40 to 50 ms),
+and short sub-movements can merge, so movement units are counted low for
+fast, corrected reaches. SPARC needs the whole profile and is the most
+sensitive to the frame rate and to the filter (above).
+
+On sub-31 (Camera 5), the seated person, turning a ball over in both
+hands, made 3 and 7 complete movements with the left and right hand (7 and
+2 more cut off), a median 0.7 to 0.8 s long, with 3 movement units and
+SPARC -1.7 to -1.9; both hands moved together about half the time either
+did, and the two hands were used about equally (laterality -0.05).
+
 Limits
 ------
 
@@ -221,6 +301,9 @@ Per camera, in ``<session>/hands/``:
   its person, side, score, 21 points (0.1 pixel) and their scores;
 - ``video_N.hands.kinematics.csv``: per hand and analysed frame, the
   measures above, one column each (empty where not measured);
+- ``video_N.hands.movements.csv``: one row per movement, the measures
+  above (empty where not measured); ``video_N.hands.json`` adds each
+  hand's ``movements`` summary and the ``people`` list;
 - ``video_N.hands.mp4``: with **Annotated video**, the video with each hand
   drawn, the person's left in green and right in orange, labelled "S3
   left"; between analysed frames the last result holds.
@@ -237,6 +320,13 @@ References
 - rtmlib: https://github.com/Tau-J/rtmlib (Apache-2.0).
 - Winter, D. A. (2009). Biomechanics and Motor Control of Human Movement
   (4th ed.). Wiley. (Low-pass filtering of movement data.)
+- Balasubramanian, S., Melendez-Calderon, A., Roby-Brami, A., and Burdet,
+  E. (2015). On the analysis of movement smoothness. Journal of
+  NeuroEngineering and Rehabilitation, 12, 112.
+- von Hofsten, C. (1991). Structuring of early reaching movements: a
+  longitudinal study. Journal of Motor Behavior, 23(4), 280-292.
+- Jeannerod, M. (1984). The timing of natural prehension movements.
+  Journal of Motor Behavior, 16(3), 235-254.
 - Hampel, F. R. (1974). The influence curve and its role in robust
   estimation. Journal of the American Statistical Association, 69(346),
   383-393.

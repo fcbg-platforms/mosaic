@@ -651,7 +651,16 @@ Reconstruction, and Frame Sync was Frame Sync Repair.
       0.1 m/s). A gap is where the hand, or that point, was not measured.
       The line under the chart gives each hand's median and 95th percentile
       wrist speed and median grip aperture; the session report has them
-      too. Reaches and grasps come in a later version.
+      too. **Movements** shows, per hand, a block for each movement (a
+      reach, a grasp, any move faster than 0.5 hand lengths per second);
+      the line under the chart gives each hand's number of movements (and
+      how many were cut off, where the hand was not measured all through
+      them: left out of the numbers) and their median peak speed, movement units (1 for one smooth movement)
+      and SPARC smoothness (closer to 0 is smoother), and per person the
+      laterality index (-1 all left, 1 all right) and how often both hands
+      moved together. Every movement's numbers (duration, peak speed and
+      when it came, path, straightness, units, SPARC, maximum grip aperture
+      and when it came) are in ``hands/video_N.hands.movements.csv``.
 
    .. tab-item:: Social Interaction
 

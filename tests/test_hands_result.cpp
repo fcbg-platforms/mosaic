@@ -26,12 +26,19 @@ const char* kFixtureJson = R"JSON(
    "mean_score": 0.41,
    "kinematics": {"measured_s": 12.1, "wrist_path_hl": 31.2, "wrist_speed_median_hl_s": 1.62,
                   "wrist_speed_p95_hl_s": 7.43, "grip_aperture_median_palm": 0.46,
-                  "grip_aperture_p95_palm": 0.9, "hand_opening_median_palm": null}},
+                  "grip_aperture_p95_palm": 0.9, "hand_opening_median_palm": null},
+   "movements": {"movements": 10, "duration_median_s": 0.88, "peak_speed_median_hl_s": 6.66,
+                 "time_to_peak_median_pct": 47.0, "movement_units_median": 3.0,
+                 "sparc_median": -1.95, "straightness_median": 0.77,
+                 "max_grip_aperture_median_palm": null}},
   {"subject_id": null, "side": "unknown", "frames": 2, "seen_ms": 80.0,
    "seen_spans": [[9000.0, 9080.0]], "median_size_px": 90.0, "mean_score": 0.6}
  ],
  "annotated_video": "hands/video_4.hands.mp4",
  "kinematics_file": "hands/video_4.hands.kinematics.csv",
+ "movements_file": "hands/video_4.hands.movements.csv",
+ "people": [{"subject_id": 3, "laterality_index": 0.05, "both_moving_s": 6.03,
+             "both_moving_share": 0.51}],
  "frames_file": "hands/video_4.hands.frames.json"
 }
 )JSON";
@@ -74,8 +81,21 @@ TEST(HandsResult, ReadsTheModelAndEachHand) {
     EXPECT_DOUBLE_EQ(k.wristSpeedP95, 7.43);
     EXPECT_DOUBLE_EQ(k.gripApertureMedian, 0.46);
     EXPECT_TRUE(std::isnan(k.handOpeningMedian)); // null: not measured
+    const auto& m = left.movements;
+    ASSERT_TRUE(m.valid);
+    EXPECT_EQ(m.count, 10);
+    EXPECT_DOUBLE_EQ(m.peakSpeed, 6.66);
+    EXPECT_DOUBLE_EQ(m.movementUnits, 3.0);
+    EXPECT_DOUBLE_EQ(m.sparc, -1.95);
+    EXPECT_TRUE(std::isnan(m.maxGripAperture));
+    EXPECT_EQ(r.movements_file(), "hands/video_4.hands.movements.csv");
+    ASSERT_EQ(r.people().size(), 1);
+    EXPECT_EQ(r.people()[0].subjectId, 3);
+    EXPECT_DOUBLE_EQ(r.people()[0].lateralityIndex, 0.05);
+    EXPECT_DOUBLE_EQ(r.people()[0].bothMovingShare, 0.51);
     // A hand no wrist was near: no person, no side, no kinematics.
     EXPECT_FALSE(r.hands()[1].kinematics.valid);
+    EXPECT_FALSE(r.hands()[1].movements.valid);
     EXPECT_EQ(r.hands()[1].subjectId, -1);
     EXPECT_EQ(r.hands()[1].display_name(), "? hand");
 }
@@ -110,6 +130,26 @@ TEST(HandsResult, ReadsTheKinematicsPerHand) {
     empty.write("time_ms,subject_id,side,wrist_speed_hl_s\n");
     empty.close();
     EXPECT_TRUE(HandsResult::load_kinematics(dir.filePath("empty.csv")).isEmpty());
+}
+
+TEST(HandsResult, ReadsTheMovements) {
+    QTemporaryDir dir;
+    const QString path = dir.filePath("video_4.hands.movements.csv");
+    QFile f(path);
+    ASSERT_TRUE(f.open(QIODevice::WriteOnly | QIODevice::Text));
+    f.write(
+        "subject_id,side,start_ms,end_ms,duration_s,peak_speed_hl_s,sparc\n"
+        "3,left,1000.0,1880.0,0.88,9.4,-1.41\n"
+        "3,right,2500.0,3100.0,0.6,4.2,-2.0\n");
+    f.close();
+    const auto moves = HandsResult::load_movements(path);
+    ASSERT_EQ(moves.size(), 2);
+    EXPECT_EQ(moves[0].subjectId, 3);
+    EXPECT_EQ(moves[0].side, "left");
+    EXPECT_DOUBLE_EQ(moves[0].startMs, 1000.0);
+    EXPECT_DOUBLE_EQ(moves[0].endMs, 1880.0);
+    EXPECT_DOUBLE_EQ(moves[1].peakSpeed, 4.2);
+    EXPECT_TRUE(HandsResult::load_movements(dir.filePath("missing.csv")).isEmpty());
 }
 
 TEST(HandsResult, AnotherSchemaOrNoFileIsInvalid) {

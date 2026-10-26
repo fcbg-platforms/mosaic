@@ -976,7 +976,24 @@ def _hands(hd: dict) -> str:
                 f"95th percentile {num(k.get('wrist_speed_p95_hl_s'), 1)} hand lengths/s; "
                 f"grip aperture median {num(k.get('grip_aperture_median_palm'), 2)} palm lengths"
             )
+        mv = h.get("movements")
+        if mv:
+            cut = f" ({mv['cut_off']} cut off, left out)" if mv.get("cut_off") else ""
+            detail += (
+                f"; {num(mv.get('movements'))} movements{cut}, median peak "
+                f"{num(mv.get('peak_speed_median_hl_s'), 1)} hand lengths/s, "
+                f"{num(mv.get('movement_units_median'), 0)} units, "
+                f"SPARC {num(mv.get('sparc_median'), 2)}"
+            )
         rows.append((f"{who}{side} hand", detail))
+    for p in hd.get("people", []):
+        rows.append(
+            (
+                f"person {esc(p.get('subject_id'))}, both hands",
+                f"laterality {num(p.get('laterality_index'), 2)} (-1 all left, 1 all right); "
+                f"both moving {num(p.get('both_moving_s'), 1, ' s')}",
+            )
+        )
     model = "MediaPipe" if hd.get("model") == "mediapipe" else "RTMW"
     return _small(f"Hands ({model})", rows or [("Found", "no hand")])
 
