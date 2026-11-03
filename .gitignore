@@ -72,6 +72,9 @@ analysis/gaze2d/models/
 # Hands: the RTMW and RTMPose hand ONNX models and MediaPipe's hand
 # landmarker, downloaded on first use (analysis/hands/models.py).
 analysis/hands/models/
+# 3D Avatar: Anny's cache of its parsed MakeHuman assets, built on first use
+# (analysis/avatar/fit.py sets ANNY_CACHE_DIR here).
+analysis/avatar/cache/
 
 # Logs
 *.log

@@ -302,6 +302,10 @@ void AnalysisManager::run_hands_analysis(const QString& sessionPath, const QStri
     enqueue_or_launch(sessionPath, "analysis/run_hands.py", args, {});
 }
 
+void AnalysisManager::run_avatar_analysis(const QString& sessionPath) {
+    enqueue_or_launch(sessionPath, "analysis/run_avatar.py", {"--session", sessionPath}, {});
+}
+
 void AnalysisManager::run_social_analysis(const QString& sessionPath, int cameraA, int cameraB) {
     const QStringList args = {"--session",  sessionPath,
                               "--camera-a", QString::number(cameraA),

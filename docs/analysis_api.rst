@@ -984,6 +984,28 @@ Pose result (:mod:`hands.people`). See :doc:`math/hands`.
 
 .. autofunction:: hands.hands3d.pair_report
 
+.. _analysis-api-avatar:
+
+3D Avatar
+---------
+
+Anny fitted to each 3D Pose person (:class:`avatar.fit.AnnyFitter`), the
+plain geometry around it (:mod:`avatar.people`) and the file the app reads
+(:mod:`avatar.io`). See :doc:`math/avatar`.
+
+.. automodule:: avatar
+   :no-members:
+
+.. autoclass:: avatar.fit.AnnyFitter
+   :members: fit, export
+
+.. automodule:: avatar.io
+   :members: write_person, read_person
+
+.. autofunction:: avatar.people.load_people
+
+.. autofunction:: avatar.people.up_frame
+
 .. _analysis-api-social:
 
 Social Interaction

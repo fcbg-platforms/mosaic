@@ -39,6 +39,7 @@ SESSION_ANALYSES = (
     ("voice", "Voice analysis"),
     ("gaze_fusion", "3D Gaze"),
     ("pose3d", "3D Pose"),
+    ("avatar", "3D Avatar"),
     ("social", "Social Interaction"),
     ("sync_repair", "Frame Sync"),
 )
@@ -412,6 +413,22 @@ def _hands3d(session: Path) -> dict | None:
     return {k: d.get(k) for k in ("agreement", "hands", "people")}
 
 
+def _avatar(session: Path) -> dict | None:
+    """Each person's body (``avatar/avatar.json``): its shape and how well it
+    fits; the bodies themselves stay in their files."""
+    d = read_json(session / "avatar" / "avatar.json")
+    if d is None or d.get("schema") != "mosaic-avatar-v1":
+        return None
+    keep = (
+        "person_id", "seconds", "phenotype", "median_error_mm", "p90_error_mm",
+        "per_joint_median_error_mm",
+    )  # fmt: skip
+    return {
+        "people": [{k: p.get(k) for k in keep} for p in d.get("people", [])],
+        "failed": d.get("failed", []),
+    }
+
+
 SESSION_READERS = {
     "transcripts": _transcripts,
     "voice": _voice,
@@ -419,6 +436,7 @@ SESSION_READERS = {
     "pose3d": _pose3d,
     "pose3d_people": _pose3d_people,
     "hands3d": _hands3d,
+    "avatar": _avatar,
     "social": _social,
     "sync_repair": _sync_repair,
 }

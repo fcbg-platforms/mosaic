@@ -1228,6 +1228,9 @@ def session_sections(data: SessionData) -> str:
     # Also when skeleton3d.json's quality header could not be read.
     if p3 or data.session_results.get("pose3d_people"):
         out.append(_pose3d_people_rows(data.session_results.get("pose3d_people")))
+    av = data.session_results.get("avatar")
+    if av:
+        out.append(_avatar(av))
     h3 = data.session_results.get("hands3d")
     if h3:
         out.append(_hands3d(h3))
@@ -1288,6 +1291,31 @@ def _pose3d_people_rows(pp: dict | None) -> str:
     return _small("3D Pose, per person", rows) if rows else ""
 
 
+def _avatar(av: dict) -> str:
+    """Each person's fitted body: its shape (Anny's 0 to 1 parameters) and
+    how far its joints are from 3D Pose's."""
+    rows = []
+    for p in av.get("people", []):
+        shape = p.get("phenotype") or {}
+        joints = p.get("per_joint_median_error_mm") or {}
+        legs = [joints.get(k) for k in ("left_knee", "right_knee", "left_ankle", "right_ankle")]
+        legs = [v for v in legs if v is not None]
+        rows.append(
+            (
+                f"person {esc(p.get('person_id'))}",
+                f"{num(p.get('seconds'), 1, ' s')}; joints a median "
+                f"{num(p.get('median_error_mm'), 0, ' mm')} from 3D Pose's (90th percentile "
+                f"{num(p.get('p90_error_mm'), 0, ' mm')})"
+                + (f" (legs up to {num(max(legs), 0, ' mm')})" if legs else "")
+                + f"; age {num(shape.get('age'), 2)}, height {num(shape.get('height'), 2)}, "
+                f"weight {num(shape.get('weight'), 2)} (0 to 1)",
+            )
+        )
+    for pid in av.get("failed", []):
+        rows.append((f"person {esc(pid)}", "not fitted (too few joints, or an error)"))
+    return _small("3D Avatar (Anny)", rows or [("Fitted", "nobody")])
+
+
 def _hands3d(h3: dict) -> str:
     """The hands in the room: how well each pair of cameras agreed (a steady
     gap is their room calibration, the two together), then each hand."""
@@ -1331,7 +1359,7 @@ def not_run(data: SessionData) -> str:
             missing.append(label)
     single = len(data.cameras) < 2
     for key, label in SESSION_ANALYSES:
-        if key in ("gaze_fusion", "pose3d", "social") and single:
+        if key in ("gaze_fusion", "pose3d", "avatar", "social") and single:
             continue  # needs several calibrated cameras
         if key not in data.session_results:
             missing.append(label)

@@ -335,6 +335,13 @@ class AnalysisManager : public QObject {
     /// @param cameraB      Camera facing person B.
     void run_social_analysis(const QString& sessionPath, int cameraA, int cameraB);
 
+    /// @brief 3D Avatar: a realistic body (Anny) fitted to each 3D Pose person
+    /// (analysis/run_avatar.py), written to the session's avatar/ folder.
+    /// Needs the 3D Pose result; a GPU makes it several times faster.
+    ///
+    /// @param sessionPath  Absolute path to the recorded session directory.
+    void run_avatar_analysis(const QString& sessionPath);
+
     /// @brief Conversation Timing: who speaks when, turns, response times
     /// (floor transfer offsets), pauses, overlaps and backchannels, from the
     /// session's audio and each camera's view of a face, written to the

@@ -98,9 +98,9 @@ TEST(AnalysisPlugins, RegistryMatchesTheKnownPluginIdSet) {
     ids.sort();
 
     QStringList expected{
-        "conversation", "diarize",     "expression", "eye_contact", "face_dynamics", "face_mask",
-        "gaze2d",       "gaze_fusion", "hands",      "objects",     "overview",      "pose",
-        "pose3d",       "rppg",        "social",     "sync_repair", "trigger_sync"};
+        "avatar",    "conversation", "diarize",     "expression", "eye_contact", "face_dynamics",
+        "face_mask", "gaze2d",       "gaze_fusion", "hands",      "objects",     "overview",
+        "pose",      "pose3d",       "rppg",        "social",     "sync_repair", "trigger_sync"};
     expected.sort();
 
     EXPECT_EQ(ids, expected);
@@ -123,6 +123,7 @@ TEST(AnalysisPlugins, PickerListsTheAnalysesInTheOrderToRunThem) {
                                "Pose",
                                "Hands",
                                "3D Pose",
+                               "3D Avatar",
                                "Object Tracking",
                                "2D Gaze",
                                "Face Dynamics",
