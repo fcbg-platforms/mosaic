@@ -51,4 +51,8 @@ void Skeleton3DRoomViewW::set_image_folder(const QString& folder) {
     d->host->set_image_folder(folder);
 }
 
+void Skeleton3DRoomViewW::set_avatars(const SessionAvatars& avatars) {
+    d->scene.set_avatars(avatars.result, avatars.bodies, avatars.note);
+}
+
 } // namespace mosaic

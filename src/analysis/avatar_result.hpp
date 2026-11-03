@@ -1,6 +1,7 @@
 #pragma once
 #include <QMap>
 #include <QString>
+#include <QStringList>
 #include <QVector>
 #include <array>
 
@@ -43,6 +44,8 @@ class AvatarResult {
     /// room = to_room * p.
     [[nodiscard]] const std::array<double, 9>& to_room() const { return toRoom_; }
     [[nodiscard]] const QVector<Person>& people() const { return people_; }
+    /// The bones of every person's file, in its order.
+    [[nodiscard]] const QStringList& bone_labels() const { return boneLabels_; }
     /// The 3D Pose people that could not be fitted (too few joints, or an error).
     [[nodiscard]] const QVector<int>& failed() const { return failed_; }
 
@@ -51,6 +54,7 @@ class AvatarResult {
     std::array<double, 9> toRoom_{};
     QVector<Person> people_;
     QVector<int> failed_;
+    QStringList boneLabels_;
 };
 
 } // namespace mosaic

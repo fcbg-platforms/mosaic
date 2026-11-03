@@ -228,6 +228,116 @@ void Room3DScene::rebuild_static() {
 }
 
 // The frame on show: people, trails, the two-person line, the labels.
+void Room3DScene::set_avatars(const AvatarResult& result, const QVector<AvatarBody>& bodies,
+                              const QString& note) {
+    // The earlier bodies' meshes, emptied: the page drops their models.
+    for (int i = 0; i < avatarIds_.size(); ++i) {
+        set_lit_mesh(QString("avatar_%1").arg(i), {});
+    }
+    avatarIds_.clear();
+    avatarIndex_.clear();
+    avatarBodies_ = bodies;
+    avatarNote_   = note;
+    avatarToRoom_ = result.to_room();
+    for (int i = 0; i < bodies.size() && i < result.people().size(); ++i) {
+        if (bodies[i].is_valid()) {
+            avatarIds_ << result.people()[i].personId;
+            avatarIndex_ << i;
+        }
+    }
+    emit avatarsChanged();
+    rebuild_frame();
+}
+
+void Room3DScene::set_body_mode(const QString& mode) {
+    if (mode == bodyMode_ || (mode != "avatar" && mode != "skeleton" && mode != "both")) {
+        return;
+    }
+    bodyMode_ = mode;
+    emit bodyModeChanged();
+    rebuild_frame();
+}
+
+QVariantList Room3DScene::avatars() const {
+    QVariantList out;
+    for (int i = 0; i < avatarIds_.size(); ++i) {
+        out << QVariantMap{{"part", QString("avatar_%1").arg(i)}, {"person", avatarIds_[i]}};
+    }
+    return out;
+}
+
+QSet<int> Room3DScene::rebuild_avatars(const Skeleton3DFrame* frame) {
+    QSet<int> drawn;
+    // The fit's frame (metres, z up) to the room's (mm), then to the
+    // scene's: one 3 x 4 matrix, the stage's turn being affine. Neither
+    // mirrors (to_room is a turn and a scale; the stage's right is fwd x up),
+    // so the body's triangles keep their outward winding: the normals pose()
+    // works out point out, and the lights and culling see the outside.
+    const QVector3D o  = to_scene({0.0, 0.0, 0.0});
+    const QVector3D ex = to_scene({1.0, 0.0, 0.0}) - o, ey = to_scene({0.0, 1.0, 0.0}) - o,
+                    ez = to_scene({0.0, 0.0, 1.0}) - o;
+    const double a[9]  = {ex.x(), ey.x(), ez.x(), ex.y(), ey.y(), ez.y(), ex.z(), ey.z(), ez.z()};
+    std::array<double, 12> toScene{};
+    for (int r = 0; r < 3; ++r) {
+        for (int c = 0; c < 3; ++c) {
+            double v = 0.0;
+            for (int k = 0; k < 3; ++k) {
+                v += a[3 * r + k] * avatarToRoom_[static_cast<std::size_t>(3 * k + c)];
+            }
+            toScene[static_cast<std::size_t>(4 * r + c)] = v;
+        }
+    }
+    toScene[3]  = o.x();
+    toScene[7]  = o.y();
+    toScene[11] = o.z();
+    for (int i = 0; i < avatarIds_.size(); ++i) {
+        const QString part = QString("avatar_%1").arg(i);
+        const int person   = avatarIds_[i];
+        const auto& body   = avatarBodies_[avatarIndex_[i]];
+        const int tick     = frame && bodyMode_ != "skeleton" && !hidden_.contains(person)
+                                 ? body.nearest_tick(frame->timestampNs / 1e6)
+                                 : -1;
+        if (tick < 0) {
+            set_lit_mesh(part, {});
+            continue;
+        }
+        body.pose(tick, toScene, posScratch_, normalScratch_);
+        // A soft clay tone of the person's colour; a limb 3D Pose did not
+        // measure at this tick paler and greyer: estimated, not seen.
+        const QColor col   = color_of(person);
+        const auto mixc    = [](double c, double to, double t) { return c + (to - c) * t; };
+        const float own[3] = {static_cast<float>(mixc(col.redF(), 0.86, 0.55)),
+                              static_cast<float>(mixc(col.greenF(), 0.80, 0.55)),
+                              static_cast<float>(mixc(col.blueF(), 0.76, 0.55))};
+        const float est[3] = {static_cast<float>(mixc(own[0], 0.92, 0.6)),
+                              static_cast<float>(mixc(own[1], 0.92, 0.6)),
+                              static_cast<float>(mixc(own[2], 0.94, 0.6))};
+        bool seen[5];
+        for (int r = 0; r < 5; ++r) {
+            seen[r] = body.measured(tick, static_cast<AvatarBody::Region>(r));
+        }
+        LitMesh m;
+        const int v = body.vertex_count();
+        m.vertices.resize(static_cast<std::size_t>(v) * 10);
+        const auto& regions = body.regions();
+        for (int k = 0; k < v; ++k) {
+            float* out = m.vertices.data() + 10 * k;
+            const float* rgb =
+                seen[static_cast<int>(regions[static_cast<std::size_t>(k)])] ? own : est;
+            for (int c = 0; c < 3; ++c) {
+                out[c]     = posScratch_[3 * k + c];
+                out[3 + c] = normalScratch_[3 * k + c];
+                out[6 + c] = rgb[c];
+            }
+            out[9] = 1.0f;
+        }
+        m.indices = body.faces();
+        set_lit_mesh(part, std::move(m));
+        drawn << person;
+    }
+    return drawn;
+}
+
 void Room3DScene::rebuild_frame() {
     bones_.clear();
     joints_.clear();
@@ -256,12 +366,16 @@ void Room3DScene::rebuild_frame() {
     if (!frame) {
         set_mesh("trails", std::move(trails));
         set_mesh("torsos", std::move(torsos));
+        rebuild_avatars(nullptr);
         emit frameChanged();
         return;
     }
-    tick_             = frame->tick;
-    const auto& names = result_.keypoint_names();
-    const auto pos    = [this](const Skeleton3DPerson& p, int i) { return point(p, i); };
+    tick_ = frame->tick;
+    // People drawn as a body: their skeleton is left out ("avatar").
+    const QSet<int> bodies = rebuild_avatars(frame);
+    const bool bodiesOnly  = bodyMode_ == "avatar";
+    const auto& names      = result_.keypoint_names();
+    const auto pos         = [this](const Skeleton3DPerson& p, int i) { return point(p, i); };
     const QVector3D yAxis(0, 1, 0);
 
     int shownCount = 0;
@@ -275,7 +389,11 @@ void Room3DScene::rebuild_frame() {
         const QString who    = matched_.contains(p.trackId) ? matched_.value(p.trackId).first
                                                             : QString("Person %1").arg(p.trackId);
 
+        const bool asBody = bodiesOnly && bodies.contains(p.trackId);
         for (const auto& e : result_.skeleton_edges()) {
+            if (asBody) {
+                break;
+            }
             if (headIdx_.contains(e.first) && headIdx_.contains(e.second)) {
                 continue; // the face is drawn as a head
             }
@@ -306,6 +424,9 @@ void Room3DScene::rebuild_frame() {
                 ++headN;
                 continue;
             }
+            if (asBody) {
+                continue;
+            }
             // The room frame, as exported; the position drawn (smoothed when
             // Show smoothed is on).
             const auto& r =
@@ -319,7 +440,7 @@ void Room3DScene::rebuild_frame() {
                              .arg(r[1] / 1000.0, 0, 'f', 2)
                              .arg(r[2] / 1000.0, 0, 'f', 2)}};
         }
-        if (headN && !elsewhere) { // else the other page's head
+        if (headN && !elsewhere && !asBody) { // else the other page's head, or the body's
             const QVector3D head = headSum / static_cast<float>(headN);
             QVariantMap h{{"pos", head}, {"color", col}, {"hasFacing", false}};
             // Facing: from between the ears (else the head's centre) to the
@@ -346,7 +467,7 @@ void Room3DScene::rebuild_frame() {
 
         // The torso, filled between the shoulders and the hips.
         const auto ls = pos(p, lSh_), rs = pos(p, rSh_), lh = pos(p, lHip_), rh = pos(p, rHip_);
-        if (ls && rs && lh && rh) {
+        if (ls && rs && lh && rh && !asBody) {
             for (const auto& v : {*ls, *rs, *rh, *ls, *rh, *lh}) {
                 put(torsos.vertices, v, alpha(col, 0.55));
             }

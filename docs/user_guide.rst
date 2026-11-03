@@ -637,7 +637,7 @@ Reconstruction, and Frame Sync was Frame Sync Repair.
       percentile (a median of about 2 cm is good; legs hidden behind a desk
       are further), and its shape (each 0 to 1); a person with too few
       joints is listed as not fitted. The session report has the same.
-      Drawing the bodies in the 3D views comes in a later version.
+      The 3D Pose room view draws the bodies (its **Body** button).
 
    .. tab-item:: Hands
 
@@ -1154,7 +1154,13 @@ Reconstruction, and Frame Sync was Frame Sync Repair.
       leaves it. **Trails** shows where each person's hips were over the last
       2 seconds, and their trace on the floor. **Paths** draws each shown
       person's whole path on the floor over the recording, where they went
-      and stood, broken where they were not in 3D. **Save image** saves the
+      and stood, broken where they were not in 3D. After **3D Avatar**, each
+      person is drawn as a body, lit and casting its shadow; **Body** switches
+      between **Avatar**, **Skeleton** and **Avatar + skeleton**. A lower leg
+      or forearm 3D Pose did not measure at that moment (its knee and ankle,
+      or elbow and wrist) is drawn paler: estimated, not seen. Avatars older
+      than the 3D Pose result are not drawn (the line at the bottom says
+      so): run 3D Avatar again. **Save image** saves the
       view as drawn as a PNG, named after the tick on show, in the session's
       folder by default. Hover over a joint to read its name and position, x, y
       and z in metres, in the room frame: the reference camera's own (x

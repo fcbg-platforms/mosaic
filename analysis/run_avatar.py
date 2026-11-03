@@ -10,7 +10,8 @@ Needs 3D Pose (``skeleton3d.json``). Writes, in ``<session>/avatar/``:
   muscle, weight, height, proportions), how well the body fits the 3D Pose
   joints (median and 90th percentile distance, over all and per joint, mm),
   and where its file is and what is in it; the people that could not be
-  fitted; and ``to_room``, from the fit's frame to the room's;
+  fitted; the bones' names, in the files' order; and ``to_room``, from the
+  fit's frame to the room's;
 * ``person_N.bin``: the body mesh at rest, its skinning, and every tick's
   bone transforms (layout in avatar/io.py).
 
@@ -153,6 +154,8 @@ def main(argv=None, fitter=None) -> int:
         "source": src.name,
         "body_model": "anny",
         "keypoint_names": KEYPOINTS,
+        # The bones of every person's file, in its order (the same body model).
+        "bone_labels": list(fitter.labels),
         # The fit's frame (metres, z up) to the room's (mm): room = to_room @ p.
         "to_room": (M.T * 1000.0).round(6).tolist(),
         "people": sorted([*earlier.values(), *entries], key=lambda e: e["person_id"]),

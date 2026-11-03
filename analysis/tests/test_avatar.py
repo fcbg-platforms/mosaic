@@ -137,6 +137,8 @@ class _FakeFitter:
     """Stands in for Anny: the fitted keypoints are the targets, and the
     file has a 3-bone, 5-vertex body."""
 
+    labels = ["root", "lowerarm01.L", "wrist.L"]
+
     def fit(self, keypoints_zup, ticks, log=print):
         n = len(ticks)
         return {
@@ -169,6 +171,7 @@ def test_runner_writes_the_avatar_json_and_one_file_per_person(tmp_path, capsys)
     res = json.loads((s / "avatar" / "avatar.json").read_text())
     assert res["schema"] == "mosaic-avatar-v1" and res["body_model"] == "anny"
     assert len(res["keypoint_names"]) == 17
+    assert res["bone_labels"] == ["root", "lowerarm01.L", "wrist.L"]
     (p,) = res["people"]
     assert p["person_id"] == 2 and p["file"] == "avatar/person_2.bin" and p["ticks"] == 6
     assert p["median_error_mm"] == 20.0 and p["per_joint_median_error_mm"]["nose"] == 20.0

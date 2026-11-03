@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <memory>
 
+#include "analysis/avatar_body.hpp"
 #include "analysis/skeleton3d_result.hpp"
 
 namespace mosaic {
@@ -54,6 +55,10 @@ class Skeleton3DRoomViewW : public QWidget {
     // Where Save image suggests saving (the session's folder); empty for the
     // user's Pictures folder.
     void set_image_folder(const QString& folder);
+
+    // The session's 3D Avatar bodies (load_session_avatars()), drawn in
+    // place of the skeletons; none to clear them.
+    void set_avatars(const SessionAvatars& avatars);
 
    private:
     struct Impl;

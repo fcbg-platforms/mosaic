@@ -1308,6 +1308,9 @@ struct AnalysisTabW::Impl {
     QString gazeRoomFile;
     QDateTime gazeRoomStamp;
     Skeleton3DResult gazeRoomPose;
+    // pose3d: the session and file times of the 3D Avatar bodies on show, so
+    // they are read again only when a file changed (they can be large).
+    QString avatarsKey;
 
     // 3D Pose Reconstruction view controls — mirrors gazeFusionRowW's
     // own-container pattern. skeleton3dRoomView is the interactive
@@ -4260,6 +4263,10 @@ void AnalysisTabW::reload_current_camera_result() {
 void AnalysisTabW::load_camera_result_view() {
     const auto* info = d->current_session();
     d->reset_all_results();
+    if (!is_pose3d_plugin() && !d->avatarsKey.isEmpty()) {
+        d->skeleton3dRoomView->set_avatars({}); // their memory, away from 3D Pose
+        d->avatarsKey.clear();
+    }
 
     if (is_gaze_fusion_plugin()) {
         // Unlike pose/expression/face_mask, this plugin's result is
@@ -4333,6 +4340,8 @@ void AnalysisTabW::load_camera_result_view() {
             d->player->set_video(QString());
             d->player->set_pose_result(d->currentResult);
             d->skeleton3dRoomView->set_result(d->currentSkeleton3D);
+            d->skeleton3dRoomView->set_avatars({});
+            d->avatarsKey.clear();
             d->skeleton3dRoomView->set_image_folder(QString());
             update_pose3d_view();
             return;
@@ -4345,6 +4354,17 @@ void AnalysisTabW::load_camera_result_view() {
         // own code, when missing or older than the result.
         write_pose3d_people_if_stale(info->path, d->currentSkeleton3D);
         d->skeleton3dRoomView->set_result(d->currentSkeleton3D);
+        // The 3D Avatar bodies, when fitted to this result.
+        const QString avatarsKey =
+            info->path + "|" +
+            QFileInfo(info->path + "/avatar/avatar.json")
+                .lastModified()
+                .toString(Qt::ISODateWithMs) +
+            "|" + QFileInfo(skeletonAbs).lastModified().toString(Qt::ISODateWithMs);
+        if (avatarsKey != d->avatarsKey) {
+            d->avatarsKey = avatarsKey;
+            d->skeleton3dRoomView->set_avatars(load_session_avatars(info->path));
+        }
         d->skeleton3dRoomView->set_image_folder(info->path);
 
         if (d->cameraCombo->currentIndex() >= 0) {
