@@ -62,6 +62,8 @@ struct AnalysisPluginDesc {
          AnalysisPluginCategory::BodyMotion},
         {"pose3d", "3D Pose", "Skeletons in 3D. Needs Pose and the room calibration.",
          AnalysisPluginCategory::BodyMotion},
+        {"avatar", "3D Avatar", "A realistic body on each 3D Pose person. Needs 3D Pose.",
+         AnalysisPluginCategory::BodyMotion},
         {"objects", "Object Tracking",
          "Toys, cups, tablets found by name (SAM 3), and who touches them.",
          AnalysisPluginCategory::BodyMotion},

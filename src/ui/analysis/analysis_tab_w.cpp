@@ -62,6 +62,7 @@
 #include <numbers>
 
 #include "analysis/analysis_plugins.hpp"
+#include "analysis/avatar_result.hpp"
 #include "analysis/chart_data.hpp"
 #include "analysis/conversation_result.hpp"
 #include "analysis/dyadic_kinematics.hpp"
@@ -1396,6 +1397,7 @@ struct AnalysisTabW::Impl {
     QComboBox* socialCamACombo    = nullptr; // social only: camera facing person A
     QComboBox* socialCamBCombo    = nullptr; // social only: camera facing person B
     QWidget* socialRowW           = nullptr; // social only
+    QLabel* avatarStatsLbl        = nullptr; // avatar only: each person's body and fit
     QLineEdit* objectsNamesEdit   = nullptr; // objects only: what to look for
     QSpinBox* objectsStrideSpin   = nullptr; // objects only
     QCheckBox* objectsVideoCheck  = nullptr; // objects only
@@ -1470,6 +1472,7 @@ struct AnalysisTabW::Impl {
     ConversationResult currentConversation;               // conversation, overview, rppg (by state)
     EyeContactResult currentEyeContact;                   // eye_contact only
     SocialResult currentSocial;                           // social only
+    AvatarResult currentAvatar;                           // avatar only
     ObjectsResult currentObjects;                         // objects only
     HandsResult currentHands;                             // hands only
     QVector<HandsResult::Series> currentHandsKinematics;  // hands only, per frame
@@ -2476,6 +2479,21 @@ void AnalysisTabW::build_ui() {
     socialCtlLay->addWidget(socialHint, 1);
     add_plugin_page("social", socialPage);
 
+    // 3D Avatar: nothing to choose; what it does.
+    auto* avatarPage   = new QWidget;
+    auto* avatarCtlLay = new QHBoxLayout(avatarPage);
+    avatarCtlLay->setContentsMargins(0, 0, 0, 0);
+    auto* avatarHint = new QLabel(
+        "Fits a realistic body (Anny, a body model for all ages, children included) to each "
+        "3D Pose person: its shape once (age, height, build) and its pose at every tick. "
+        "Run 3D Pose first. About two to three minutes per minute of recording per person "
+        "with a GPU, several times longer without; the first run also builds Anny's cache. "
+        "Drawing the bodies in the 3D views comes in a later version.");
+    avatarHint->setWordWrap(true);
+    avatarHint->setProperty("role", "muted");
+    avatarCtlLay->addWidget(avatarHint, 1);
+    add_plugin_page("avatar", avatarPage);
+
     // Session Overview: nothing to run, it reads what the other analyses
     // already wrote for the chosen camera.
     auto* overviewPage = new QWidget;
@@ -3323,6 +3341,13 @@ void AnalysisTabW::build_ui() {
     d->socialRowW->setVisible(false); // shown only for the social plugin
     rightLay->addWidget(d->socialRowW);
 
+    // 3D Avatar: each person's body and how well it fits.
+    d->avatarStatsLbl = new QLabel;
+    d->avatarStatsLbl->setStyleSheet("color:#7070a0; font-size:11px;");
+    d->avatarStatsLbl->setWordWrap(true);
+    d->avatarStatsLbl->setVisible(false); // shown only for the avatar plugin
+    rightLay->addWidget(d->avatarStatsLbl);
+
     // Eye Contact row: chart choice, numbers, look-aways CSV export.
     d->eyeRowW      = new QWidget;
     auto* eyeRowLay = new QHBoxLayout(d->eyeRowW);
@@ -3773,6 +3798,7 @@ void AnalysisTabW::select_plugin(const QString& pluginId) {
     const bool isSyncRepair  = is_sync_repair_plugin();
     const bool isOverview    = is_overview_plugin();
     const bool isSocial      = is_social_plugin();
+    const bool isAvatar      = is_avatar_plugin();
     const bool isObjects     = is_objects_plugin();
     const bool isHands       = is_hands_plugin();
     // A depth model selected within the Pose plugin produces a colorized
@@ -3852,6 +3878,7 @@ void AnalysisTabW::select_plugin(const QString& pluginId) {
     set_visible_animated(d->faceDynRowW, isFaceDyn);
     set_visible_animated(d->convRowW, isConv);
     set_visible_animated(d->socialRowW, isSocial);
+    set_visible_animated(d->avatarStatsLbl, isAvatar);
     set_visible_animated(d->objectsRowW, isObjects);
     set_visible_animated(d->handsRowW, isHands);
     set_visible_animated(d->eyeRowW, isEye);
@@ -4025,6 +4052,9 @@ PluginRunState AnalysisTabW::run_state_for(const QString& pluginId) const {
     }
     if (pluginId == "pose3d") {
         return session_level("skeleton3d.json");
+    }
+    if (pluginId == "avatar") {
+        return session_level("avatar/avatar.json");
     }
     if (pluginId == "social") {
         return session_level("social/social.json");
@@ -4204,6 +4234,8 @@ bool AnalysisTabW::is_sync_repair_plugin() const { return d->currentPlugin == "s
 
 bool AnalysisTabW::is_overview_plugin() const { return d->currentPlugin == "overview"; }
 bool AnalysisTabW::is_social_plugin() const { return d->currentPlugin == "social"; }
+
+bool AnalysisTabW::is_avatar_plugin() const { return d->currentPlugin == "avatar"; }
 bool AnalysisTabW::is_objects_plugin() const { return d->currentPlugin == "objects"; }
 
 bool AnalysisTabW::is_hands_plugin() const { return d->currentPlugin == "hands"; }
@@ -4764,6 +4796,49 @@ void AnalysisTabW::load_camera_result_view() {
         const QString annotated = load_hands_results(videoRel);
         d->player->set_video(annotated.isEmpty() ? videoAbs : annotated);
         d->player->set_pose_result(PoseAnalysisResult());
+        return;
+    }
+
+    if (is_avatar_plugin()) {
+        const QString jsonAbs = info->path + "/avatar/avatar.json";
+        d->currentAvatar =
+            QFileInfo::exists(jsonAbs) ? AvatarResult::load(jsonAbs) : AvatarResult();
+        d->player->set_video(videoAbs);
+        d->player->set_pose_result(PoseAnalysisResult());
+        d->openFolderBtn->setEnabled(d->currentAvatar.is_valid());
+        QStringList lines;
+        const auto num = [](double v, int digits) {
+            return std::isnan(v) ? QStringLiteral("n/a") : QString::number(v, 'f', digits);
+        };
+        for (const auto& p : d->currentAvatar.people()) {
+            const auto shape = [&](const char* key) {
+                return num(p.phenotype.value(key, std::nan("")), 2);
+            };
+            lines << QString(
+                         "Person %1: %2 s; the body's joints are a median %3 mm from 3D "
+                         "Pose's (90th percentile %4 mm); shape: age %5, height %6, weight %7 "
+                         "(0 to 1)")
+                         .arg(p.personId)
+                         .arg(p.seconds, 0, 'f', 1)
+                         .arg(num(p.medianErrorMm, 0), num(p.p90ErrorMm, 0), shape("age"),
+                              shape("height"), shape("weight"));
+        }
+        for (const int id : d->currentAvatar.failed()) {
+            lines << QString("Person %1: not fitted (too few joints, or an error: see the log)")
+                         .arg(id);
+        }
+        d->avatarStatsLbl->setText(lines.join("  ·  "));
+        if (!d->currentAvatar.is_valid()) {
+            d->statusLbl->setText("No avatar yet: run 3D Pose, then 3D Avatar.");
+            d->statusLbl->setStyleSheet("color:#6060a0; font-size:15px; font-weight:600;");
+        } else if (d->currentAvatar.people().isEmpty()) {
+            d->statusLbl->setText("3D Avatar ran, but no person could be fitted.");
+            d->statusLbl->setStyleSheet("color:#ddaa33; font-size:15px; font-weight:600;");
+        } else {
+            d->statusLbl->setText(
+                QString("%1 avatar(s) fitted.").arg(d->currentAvatar.people().size()));
+            d->statusLbl->setStyleSheet("color:#44cc66; font-size:15px; font-weight:600;");
+        }
         return;
     }
 
@@ -8279,6 +8354,8 @@ void AnalysisTabW::run_analysis() {
         d->analysisMgr->run_hands_analysis(
             d->currentSessionPath, d->handsModelCombo->currentData().toString(),
             d->handsStrideSpin->value(), d->handsVideoCheck->isChecked());
+    } else if (plugin == "avatar") {
+        d->analysisMgr->run_avatar_analysis(d->currentSessionPath);
     } else if (plugin == "social") {
         d->analysisMgr->run_social_analysis(d->currentSessionPath,
                                             d->socialCamACombo->currentData().toInt(),
@@ -8312,6 +8389,8 @@ void AnalysisTabW::open_output_folder() {
         folder = "eye_contact";
     } else if (is_social_plugin()) {
         folder = "social";
+    } else if (is_avatar_plugin()) {
+        folder = "avatar";
     } else if (is_objects_plugin()) {
         folder = "objects";
     } else if (is_hands_plugin()) {

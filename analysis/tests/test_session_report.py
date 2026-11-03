@@ -711,6 +711,37 @@ def test_hands_card(tmp_path):
     assert "hands" not in collect.collect(s, for_summary_only=True).cameras[0].results
 
 
+def test_avatar_card(tmp_path):
+    s = make_session(tmp_path / "a")
+    _write(
+        s / "avatar" / "avatar.json",
+        {
+            "schema": "mosaic-avatar-v1",
+            "people": [
+                {
+                    "person_id": 1,
+                    "seconds": 31.2,
+                    "phenotype": {"age": 0.62, "height": 0.58, "weight": 0.5},
+                    "median_error_mm": 32.6,
+                    "p90_error_mm": 57.8,
+                    "per_joint_median_error_mm": {"left_knee": 58.9, "right_ankle": 81.6},
+                    "file": "avatar/person_1.bin",  # not in the report
+                }
+            ],
+            "failed": [2],
+        },
+    )
+    page = render.render(collect.collect(s))
+    assert "3D Avatar (Anny)" in page and "person 1" in page
+    assert (
+        "31.2 s; joints a median 33 mm from 3D Pose's (90th percentile 58 mm) (legs up to 82 mm)"
+        in page
+    )
+    assert "person 2" in page and "not fitted" in page
+    assert "age 0.62, height 0.58, weight 0.50 (0 to 1)" in page
+    assert "person_1.bin" not in page
+
+
 def test_hands_in_3d_card(tmp_path):
     s = make_session(tmp_path / "a")
     _write(

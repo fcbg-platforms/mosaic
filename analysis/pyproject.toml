@@ -52,6 +52,10 @@ dependencies = [
     # first use (removed again by the next `uv sync`). Ultralytics' fork of
     # OpenAI's CLIP, pinned to a commit; AGPL-3.0, like ultralytics itself.
     "clip @ git+https://github.com/ultralytics/CLIP.git@7ffa84b3bfa40c42ecc1c77147a855e69cb2dd40",
+    # 3D Avatar: Anny, a body model for all ages, from infants to the elderly
+    # (NAVER LABS, Apache-2.0; its MakeHuman assets are CC0), fitted to the
+    # 3D Pose joints. Brings roma, trimesh and NVIDIA Warp (skinning).
+    "anny>=0.6.2",
 ]
 
 [dependency-groups]

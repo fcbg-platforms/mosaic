@@ -132,6 +132,13 @@ conventions, matching
       Objects found by name with SAM 3, kept as outlines, and hand contact
       from Pose wrists.
 
+   .. grid-item-card:: 🧍 3D Avatar
+      :link: avatar
+      :link-type: doc
+
+      A realistic body (Anny, all ages) fitted to each 3D Pose person:
+      its shape once, its pose at every tick, knees and elbows as hinges.
+
    .. grid-item-card:: ✋ Hands
       :link: hands
       :link-type: doc
@@ -164,4 +171,5 @@ conventions, matching
    social_interaction
    object_tracking
    hands
+   avatar
    eye_contact

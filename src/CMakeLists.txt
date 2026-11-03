@@ -65,6 +65,8 @@ qt_add_executable(mosaic MACOSX_BUNDLE
     analysis/objects_result.cpp
     analysis/hands_result.hpp
     analysis/hands_result.cpp
+    analysis/avatar_result.hpp
+    analysis/avatar_result.cpp
     analysis/chart_data.hpp
     analysis/chart_data.cpp
     analysis/session_overview.hpp

@@ -552,7 +552,7 @@ sitting alongside **Live**. The workflow is always the same shape:
 
 The list groups the plugins in the order to run them, in five numbered
 steps: **1 · Prepare** (Frame Sync, EEG / Trigger Sync, Face Masking),
-**2 · Body & motion** (Pose, then Hands, 3D Pose, Object Tracking), **3 · Face &
+**2 · Body & motion** (Pose, then Hands, 3D Pose, 3D Avatar, Object Tracking), **3 · Face &
 gaze** (2D Gaze, Face Dynamics, Facial Expression, Eye Contact, 3D Gaze,
 Heart Rate), **4 · Audio** (Speaker Diarization, then Conversation Timing)
 and **5 · Together** (Social Interaction, Session Overview), which combine
@@ -616,6 +616,28 @@ Reconstruction, and Frame Sync was Frame Sync Repair.
       Object Tracking again starts the names over, as its numbers can change. The chart always spans the whole video. When no touch
       was found, its title says so; a result from before hands were followed
       asks you to run Object Tracking again.
+
+   .. tab-item:: 3D Avatar
+
+      **What it does**: puts a realistic body on each person of the 3D Pose
+      result, for the 3D views: Anny, a body model for all ages (children
+      get a child's proportions), its shape fitted once per person (age,
+      height, build) and its pose at every tick, knees and elbows bending
+      only the right way. Writes ``avatar/avatar.json`` and a file per
+      person (``avatar/person_N.bin``). An avatar shows a person's posture
+      and movement, not their face. See :doc:`math/avatar`.
+
+      **Before the first run**: run 3D Pose. The first run also builds
+      Anny's cache (a few minutes, once). About two to three minutes per
+      minute of recording per person with a GPU, several times longer
+      without.
+
+      **Reading it**: the line under the video gives, per person, how far
+      its body's joints are from 3D Pose's, the median and the 90th
+      percentile (a median of about 2 cm is good; legs hidden behind a desk
+      are further), and its shape (each 0 to 1); a person with too few
+      joints is listed as not fitted. The session report has the same.
+      Drawing the bodies in the 3D views comes in a later version.
 
    .. tab-item:: Hands
 
