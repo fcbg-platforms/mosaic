@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <memory>
 
+#include "analysis/avatar_body.hpp"
 #include "analysis/gaze_fusion_result.hpp"
 #include "analysis/skeleton3d_result.hpp"
 
@@ -38,6 +39,10 @@ class Gaze3DViewW : public QWidget {
 
     // Where Save image suggests saving (the session's folder).
     void set_image_folder(const QString& folder);
+
+    // The session's 3D Avatar bodies (load_session_avatars()), drawn for
+    // the bodies; none to clear them.
+    void set_avatars(const SessionAvatars& avatars);
 
    private:
     struct Impl;

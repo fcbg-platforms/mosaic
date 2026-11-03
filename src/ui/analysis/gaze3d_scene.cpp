@@ -34,6 +34,9 @@ Gaze3DScene::Gaze3DScene(QObject* parent) : Room3DMeshSource(parent) {
     bodies_.share_stage(&stage_);
     bodies_.set_trails(false);
     bodies_.set_time_ns(std::nullopt);
+    // Who is drawn as a 3D Avatar body sets the heads' size here.
+    connect(&bodies_, &Room3DScene::avatarsChanged, this, &Gaze3DScene::rebuild_frame);
+    connect(&bodies_, &Room3DScene::bodyModeChanged, this, &Gaze3DScene::rebuild_frame);
 }
 
 // As on the video: the annotated videos' and the live overlay's colour.
@@ -185,6 +188,20 @@ void Gaze3DScene::rebuild_frame() {
     const QVector3D yAxis(0, 1, 0);
     QMap<QString, QColor> litBy; // "region/<name>" or "plane" -> who looks at it
     int shownCount = 0;
+    // The bodies at this tick, on the shared clock, first: a matched
+    // person's head and label are drawn here when their gaze is (else the
+    // body's own), small at the eyes when they are drawn as a 3D Avatar.
+    QSet<int> headsHere;
+    if (frame) {
+        for (const auto& s : frame->subjects) {
+            if (const int person = person_of(s.id); person >= 0 && !hidden_.contains(s.id)) {
+                headsHere.insert(person);
+            }
+        }
+    }
+    bodies_.set_heads_elsewhere(headsHere);
+    bodies_.set_time_ns(frame && showBodies_ ? std::optional<int64_t>(frame->timestampNs)
+                                             : std::nullopt);
     if (frame) {
         tick_ = frame->tick;
         for (const auto& s : frame->subjects) {
@@ -207,6 +224,7 @@ void Gaze3DScene::rebuild_frame() {
             heads_ << QVariantMap{
                 {"pos", eye},
                 {"color", col},
+                {"onBody", bodies_.avatar_people().contains(person_of(s.id))},
                 {"info", QString("%1\n%2\n%3 camera(s)%4\nx %5   y %6   z %7 m")
                              .arg(s.name, looking)
                              .arg(s.numCameras)
@@ -315,19 +333,6 @@ void Gaze3DScene::rebuild_frame() {
         }
     }
     set_mesh("trails", std::move(trails));
-    // The bodies at this tick, on the shared clock; a matched person's head
-    // and label are drawn here when their gaze is (else the body's own).
-    QSet<int> headsHere;
-    if (frame) {
-        for (const auto& s : frame->subjects) {
-            if (const int person = person_of(s.id); person >= 0 && !hidden_.contains(s.id)) {
-                headsHere.insert(person);
-            }
-        }
-    }
-    bodies_.set_heads_elsewhere(headsHere);
-    bodies_.set_time_ns(frame && showBodies_ ? std::optional<int64_t>(frame->timestampNs)
-                                             : std::nullopt);
     emit frameChanged();
 }
 

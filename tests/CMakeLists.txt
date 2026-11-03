@@ -215,6 +215,7 @@ qt_add_resources(mosaic_qml_tests "qml_pages"
         "${CMAKE_SOURCE_DIR}/src/qml/RoomPill.qml"
         "${CMAKE_SOURCE_DIR}/src/qml/RoomTag.qml"
         "${CMAKE_SOURCE_DIR}/src/qml/RoomBodies.qml"
+        "${CMAKE_SOURCE_DIR}/src/qml/RoomBodyPill.qml"
 )
 target_link_libraries(mosaic_qml_tests PRIVATE
     GTest::gtest

@@ -76,4 +76,8 @@ struct SessionAvatars {
 /// Pose result, whose ticks and people may no longer match (note says so).
 [[nodiscard]] SessionAvatars load_session_avatars(const QString& sessionPath);
 
+/// The session and the times of the files load_session_avatars() reads:
+/// while it is the same, the avatars loaded before are still the ones.
+[[nodiscard]] QString session_avatars_stamp(const QString& sessionPath);
+
 } // namespace mosaic

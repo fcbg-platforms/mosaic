@@ -90,6 +90,8 @@ class Room3DScene : public Room3DMeshSource {
     // matched people it sees then): none of their own. Takes effect at the
     // next frame (set_time_ns()).
     void set_heads_elsewhere(const QSet<int>& people) { headsElsewhere_ = people; }
+    // The people drawn as a 3D Avatar body in the frame on show.
+    [[nodiscard]] const QSet<int>& avatar_people() const { return avatarDrawn_; }
 
     [[nodiscard]] Room3DStage& stage() { return *stage_; }
     [[nodiscard]] const Room3DStage& stage() const { return *stage_; }
@@ -161,6 +163,7 @@ class Room3DScene : public Room3DMeshSource {
     QMap<int, QPair<QString, QColor>> matched_;
     std::optional<QColor> others_;
     QSet<int> headsElsewhere_;
+    QSet<int> avatarDrawn_;
     QMap<int, double> seconds_; // person -> seconds in 3D
     QVector<int> headIdx_;
     int lHip_ = -1, rHip_ = -1, lSh_ = -1, rSh_ = -1, nose_ = -1, lEar_ = -1, rEar_ = -1;

@@ -236,6 +236,42 @@ TEST(Gaze3DPage, LoadsAndRunsItsViewsWithoutAWarning) {
         scene.set_position_ms(0);
         QCoreApplication::processEvents();
     }
+    // With a 3D Avatar body for S1's person (track 0, person 1): drawn, S1's head
+    // small at its eyes, and the Body button there; none, or bodies off,
+    // and the head is whole again.
+    write_tiny_avatar_session(dir.path(), 1, 0.0);
+    const auto avatars = mosaic::load_session_avatars(dir.path());
+    ASSERT_EQ(avatars.bodies.size(), 1);
+    const auto s1OnBody = [&] {
+        for (const auto& h : scene.heads()) {
+            if (h.toMap().value("info").toString().startsWith("Child")) {
+                return h.toMap().value("onBody").toBool();
+            }
+        }
+        return false;
+    };
+    scene.set_position_ms(0);
+    EXPECT_FALSE(s1OnBody());
+    // Setting or clearing the avatars alone redraws the heads.
+    scene.bodies().set_avatars(avatars.result, avatars.bodies);
+    EXPECT_TRUE(s1OnBody());
+    scene.bodies().set_avatars({}, {}, "The avatars are older");
+    EXPECT_FALSE(s1OnBody());
+    QCoreApplication::processEvents();
+    EXPECT_TRUE(page->property("info").toString().contains("The avatars are older"));
+    scene.bodies().set_avatars(avatars.result, avatars.bodies);
+    QCoreApplication::processEvents();
+    EXPECT_FALSE(scene.bodies().lit_mesh("avatar_0").vertices.empty());
+    EXPECT_TRUE(s1OnBody());
+    scene.set_show_bodies(false);
+    EXPECT_FALSE(s1OnBody());
+    EXPECT_TRUE(scene.bodies().lit_mesh("avatar_0").vertices.empty());
+    scene.set_show_bodies(true);
+    scene.bodies().set_body_mode("skeleton");
+    EXPECT_FALSE(s1OnBody());
+    scene.bodies().set_body_mode("avatar");
+    QCoreApplication::processEvents();
+
     scene.set_shown("S1", false);
     scene.set_result(mosaic::GazeFusionResult());
     QCoreApplication::processEvents();

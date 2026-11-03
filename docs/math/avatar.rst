@@ -9,7 +9,8 @@ Implemented in ``analysis/run_avatar.py`` and the ``avatar`` package
 (``people.py``, ``fit.py``, ``io.py``); run from the Analysis tab's **3D
 Avatar** entry and listed in the session report. It puts a realistic body
 on each person of the 3D Pose result: its shape once (age, height, build)
-and its pose at every tick. The 3D Pose room view draws them (see
+and its pose at every tick. The 3D Pose room view and the 3D Gaze view
+draw them (see
 `Drawing`_).
 
 The body model
@@ -151,9 +152,9 @@ degrees against 21; median 63 to 64 against 65).
 Drawing
 -------
 
-The 3D Pose room view (``src/analysis/avatar_body.cpp``,
-``src/ui/analysis/room3d_scene.cpp``) reads each person's file when 3D Pose is
-opened for the session, and again only when a file has changed: about 45 MB
+The 3D Pose room view and the 3D Gaze view (``src/analysis/avatar_body.cpp``,
+``src/ui/analysis/room3d_scene.cpp``) each read each person's file when the
+view is opened for the session, and again only when a file has changed: about 45 MB
 per person per 10 minutes of recording, most of it the bone transforms. At each frame it takes the person's tick nearest
 in time (none further than 100 ms) and skins the rest mesh with its bone
 transforms, the same linear blend skinning as Anny's, on the CPU. The fit's

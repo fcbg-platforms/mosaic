@@ -38,4 +38,8 @@ void Gaze3DViewW::set_position_ms(int64_t positionMs) { d->scene.set_position_ms
 
 void Gaze3DViewW::set_image_folder(const QString& folder) { d->host->set_image_folder(folder); }
 
+void Gaze3DViewW::set_avatars(const SessionAvatars& avatars) {
+    d->scene.bodies().set_avatars(avatars.result, avatars.bodies, avatars.note);
+}
+
 } // namespace mosaic

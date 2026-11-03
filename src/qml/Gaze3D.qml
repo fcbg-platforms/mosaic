@@ -4,7 +4,8 @@
 // millimetres; this page lays out the heads, the gaze rays and points, the
 // regions and the plane, the labels, the People panel, and follows a person.
 // With the session's 3D Pose result, everyone's body too (RoomBodies.qml):
-// a gaze person's in their colour, with this page's head and label.
+// a gaze person's in their colour, with this page's head and label (a small
+// one at the eyes when the person is drawn as a 3D Avatar body).
 import QtQuick
 import QtQuick3D
 import Mosaic.Room3D
@@ -12,7 +13,7 @@ import Mosaic.Room3D
 RoomStage {
     id: page
     stage: gaze3d.stage
-    info: gaze3d.info
+    info: gaze3d.info + (gaze3d.bodies.avatarNote !== "" ? "\n" + gaze3d.bodies.avatarNote : "")
     emptyText: "No 3D gaze result loaded. Run 3D Gaze for this session."
 
     Connections {
@@ -33,7 +34,8 @@ RoomStage {
             text: "Bodies"
             on: gaze3d.showBodies
             onClicked: gaze3d.showBodies = !gaze3d.showBodies
-        }
+        },
+        RoomBodyPill { bodies: gaze3d.bodies; shown: gaze3d.hasBodies && gaze3d.showBodies }
     ]
 
     // Made per index (model: count), so a new tick only moves them.
@@ -49,7 +51,8 @@ RoomStage {
                 property string info: modelData.info
                 source: "#Sphere"
                 position: modelData.pos
-                scale: Qt.vector3d(1.9, 1.9, 1.9) // 95 mm radius
+                // 95 mm radius; 30 mm, at the eyes, on a 3D Avatar body
+                scale: modelData.onBody ? Qt.vector3d(0.6, 0.6, 0.6) : Qt.vector3d(1.9, 1.9, 1.9)
                 pickable: true
                 castsShadows: true
                 materials: PrincipledMaterial { baseColor: modelData.color; roughness: 0.4 }
