@@ -1,12 +1,18 @@
 """Anny fitted to a person's 3D Pose keypoints (torch; see docs/math/avatar.rst).
 
-Two stages. The body shape (Anny's phenotype: gender, age, muscle, weight,
-height, proportions) and a fixed offset of the COCO hip points are found on a
-sample of ticks; then every tick's pose, with the shape fixed, in chunks,
-smooth over time. The pose is the root's rotation and position and the
+Two stages, and a third for the fingers. The body shape (Anny's phenotype:
+gender, age, muscle, weight, height, proportions) and a fixed offset of the
+COCO hip points are found on a sample of ticks; then every tick's pose, with
+the shape fixed, in chunks, smooth over time. The pose is the root's rotation and position and the
 rotations of the main body bones; knees and elbows are hinges (one bend
 angle each, from straight to 150 degrees) so they never bend the wrong way.
 A robust (Huber) loss keeps one bad 3D Pose joint from pulling the body.
+
+With 3D hands (Hands on two or more calibrated cameras), each hand's wrist
+turn and finger bends are fitted to its 21 points at every hand frame, the
+body as fitted, the points taken from the knuckles' middle (so that the
+cameras' disagreement does not pull the arm); the angles are carried across the
+ticks between hand frames when these are close together.
 
 With the shape fixed, each COCO keypoint is a fixed combination of the bone
 transforms (the keypoints are fixed sums of vertices, and the vertices fixed
@@ -21,6 +27,7 @@ from pathlib import Path
 
 import numpy as np
 
+from avatar.hands import SAME_MOMENT_MS, nearest_ticks
 from avatar.people import L_HIP, R_HIP, chunks, nearest_sample, smooth_mask, usable
 
 CACHE_DIR = Path(__file__).parent / "cache"
@@ -60,6 +67,79 @@ CHUNK, OVERLAP = 600, 40
 #: A tick the shape is fitted on has at least this many joints, hips and
 #: shoulders among them; a person with none is not fitted.
 MIN_JOINTS = 8
+
+#: The hand's 21 points, in 3D Hands' (MediaPipe's) order: the bone each is
+#: the head of, or a fingertip ("tipN", the end of finger N's last bone).
+#: Finger 1 is the thumb (its first bone is the thumb's metacarpal).
+HAND_POINTS = (
+    "wrist",
+    "finger1-1", "finger1-2", "finger1-3", "tip1",
+    "finger2-1", "finger2-2", "finger2-3", "tip2",
+    "finger3-1", "finger3-2", "finger3-3", "tip3",
+    "finger4-1", "finger4-2", "finger4-3", "tip4",
+    "finger5-1", "finger5-2", "finger5-3", "tip5",
+)  # fmt: skip
+#: The hand's points are taken from the middle of these, the knuckles of
+#: the four fingers: 3D Hands' wrist (MediaPipe's, at the wrist crease) is
+#: about 3 cm nearer them than Anny's wrist bone (the forearm's end),
+#: while the knuckles and fingers agree within millimetres; the wrist point
+#: is left out.
+KNUCKLES = (5, 9, 13, 17)
+#: The hand's bones that bend one way, towards the palm, and their range
+#: from Anny's reference pose (degrees): the thumb's two outer joints, and
+#: each finger's three. A finger's first (its knuckle) also spreads.
+HAND_HINGES = {
+    "finger1-2": (-10, 60), "finger1-3": (-15, 80),
+    **{f"finger{f}-1": (-20, 90) for f in (2, 3, 4, 5)},
+    **{f"finger{f}-2": (-5, 105) for f in (2, 3, 4, 5)},
+    **{f"finger{f}-3": (-5, 80) for f in (2, 3, 4, 5)},
+}  # fmt: skip
+HAND_SPREAD = ("finger2-1", "finger3-1", "finger4-1", "finger5-1")
+MAX_SPREAD_DEG = 20.0
+#: Turned freely: the wrist, and the thumb's base.
+HAND_FREE = ("wrist", "finger1-1")
+#: The hand's points come from close cameras but are few pixels apart: a
+#: tighter robust loss than the body's, a pull to the reference pose, and
+#: smoothness between hand frames at most HAND_SMOOTH_GAP_MS apart. The two
+#: weigh angles (squared radians) against a few millimetres (squared
+#: metres): 10 degrees from the reference costs about a millimetre's
+#: distance. With 1e-3 and 0.5 the fingers stayed near the reference pose,
+#: 19 mm off a synthetic hand (5 mm with these, its noise).
+HAND_HUBER_M = 0.01
+HAND_PRIOR, HAND_SMOOTH = 2e-5, 5e-5
+HAND_ITERS = 500
+HAND_SMOOTH_GAP_MS = 400.0
+#: The ticks between two hand frames at most this far apart get angles in
+#: between; a tick this near only one hand frame gets its angles.
+HAND_GAP_MS, HAND_HOLD_MS = 500.0, 120.0
+
+
+def carry_angles(angles: dict, ticks: np.ndarray, time_ms: np.ndarray, n: int) -> dict:
+    """The hand's angles (``angles``: per key, frames x ...) fitted at the
+    ticks ``ticks`` (sorted indices into ``time_ms``), at every tick: in
+    between two frames at most HAND_GAP_MS apart, linearly; near only one
+    (within HAND_HOLD_MS), its; else none ("on" False, zeros: the reference
+    pose)."""
+    out = {key: np.zeros((n, *v.shape[1:]), np.float32) for key, v in angles.items()}
+    on = np.zeros(n, bool)
+    at = time_ms[ticks]
+    for i in range(n):
+        t = time_ms[i]
+        k = int(np.searchsorted(at, t))
+        if k < len(at) and at[k] == t:
+            w = (k, k, 0.0)
+        elif 0 < k < len(at) and at[k] - at[k - 1] <= HAND_GAP_MS:
+            w = (k - 1, k, (t - at[k - 1]) / (at[k] - at[k - 1]))
+        else:
+            near = [j for j in (k - 1, k) if 0 <= j < len(at) and abs(at[j] - t) <= HAND_HOLD_MS]
+            if not near:
+                continue
+            j = min(near, key=lambda j: abs(at[j] - t))
+            w = (j, j, 0.0)
+        on[i] = True
+        for key, v in angles.items():
+            out[key][i] = (1 - w[2]) * v[w[0]] + w[2] * v[w[1]]
+    return {"on": on, **out}
 
 
 class AnnyFitter:
@@ -343,6 +423,212 @@ class AnnyFitter:
             "error_m": np.where(valid_np, err, np.nan),
         }
 
+    # ── The fingers ────────────────────────────────────────────────────────
+
+    def hand_basis(self, pheno, rest_bone_poses) -> dict:
+        """Per side ("left", "right"): the 21 hand points at rest
+        (homogeneous) and the bones they ride (a point at T_j @ p), and the
+        hand bones' indices, bend axes and ranges. Anny turns a bone about
+        axes fixed in the room as the reference pose has it, not in the
+        bone's own frame, so the axes are the hand's own: a bone bends
+        about the line across it and the palm's normal, towards the palm
+        (the side the thumb lies, the side Anny's fingers curl to); a
+        knuckle spreads about the palm's normal."""
+        rest = self.rest(pheno)
+        top = self.model.vertex_bone_indices.gather(
+            1, self.model.vertex_bone_weights.argmax(1, keepdim=True)
+        )[:, 0]
+        return {
+            side: self._hand_side(s, rest, top, rest_bone_poses)
+            for side, s in (("left", "L"), ("right", "R"))
+        }
+
+    def _hand_side(self, s, rest, top, rest_bone_poses) -> dict:
+        import roma
+
+        torch = self.torch
+        heads = rest["rest_bone_heads"][0]
+        rv = rest["rest_vertices"][0]
+        eye = torch.eye(4, device=self.dev)[None, None].repeat(1, self.J, 1, 1)
+        j = lambda b: self.labels.index(f"{b}.{s}")  # noqa: E731
+        pts, riders = [], []
+        for name in HAND_POINTS:
+            if name.startswith("tip"):
+                # The fingertip: the vertex the finger's last bone moves
+                # most that is furthest along it.
+                last, mid = j(f"finger{name[3]}-3"), j(f"finger{name[3]}-2")
+                d = heads[last] - heads[mid]
+                on = torch.nonzero(top == last)[:, 0]
+                pts.append(rv[on[torch.argmax((rv[on] - heads[last]) @ d)]])
+                riders.append(last)
+            else:
+                pts.append(heads[j(name)])
+                riders.append(j(name))
+        p = torch.stack(pts)
+        rest_h = torch.cat([p, torch.ones_like(p[:, :1])], 1)
+        riders = torch.tensor(riders, device=self.dev)
+        n = torch.linalg.cross(p[5] - p[0], p[17] - p[0])
+        n = n / torch.linalg.norm(n)
+        palm = n * torch.sign(torch.dot(p[4] - p[0], n))
+
+        def moved(bone, axis, child):
+            pose = eye.clone()
+            pose[0, bone, :3, :3] = roma.rotvec_to_rotmat(axis * np.deg2rad(20))
+            bt = self.bone_transforms(pose, rest_bone_poses)
+            return (bt[0, riders[child]] @ rest_h[child])[:3] - p[child]
+
+        flex_axes = []
+        for name in HAND_HINGES:
+            i = HAND_POINTS.index(name)
+            axis = torch.linalg.cross(p[i + 1] - p[i], palm)
+            axis = axis / torch.linalg.norm(axis)
+            # Which way round: the turn that takes the next point palm-wards.
+            flex_axes.append(axis if float(moved(j(name), axis, i + 1) @ palm) > 0 else -axis)
+        spread_axes = [palm] * len(HAND_SPREAD)
+        return {
+            "rest": rest_h,
+            "riders": riders,
+            "free": torch.tensor([j(b) for b in HAND_FREE], device=self.dev),
+            "hinge": torch.tensor([j(b) for b in HAND_HINGES], device=self.dev),
+            "spread": torch.tensor([j(b) for b in HAND_SPREAD], device=self.dev),
+            "spread_in_hinge": torch.tensor(
+                [list(HAND_HINGES).index(b) for b in HAND_SPREAD], device=self.dev
+            ),
+            "flex_axes": torch.stack(flex_axes),
+            "spread_axes": torch.stack(spread_axes),
+            "lo": torch.tensor(
+                [np.deg2rad(v[0]) for v in HAND_HINGES.values()], device=self.dev
+            ).float(),
+            "hi": torch.tensor(
+                [np.deg2rad(v[1]) for v in HAND_HINGES.values()], device=self.dev
+            ).float(),
+        }
+
+    def hand_pose(self, pose, hand, basis):
+        """``pose`` (B x J x 4 x 4) with one hand's bones set: ``hand``
+        {"rv" (B x 2 x 3: wrist, thumb base), "flex" (B x hinges), "spread"
+        (B x 4), radians}."""
+        import roma
+
+        pose = pose.clone()
+        pose[:, basis["free"], :3, :3] = roma.rotvec_to_rotmat(hand["rv"])
+        flex = roma.rotvec_to_rotmat(hand["flex"][..., None] * basis["flex_axes"][None])
+        spread = roma.rotvec_to_rotmat(hand["spread"][..., None] * basis["spread_axes"][None])
+        flex = flex.clone()
+        k = basis["spread_in_hinge"]
+        flex[:, k] = spread @ flex[:, k]
+        pose[:, basis["hinge"], :3, :3] = flex
+        return pose
+
+    def hand_points(self, pose, rest_bone_poses, basis):
+        """The hand's 21 points for poses ``pose`` (B x 21 x 3, without the
+        body's position, which they are taken from the knuckles of)."""
+        bt = self.bone_transforms(pose, rest_bone_poses)
+        return self.torch.einsum("bkxy,ky->bkx", bt[:, basis["riders"]], basis["rest"])[..., :3]
+
+    def _hand_angles(self, raw, basis):
+        torch = self.torch
+        return {
+            "rv": raw["rv"],
+            "flex": basis["lo"] + torch.sigmoid(raw["flex"]) * (basis["hi"] - basis["lo"]),
+            "spread": np.deg2rad(MAX_SPREAD_DEG) * torch.tanh(raw["spread"]),
+        }
+
+    def fit_hands(self, fit: dict, hands: dict, time_ms: np.ndarray, log=print) -> dict:
+        """The fingers, for the sides with 3D hands (``hands``: {side:
+        {"time_ms", "points" (T x 21 x 3, the fit's frame, metres, NaN where
+        not found)}}), the body as ``fit`` has it at the ticks ``time_ms``.
+        Returns {"basis", side: {"on" (N, the ticks with angles), "rv",
+        "flex", "spread" (N x ...), "frames", "error_m" (frames x 20: all but the wrist, NaN
+        where not found)}}."""
+        torch = self.torch
+        pheno = torch.sigmoid(fit["pheno"])
+        _Q, rbp = self.keypoint_basis(pheno)
+        basis = self.hand_basis(pheno, rbp)
+        out = {"basis": basis}
+        n = len(time_ms)
+        for side, h in hands.items():
+            k = nearest_ticks(time_ms, h["time_ms"], SAME_MOMENT_MS)
+            # Frames at a tick, with the four knuckles the points are taken
+            # from; one per tick.
+            knuckles = list(KNUCKLES)
+            keep = np.flatnonzero((k >= 0) & np.isfinite(h["points"][:, knuckles]).all((1, 2)))
+            keep = keep[np.unique(k[keep], return_index=True)[1]]
+            if len(keep) == 0:
+                continue
+            ticks = k[keep]
+            target = torch.tensor(
+                np.nan_to_num(h["points"][keep]), dtype=torch.float32, device=self.dev
+            )
+            valid = torch.tensor(
+                np.isfinite(h["points"][keep]).all(-1), dtype=torch.float32, device=self.dev
+            )
+            rel = target - target[:, knuckles].mean(1, keepdim=True)
+            valid = valid[:, 1:] * valid[:, knuckles].prod(1, keepdim=True)
+            b = basis[side]
+            with torch.no_grad():
+                p = fit["params"]
+                body = self.pose_matrices(
+                    p["rot"][ticks], self._bend(p["bend"][ticks], fit["hinges"]),
+                    fit["hinges"]["axes"],
+                )  # fmt: skip
+            gaps = np.diff(time_ms[ticks])
+            smooth_np = (gaps[:-1] <= HAND_SMOOTH_GAP_MS) & (gaps[1:] <= HAND_SMOOTH_GAP_MS)
+            smooth_all = torch.tensor(smooth_np, dtype=torch.float32, device=self.dev)
+            frac = (-b["lo"] / (b["hi"] - b["lo"])).clamp(1e-3, 1 - 1e-3)
+            angles = {}
+            for c0, c1, k0, k1 in chunks(len(ticks), CHUNK, OVERLAP):
+                m = c1 - c0
+                raw = {
+                    "rv": torch.zeros(m, 2, 3, device=self.dev),
+                    "flex": torch.log(frac / (1 - frac))[None].repeat(m, 1),  # the reference pose
+                    "spread": torch.zeros(m, len(HAND_SPREAD), device=self.dev),
+                }
+                raw = {key: v.requires_grad_(True) for key, v in raw.items()}
+                opt = torch.optim.Adam(list(raw.values()), lr=0.03)
+                sm = smooth_all[c0 : max(c0, c1 - 2)]
+                for _ in range(HAND_ITERS):
+                    a = self._hand_angles(raw, b)
+                    pts = self.hand_points(self.hand_pose(body[c0:c1], a, b), rbp, b)
+                    e = (pts[:, 1:] - pts[:, knuckles].mean(1, keepdim=True)) - rel[c0:c1, 1:]
+                    r2 = (e**2).sum(-1)
+                    r = torch.sqrt(r2 + 1e-12)
+                    hub = torch.where(
+                        r < HAND_HUBER_M, 0.5 * r2, HAND_HUBER_M * (r - 0.5 * HAND_HUBER_M)
+                    )
+                    v = valid[c0:c1]
+                    loss = (hub * v).sum() / v.sum().clamp(min=1)
+                    loss = loss + HAND_PRIOR * sum((z**2).mean() for z in a.values())
+                    if sm.any():
+                        for z in a.values():
+                            d2 = ((z[2:] - 2 * z[1:-1] + z[:-2]) ** 2).flatten(1).mean(1)
+                            loss = loss + HAND_SMOOTH * (d2 * sm).sum() / sm.sum()
+                    opt.zero_grad()
+                    loss.backward()
+                    opt.step()
+                with torch.no_grad():
+                    a = self._hand_angles(raw, b)
+                    for key, z in a.items():
+                        angles.setdefault(key, []).append(z[k0 - c0 : k1 - c0])
+            with torch.no_grad():
+                a = {key: torch.cat(v) for key, v in angles.items()}
+                errs = []
+                for s0 in range(0, len(ticks), 1000):  # in slices, as export
+                    sl = slice(s0, s0 + 1000)
+                    part = {key: z[sl] for key, z in a.items()}
+                    pts = self.hand_points(self.hand_pose(body[sl], part, b), rbp, b)
+                    mid = pts[:, knuckles].mean(1, keepdim=True)
+                    errs.append(torch.linalg.norm((pts[:, 1:] - mid) - rel[sl, 1:], dim=-1))
+                err = torch.cat(errs)
+            err = np.where(valid.cpu().numpy() > 0, err.cpu().numpy(), np.nan)
+            out[side] = {
+                **carry_angles({key: z.cpu().numpy() for key, z in a.items()}, ticks, time_ms, n),
+                "frames": len(ticks),
+                "error_m": err,
+            }
+            log(f"  {side} hand: {len(ticks)} frame(s)")
+        return out
+
     # ── What the app draws ─────────────────────────────────────────────────
 
     def export(self, fit: dict) -> dict:
@@ -357,14 +643,24 @@ class AnnyFitter:
             _Q, rbp = self.keypoint_basis(torch.sigmoid(fit["pheno"]))
             p = fit["params"]
             bend = self._bend(p["bend"], fit["hinges"])
+            hands = fit.get("hands") or {}
             bones = []
             for s in range(0, p["rot"].shape[0], 1000):
-                bt = self.bone_transforms(
-                    self.pose_matrices(
-                        p["rot"][s : s + 1000], bend[s : s + 1000], fit["hinges"]["axes"]
-                    ),
-                    rbp,
+                pose = self.pose_matrices(
+                    p["rot"][s : s + 1000], bend[s : s + 1000], fit["hinges"]["axes"]
                 )
+                for side in ("left", "right"):
+                    if side not in hands:
+                        continue
+                    h = hands[side]
+                    a = {
+                        key: torch.tensor(h[key][s : s + 1000], device=self.dev)
+                        for key in ("rv", "flex", "spread")
+                    }
+                    on = torch.tensor(h["on"][s : s + 1000], device=self.dev)
+                    posed = self.hand_pose(pose, a, hands["basis"][side])
+                    pose = torch.where(on[:, None, None, None], posed, pose)
+                bt = self.bone_transforms(pose, rbp)
                 q = roma.rotmat_to_unitquat(bt[..., :3, :3])  # x, y, z, w
                 t = bt[..., :3, 3] + p["trans"][s : s + 1000, None]
                 bones.append(torch.cat([q, t], -1).cpu())

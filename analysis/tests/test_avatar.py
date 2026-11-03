@@ -1,6 +1,7 @@
 """3D Avatar (avatar/, run_avatar.py): reading the 3D Pose people, the plain
-geometry, the file format, and (with Anny installed) a fit of a body Anny
-posed itself, and the exported file skinned back."""
+geometry, the file format, the 3D hands given to people, and (with Anny
+installed) a fit of a body and of hands Anny posed itself, and the exported
+file skinned back."""
 
 import json
 import sys
@@ -13,6 +14,15 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import run_avatar
 from avatar import io
+from avatar.fit import (
+    HAND_GAP_MS,
+    HAND_HINGES,
+    HAND_HOLD_MS,
+    HAND_POINTS,
+    HAND_SPREAD,
+    carry_angles,
+)
+from avatar.hands import assign, load_hands, nearest_ticks
 from avatar.people import (
     chunks,
     load_people,
@@ -109,6 +119,86 @@ def test_valid_bits():
     assert bits[0] == (1 << 17) - 1 - (1 << 3) and bits[1] == (1 << 16) - 1
 
 
+def _hands_file(path, hands_per_frame):
+    """A hands3d.frames.json: per frame (40 ms apart from 5 s) its hands,
+    each (hand, side, wrist in mm): the wrist at the wrist, the other points
+    a hand's length in front."""
+    frames = []
+    for i, hands in enumerate(hands_per_frame):
+        frames.append(
+            {
+                "timestamp_ms": 5000.0 + 40.0 * i,
+                "hands": [
+                    {
+                        "hand": n,
+                        "side": side,
+                        "points_mm": [list(w)] + [[w[0], w[1], w[2] - 100.0]] * 19 + [None],
+                    }
+                    for n, side, w in hands
+                ],
+            }
+        )
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"frames": frames}))
+
+
+def test_hands_go_to_the_person_whose_wrist_is_theirs(tmp_path):
+    # Person 1's left wrist at x = 0, person 2's at x = 2 m (index 9: left
+    # wrist; 10: right wrist, 0.4 m to the side).
+    def person(x):
+        kp = np.full((4, 17, 3), np.nan)
+        kp[:, 9] = [x, -1.0, 3.0]
+        kp[:, 10] = [x + 0.4, -1.0, 3.0]
+        return {"ticks": np.arange(4), "time_ms": 5000.0 + 40.0 * np.arange(4), "keypoints": kp}
+
+    people = {1: person(0.0), 2: person(2.0)}
+    path = tmp_path / "hands" / "hands3d.frames.json"
+    near1, near2 = (30.0, -1000.0, 3000.0), (2010.0, -1000.0, 3000.0)
+    _hands_file(
+        path,
+        [
+            # Hand 7, a left hand at person 1's left wrist; hand 8 at person
+            # 2's, but a "right" hand there is nobody's (their right wrist is
+            # 0.4 m away); hand 9, a second left hand near person 1, in the
+            # same frame as hand 7 but further from the wrist.
+            [(7, "left", near1), (8, "right", near2), (9, "left", (60.0, -1000.0, 3000.0))],
+            [(7, "left", near1)],
+            [(7, "left", near1), (5, "left", near2)],
+            [(7, "left", (400.0, -1000.0, 3000.0))],  # hand 7, away from the wrist
+        ],
+    )
+    hands = load_hands(path)
+    assert sorted(hands) == [5, 7, 8, 9] and hands[7]["points"].shape == (4, 21, 3)
+    assert hands[7]["points"][0, 0].tolist() == [0.03, -1.0, 3.0]  # metres
+    assert np.isnan(hands[7]["points"][0, 20]).all()
+    got = assign(hands, people)
+    assert sorted(got) == [1, 2] and sorted(got[1]) == ["left"] and sorted(got[2]) == ["left"]
+    one = got[1]["left"]
+    assert one["time_ms"].tolist() == [5000.0, 5040.0, 5080.0]  # not its far frame
+    assert one["points"][0, 0].tolist() == [0.03, -1.0, 3.0]  # hand 7, the nearer, kept
+    assert load_hands(tmp_path / "none.json") == {}
+    assert nearest_ticks(np.array([0.0, 40.0]), np.array([15.0, 25.0, 90.0]), 20.0).tolist() == [
+        0,
+        1,
+        -1,
+    ]
+
+
+def test_carry_angles_between_hand_frames():
+    time_ms = np.arange(30) * 40.0
+    ticks = np.array([5, 10, 25])  # 200 ms apart, then 600 ms (over HAND_GAP_MS)
+    assert time_ms[25] - time_ms[10] > HAND_GAP_MS
+    angles = {"flex": np.array([[0.0], [1.0], [3.0]])}
+    out = carry_angles(angles, ticks, time_ms, 30)
+    assert out["flex"][5, 0] == 0.0 and out["flex"][10, 0] == 1.0
+    assert out["flex"][7, 0] == pytest.approx(0.4)  # between the first two
+    assert out["on"][5:11].all()
+    hold = int(HAND_HOLD_MS // 40)  # a tick or so either side of a lone frame
+    assert out["on"][25 - hold : 26 + hold].all() and out["flex"][24, 0] == 3.0
+    assert not out["on"][15] and out["flex"][15, 0] == 0.0  # in the long gap: none
+    assert not out["on"][0] and not out["on"][29]
+
+
 def _arrays(n=4, v=5, j=3, k=2):
     rng = np.random.default_rng(0)
     return {
@@ -150,6 +240,14 @@ class _FakeFitter:
             "hip_offset_m": np.zeros((2, 3)),
             "error_m": np.where(np.isfinite(keypoints_zup).all(-1), 0.02, np.nan),
             "n": n,
+        }
+
+    def fit_hands(self, fit, hands, time_ms, log=print):
+        self.hands_seen = hands
+        n = len(time_ms)
+        return {
+            side: {"frames": 2, "on": np.ones(n, bool), "error_m": np.full((2, 20), 0.004)}
+            for side in hands
         }
 
     def export(self, fit):
@@ -222,6 +320,36 @@ def test_runner_leaves_out_people_with_too_few_joints(tmp_path, capsys):
 
 def test_runner_needs_3d_pose(tmp_path):
     assert run_avatar.main(["--session", str(tmp_path)], fitter=_FakeFitter()) == 1
+
+
+def test_runner_fits_the_fingers_of_the_person_with_3d_hands(tmp_path, capsys):
+    s = tmp_path / "sess"
+    s.mkdir()
+    full = [[0.0, -1500.0, 3000.0]] * 7 + [[0.0, -1000.0, 3000.0]] * 8 + [[0.0, 0.0, 3000.0]] * 2
+    far = [[x + 2000.0, y, z] for x, y, z in full]
+    frames = [
+        {
+            "tick": t,
+            "timestamp_ns": int(5e9 + 4e7 * t),
+            "people": [_person(1, full), _person(2, far)],
+        }
+        for t in range(5)
+    ]
+    (s / "skeleton3d.json").write_text(json.dumps(_skeleton(frames)))
+    # A left hand at person 1's left wrist (3D Pose's index 9).
+    _hands_file(s / "hands" / "hands3d.frames.json", [[(1, "left", (0.0, -990.0, 3000.0))]] * 3)
+    f = _FakeFitter()
+    assert run_avatar.main(["--session", str(s)], fitter=f) == 0
+    res = json.loads((s / "avatar" / "avatar.json").read_text())
+    one, two = res["people"]
+    assert one["hands"] == {
+        "left": {"frames": 2, "seconds": 0.2, "median_error_mm": 4.0, "p90_error_mm": 4.0}
+    }
+    assert "hands" not in two
+    # In the fit's frame: z up, from the room's -y; metres.
+    (side,) = f.hands_seen
+    assert side == "left" and f.hands_seen["left"]["points"][0, 0, 2] == pytest.approx(0.99)
+    assert "person 1: 3D hands, left" in capsys.readouterr().out
 
 
 @pytest.fixture(scope="module")
@@ -327,3 +455,141 @@ def test_anny_hinges_straighten_and_bend_the_right_way(fitter):
                 pose = f.pose_matrices(torch.zeros(1, len(f.free), 3, device=f.dev), b, h["axes"])
                 kp = f._kp_at(pose, Q, rbp)[0]
             assert float(kp[far, 1] - ref[far, 1]) > 0, bone  # backwards (Anny faces -y)
+
+
+def _straight_body(f, n):
+    import torch
+
+    pheno = torch.zeros(6, device=f.dev)
+    with torch.no_grad():
+        Q, rbp = f.keypoint_basis(torch.sigmoid(pheno))
+        hinges = f.hinges(Q, rbp)
+    params = {
+        "rot": torch.zeros(n, len(f.free), 3, device=f.dev),
+        "bend": torch.full((n, len(f.hinge)), -1.0, device=f.dev),
+        "trans": torch.zeros(n, 3, device=f.dev),
+    }
+    with torch.no_grad():
+        body = f.pose_matrices(params["rot"], f._bend(params["bend"], hinges), hinges["axes"])
+    return {"pheno": pheno, "params": params, "hinges": hinges}, body, rbp
+
+
+def test_anny_fingers_bend_towards_the_palm(fitter):
+    """Bending every finger joint brings each fingertip towards the wrist,
+    on both hands; straightening the knuckles past the reference does not."""
+    import torch
+
+    f = fitter
+    fit, body, rbp = _straight_body(f, 1)
+    with torch.no_grad():
+        basis = f.hand_basis(torch.sigmoid(fit["pheno"]), rbp)
+    for side in ("left", "right"):
+        b = basis[side]
+        ref = f.hand_points(body, rbp, b)[0]
+
+        def tips_to_wrist(flex, b=b):
+            a = {
+                "rv": torch.zeros(1, 2, 3, device=f.dev),
+                "flex": torch.full((1, len(HAND_HINGES)), flex, device=f.dev),
+                "spread": torch.zeros(1, 4, device=f.dev),
+            }
+            with torch.no_grad():
+                p = f.hand_points(f.hand_pose(body, a, b), rbp, b)[0]
+            return torch.linalg.norm(p[[8, 12, 16, 20]] - p[0], dim=-1)
+
+        reach = torch.linalg.norm(ref[[8, 12, 16, 20]] - ref[0], dim=-1)
+        assert (tips_to_wrist(0.8) < reach - 0.03).all(), side  # a fist: 3 cm nearer at least
+        assert (tips_to_wrist(-0.05) >= reach - 0.002).all(), side
+
+
+def test_anny_finger_joints_bend_in_the_hands_own_planes(fitter):
+    """Each joint's bend takes the next point towards the palm, in the plane
+    of the bone and the palm's normal (hardly along the line across them);
+    a knuckle's spread takes it along that line, across the hand. (Anny
+    turns bones about axes fixed in the room, so its bones' frame axes are
+    not the hand's.)"""
+    import roma
+    import torch
+
+    f = fitter
+    fit, body, rbp = _straight_body(f, 1)
+    with torch.no_grad():
+        basis = f.hand_basis(torch.sigmoid(fit["pheno"]), rbp)
+    for side in ("left", "right"):
+        b = basis[side]
+        with torch.no_grad():
+            ref = f.hand_points(body, rbp, b)[0]
+        n = torch.linalg.cross(ref[5] - ref[0], ref[17] - ref[0])
+        palm = n / torch.linalg.norm(n) * torch.sign(torch.dot(ref[4] - ref[0], n))
+        for i, name in enumerate(HAND_HINGES):
+            head = HAND_POINTS.index(name)
+            child = head + 1
+            across = torch.linalg.cross(ref[child] - ref[head], palm)
+            across = across / torch.linalg.norm(across)
+            for axis, spread in [(b["flex_axes"][i], False)] + (
+                [(b["spread_axes"][HAND_SPREAD.index(name)], True)] if name in HAND_SPREAD else []
+            ):
+                pose = body.clone()
+                bone = b["hinge"][i]
+                pose[0, bone, :3, :3] = roma.rotvec_to_rotmat(0.5 * axis) @ pose[0, bone, :3, :3]
+                with torch.no_grad():
+                    m = f.hand_points(pose, rbp, b)[0, child] - ref[child]
+                towards, sideways = float(m @ palm), abs(float(m @ across))
+                if spread:
+                    assert sideways > 0.003 and abs(towards) < 0.3 * sideways, (side, name)
+                else:
+                    assert towards > 0.003 and sideways < 0.1 * float(torch.linalg.norm(m)), (
+                        side,
+                        name,
+                    )
+
+
+def test_anny_fingers_recover_a_hand_anny_posed(fitter):
+    """A hand Anny posed itself (closing and opening, the wrist turning),
+    seen every 200 ms with 3 mm of noise, is fitted back: its points within
+    the noise, and fingers at the ticks between hand frames."""
+    import torch
+
+    f = fitter
+    n = 40
+    fit, body, rbp = _straight_body(f, n)
+    with torch.no_grad():
+        b = f.hand_basis(torch.sigmoid(fit["pheno"]), rbp)["left"]
+    t = torch.linspace(0, 1, n, device=f.dev)
+    nh = len(HAND_HINGES)
+    truth = {
+        "rv": torch.zeros(n, 2, 3, device=f.dev),
+        "flex": (0.6 + 0.5 * torch.sin(4 * t))[:, None]
+        * torch.linspace(0.5, 1.0, nh, device=f.dev)[None],
+        "spread": 0.1 * torch.cos(3 * t)[:, None].repeat(1, 4),
+    }
+    truth["rv"][:, 0, 0] = 0.3 * torch.sin(5 * t)
+    with torch.no_grad():
+        pts = f.hand_points(f.hand_pose(body, truth, b), rbp, b).cpu().numpy()
+    time_ms = np.arange(n) * 40.0
+    seen = np.arange(0, n, 5)
+    noisy = pts[seen] + 0.003 * np.random.default_rng(0).standard_normal((len(seen), 21, 3))
+    noisy[2, 7] = np.nan  # a point not found
+    noisy[3, 9] = np.nan  # a knuckle not found: the frame is left out
+    res = f.fit_hands(fit, {"left": {"time_ms": time_ms[seen], "points": noisy}}, time_ms)
+    assert set(res) == {"basis", "left"}
+    h = res["left"]
+    assert h["frames"] == len(seen) - 1 and np.isnan(h["error_m"][2, 6])
+    assert np.nanmedian(h["error_m"]) < 0.008
+    assert h["on"][: seen[-1] + 1].all()
+    # The exported file has the fingers: the hand's bones turned, the
+    # fingertips where the fit put them.
+    fit["hands"] = res
+    a = f.export(fit)
+    tip = b["riders"][8].item()
+    assert not np.allclose(a["bones"][10, tip, :4], [0, 0, 0, 1], atol=1e-3)
+    with torch.no_grad():
+        k = 10
+        mine = {
+            key: torch.tensor(h[key][k : k + 1], device=f.dev) for key in ("rv", "flex", "spread")
+        }
+        p = f.hand_points(f.hand_pose(body[k : k + 1], mine, b), rbp, b)[0].cpu().numpy()
+    err = np.linalg.norm(
+        (p - p[0])[[4, 8, 12, 16, 20]] - (pts[k] - pts[k, 0])[[4, 8, 12, 16, 20]], axis=1
+    )
+    assert err.max() < 0.012  # each fingertip within about a centimetre of the truth

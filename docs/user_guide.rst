@@ -623,9 +623,11 @@ Reconstruction, and Frame Sync was Frame Sync Repair.
       result, for the 3D views: Anny, a body model for all ages (children
       get a child's proportions), its shape fitted once per person (age,
       height, build) and its pose at every tick, knees and elbows bending
-      only the right way. Writes ``avatar/avatar.json`` and a file per
-      person (``avatar/person_N.bin``). An avatar shows a person's posture
-      and movement, not their face. See :doc:`math/avatar`.
+      only the right way. With 3D hands (**Hands** on two or more
+      calibrated cameras, run first), its fingers too. Writes
+      ``avatar/avatar.json`` and a file per person
+      (``avatar/person_N.bin``). An avatar shows a person's posture and
+      movement, not their face. See :doc:`math/avatar`.
 
       **Before the first run**: run 3D Pose. The first run also builds
       Anny's cache (a few minutes, once). About two to three minutes per

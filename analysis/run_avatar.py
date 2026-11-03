@@ -4,11 +4,14 @@ to each person of the session's 3D Pose result, for the 3D views.
 
     python analysis/run_avatar.py --session DIR [--person N ...] [--cpu]
 
-Needs 3D Pose (``skeleton3d.json``). Writes, in ``<session>/avatar/``:
+Needs 3D Pose (``skeleton3d.json``). With 3D hands (``hands/hands3d.frames.json``,
+from Hands on two or more calibrated cameras), the fingers too. Writes, in
+``<session>/avatar/``:
 
 * ``avatar.json``: per person its body shape (Anny's phenotype: gender, age,
   muscle, weight, height, proportions), how well the body fits the 3D Pose
   joints (median and 90th percentile distance, over all and per joint, mm),
+  per hand with 3D hands how many frames and how well its fingers fit them,
   and where its file is and what is in it; the people that could not be
   fitted; the bones' names, in the files' order; and ``to_room``, from the
   fit's frame to the room's;
@@ -31,6 +34,7 @@ from pathlib import Path
 
 import numpy as np
 from avatar import io
+from avatar.hands import assign, load_hands
 from avatar.people import load_people, up_frame, usable, valid_bits
 
 TAG = "[run_avatar]"
@@ -72,6 +76,25 @@ def quality(fit: dict) -> dict:
     }
 
 
+def hand_quality(hands: dict, rate_hz: float) -> dict:
+    """Per hand fitted: its 3D hand frames, the seconds of ticks it has
+    fingers for, and how far its fitted points are from 3D Hands' (taken
+    from the knuckles' middle, mm: the median and the 90th percentile)."""
+    out = {}
+    for side in ("left", "right"):
+        if side not in hands:
+            continue
+        h = hands[side]
+        e = h["error_m"][np.isfinite(h["error_m"])] * 1000.0
+        out[side] = {
+            "frames": int(h["frames"]),
+            "seconds": round(float(h["on"].sum()) / rate_hz, 1),
+            "median_error_mm": round(float(np.median(e)), 1) if len(e) else None,
+            "p90_error_mm": round(float(np.percentile(e, 90)), 1) if len(e) else None,
+        }
+    return out
+
+
 def main(argv=None, fitter=None) -> int:
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -95,6 +118,10 @@ def main(argv=None, fitter=None) -> int:
     if not people:
         print(f"{TAG} Nobody to fit in {src.name}.", file=sys.stderr)
         return 1
+    hands = assign(load_hands(session / "hands" / "hands3d.frames.json"), found)
+    for pid, sides in sorted(hands.items()):
+        if pid in people:
+            log(f"person {pid}: 3D hands, " + ", ".join(sorted(sides)))
     if fitter is None:
         from avatar.fit import AnnyFitter
 
@@ -123,6 +150,19 @@ def main(argv=None, fitter=None) -> int:
         try:
             kp_zup = np.einsum("ij,nkj->nki", M, person["keypoints"])
             fit = fitter.fit(kp_zup, person["ticks"], log=lambda m: print(m, flush=True))
+            if pid in hands:
+                fit["hands"] = fitter.fit_hands(
+                    fit,
+                    {
+                        side: {
+                            "time_ms": h["time_ms"],
+                            "points": np.einsum("ij,nkj->nki", M, h["points"]),
+                        }
+                        for side, h in hands[pid].items()
+                    },
+                    person["time_ms"],
+                    log=lambda m: print(m, flush=True),
+                )
             arrays = fitter.export(fit)
             arrays["time_ms"] = person["time_ms"]
             arrays["valid"] = valid_bits(person["keypoints"])
@@ -134,6 +174,10 @@ def main(argv=None, fitter=None) -> int:
             failed.append(pid)
             continue
         q = quality(fit)
+        if fit.get("hands"):
+            dt = np.diff(person["time_ms"])
+            rate = 1000.0 / float(np.median(dt)) if len(dt) else 25.0
+            q["hands"] = hand_quality(fit["hands"], rate)
         entries.append(
             {
                 "person_id": pid,
@@ -149,6 +193,12 @@ def main(argv=None, fitter=None) -> int:
             f"person {pid}: distance to the 3D Pose joints median {q['median_error_mm']} mm, "
             f"90th percentile {q['p90_error_mm']} mm, {time.perf_counter() - t0:.0f} s -> {path}"
         )
+        for side, h in q.get("hands", {}).items():
+            log(
+                f"person {pid}: {side} fingers on {h['frames']} 3D hand frame(s), "
+                f"{h['seconds']} s; distance median {h['median_error_mm']} mm, "
+                f"90th percentile {h['p90_error_mm']} mm"
+            )
     result = {
         "schema": io.SCHEMA,
         "source": src.name,
