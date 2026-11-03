@@ -9,8 +9,8 @@ Implemented in ``analysis/run_avatar.py`` and the ``avatar`` package
 (``people.py``, ``fit.py``, ``io.py``); run from the Analysis tab's **3D
 Avatar** entry and listed in the session report. It puts a realistic body
 on each person of the 3D Pose result: its shape once (age, height, build)
-and its pose at every tick. Drawing the bodies in the 3D views comes in a
-later version; this one makes them.
+and its pose at every tick. The 3D Pose room view draws them (see
+`Drawing`_).
 
 The body model
 --------------
@@ -148,6 +148,31 @@ difference from tick to tick is 2 to 10 mm for the body's joints against
 elbows straighten as 3D Pose's do (10th percentile of the bend 14 and 22
 degrees against 21; median 63 to 64 against 65).
 
+Drawing
+-------
+
+The 3D Pose room view (``src/analysis/avatar_body.cpp``,
+``src/ui/analysis/room3d_scene.cpp``) reads each person's file when 3D Pose is
+opened for the session, and again only when a file has changed: about 45 MB
+per person per 10 minutes of recording, most of it the bone transforms. At each frame it takes the person's tick nearest
+in time (none further than 100 ms) and skins the rest mesh with its bone
+transforms, the same linear blend skinning as Anny's, on the CPU. The fit's
+frame, the room's and the view's are composed into one matrix per bone
+first. Normals are worked out per vertex from the posed triangles, weighted
+by their area. Neither frame change mirrors, so the triangles keep Anny's
+outward winding.
+
+The body is matt, like clay, in a soft tone of the person's colour: it
+shows posture and movement, not a look. Each vertex belongs to the region
+of the bone that moves it most; a lower leg (with the foot) or a forearm
+(with the hand) is drawn paler at a tick when 3D Pose did not measure both
+of its joints. Drawn as a body, a person's bones, joints, head and torso
+are left out, unless **Avatar + skeleton** is chosen.
+
+When ``skeleton3d.json`` is newer than ``avatar/avatar.json``, the bodies
+are not drawn: they were fitted to an earlier 3D Pose result, whose ticks
+and people may not match.
+
 Limits
 ------
 
@@ -160,7 +185,7 @@ Limits
   at all: the ankles' 90th percentile above is mostly those. The hinges and
   smoothness keep them plausible, not right, and the feet can cross (in 5%
   of sub-39's ticks, never in 3D Pose's). Each tick records which joints 3D
-  Pose measured, so the views can show the rest as estimated.
+  Pose measured, and the room view draws the rest paler.
 - **One shape per person.** A person 3D Pose splits into two people gets
   two bodies.
 - **Clothing.** The body is unclothed and without a face texture: an avatar

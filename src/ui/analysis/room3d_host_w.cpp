@@ -19,9 +19,7 @@ Room3DHostW::Room3DHostW(const QString& pageUrl, const QString& contextName, QOb
                          Room3DStage* stage, std::function<QString()> imageName, QWidget* parent)
     : QWidget(parent) {
     setMinimumSize(240, 180);
-    // The pages' own type, once per process.
-    static const int registered = qmlRegisterType<SceneMesh>("Mosaic.Room3D", 1, 0, "SceneMesh");
-    Q_UNUSED(registered);
+    register_room3d_types();
 
     auto* lay = new QVBoxLayout(this);
     lay->setContentsMargins(0, 0, 0, 0);

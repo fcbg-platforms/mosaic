@@ -6,6 +6,7 @@
 #include <QVector3D>
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <optional>
 #include <vector>
 
@@ -34,6 +35,18 @@ class Room3DMeshSource : public QObject {
         return it == meshes_.cend() ? kEmpty : it.value();
     }
 
+    // A lit surface (a 3D Avatar's body): x y z, nx ny nz, r g b a per
+    // vertex, and its triangles.
+    struct LitMesh {
+        std::vector<float> vertices;
+        std::vector<uint32_t> indices;
+    };
+    [[nodiscard]] const LitMesh& lit_mesh(const QString& part) const {
+        static const LitMesh kEmpty;
+        const auto it = litMeshes_.constFind(part);
+        return it == litMeshes_.cend() ? kEmpty : it.value();
+    }
+
    signals:
     // A part was rebuilt; an empty part is all of them.
     void meshChanged(const QString& part);
@@ -43,9 +56,14 @@ class Room3DMeshSource : public QObject {
         meshes_[part] = std::move(mesh);
         emit meshChanged(part);
     }
+    void set_lit_mesh(const QString& part, LitMesh mesh) {
+        litMeshes_[part] = std::move(mesh);
+        emit meshChanged(part);
+    }
 
    private:
     QMap<QString, Mesh> meshes_;
+    QMap<QString, LitMesh> litMeshes_;
 };
 
 // The room of a 3D page (qml/RoomStage.qml): which way is up, the floor

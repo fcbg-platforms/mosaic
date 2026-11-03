@@ -64,6 +64,9 @@ AvatarResult AvatarResult::load(const QString& path) {
         }
         r.people_ << p;
     }
+    for (const auto& v : root["bone_labels"].toArray()) {
+        r.boneLabels_ << v.toString();
+    }
     for (const auto& v : root["failed"].toArray()) {
         r.failed_ << v.toInt();
     }

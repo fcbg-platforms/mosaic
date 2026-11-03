@@ -14,8 +14,10 @@
 #include <QtQml>
 #include <memory>
 
+#include "analysis/avatar_body.hpp"
 #include "analysis/gaze_fusion_result.hpp"
 #include "analysis/skeleton3d_result.hpp"
+#include "avatar_fixture.hpp"
 #include "gaze3d_fixture.hpp"
 #include "ui/analysis/gaze3d_scene.hpp"
 #include "ui/analysis/room3d_mesh.hpp"
@@ -70,9 +72,7 @@ TEST(Room3DPage, LoadsAndRunsItsViewsWithoutAWarning) {
     const auto result = room_result(dir);
     ASSERT_TRUE(result.is_valid());
 
-    static const int registered =
-        qmlRegisterType<mosaic::SceneMesh>("Mosaic.Room3D", 1, 0, "SceneMesh");
-    Q_UNUSED(registered);
+    mosaic::register_room3d_types();
     mosaic::Room3DScene scene;
     QQmlEngine engine;
     engine.rootContext()->setContextProperty("room3d", &scene);
@@ -118,15 +118,84 @@ TEST(Room3DPage, LoadsAndRunsItsViewsWithoutAWarning) {
     EXPECT_TRUE(g_qmlMessages.isEmpty()) << g_qmlMessages.join("\n").toStdString();
 }
 
+TEST(Room3DPage, DrawsTheAvatarInPlaceOfTheSkeleton) {
+    QTemporaryDir dir;
+    const auto result = room_result(dir);
+    ASSERT_TRUE(result.is_valid());
+    write_tiny_avatar_session(dir.path());
+    const auto avatars = mosaic::load_session_avatars(dir.path());
+    ASSERT_EQ(avatars.bodies.size(), 1);
+
+    mosaic::register_room3d_types();
+    mosaic::Room3DScene scene;
+    QQmlEngine engine;
+    engine.rootContext()->setContextProperty("room3d", &scene);
+    g_qmlMessages.clear();
+    QQmlComponent component(&engine, QUrl("qrc:/qml/Room3D.qml"));
+    ASSERT_TRUE(component.isReady()) << component.errorString().toStdString();
+    std::unique_ptr<QObject> page(component.create());
+    ASSERT_TRUE(page);
+    page->setProperty("width", 900);
+    page->setProperty("height", 600);
+
+    scene.set_result(result);
+    scene.set_avatars(avatars.result, avatars.bodies);
+    EXPECT_EQ(scene.avatars().size(), 1);
+    // 1000 ms in: the body's first tick. Drawn lit (10 floats a vertex), and
+    // the person's torso left out.
+    scene.set_position_ms(1000);
+    QCoreApplication::processEvents();
+    EXPECT_EQ(scene.lit_mesh("avatar_0").vertices.size(), 30U);
+    EXPECT_EQ(scene.lit_mesh("avatar_0").indices.size(), 3U);
+    EXPECT_TRUE(scene.mesh("torsos").vertices.empty());
+    EXPECT_TRUE(scene.bones().isEmpty());
+    EXPECT_TRUE(scene.joints().isEmpty());
+    EXPECT_TRUE(scene.heads().isEmpty());
+    // 1040 ms: the left ankle not found, so the left lower leg (vertex 2)
+    // is drawn paler than the rest (vertex 0); at 1000 ms, the same.
+    const auto red = [&](int v) { return scene.lit_mesh("avatar_0").vertices[10 * v + 6]; };
+    EXPECT_FLOAT_EQ(red(2), red(0));
+    scene.set_position_ms(1040);
+    EXPECT_GT(red(2), red(0) + 0.1f);
+    scene.set_position_ms(1000);
+    // Far from the body's ticks: no body, the skeleton instead.
+    scene.set_position_ms(0);
+    EXPECT_TRUE(scene.lit_mesh("avatar_0").vertices.empty());
+    EXPECT_FALSE(scene.mesh("torsos").vertices.empty());
+    // Skeleton: no body; both: the body and the torso.
+    scene.set_position_ms(1000);
+    scene.set_body_mode("skeleton");
+    EXPECT_TRUE(scene.lit_mesh("avatar_0").vertices.empty());
+    EXPECT_FALSE(scene.mesh("torsos").vertices.empty());
+    scene.set_body_mode("both");
+    EXPECT_FALSE(scene.lit_mesh("avatar_0").vertices.empty());
+    EXPECT_FALSE(scene.mesh("torsos").vertices.empty());
+    EXPECT_FALSE(scene.bones().isEmpty());
+    scene.set_body_mode("nonsense");
+    EXPECT_EQ(scene.body_mode(), "both");
+    // A hidden person: no body either.
+    scene.set_body_mode("avatar");
+    scene.set_shown(1, false);
+    EXPECT_TRUE(scene.lit_mesh("avatar_0").vertices.empty());
+    scene.set_shown(1, true);
+    QCoreApplication::processEvents();
+    // Cleared, and a note in their place.
+    scene.set_avatars({}, {}, "The avatars are older");
+    QCoreApplication::processEvents();
+    EXPECT_TRUE(scene.avatars().isEmpty());
+    EXPECT_TRUE(scene.lit_mesh("avatar_0").vertices.empty());
+    EXPECT_TRUE(page->property("info").toString().contains("The avatars are older"));
+
+    EXPECT_TRUE(g_qmlMessages.isEmpty()) << g_qmlMessages.join("\n").toStdString();
+}
+
 TEST(Gaze3DPage, LoadsAndRunsItsViewsWithoutAWarning) {
     QTemporaryDir dir;
     ASSERT_TRUE(write_gaze3d_fixture(dir.filePath("g.json")));
     const auto result = mosaic::GazeFusionResult::load(dir.filePath("g.json"));
     ASSERT_TRUE(result.is_valid());
 
-    static const int registered =
-        qmlRegisterType<mosaic::SceneMesh>("Mosaic.Room3D", 1, 0, "SceneMesh");
-    Q_UNUSED(registered);
+    mosaic::register_room3d_types();
     mosaic::Gaze3DScene scene;
     QQmlEngine engine;
     engine.rootContext()->setContextProperty("gaze3d", &scene);

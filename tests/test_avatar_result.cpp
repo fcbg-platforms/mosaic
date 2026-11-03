@@ -25,7 +25,8 @@ const char* kFixtureJson = R"JSON(
    "per_joint_median_error_mm": {"nose": 19.7, "left_ankle": null},
    "per_joint_p90_error_mm": {"nose": 26.0}}
  ],
- "failed": [2]
+ "failed": [2],
+ "bone_labels": ["root", "lowerleg01.L"]
 }
 )JSON";
 
@@ -62,6 +63,7 @@ TEST(AvatarResult, ReadsEachPersonsBodyAndFit) {
     EXPECT_DOUBLE_EQ(p.p90ErrorMm, 57.8);
     EXPECT_DOUBLE_EQ(p.perJointP90ErrorMm.value("nose"), 26.0);
     EXPECT_EQ(r.failed(), QVector<int>{2});
+    EXPECT_EQ(r.bone_labels(), (QStringList{"root", "lowerleg01.L"}));
     EXPECT_DOUBLE_EQ(p.perJointErrorMm.value("nose"), 19.7);
     EXPECT_TRUE(std::isnan(p.perJointErrorMm.value("left_ankle"))); // not measured
 }

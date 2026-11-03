@@ -11,6 +11,8 @@
 #include <optional>
 #include <vector>
 
+#include "analysis/avatar_body.hpp"
+#include "analysis/avatar_result.hpp"
 #include "analysis/skeleton3d_result.hpp"
 #include "ui/analysis/room3d_stage.hpp"
 
@@ -42,6 +44,14 @@ class Room3DScene : public Room3DMeshSource {
     Q_PROPERTY(int follow READ follow WRITE set_follow NOTIFY peopleChanged)
     Q_PROPERTY(bool trails READ trails WRITE set_trails NOTIFY frameChanged)
     Q_PROPERTY(bool paths READ paths WRITE set_paths NOTIFY pathsChanged)
+    // The 3D Avatar bodies: [{part, person}] for the page's lit meshes
+    // (SceneLitMesh { part }), and how people are drawn: "avatar" (the body,
+    // the skeleton left out), "skeleton", or "both".
+    Q_PROPERTY(QVariantList avatars READ avatars NOTIFY avatarsChanged)
+    Q_PROPERTY(QString bodyMode READ body_mode WRITE set_body_mode NOTIFY bodyModeChanged)
+    // Why the avatars are not shown, when a 3D Avatar result exists but is
+    // older than the 3D Pose result; empty otherwise.
+    Q_PROPERTY(QString avatarNote READ avatar_note NOTIFY avatarsChanged)
 
    public:
     explicit Room3DScene(QObject* parent = nullptr);
@@ -57,6 +67,12 @@ class Room3DScene : public Room3DMeshSource {
     void set_follow(int person);
     void set_trails(bool on);
     void set_paths(bool on);
+    // The 3D Avatar result and each person's body (bodies[i] is
+    // result.people()[i]'s; an invalid body is left out); `note` instead,
+    // and no bodies, when they cannot be shown (older than 3D Pose).
+    void set_avatars(const AvatarResult& result, const QVector<AvatarBody>& bodies,
+                     const QString& note = {});
+    void set_body_mode(const QString& mode);
 
     // For another page's room (the 3D Gaze view's bodies): draw on its
     // stage, which that page sets up; this scene then leaves the room alone.
@@ -91,6 +107,9 @@ class Room3DScene : public Room3DMeshSource {
     [[nodiscard]] int follow() const { return follow_; }
     [[nodiscard]] bool trails() const { return trails_; }
     [[nodiscard]] bool paths() const { return paths_; }
+    [[nodiscard]] QVariantList avatars() const;
+    [[nodiscard]] QString body_mode() const { return bodyMode_; }
+    [[nodiscard]] QString avatar_note() const { return avatarNote_; }
     // The tick on show, -1 for none (Save image names the file after it).
     [[nodiscard]] int64_t tick() const { return tick_; }
 
@@ -109,11 +128,16 @@ class Room3DScene : public Room3DMeshSource {
     void frameChanged();
     void peopleChanged();
     void pathsChanged();
+    void avatarsChanged();
+    void bodyModeChanged();
 
    private:
     void rebuild_frame();
     void rebuild_static();
     void rebuild_paths();
+    // Poses each person's body for the frame on show (its time); returns the
+    // people drawn as a body.
+    QSet<int> rebuild_avatars(const Skeleton3DFrame* frame);
     // A keypoint and the hips' midpoint in the scene, as drawn (smoothed
     // when Show smoothed is on); none when not valid.
     [[nodiscard]] std::optional<QVector3D> point(const Skeleton3DPerson& p, int i) const;
@@ -140,6 +164,13 @@ class Room3DScene : public Room3DMeshSource {
     QMap<int, double> seconds_; // person -> seconds in 3D
     QVector<int> headIdx_;
     int lHip_ = -1, rHip_ = -1, lSh_ = -1, rSh_ = -1, nose_ = -1, lEar_ = -1, rEar_ = -1;
+    QVector<int> avatarIds_;           // person per body drawn
+    QVector<int> avatarIndex_;         // its place in avatarBodies_
+    QVector<AvatarBody> avatarBodies_; // shared with the caller's, not copied
+    std::array<double, 9> avatarToRoom_{};
+    QString bodyMode_ = "avatar";
+    QString avatarNote_;
+    std::vector<float> posScratch_, normalScratch_;
 
     QVariantList bones_, joints_, heads_, tags_;
     QVariantMap dyad_;
