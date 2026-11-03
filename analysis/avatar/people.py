@@ -18,7 +18,9 @@ def load_people(skeleton3d: dict) -> dict:
     out: dict = {}
     for f in skeleton3d.get("frames", []):
         for p in f.get("people", []):
-            pid = p.get("person_id", p.get("track_id"))
+            # As MOSAIC reads them: a result from before people were joined
+            # has only tracks, numbered from 0 there and from 1 here.
+            pid = p["person_id"] if "person_id" in p else p.get("track_id", 0) + 1
             e = out.setdefault(pid, {"ticks": [], "time_ms": [], "keypoints": []})
             if e["ticks"] and e["ticks"][-1] == f["tick"]:
                 continue

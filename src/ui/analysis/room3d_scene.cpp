@@ -366,16 +366,17 @@ void Room3DScene::rebuild_frame() {
     if (!frame) {
         set_mesh("trails", std::move(trails));
         set_mesh("torsos", std::move(torsos));
-        rebuild_avatars(nullptr);
+        avatarDrawn_ = rebuild_avatars(nullptr);
         emit frameChanged();
         return;
     }
     tick_ = frame->tick;
     // People drawn as a body: their skeleton is left out ("avatar").
-    const QSet<int> bodies = rebuild_avatars(frame);
-    const bool bodiesOnly  = bodyMode_ == "avatar";
-    const auto& names      = result_.keypoint_names();
-    const auto pos         = [this](const Skeleton3DPerson& p, int i) { return point(p, i); };
+    avatarDrawn_            = rebuild_avatars(frame);
+    const QSet<int>& bodies = avatarDrawn_;
+    const bool bodiesOnly   = bodyMode_ == "avatar";
+    const auto& names       = result_.keypoint_names();
+    const auto pos          = [this](const Skeleton3DPerson& p, int i) { return point(p, i); };
     const QVector3D yAxis(0, 1, 0);
 
     int shownCount = 0;

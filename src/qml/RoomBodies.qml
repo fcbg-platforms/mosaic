@@ -1,5 +1,6 @@
 // The 3D Pose people of a room page: limbs, joints, a head with the way it
-// faces, the torso, the trails and paths, the two-person line. `bodies` is a
+// faces, the torso, or each person's 3D Avatar body (lit and casting its
+// shadow), the trails and paths, the two-person line. `bodies` is a
 // Room3DScene; the 3D Pose room view (Room3D.qml) and the 3D Gaze view
 // (Gaze3D.qml, its bodies) both draw them with this.
 //
@@ -88,6 +89,23 @@ Node {
         geometry: SceneMesh { scene: root.bodies; part: "trails" }
         castsShadows: false
         materials: DefaultMaterial { vertexColorsEnabled: true; lighting: DefaultMaterial.NoLighting; opacity: 0.99 }
+    }
+    // The 3D Avatar bodies: matt, like clay, for a person's posture and
+    // movement, not their look.
+    Repeater3D {
+        model: root.bodies.avatars
+        delegate: Model {
+            required property var modelData
+            castsShadows: true
+            receivesShadows: true
+            geometry: SceneLitMesh { scene: root.bodies; part: modelData.part }
+            materials: PrincipledMaterial {
+                vertexColorsEnabled: true
+                roughness: 0.62
+                metalness: 0.0
+                specularAmount: 0.35
+            }
+        }
     }
     // The two people of Dyad Analysis, joined at the hips.
     Model {

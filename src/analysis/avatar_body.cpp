@@ -213,6 +213,14 @@ void AvatarBody::pose(int tick, const std::array<double, 12>& toScene,
     }
 }
 
+QString session_avatars_stamp(const QString& sessionPath) {
+    const auto stamp = [](const QString& path) {
+        return QFileInfo(path).lastModified().toString(Qt::ISODateWithMs);
+    };
+    return sessionPath + "|" + stamp(sessionPath + "/avatar/avatar.json") + "|" +
+           stamp(sessionPath + "/skeleton3d.json");
+}
+
 SessionAvatars load_session_avatars(const QString& sessionPath) {
     SessionAvatars out;
     const QFileInfo json(sessionPath + "/avatar/avatar.json");

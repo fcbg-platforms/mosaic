@@ -27,41 +27,12 @@ RoomStage {
     buttons: [
         RoomPill { text: "Trails"; on: room3d.trails; onClicked: room3d.trails = !room3d.trails },
         RoomPill { text: "Paths"; on: room3d.paths; onClicked: room3d.paths = !room3d.paths },
-        // With 3D Avatar bodies: the body, the skeleton, or both.
-        RoomPill {
-            visible: room3d.avatars.length > 0
-            readonly property var modes: ["avatar", "skeleton", "both"]
-            readonly property var names: ({ avatar: "Avatar", skeleton: "Skeleton", both: "Avatar + skeleton" })
-            text: "Body: " + names[room3d.bodyMode]
-            on: room3d.bodyMode !== "skeleton"
-            onClicked: room3d.bodyMode = modes[(modes.indexOf(room3d.bodyMode) + 1) % modes.length]
-        }
+        RoomBodyPill { bodies: room3d }
     ]
 
-    // ── People: limbs, joints, a head with the way it faces, the torso;
-    // and each 3D Avatar body, lit and casting its shadow on the floor ──
-    scene: [
-        RoomBodies { bodies: room3d },
-        Node {
-            Repeater3D {
-                model: room3d.avatars
-                delegate: Model {
-                    required property var modelData
-                    castsShadows: true
-                    receivesShadows: true
-                    geometry: SceneLitMesh { scene: room3d; part: modelData.part }
-                    // Matt, like clay: a person's posture and movement, not
-                    // their look.
-                    materials: PrincipledMaterial {
-                        vertexColorsEnabled: true
-                        roughness: 0.62
-                        metalness: 0.0
-                        specularAmount: 0.35
-                    }
-                }
-            }
-        }
-    ]
+    // ── People: limbs, joints, a head with the way it faces, the torso,
+    // or their 3D Avatar bodies ──
+    scene: [ RoomBodies { bodies: room3d } ]
 
     // ── Labels: each person's name, the two people's distance ──
     Repeater {

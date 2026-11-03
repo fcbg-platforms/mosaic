@@ -50,6 +50,10 @@ def test_load_people_groups_tracks_by_person_and_converts_to_metres():
     assert one["keypoints"].shape == (2, 17, 3)
     assert one["keypoints"][0, 0].tolist() == [1.0, 2.0, 3.0]
     assert np.isnan(one["keypoints"][0, 16]).all()
+    # A result from before people were joined: tracks only, numbered from 1
+    # as MOSAIC's 3D Pose reader numbers them, so the views find the body.
+    old = {"track_id": 0, "keypoints_room": pts}
+    assert sorted(load_people(_skeleton([{"tick": 0, "timestamp_ns": 0, "people": [old]}]))) == [1]
 
 
 def test_up_frame_points_z_from_the_feet_to_the_shoulders():
