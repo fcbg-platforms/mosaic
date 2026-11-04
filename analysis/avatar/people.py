@@ -7,6 +7,7 @@ import numpy as np
 
 #: COCO keypoints (3D Pose's order): the ones a body fit uses.
 NOSE, L_SHOULDER, R_SHOULDER, L_HIP, R_HIP, L_ANKLE, R_ANKLE = 0, 5, 6, 11, 12, 15, 16
+L_WRIST, R_WRIST = 9, 10
 
 
 def load_people(skeleton3d: dict) -> dict:

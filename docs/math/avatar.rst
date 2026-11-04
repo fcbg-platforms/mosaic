@@ -149,6 +149,73 @@ difference from tick to tick is 2 to 10 mm for the body's joints against
 elbows straighten as 3D Pose's do (10th percentile of the bend 14 and 22
 degrees against 21; median 63 to 64 against 65).
 
+The fingers
+-----------
+
+With 3D hands (Hands on two or more calibrated cameras, see
+:doc:`hands`), the avatar's hands are fitted too (``avatar/hands.py``,
+``fit.py``), after its body and with the body fixed.
+
+**Whose hand.** A 3D hand is followed over time but has no 3D Pose person.
+It goes to the person whose wrist on the same side is within 15 cm of its
+wrist in at least half of the frames both are seen in, the most such frames
+winning; its frames further than that from the person's wrist are left
+out (kept where the wrist was not found), and where two hands of one
+person and side are seen at once, the one nearer the person's wrist is
+kept. A hand frame and a 3D Pose tick within
+20 ms are the same moment (both come from the trigger ticks).
+
+**The points.** 3D Hands gives MediaPipe's 21 points: the wrist, and four
+along each finger. On Anny, each is a bone's head (the thumb's three bones,
+the knuckle and two joints of each finger), or for a fingertip, the vertex
+its last bone moves most that is furthest along it; each rides one bone, so,
+as for the body, the fit needs the skeleton only. The points are compared
+from the middle of the four knuckles, not from the wrist: MediaPipe's wrist
+is at the wrist crease, about 3 cm nearer the knuckles than Anny's wrist
+bone (the forearm's end; on sub-39, 82 to 94 mm against 118 to 123 mm),
+while the knuckles and the finger segments agree within a few millimetres.
+Taken from the knuckles, the cameras' disagreement (some 2 cm for room 11's
+close cameras, see :doc:`hands`) does not pull the arm either. The wrist
+point is left out.
+
+**What is fitted.** At each hand frame: the wrist's turn and the thumb's
+base (a rotation each), and a bend for each of the other finger joints,
+towards the palm only, within a range from Anny's reference pose (degrees:
+a knuckle -20 to 90, the next joint -5 to 105, the last -5 to 80; the
+thumb's two outer joints -10 to 60 and -15 to 80); each knuckle also spreads
+up to 20 degrees either way. Anny turns a bone about axes fixed in the room
+as its reference pose has it, not about the bone's own frame, so the axes
+are the hand's own: a joint bends about the line across its bone and the
+palm's normal, the way round that takes the next point towards the palm
+(the side the thumb lies on, which is also the side Anny's fingers curl to
+in its reference pose), and a knuckle spreads about the palm's normal. (A
+first version took the nearest of the room's axes: its bends went 20 to 45
+degrees sideways, and a hand bent about its own axes fitted back 6.7 mm off
+with no noise, against 0.8 mm now.) A frame is fitted when its four
+knuckles were found. The loss is robust (Huber, 1 cm), with a weak pull to the reference
+pose and smoothness between hand frames at most 400 ms apart; their weights
+(2e-5 and 5e-5) weigh squared radians against squared metres, so that 10
+degrees from the reference costs about a millimetre's distance. A first
+try with 1e-3 and 0.5 kept the fingers near the reference pose, 19 mm from
+a synthetic hand. Adam, 500 steps.
+
+**Between hand frames.** Hands is often run on every few frames (every
+200 ms on sub-39), the body at every tick: a tick between two hand frames
+at most 500 ms apart gets the angles in between, linearly; a tick within
+120 ms of a single frame gets its angles; any other tick has the reference
+pose's hand, as without 3D hands.
+
+**How well.** A hand Anny posed itself, closing and opening with the wrist
+turning, seen every 200 ms with 3 mm of noise per coordinate, is fitted
+back to a median of 5 mm from its points (the noise), each fingertip within
+about a centimetre of the truth. On sub-39 (a right hand fitted on 41
+frames, 8.5 s with fingers; a left hand on 12, 2.6 s) the fitted points are
+a median 9 mm and a 90th percentile 21 to 27 mm from 3D Hands'. That is
+within the 3D hands' own scatter: the same hand's segments vary by 10 to
+15 mm between frames (interquartile range), and its knuckles measure 72 mm
+across on one hand and 55 mm on the other. That session's run took 121 s
+with the fingers, against about 90 s for the body alone.
+
 Drawing
 -------
 
@@ -180,8 +247,13 @@ Limits
 - **What 3D Pose does not see.** Its 17 joints say nothing of the spine's
   twist, the hands' and feet's rotation, or the fingers: these stay near
   the reference pose or follow the priors, so the avatar can look calmer
-  than the person. The fingers can come from 3D hands, the head's turn from
-  3D Gaze (later versions).
+  than the person. The fingers come from 3D hands when there are any (see
+  `The fingers`_); without, they stay as in the reference pose.
+- **Fingers between hand frames.** Angles in between are a guess: a quick
+  grasp between two hand frames is not seen, and where 3D hands start or
+  stop the hand changes from the reference pose to its fitted one (or back)
+  from one tick to the next. Anny's hand is the size its
+  body shape gives it, not the person's measured hand.
 - **Hidden legs.** Legs behind or under a desk are measured little or not
   at all: the ankles' 90th percentile above is mostly those. The hinges and
   smoothness keep them plausible, not right, and the feet can cross (in 5%
@@ -202,7 +274,10 @@ In ``<session>/avatar/``:
   keypoint names, ``to_room`` (from the fit's frame, metres with z up, to
   the room's millimetres), per person its id, file, the counts in it, its
   shape, its hip offsets (mm), how long it was seen, and its median and
-  90th percentile distances to 3D Pose's joints, and ``failed``, the people
+  90th percentile distances to 3D Pose's joints; with 3D hands, ``hands``,
+  per side its 3D hand frames, the seconds of ticks with fingers, and the
+  median and 90th percentile distances of its fitted points to 3D Hands'
+  (mm, from the knuckles' middle); and ``failed``, the people
   that could not be fitted. ``--person`` fits some people again and keeps
   the others; a full run starts over;
 - ``person_N.bin``: in this order, little-endian: the body at rest (float32
